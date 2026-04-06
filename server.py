@@ -479,8 +479,16 @@ class _Handler(BaseHTTPRequestHandler):
         # ── END DEV ─────────────────────────────────────────────────────────
 
         if route == "/quick-action":
+            _qa_length = int(self.headers.get("Content-Length", 0))
+            _qa_raw = self.rfile.read(_qa_length) if _qa_length else b"{}"
+            try:
+                payload = json.loads(_qa_raw)
+            except json.JSONDecodeError as exc:
+                _json_response(self, 400, {"error": f"invalid JSON: {exc}"})
+                return
             action = str(payload.get("action", "")).strip()
-            video = str(payload.get("video", "")).strip()
+            # Accept both "video" and "video_path" keys
+            video = str(payload.get("video_path") or payload.get("video", "")).strip()
             if not action or not video:
                 _json_response(self, 400, {"error": "action and video are required"})
                 return
@@ -583,7 +591,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route == "/run-prompt":
             prompt = str(payload.get("prompt", "")).strip()
-            video = str(payload.get("video", "")).strip()
+            # Accept both "video" and "video_path" keys
+            video = str(payload.get("video_path") or payload.get("video", "")).strip()
             agent = str(payload.get("agent", "")).strip() or None
             if not prompt:
                 _json_response(self, 400, {"error": "prompt is required"})
