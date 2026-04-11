@@ -5,7 +5,7 @@ The bridge function ``apply_picture_op_to_video`` lets any gemia.picture
 function be applied to every frame of a video.
 """
 from gemia.video.frames import extract_frames, frames_to_video, apply_picture_op_to_video
-from gemia.video.timeline import cut, concat, speed, reverse
+from gemia.video.timeline import cut, concat, speed, reverse, slip_edit, slide_edit
 from gemia.video.compositing import overlay, add_audio_track
 from gemia.video.analysis import detect_scenes, get_metadata
 from gemia.video.generative import generate_video, generate_video_from_image, extend_video
@@ -17,7 +17,7 @@ from gemia.video.subtitles import (
 
 __all__ = [
     "extract_frames", "frames_to_video", "apply_picture_op_to_video",
-    "cut", "concat", "speed", "reverse",
+    "cut", "concat", "speed", "reverse", "slip_edit", "slide_edit",
     "overlay", "add_audio_track",
     "detect_scenes", "get_metadata",
     # generative (Veo 3.1)
