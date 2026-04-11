@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from gemia.primitives_common import Image, ensure_float32, to_uint8
+from gemia.video.timeline import _probe_duration, _run
 
 
 def _warp_frame(frame: np.ndarray, flow: np.ndarray, t: float) -> np.ndarray:
@@ -387,3 +388,131 @@ def _remux_with_audio(video_path: str, audio_source: str, output_path: str) -> N
             capture_output=True,
             check=True,
         )
+
+
+def _has_audio_stream(input_path: str) -> bool:
+    """Return whether the input has at least one audio stream."""
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=index",
+            "-of", "csv=p=0",
+            input_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed: {input_path}\nSTDERR:\n{probe.stderr}"
+        )
+    return bool(probe.stdout.strip())
+
+
+def _build_atempo_chain(speed: float) -> str:
+    """Build an atempo chain that supports arbitrary positive speeds."""
+    if speed <= 0:
+        raise ValueError("speed must be > 0.")
+
+    factors: list[float] = []
+    remaining = speed
+
+    while remaining > 2.0:
+        factors.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        factors.append(0.5)
+        remaining /= 0.5
+    factors.append(remaining)
+
+    return ",".join(f"atempo={factor:.8f}".rstrip("0").rstrip(".") for factor in factors)
+
+
+def speed_curve(input_path: str, output_path: str, *, keyframes: list[dict]) -> str:
+    """Apply stepped variable-speed playback based on keyframes.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        keyframes: Step keyframes like
+            ``[{"time": 0.0, "speed": 1.0}, {"time": 2.0, "speed": 2.0}]``.
+
+    Returns:
+        The *output_path*.
+    """
+    if not keyframes:
+        raise ValueError("keyframes must not be empty.")
+
+    duration = _probe_duration(input_path)
+    sorted_keyframes = sorted(keyframes, key=lambda item: float(item["time"]))
+
+    segments: list[tuple[float, float, float]] = []
+    current_start = 0.0
+    current_speed = float(sorted_keyframes[0]["speed"])
+    if current_speed <= 0:
+        raise ValueError("speed must be > 0.")
+
+    for index, keyframe in enumerate(sorted_keyframes):
+        time = float(keyframe["time"])
+        speed = float(keyframe["speed"])
+        if time < 0:
+            raise ValueError("keyframe time must be >= 0.")
+        if speed <= 0:
+            raise ValueError("speed must be > 0.")
+        if index == 0:
+            current_speed = speed
+            continue
+        if time < current_start:
+            raise ValueError("keyframes must be sorted by time.")
+        segment_end = min(time, duration)
+        if segment_end > current_start:
+            segments.append((current_start, segment_end, current_speed))
+        current_start = max(0.0, time)
+        current_speed = speed
+
+    if current_start < duration:
+        segments.append((current_start, duration, current_speed))
+
+    if not segments:
+        raise ValueError("keyframes do not define any non-empty segments within the video.")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    has_audio = _has_audio_stream(input_path)
+
+    filter_parts: list[str] = []
+    concat_inputs: list[str] = []
+
+    for index, (start, end, speed) in enumerate(segments):
+        filter_parts.append(
+            f"[0:v]trim=start={start:.6f}:end={end:.6f},setpts=(PTS-STARTPTS)/{speed:.8f}[v{index}]"
+        )
+        concat_inputs.append(f"[v{index}]")
+        if has_audio:
+            atempo_chain = _build_atempo_chain(speed)
+            filter_parts.append(
+                f"[0:a]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS,{atempo_chain}[a{index}]"
+            )
+            concat_inputs.append(f"[a{index}]")
+
+    if has_audio:
+        filter_parts.append(
+            f"{''.join(concat_inputs)}concat=n={len(segments)}:v=1:a=1[vout][aout]"
+        )
+    else:
+        filter_parts.append(
+            f"{''.join(concat_inputs)}concat=n={len(segments)}:v=1:a=0[vout]"
+        )
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", ";".join(filter_parts),
+        "-map", "[vout]",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+    ]
+    if has_audio:
+        cmd += ["-map", "[aout]", "-c:a", "aac"]
+    cmd.append(output_path)
+    _run(cmd)
+    return output_path

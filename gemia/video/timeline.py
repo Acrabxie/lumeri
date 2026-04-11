@@ -1,6 +1,7 @@
 """Timeline operations: cut, concat, speed, reverse."""
 from __future__ import annotations
 
+import math
 import subprocess
 import uuid
 from pathlib import Path
@@ -167,6 +168,307 @@ def reverse(input_path: str, output_path: str) -> str:
     _run([
         "ffmpeg", "-y", "-i", input_path,
         "-vf", "reverse", "-af", "areverse",
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+def ripple_trim(input_path: str, output_path: str, *, edge: str, delta_sec: float) -> str:
+    """Trim time from the start or end of a video.
+
+    Args:
+        input_path: Source video.
+        output_path: Destination.
+        edge: ``'start'`` or ``'end'``.
+        delta_sec: Seconds to trim.
+
+    Returns:
+        The *output_path*.
+    """
+    if edge not in ("start", "end"):
+        raise ValueError("edge must be 'start' or 'end'.")
+    if delta_sec < 0:
+        raise ValueError("delta_sec must be >= 0.")
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed: {input_path}\nSTDERR:\n{probe.stderr}"
+        )
+    duration = float(probe.stdout.strip())
+    if delta_sec > duration:
+        raise ValueError("delta_sec must be <= input duration.")
+
+    if edge == "start":
+        start_sec = delta_sec
+        end_sec = duration
+    else:
+        start_sec = 0.0
+        end_sec = duration - delta_sec
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y",
+        "-ss", str(start_sec), "-to", str(end_sec),
+        "-i", input_path,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+def _probe_duration(input_path: str) -> float:
+    """Return media duration in seconds via ffprobe."""
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed: {input_path}\nSTDERR:\n{probe.stderr}"
+        )
+    return float(probe.stdout.strip())
+
+
+def _probe_frame_rate(input_path: str) -> float:
+    """Return the primary video stream frame rate in fps via ffprobe."""
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=avg_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed: {input_path}\nSTDERR:\n{probe.stderr}"
+        )
+    raw = probe.stdout.strip()
+    if not raw or raw == "0/0":
+        raise ValueError(f"Could not determine frame rate for {input_path}.")
+    num, denom = raw.split("/", 1)
+    fps = float(num) / float(denom)
+    if fps <= 0:
+        raise ValueError(f"Invalid frame rate for {input_path}: {raw}")
+    return fps
+
+
+def roll_edit(
+    input_a: str,
+    input_b: str,
+    output_a: str,
+    output_b: str,
+    *,
+    delta_sec: float,
+) -> tuple[str, str]:
+    """Roll the seam between two adjacent clips without changing total duration.
+
+    Because the inputs are already independent media files, the function cannot
+    reveal unavailable source frames beyond either file boundary. To preserve
+    total duration, the shortened side is trimmed while the opposite side is
+    extended by cloning its boundary frame and padding audio with silence.
+    """
+    duration_a = _probe_duration(input_a)
+    duration_b = _probe_duration(input_b)
+
+    if delta_sec >= 0:
+        if delta_sec >= duration_a:
+            raise ValueError("delta_sec trims clip_a to zero or negative duration.")
+    else:
+        shift = -delta_sec
+        if shift >= duration_b:
+            raise ValueError("delta_sec trims clip_b to zero or negative duration.")
+
+    Path(output_a).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_b).parent.mkdir(parents=True, exist_ok=True)
+
+    if delta_sec >= 0:
+        _run([
+            "ffmpeg", "-y",
+            "-ss", "0.0", "-to", str(duration_a - delta_sec),
+            "-i", input_a,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_a,
+        ])
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_b,
+            "-vf", f"tpad=start_duration={delta_sec}:start_mode=clone",
+            "-af", f"adelay={int(round(delta_sec * 1000))}:all=1",
+            "-c:v", "libx264", "-c:a", "aac",
+            output_b,
+        ])
+    else:
+        shift = -delta_sec
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_a,
+            "-vf", f"tpad=stop_duration={shift}:stop_mode=clone",
+            "-af", f"apad=pad_dur={shift}",
+            "-c:v", "libx264", "-c:a", "aac",
+            output_a,
+        ])
+        _run([
+            "ffmpeg", "-y",
+            "-ss", str(shift), "-to", str(duration_b),
+            "-i", input_b,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_b,
+        ])
+    return output_a, output_b
+
+
+def slip_edit(
+    input_path: str,
+    output_path: str,
+    *,
+    offset_sec: float,
+    duration_sec: float,
+) -> str:
+    """Slip a clip's content while keeping timeline position and duration fixed.
+
+    Args:
+        input_path: Source media.
+        output_path: Destination media.
+        offset_sec: Source in-point in seconds.
+        duration_sec: Output duration in seconds.
+
+    Returns:
+        The *output_path*.
+    """
+    if offset_sec < 0:
+        raise ValueError("offset_sec must be >= 0.")
+    if duration_sec <= 0:
+        raise ValueError("duration_sec must be > 0.")
+
+    source_duration = _probe_duration(input_path)
+    end_sec = offset_sec + duration_sec
+    if end_sec > source_duration:
+        raise ValueError(
+            "offset_sec + duration_sec must be <= input duration."
+        )
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y",
+        "-ss", str(offset_sec),
+        "-i", input_path,
+        "-t", str(duration_sec),
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+def slide_edit(input_path: str, output_path: str, *, delta_sec: float) -> str:
+    """Slide a clip on the timeline by padding or trimming its start.
+
+    Simplified single-file primitive semantics:
+    - ``delta_sec > 0``: prepend black frames and silence.
+    - ``delta_sec < 0``: remove ``abs(delta_sec)`` seconds from the start.
+
+    Args:
+        input_path: Source media.
+        output_path: Destination media.
+        delta_sec: Timeline shift in seconds.
+
+    Returns:
+        The *output_path*.
+    """
+    duration = _probe_duration(input_path)
+    if delta_sec < 0 and abs(delta_sec) >= duration:
+        raise ValueError("abs(delta_sec) must be < input duration.")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if delta_sec == 0:
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+        return output_path
+
+    if delta_sec > 0:
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", f"tpad=start_duration={delta_sec}:start_mode=add:color=black",
+            "-af", f"adelay={int(round(delta_sec * 1000))}:all=1",
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+        return output_path
+
+    shift = abs(delta_sec)
+    target_duration = duration - shift
+    fps = _probe_frame_rate(input_path)
+    stop_pad = target_duration - (math.floor((target_duration * fps) + 1e-9) / fps)
+    vf = f"trim=start={shift},setpts=PTS-STARTPTS"
+    if stop_pad > 1e-6:
+        vf += f",tpad=stop_duration={stop_pad}:stop_mode=clone"
+    _run([
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-vf", vf,
+        "-af", f"atrim=start={shift},asetpts=PTS-STARTPTS",
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+def freeze_frame(
+    input_path: str,
+    output_path: str,
+    *,
+    timestamp_sec: float,
+    freeze_duration_sec: float,
+) -> str:
+    """Freeze the last frame at ``timestamp_sec`` for ``freeze_duration_sec`` seconds."""
+    if timestamp_sec < 0:
+        raise ValueError("timestamp_sec must be >= 0.")
+    if freeze_duration_sec < 0:
+        raise ValueError("freeze_duration_sec must be >= 0.")
+
+    duration = _probe_duration(input_path)
+    if timestamp_sec > duration:
+        raise ValueError("timestamp_sec must be <= input duration.")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-vf",
+        (
+            f"trim=start=0:end={timestamp_sec},setpts=PTS-STARTPTS,"
+            f"tpad=stop_mode=clone:stop_duration={freeze_duration_sec}"
+        ),
+        "-af",
+        (
+            f"atrim=start=0:end={timestamp_sec},asetpts=PTS-STARTPTS,"
+            f"apad=pad_dur={freeze_duration_sec}"
+        ),
         "-c:v", "libx264", "-c:a", "aac",
         output_path,
     ])
