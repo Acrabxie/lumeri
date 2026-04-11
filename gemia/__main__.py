@@ -52,6 +52,10 @@ def main() -> None:
     p_plan.add_argument("request")
     p_plan.add_argument("--video", required=True)
 
+    p_revise = sub.add_parser("revise-task", help="Apply feedback revision to a completed task")
+    p_revise.add_argument("task_id", help="Original task ID")
+    p_revise.add_argument("--feedback", required=True, help="Revision instruction / style feedback")
+
     p_server = sub.add_parser("server", help="Start the web server")
     p_server.add_argument("--host", default="127.0.0.1")
     p_server.add_argument("--port", type=int, default=7788)
@@ -75,6 +79,8 @@ def main() -> None:
         print(json.dumps(get_task(args.task_id), ensure_ascii=False, indent=2))
     elif args.command == "get-assets":
         print(json.dumps(get_assets(args.task_id), ensure_ascii=False, indent=2))
+    elif args.command == "revise-task":
+        _cmd_revise_task(args)
     elif args.command == "plan":
         print(json.dumps(GemiaOrchestrator().plan_from_prompt(args.request, input_path=args.video), ensure_ascii=False, indent=2))
     elif args.command == "server":
@@ -114,12 +120,25 @@ def _cmd_run(args: argparse.Namespace) -> None:
         output_path=output_path,
     ))
 
-    if plan.get("ask"):
+    while plan.get("ask"):
         print("\nAI needs more info:")
+        answers: dict[str, str] = {}
         for q in plan.get("questions", []):
-            print(f"  - {q}")
-        print("\n(In interactive mode, answers would be collected here.)")
-        return
+            print(f"  {q}")
+            try:
+                ans = input("  > ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                return
+            answers[q] = ans
+        print()
+        print("Re-planning with your answers...")
+        plan = asyncio.run(client.plan_or_ask(
+            args.prompt,
+            input_path=str(Path(args.video).resolve()),
+            output_path=output_path,
+            answers=answers,
+        ))
 
     # Step 2: Show the plan
     steps = plan.get("steps", [])
@@ -214,6 +233,32 @@ def _cmd_run_skill_v2(args: argparse.Namespace) -> None:
     task_id = engine.run_with_task(plan, str(Path(args.video).resolve()), output_path)
     print(f"\nDone! task_id={task_id}")
     print(f"Output: {output_path}")
+
+
+def _cmd_revise_task(args: argparse.Namespace) -> None:
+    """Apply a feedback revision to a completed task (mirrors /revise-task/<id>)."""
+    from pathlib import Path
+
+    from .orchestrator import run_skill, get_task
+
+    plans_dir = Path(__file__).resolve().parent.parent / "plans"
+    plan_file = plans_dir / f"{args.task_id}_plan.json"
+    if not plan_file.exists():
+        raise SystemExit(f"Plan not found for task: {args.task_id}")
+
+    plan = json.loads(plan_file.read_text())
+    skill_id = plan.get("skill_id")
+    input_path = plan.get("input_path") or (plan.get("inputs") or {}).get("video")
+    if not skill_id or not input_path:
+        raise SystemExit("Original plan is missing skill_id or input_path — cannot revise.")
+
+    print(f"Revising task {args.task_id} with: {args.feedback}")
+    revision_task_id = run_skill(skill_id, {"video": input_path, "style": args.feedback})
+    task = get_task(revision_task_id)
+    print(f"Done! revision_task_id={revision_task_id}")
+    outputs = task.get("outputs", [])
+    if outputs:
+        print(f"Output: {outputs[0]}")
 
 
 if __name__ == "__main__":
