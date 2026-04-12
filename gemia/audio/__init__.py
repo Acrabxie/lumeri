@@ -11,6 +11,7 @@ from gemia.audio.effects import (
     voice_convert, auto_mix, ducker, voice_isolate, pitch_correction,
     dynamic_eq_match, level_matcher, spectral_denoise,
     remove_silence, speaker_separate, create_adr_cues,
+    noise_gate,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "level_matcher",
     "spectral_denoise",
     "remove_silence", "speaker_separate", "create_adr_cues",
+    "noise_gate",
 ]

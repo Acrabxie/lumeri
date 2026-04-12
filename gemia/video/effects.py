@@ -1328,3 +1328,242 @@ def spatial_video_render(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# #83  waveform_monitor
+# ---------------------------------------------------------------------------
+def waveform_monitor(
+    input_path: str,
+    output_path: str,
+    *,
+    mode: str = "waveform",
+    duration: float | None = None,
+) -> str:
+    """Generate a waveform or vectorscope analysis overlay.
+
+    Renders a colour analysis instrument (waveform, vectorscope, or histogram)
+    alongside the video for scopes-based grading.
+
+    Inspired by DaVinci Resolve's *Video Scopes* panel.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video with scope overlay.
+        mode: ``"waveform"``, ``"vectorscope"``, or ``"histogram"``.
+        duration: Limit output duration in seconds. None = full clip.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    dur_args = ["-t", str(duration)] if duration else []
+
+    if mode == "vectorscope":
+        scope_filter = "vectorscope=m=color3:intensity=0.7"
+    elif mode == "histogram":
+        scope_filter = "histogram=level_height=200:scale=logarithmic"
+    else:
+        scope_filter = "waveform=m=1:intensity=0.1:mirror=1"
+
+    # Probe video height so scope can be scaled to match
+    import json as _j
+    _pr = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    _vs = next(s for s in _j.loads(_pr.stdout)["streams"] if s["codec_type"] == "video")
+    _H = int(_vs["height"])
+
+    # Create scope as side panel via split + hstack
+    fc = (
+        f"[0:v]split[main][scope_in];"
+        f"[scope_in]{scope_filter}[scope];"
+        f"[scope]scale=320:{_H}[scope_scaled];"
+        f"[main][scope_scaled]hstack=inputs=2[out]"
+    )
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        *dur_args,
+        "-filter_complex", fc,
+        "-map", "[out]", "-map", "0:a?",
+        "-c:v", "libx264", "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #84  keyframe_extract
+# ---------------------------------------------------------------------------
+def keyframe_extract(
+    input_path: str,
+    output_dir: str,
+    *,
+    max_frames: int = 20,
+    threshold: float = 0.3,
+) -> list[str]:
+    """Extract representative keyframes from a video at scene change points.
+
+    Uses scene detection to find cuts, then saves one frame per scene as PNG.
+    Inspired by DaVinci Resolve's *Scene Detection → grab all stills*.
+
+    Args:
+        input_path: Source video path.
+        output_dir: Directory to write keyframe images.
+        max_frames: Maximum number of frames to extract. Default 20.
+        threshold: Scene change sensitivity [0, 1]. Default 0.3.
+
+    Returns:
+        List of saved PNG file paths.
+    """
+    import re
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Detect scene timestamps
+    r = subprocess.run(
+        ["ffmpeg", "-i", input_path,
+         "-vf", f"select='gt(scene,{threshold})',showinfo",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    timestamps: list[float] = []
+    for line in (r.stdout + r.stderr).splitlines():
+        m = re.search(r"pts_time:([\d.]+)", line)
+        if m:
+            timestamps.append(float(m.group(1)))
+
+    # Ensure at least a frame at t=0
+    if not timestamps or timestamps[0] > 0.1:
+        timestamps = [0.0] + timestamps
+    timestamps = sorted(set(timestamps))[:max_frames]
+
+    out_paths: list[str] = []
+    for idx, ts in enumerate(timestamps):
+        out_path = str(out_dir / f"keyframe_{idx:04d}_{ts:.3f}s.png")
+        r2 = subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{ts:.6f}", "-i", input_path,
+             "-frames:v", "1", "-q:v", "2", out_path],
+            capture_output=True, text=True,
+        )
+        if r2.returncode == 0:
+            out_paths.append(out_path)
+
+    return out_paths
+
+
+# ---------------------------------------------------------------------------
+# #85  aspect_ratio_pad
+# ---------------------------------------------------------------------------
+def aspect_ratio_pad(
+    input_path: str,
+    output_path: str,
+    *,
+    target_ratio: str = "16:9",
+    pad_color: str = "black",
+    blur_bg: bool = False,
+) -> str:
+    """Pad video to a target aspect ratio without cropping.
+
+    Adds letterbox/pillarbox bars. With ``blur_bg=True``, fills the bars with
+    a blurred + darkened version of the video instead of solid colour.
+
+    Inspired by DaVinci Resolve *Output Blanking* and *Auto-fit* features.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        target_ratio: Target ``"W:H"`` ratio. Default ``"16:9"``.
+        pad_color: Bar colour (ffmpeg colour name). Default ``"black"``.
+        blur_bg: If True, fill bars with blurred video background.
+
+    Returns:
+        output_path
+    """
+    import json as _j
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    info = _j.loads(probe.stdout)
+    vs = next(s for s in info["streams"] if s["codec_type"] == "video")
+    W, H = int(vs["width"]), int(vs["height"])
+
+    rw, rh = (int(x) for x in target_ratio.split(":"))
+    target_w = W
+    target_h = int(W * rh / rw)
+    if target_h < H:
+        target_h = H
+        target_w = int(H * rw / rh)
+
+    if blur_bg:
+        # Scale + blur source to fill target, overlay original centred
+        fc = (
+            f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h},boxblur=20:5[bg];"
+            f"[0:v]scale={W}:{H}[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2[out]"
+        )
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-filter_complex", fc,
+            "-map", "[out]", "-map", "0:a?",
+            "-c:v", "libx264", "-c:a", "copy",
+            output_path,
+        ])
+    else:
+        pad_x = (target_w - W) // 2
+        pad_y = (target_h - H) // 2
+        vf = f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color={pad_color}"
+        _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+              "-c:v", "libx264", "-c:a", "copy", output_path])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #86  video_denoise_spatial
+# ---------------------------------------------------------------------------
+def video_denoise_spatial(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 0.5,
+    method: str = "nlmeans",
+) -> str:
+    """Apply spatial noise reduction to video frames.
+
+    Removes high-frequency noise while preserving edges using ffmpeg's
+    non-local means (``nlmeans``) or ``hqdn3d`` filters.
+
+    Inspired by DaVinci Resolve *Noise Reduction → Spatial* mode.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        strength: Denoise strength [0, 1]. Default 0.5.
+        method: ``"nlmeans"`` (best quality) or ``"hqdn3d"`` (fast).
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    s = max(0.0, min(1.0, strength))
+
+    luma = s * 4
+    chroma = s * 3
+    if method == "nlmeans":
+        # Try nlmeans; fall back to hqdn3d if filter lacks h option
+        try:
+            vf = f"nlmeans={s * 10:.1f}:{int(s*7)+3}:{int(s*14)+7}"
+            _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+                  "-c:v", "libx264", "-c:a", "copy", output_path])
+            return output_path
+        except RuntimeError:
+            pass  # fall through to hqdn3d
+    vf = f"hqdn3d={luma:.1f}:{chroma:.1f}:0:0"
+    _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+          "-c:v", "libx264", "-c:a", "copy", output_path])
+    return output_path
