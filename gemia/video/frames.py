@@ -701,3 +701,60 @@ def speed_curve(input_path: str, output_path: str, *, keyframes: list[dict]) -> 
     cmd.append(output_path)
     _run(cmd)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_sequence_to_video
+# ---------------------------------------------------------------------------
+
+def image_sequence_to_video(
+    frames_dir: str,
+    output_path: str,
+    *,
+    fps: float = 24.0,
+    pattern: str = "*.jpg",
+    sort: bool = True,
+) -> str:
+    """Assemble a directory of images into a video.
+
+    Args:
+        frames_dir: Directory containing image frames.
+        output_path: Destination video file.
+        fps: Output frame rate.
+        pattern: Glob pattern to match frames (``"*.jpg"``, ``"*.png"``, etc.).
+        sort: Sort frames alphabetically before encoding.
+
+    Returns:
+        The *output_path*.
+    """
+    import glob, shutil, tempfile, subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    files = sorted(glob.glob(str(Path(frames_dir) / pattern))) if sort else \
+            glob.glob(str(Path(frames_dir) / pattern))
+    if not files:
+        raise RuntimeError(f"No images matching {pattern!r} found in {frames_dir!r}")
+
+    # Detect extension and build ffmpeg input
+    ext = Path(files[0]).suffix.lower()
+
+    # Rename files into a zero-padded sequence in a temp dir for ffmpeg
+    with tempfile.TemporaryDirectory() as td:
+        for idx, src in enumerate(files):
+            dst = Path(td) / f"frame_{idx:06d}{ext}"
+            shutil.copy2(src, dst)
+
+        input_pattern = str(Path(td) / f"frame_%06d{ext}")
+        proc = subprocess.run([
+            "ffmpeg", "-y",
+            "-framerate", str(fps),
+            "-i", input_pattern,
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ], capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"image_sequence_to_video failed:\n{proc.stderr}")
+    return output_path
