@@ -14,6 +14,107 @@ def _run(cmd: list[str]) -> None:
         )
 
 
+def _has_drawtext() -> bool:
+    """Return True if the installed ffmpeg supports the drawtext filter."""
+    r = subprocess.run(["ffmpeg", "-filters"], capture_output=True, text=True)
+    return "drawtext" in r.stdout or "drawtext" in r.stderr
+
+
+def _pil_text_overlay(
+    input_path: str,
+    output_path: str,
+    lines: list[tuple[str, int, tuple[int, int, int]]],  # (text, fontsize, rgb)
+    *,
+    bg_box: tuple[int, int, int, int] | None = None,  # (x, y, w, h) relative to frame
+    bg_alpha: float = 0.7,
+    text_x: int = 20,
+    text_y_from_bottom: int = 80,
+    line_gap: int = 6,
+) -> str:
+    """Render text overlays using PIL when ffmpeg drawtext is unavailable."""
+    import tempfile, shutil, json
+    from pathlib import Path as _Path
+
+    # Probe video dimensions
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error",
+         "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "json", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    info = json.loads(probe.stdout)["streams"][0]
+    W, H = int(info["width"]), int(info["height"])
+    fps_str = info.get("r_frame_rate", "30/1")
+    fps_num, fps_den = map(int, fps_str.split("/"))
+    fps = fps_num / fps_den
+
+    # Extract frames as PNG sequence
+    with tempfile.TemporaryDirectory() as td:
+        frame_pattern = str(_Path(td) / "frame_%06d.png")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", f"fps={fps}", frame_pattern],
+            check=True, capture_output=True,
+        )
+
+        from PIL import Image, ImageDraw, ImageFont
+        import os
+
+        frames = sorted(f for f in os.listdir(td) if f.endswith(".png"))
+        for fname in frames:
+            fp = str(_Path(td) / fname)
+            img = Image.open(fp).convert("RGBA")
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            # Draw background box
+            if bg_box:
+                bx, by, bw, bh = bg_box
+                if by < 0:
+                    by = H + by
+                # -1 means full width
+                box_x1 = bx
+                box_y1 = by
+                box_x2 = (W if bw == -1 else bx + bw)
+                box_y2 = by + bh
+                if box_x2 > box_x1 and box_y2 > box_y1:
+                    draw.rectangle(
+                        [box_x1, box_y1, box_x2, box_y2],
+                        fill=(0, 0, 0, int(255 * bg_alpha)),
+                    )
+
+            # Draw text lines
+            y_pos = H - text_y_from_bottom
+            for line_text, fontsize, rgb in lines:
+                try:
+                    font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", fontsize)
+                except Exception:
+                    font = ImageFont.load_default()
+                draw.text((text_x, y_pos), line_text, font=font, fill=(*rgb, 255))
+                y_pos += fontsize + line_gap
+
+            combined = Image.alpha_composite(img, overlay).convert("RGB")
+            combined.save(fp)
+
+        # Re-encode frames back to video
+        audio_tmp = str(_Path(td) / "audio.aac")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "copy", audio_tmp],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-framerate", str(fps),
+             "-i", frame_pattern,
+             "-i", audio_tmp,
+             "-c:v", "libx264", "-c:a", "copy",
+             "-pix_fmt", "yuv420p",
+             output_path],
+            check=True, capture_output=True,
+        )
+    return output_path
+
+
 # ── SRT helpers ──────────────────────────────────────────────────────────────
 
 def _secs_to_srt_ts(s: float) -> str:
@@ -397,15 +498,29 @@ def add_lower_third(
         )
         vf_parts.append(subtitle_filter)
 
-    vf = ",".join(vf_parts)
-
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    _run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf", vf,
-        "-c:v", "libx264", "-c:a", "aac",
-        output_path,
-    ])
+
+    if _has_drawtext():
+        vf = ",".join(vf_parts)
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    else:
+        # PIL fallback when ffmpeg lacks libfreetype
+        lines = [(title, title_size, (255, 255, 255))]
+        if subtitle:
+            lines.append((subtitle, subtitle_size, (255, 255, 255)))
+        _pil_text_overlay(
+            input_path, output_path,
+            lines,
+            bg_box=(0, -box_height, -1, box_height),
+            bg_alpha=0.7,
+            text_x=x,
+            text_y_from_bottom=y_offset,
+        )
     return output_path
 
 
