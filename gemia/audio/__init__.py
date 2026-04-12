@@ -3,11 +3,11 @@
 All functions work with float32 ndarrays [-1, 1].
 """
 from gemia.audio.basics import load, save, trim, concat, mix
-from gemia.audio.dynamics import normalize, compress, adjust_gain
+from gemia.audio.dynamics import normalize, compress, adjust_gain, lufs_normalize
 from gemia.audio.frequency import eq, highpass, lowpass
 from gemia.audio.time_pitch import time_stretch, pitch_shift, detect_bpm
 from gemia.audio.analysis import silence_detect, beat_detect, music_extend, stem_separate
-from gemia.audio.effects import voice_convert, auto_mix
+from gemia.audio.effects import voice_convert, auto_mix, ducker
 
 __all__ = [
     "load", "save", "trim", "concat", "mix",
@@ -16,5 +16,6 @@ __all__ = [
     "time_stretch", "pitch_shift", "detect_bpm",
     "silence_detect",
     "beat_detect", "music_extend", "stem_separate",
-    "voice_convert", "auto_mix",
+    "voice_convert", "auto_mix", "ducker",
+    "lufs_normalize",
 ]
