@@ -72,3 +72,6 @@
 - Download Pexels nature footage
 - Apply: scene_detect → ai_color_grade(cinematic) → add_lower_third → export_preset(youtube)
 - Verify end-to-end pipeline PASS x2
+
+2026-04-11 20:46:21  Wave2 complete: #42 optical_flow_retime, #43 ai_stabilize, #44 hdr_tone_map, #45 denoise_temporal, #46 stereo_3d_align — all PASS x2, committed e48b4ee
+2026-04-11 20:46:21  Total: 46 functions implemented. Next: codex full debug pass (>40 done), then Wave3 web-search
