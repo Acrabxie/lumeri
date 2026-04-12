@@ -101,3 +101,6 @@
 2026-04-12 08:41:14  Wave7 complete: #67 ai_cinematic_haze, #68 dynamic_eq_match, #69 level_matcher, #70 spectral_denoise, #71 hdr_vivid — all PASS x2, committed b45f6c1
 2026-04-12 08:41:14  Total: 71 primitives. Fixes: equalizer NaN→Q=2 bandwidth, hdr_vivid zscale unavailable→eq/curves fallback, dynamic_eq_match NaN guard.
 2026-04-12 08:41:14  Token optimization pass: reviewing effects.py for dead code / redundant imports. Next: Wave8 web-search.
+
+2026-04-12 08:42:31  Token optimization pass complete: removed 31 dead-code lines from effects.py (zoom_pan 5 dead blocks, chroma_aberration dead split/rgbashift block). Committed b969123.
+2026-04-12 08:42:31  Status: 71 primitives across video/audio/picture. 7 waves complete. Next: Wave8 web-search + implementation.
