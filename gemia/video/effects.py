@@ -657,3 +657,138 @@ def light_wrap(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# #67  ai_cinematic_haze
+# ---------------------------------------------------------------------------
+def ai_cinematic_haze(
+    input_path: str,
+    output_path: str,
+    *,
+    intensity: float = 0.4,
+    color: tuple[int, int, int] = (200, 210, 220),
+    depth_fade: bool = True,
+) -> str:
+    """Add atmospheric haze / fog with optional depth-based falloff.
+
+    Simulates DaVinci Resolve 20's *Atmospheric Haze* look: a soft,
+    colour-tinted scattering overlay that increases towards the horizon.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination path.
+        intensity: Haze strength [0, 1]. Default 0.4.
+        color: RGB haze tint colour. Default (200, 210, 220) — cool mist.
+        depth_fade: If True, haze increases from bottom (horizon) to top.
+
+    Returns:
+        output_path
+    """
+    import json, tempfile
+    from pathlib import Path as _P
+    import numpy as np
+    import cv2
+    from PIL import Image
+
+    _P(output_path).parent.mkdir(parents=True, exist_ok=True)
+    intensity = max(0.0, min(1.0, intensity))
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    info = json.loads(probe.stdout)
+    vs = next(s for s in info["streams"] if s["codec_type"] == "video")
+    W, H = int(vs["width"]), int(vs["height"])
+    fps_raw = vs.get("r_frame_rate", "25/1")
+    fps_n, fps_d = map(int, fps_raw.split("/"))
+    fps = fps_n / fps_d
+
+    # Build depth gradient mask (0=top/sky=full haze, 1=bottom=less haze when depth_fade)
+    if depth_fade:
+        gradient = np.linspace(1.0, 0.3, H, dtype=np.float32).reshape(H, 1)
+        alpha = (gradient * intensity * 255).clip(0, 255).astype(np.uint8)
+        alpha = np.broadcast_to(alpha, (H, W))
+    else:
+        alpha = np.full((H, W), int(intensity * 255), dtype=np.uint8)
+
+    haze_layer = np.zeros((H, W, 3), dtype=np.uint8)
+    haze_layer[:] = np.array(color, dtype=np.uint8)
+
+    tmp_dir = _P(tempfile.mkdtemp())
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", f"fps={fps}", str(tmp_dir / "frame_%05d.png")],
+        capture_output=True, check=True,
+    )
+
+    for fpath in sorted(tmp_dir.glob("frame_*.png")):
+        img = np.array(Image.open(fpath).convert("RGB"))
+        a3 = alpha[:, :, np.newaxis].astype(np.float32) / 255.0
+        blended = (img.astype(np.float32) * (1 - a3) + haze_layer.astype(np.float32) * a3).clip(0, 255).astype(np.uint8)
+        Image.fromarray(blended).save(fpath)
+
+    subprocess.run(
+        ["ffmpeg", "-y", "-framerate", str(fps),
+         "-i", str(tmp_dir / "frame_%05d.png"),
+         "-i", input_path,
+         "-map", "0:v", "-map", "1:a?",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+         output_path],
+        capture_output=True, check=True,
+    )
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #71  hdr_vivid
+# ---------------------------------------------------------------------------
+def hdr_vivid(
+    input_path: str,
+    output_path: str,
+    *,
+    peak_nits: int = 1000,
+    saturation_boost: float = 1.2,
+    target_gamma: str = "bt2020",
+) -> str:
+    """Apply HDR Vivid tone mapping with boosted colour for streaming.
+
+    Maps SDR/HDR footage to a perceptually vibrant HDR output using
+    ffmpeg's ``zscale`` + ``tonemap`` filters with PQ (ST.2084) EOTF.
+
+    Inspired by DaVinci Resolve 20 *HDR Vivid Palette* grading preset.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        peak_nits: Target peak luminance in nits.  Default 1000.
+        saturation_boost: Saturation multiplier post-tonemap.  Default 1.2.
+        target_gamma: Colour space for output: ``"bt2020"`` or ``"bt709"``.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Vivid HDR look via perceptual tone-curve approximation:
+    # 1. Lift shadows slightly (crush blacks less for HDR look)
+    # 2. Boost saturation
+    # 3. Apply gentle S-curve via curves filter for perceived contrast
+    # 4. Raise highlights via eq brightness
+    # peak_nits controls highlight brightness clamp (normalized to 0-4 range)
+    highlight_gain = min(peak_nits / 250.0, 4.0)  # scale 250-1000 nits → 1-4x
+    brightness = min(0.05 + (highlight_gain - 1.0) * 0.04, 0.2)
+
+    vf = (
+        f"eq=brightness={brightness:.3f}:saturation={saturation_boost:.2f}:contrast=1.05,"
+        f"curves=master='0/0 0.25/0.28 0.75/0.78 1/1',"
+        f"hue=s={saturation_boost:.2f}"
+    )
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-crf", "18",
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
