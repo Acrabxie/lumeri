@@ -107,3 +107,6 @@
 
 2026-04-12 10:40:47  Wave8 complete: #72 remove_silence, #73 speaker_separate, #74 create_adr_cues, #75 deep_composite, #76 rhythm_cut — all PASS x2, committed 023061e
 2026-04-12 10:40:47  Total: 76 primitives (video: 42, audio: 30, picture: 32). 8 waves complete. Next: Wave9 + full codex debug milestone (every 10 functions = every 2 waves).
+
+2026-04-12 12:39:20  Wave9 complete: #77 timecode_burn, #78 auto_reframe, #79 color_space_convert, #80 deinterlace, #81 spatial_video_render — all PASS x2, committed 4f80066
+2026-04-12 12:39:20  Total: 81 primitives. Next: Wave10 web-search (milestone: every 5 waves = full integration test).
