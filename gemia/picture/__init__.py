@@ -10,6 +10,7 @@ from gemia.picture.color import color_grade, adjust_exposure, adjust_temperature
 from gemia.picture.analysis import histogram, dominant_colors, edge_detect
 from gemia.picture.composite import create_mask, blend, composite
 from gemia.picture.generative import generate_image, edit_image, style_transfer, blend_images
+from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur
 
 __all__ = [
     # geometry
@@ -24,4 +25,7 @@ __all__ = [
     "create_mask", "blend", "composite",
     # generative (Nano Banana)
     "generate_image", "edit_image", "style_transfer", "blend_images",
+    # enhance
+    "super_scale", "match_color", "skin_tone_protect", "hdr_grade", "film_grain_organic",
+    "defocus_background", "relight", "motion_blur",
 ]

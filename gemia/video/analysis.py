@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import re
 import subprocess
 
 import cv2
@@ -188,3 +190,158 @@ def track_plane(video_path: str, *, initial_quad: list[tuple[float, float]]) -> 
 
     cap.release()
     return quads
+
+
+def _first_sound_time(path: str, *, method: str = "audio") -> float:
+    """Estimate the first non-silent timestamp in a clip."""
+    if method != "audio":
+        raise ValueError(f"Unsupported multicam sync method: {method}")
+
+    meta = get_metadata(path)
+    if not meta.get("audio_codec"):
+        return 0.0
+
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-i", path,
+            "-af", "silencedetect=noise=-30dB:d=0.05",
+            "-f", "null", "-",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg silencedetect failed: {proc.stderr}")
+
+    match = re.search(r"silence_end:\s*([0-9.]+)", proc.stderr)
+    if match:
+        return float(match.group(1))
+    return 0.0
+
+
+def scene_detect(video_path: str, output_path: str | None = None, *, threshold: float = 0.3) -> list[float]:
+    """Detect scene change timestamps using ffmpeg select filter.
+
+    Args:
+        video_path: Input video file path.
+        output_path: Optional path to write a JSON file with timestamps.
+        threshold: Scene change sensitivity (0-1). Lower = more sensitive.
+
+    Returns:
+        List of timestamps (seconds) where scene changes occur.
+    """
+    cmd = [
+        "ffmpeg", "-i", video_path,
+        "-vf", f"select='gt(scene,{threshold})',showinfo",
+        "-f", "null", "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    combined = proc.stdout + proc.stderr
+
+    timestamps: list[float] = []
+    for line in combined.splitlines():
+        m = re.search(r"pts_time:([0-9.]+)", line)
+        if m:
+            timestamps.append(float(m.group(1)))
+
+    if output_path is not None:
+        Path(output_path).write_text(json.dumps(timestamps))
+
+    return timestamps
+
+
+def auto_highlight(video_path: str, output_path: str, *, duration: float = 60.0) -> str:
+    """Create a highlight reel by selecting the most visually dynamic segments.
+
+    Args:
+        video_path: Input video file path.
+        output_path: Output highlight video path.
+        duration: Target duration of the highlight reel in seconds.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+    from gemia.video.timeline import concat
+
+    scenes = scene_detect(video_path)
+
+    # If too few scenes, supplement with evenly-spaced samples
+    min_scenes = int(duration / 5)
+    if len(scenes) < min_scenes:
+        meta = get_metadata(video_path)
+        total = meta["duration"]
+        extra_count = min_scenes - len(scenes)
+        step = total / (extra_count + 1)
+        extra = [step * (i + 1) for i in range(extra_count)]
+        scenes = sorted(set(scenes) | set(extra))
+
+    if not scenes:
+        scenes = [0.0]
+
+    # Select timestamps distributed evenly across video
+    clip_dur = min(5.0, duration / max(len(scenes), 1))
+    # Limit total clips so sum ~= duration
+    max_clips = max(1, int(duration / clip_dur))
+    # Distribute selections evenly across scenes list
+    step = max(1, len(scenes) // max_clips)
+    selected = scenes[::step][:max_clips]
+
+    tmp_dir = tempfile.mkdtemp()
+    clips: list[str] = []
+    for i, ts in enumerate(selected):
+        clip_path = str(Path(tmp_dir) / f"clip_{i:04d}.mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{ts:.6f}",
+            "-i", video_path,
+            "-t", f"{clip_dur:.6f}",
+            "-map", "0:v:0?",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            clip_path,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            clips.append(clip_path)
+
+    if not clips:
+        raise RuntimeError("auto_highlight: no clips could be extracted")
+
+    concat(clips, output_path)
+    return output_path
+
+
+def multicam_sync(input_paths: list[str], output_dir: str, *, method: str = "audio") -> list[str]:
+    """Synchronize simultaneously recorded camera clips by trimming leading offsets."""
+    if not input_paths:
+        raise ValueError("input_paths must not be empty")
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    offsets = [_first_sound_time(path, method=method) for path in input_paths]
+    sync_point = max(offsets)
+
+    outputs: list[str] = []
+    for idx, input_path in enumerate(input_paths):
+        output_path = out_dir / f"cam_{idx}.mp4"
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-ss", f"{sync_point:.6f}",
+            "-map", "0:v:0?",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed: {' '.join(cmd)}\nSTDERR:\n{proc.stderr}")
+        outputs.append(str(output_path))
+
+    return outputs

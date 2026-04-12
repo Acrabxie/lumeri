@@ -1,12 +1,11 @@
-"""Veo 3.1 video generation client via laozhang.ai.
+"""Veo 3.1 video generation client via OpenRouter.
 
 Environment variables
 ---------------------
-LAOZHANG_API_KEY  : Required. API key for laozhang.ai.
-                    Falls back to OPENROUTER_API_KEY if unset.
-LAOZHANG_API_URL  : Optional. Base URL (default: https://api.laozhang.ai/v1).
-VEO_MODEL         : Optional. Model name (default: veo-3).
-GEMIA_SSL_VERIFY  : Set to "0" to disable SSL certificate verification.
+OPENROUTER_API_KEY : Required. API key for OpenRouter.
+OPENROUTER_VEO_URL : Optional. Base URL (default: https://openrouter.ai/api/v1).
+VEO_MODEL          : Optional. Model name (default: google/veo-3).
+GEMIA_SSL_VERIFY   : Set to "0" to disable SSL certificate verification.
 """
 from __future__ import annotations
 
@@ -24,40 +23,35 @@ from typing import Any
 import certifi
 
 # ── Defaults ─────────────────────────────────────────────────────────────
-_DEFAULT_BASE_URL = "https://api.laozhang.ai/v1"
-_DEFAULT_MODEL = "veo-3"
+_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+_DEFAULT_MODEL = "google/veo-3.1"
 _POLL_INTERVAL_SEC = 5
 _MAX_POLL_SEC = 600  # 10 minutes
 
 
 class VeoClient:
-    """Client for Veo 3.1 video generation via laozhang.ai.
+    """Client for Veo 3.1 video generation via OpenRouter.
 
     Submits a generation job, polls until completion, downloads the video
     to a local temp file, and returns the file path.
 
     Attributes:
         api_key: API key used for authentication.
-        base_url: Base URL of the laozhang.ai API.
-        model: Model name, e.g. ``"veo-3"``.
+        base_url: Base URL of the OpenRouter API.
+        model: Model name, e.g. ``"google/veo-3"``.
         ssl_verify: Whether to verify SSL certificates.
 
     Raises:
-        RuntimeError: If neither ``LAOZHANG_API_KEY`` nor ``OPENROUTER_API_KEY``
-            is set when instantiated.
+        RuntimeError: If ``OPENROUTER_API_KEY`` is not set when instantiated.
     """
 
     def __init__(self) -> None:
-        self.api_key = (
-            os.environ.get("LAOZHANG_API_KEY")
-            or os.environ.get("OPENROUTER_API_KEY")
-        )
+        self.api_key = os.environ.get("OPENROUTER_API_KEY")
         if not self.api_key:
             raise RuntimeError(
-                "Set LAOZHANG_API_KEY for Veo video generation. "
-                "OPENROUTER_API_KEY is also accepted as a fallback."
+                "Set OPENROUTER_API_KEY for Veo video generation."
             )
-        self.base_url = os.environ.get("LAOZHANG_API_URL", _DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = os.environ.get("OPENROUTER_VEO_URL", _DEFAULT_BASE_URL).rstrip("/")
         self.model = os.environ.get("VEO_MODEL", _DEFAULT_MODEL)
         self.ssl_verify = os.environ.get("GEMIA_SSL_VERIFY", "1") != "0"
 

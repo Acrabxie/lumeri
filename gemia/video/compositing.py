@@ -84,3 +84,90 @@ def add_audio_track(video_path: str, audio_path: str, output_path: str, *,
             output_path,
         ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# object_remove
+# ---------------------------------------------------------------------------
+def object_remove(input_path: str, output_path: str, *, mask: str | None = None) -> str:
+    """Remove objects from video using ffmpeg removelogo or blur inpainting.
+
+    Note: Production-quality removal requires external tools (Runway, Adobe).
+    This provides a best-effort ffmpeg approximation.
+
+    Args:
+        input_path: Source video.
+        output_path: Destination video.
+        mask: Path to binary mask image (white=remove, black=keep).
+              If None, applies full-frame blur as placeholder.
+
+    Returns:
+        output_path
+    """
+    if mask:
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-i", mask,
+            "-lavfi", f"removelogo={mask}",
+            "-c:a", "copy",
+            output_path,
+        ])
+    else:
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", "boxblur=10:1",
+            "-c:a", "copy",
+            output_path,
+        ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# background_replace
+# ---------------------------------------------------------------------------
+def background_replace(
+    input_path: str,
+    output_path: str,
+    *,
+    bg: str,
+    method: str = "chroma",
+) -> str:
+    """Replace video background using chroma or luma key.
+
+    Args:
+        input_path: Foreground video (green/blue screen or white background).
+        output_path: Destination video.
+        bg: Path to replacement background image or video.
+        method: ``"chroma"`` (green screen) or ``"luma"`` (white background).
+
+    Returns:
+        output_path
+    """
+    from pathlib import Path as _Path
+    bg_ext = _Path(bg).suffix.lower()
+    is_bg_image = bg_ext in {".jpg", ".jpeg", ".png", ".bmp", ".tiff"}
+
+    if is_bg_image:
+        bg_inputs = ["-loop", "1", "-i", bg]
+        shortest = ["-shortest"]
+    else:
+        bg_inputs = ["-i", bg]
+        shortest = []
+
+    if method == "chroma":
+        filtergraph = "[1:v][0:v]scale2ref[bg][fg];[fg]chromakey=0x00ff00:0.1:0.2[fgkey];[bg][fgkey]overlay"
+    else:
+        filtergraph = "[1:v][0:v]scale2ref[bg][fg];[fg]lumakey=0.0:0.1:0.1[fgkey];[bg][fgkey]overlay"
+
+    _run([
+        "ffmpeg", "-y",
+        "-i", input_path,
+        *bg_inputs,
+        "-filter_complex", filtergraph,
+        "-c:a", "copy",
+        *shortest,
+        output_path,
+    ])
+    return output_path
