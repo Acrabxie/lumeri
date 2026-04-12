@@ -86,3 +86,6 @@
 2026-04-11 22:45:05  Wave3 complete: #47 lufs_normalize, #48 ducker, #49 colorslice_grade, #50 film_look_creator, #51 intellitrack_zone — all PASS x2, committed cbd0e24
 2026-04-11 22:45:05  Total: 51 functions. Next cycle: Wave4 web-search + codex debug (every 10 milestone).
 2026-04-12 00:37:53  Auto-loop triggered (idle 112m). Wave4 agent started (#52-56).
+
+2026-04-12 02:40:58  Wave4 complete: #52 lut_apply, #53 vhs_effect, #54 chroma_aberration, #55 zoom_pan, #56 color_wheels — all PASS x2, committed 50dca0d
+2026-04-12 02:40:58  Total: 56 primitives. Next: Wave5 web-search + codex full debug (>50 milestone).

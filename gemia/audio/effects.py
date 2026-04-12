@@ -1,4 +1,4 @@
-"""gemia.audio.effects — Voice conversion and automatic mixing."""
+"""gemia.audio.effects — Voice conversion, automatic mixing, and voice isolation."""
 from __future__ import annotations
 
 import subprocess
@@ -84,6 +84,67 @@ def voice_convert(
     else:
         _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
 
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# voice_isolate  (#57)
+# ---------------------------------------------------------------------------
+def voice_isolate(
+    input_path: str,
+    output_path: str,
+    *,
+    low_hz: float = 80.0,
+    high_hz: float = 8000.0,
+    gate_db: float = -40.0,
+) -> str:
+    """Isolate voice/dialogue from background noise using bandpass + gate.
+
+    Mirrors DaVinci Resolve 19 Fairlight *Voice Isolation* AI feature with
+    an ffmpeg approximation: bandpass filter to speech frequencies, noise
+    gate to suppress bleed, and dynamic compression to level dialogue.
+
+    Args:
+        input_path: Source audio or video file.
+        output_path: Destination file.
+        low_hz: Low-frequency cutoff in Hz. Default 80 (removes rumble).
+        high_hz: High-frequency cutoff in Hz. Default 8000 (retains speech).
+        gate_db: Noise gate threshold in dBFS.  Default -40.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    gate_level = 10 ** (gate_db / 20.0)
+    # highpass → lowpass → agate → loudnorm
+    af = (
+        f"highpass=f={low_hz:.1f},"
+        f"lowpass=f={high_hz:.1f},"
+        f"agate=threshold={gate_level:.6f}:ratio=10:attack=10:release=100,"
+        f"loudnorm=I=-16:LRA=11:TP=-1.5"
+    )
+    is_video = Path(input_path).suffix.lower() in _VIDEO_EXTS
+    if is_video:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_audio = tf.name
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_isolated = tf.name
+        try:
+            _run(["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "aac", tmp_audio])
+            _run(["ffmpeg", "-y", "-i", tmp_audio, "-af", af, tmp_isolated])
+            _run([
+                "ffmpeg", "-y",
+                "-i", input_path, "-i", tmp_isolated,
+                "-map", "0:v", "-map", "1:a",
+                "-c:v", "copy", "-c:a", "aac",
+                output_path,
+            ])
+        finally:
+            for p in (tmp_audio, tmp_isolated):
+                Path(p).unlink(missing_ok=True)
+    else:
+        _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
     return output_path
 
 
