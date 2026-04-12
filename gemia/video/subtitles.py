@@ -652,12 +652,19 @@ def animated_text(
             f"{extra}"
         )
 
-    _run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf", vf,
-        "-c:v", "libx264", "-c:a", "aac",
-        output_path,
-    ])
+    if _has_drawtext():
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    else:
+        # PIL fallback: render static text overlay (no per-frame animation expressions)
+        fontsize = int(default_style.get("fontsize", 60))
+        fc = default_style.get("fontcolor", "white")
+        rgb = (255, 255, 255) if fc == "white" else (0, 0, 0)
+        _pil_text_overlay(input_path, output_path, [(text, fontsize, rgb)])
     return output_path
 
 
