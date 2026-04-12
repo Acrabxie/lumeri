@@ -89,3 +89,6 @@
 
 2026-04-12 02:40:58  Wave4 complete: #52 lut_apply, #53 vhs_effect, #54 chroma_aberration, #55 zoom_pan, #56 color_wheels — all PASS x2, committed 50dca0d
 2026-04-12 02:40:58  Total: 56 primitives. Next: Wave5 web-search + codex full debug (>50 milestone).
+
+2026-04-12 04:43:48  Wave5 complete: #57 voice_isolate, #58 depth_mask, #59 chroma_warp, #60 smart_multicam, #61 timeline_from_script — all PASS x2, committed 4159b21
+2026-04-12 04:43:48  Total: 61 primitives. Inspired by DaVinci Resolve 19: Voice Isolation, Magic Mask Depth Map, Colour Warper, AI Multicam SmartSwitch, IntelliScript. Next: codex full debug pass (>50 milestone overdue) + Wave6.
