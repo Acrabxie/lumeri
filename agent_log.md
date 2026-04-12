@@ -114,3 +114,5 @@
 2026-04-12 14:45:24  Total: 91+ primitives verified. Next: Wave12 tasks #15-19 (auto_subtitle, add_lower_third, animated_text, proxy_generate, match_color)
 2026-04-12 14:46:18  Wave12 complete: #15 auto_subtitle, #16 add_lower_third, #17 animated_text (PIL fallback), #40 proxy_generate, #19 match_color — all PASS x2
 2026-04-12 14:46:18  Next: Wave13 tasks #20-25 (skin_tone_protect, hdr_grade, film_grain_organic, super_scale, silence_detect, beat_detect)
+2026-04-12 14:47:08  Wave13 complete: #20 skin_tone_protect, #21 hdr_grade (PIL fallback), #22 film_grain_organic, #23 beat_detect, #25 stem_separate — all PASS x2
+2026-04-12 14:47:08  Next: Wave14 tasks #24 music_extend, #26 voice_convert, #27 auto_mix, #28 object_remove, #29 background_replace
