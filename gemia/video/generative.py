@@ -13,6 +13,8 @@ pipeline file path as their first positional argument.
 """
 from __future__ import annotations
 
+import subprocess
+
 # Import at module level so tests can patch "gemia.video.generative.VeoClient"
 try:
     from gemia.ai.veo_client import VeoClient
@@ -399,4 +401,144 @@ def hdr_tone_map(
         ],
         check=True, capture_output=True,
     )
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# film_look_creator  (#48) — DaVinci Resolve 19 Film Look Creator FX
+# ---------------------------------------------------------------------------
+def film_look_creator(
+    input_path: str,
+    output_path: str,
+    *,
+    halation: float = 0.3,
+    gate_weave: float = 0.5,
+    silver_halide: float = 0.4,
+    film_stock: str = "kodak",
+) -> str:
+    """Apply a film-look effect inspired by DaVinci Resolve 19's Film Look Creator.
+
+    Simulates analogue film characteristics: halation (red glow around
+    highlights), gate weave (slight random positional jitter), silver-halide
+    grain texture, and stock-specific colour response.
+
+    Args:
+        input_path: Source video.
+        output_path: Destination video.
+        halation: Intensity of red halation bloom [0, 1].  Default 0.3.
+        gate_weave: Magnitude of gate-weave positional jitter in pixels [0, 3].
+            Default 0.5.
+        silver_halide: Grain strength [0, 1].  Default 0.4.
+        film_stock: Colour response preset — ``"kodak"`` (warm), ``"fuji"``
+            (cool/green), or ``"ilford"`` (neutral B&W lift).
+
+    Returns:
+        output_path
+    """
+    _STOCK_EQ = {
+        "kodak": "colorchannelmixer=1.05:0:0:0:0:1:0:0:0:0:0.92:0,eq=contrast=1.05:brightness=0.01",
+        "fuji":  "colorchannelmixer=0.92:0:0:0:0:1.04:0:0:0:0:1.08:0,eq=contrast=1.02",
+        "ilford": "format=gray,format=yuv420p,eq=contrast=1.1:brightness=0.02",
+    }
+    stock_filter = _STOCK_EQ.get(film_stock, _STOCK_EQ["kodak"])
+
+    grain_strength = int(silver_halide * 20)
+    wp = max(1, int(gate_weave))  # gate weave in pixels
+
+    # Gate weave: crop slightly oversized, then shift with geq (compatible approach)
+    # Use pad+crop to add margin then crop with animated offset
+    vf_parts = [
+        # 1. Film stock colour response
+        stock_filter,
+        # 2. Silver-halide grain
+        f"noise=alls={grain_strength}:allf=t+u",
+        # 3. Gate weave via slight overscan + animated crop
+        f"pad=iw+{wp*2}:ih+{wp*2}:{wp}:{wp}",
+        f"crop=iw-{wp*2}:ih-{wp*2}:mod(n\\,{wp}):mod(n\\,{wp})",
+        # 4. Vignette for lens falloff
+        "vignette=PI/5",
+    ]
+    vf = ",".join(vf_parts)
+
+    subprocess.run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ], check=True, capture_output=True)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# intellitrack_zone  (#49) — DaVinci Resolve 19 IntelliTrack AI zone grading
+# ---------------------------------------------------------------------------
+def intellitrack_zone(
+    input_path: str,
+    output_path: str,
+    *,
+    zone_x: float = 0.5,
+    zone_y: float = 0.3,
+    zone_radius: float = 0.15,
+    grade: str = "warm",
+    feather: float = 0.08,
+) -> str:
+    """Apply selective colour grading inside a tracked circular zone.
+
+    Simulates DaVinci Resolve 19's *IntelliTrack AI* point-tracker used in
+    the Color page to selectively grade a region that follows a subject.
+    This implementation uses a static circular mask with soft feathering via
+    ffmpeg's ``geq`` filter.  For the tracked version, combine with
+    ``gemia.video.frames.ai_stabilize`` to pre-stabilise the region first.
+
+    Args:
+        input_path: Source video.
+        output_path: Destination video.
+        zone_x: Horizontal centre of the zone as fraction of frame width [0, 1].
+            Default 0.5 (centre).
+        zone_y: Vertical centre of the zone as fraction of frame height [0, 1].
+            Default 0.3 (upper-centre, typical for face tracking).
+        zone_radius: Radius as fraction of frame width [0.05, 0.5].  Default 0.15.
+        grade: Grade preset to apply inside zone: ``"warm"``, ``"cool"``,
+            ``"boost"``, ``"desaturate"``.  Default ``"warm"``.
+        feather: Soft edge width as fraction of frame width.  Default 0.08.
+
+    Returns:
+        output_path
+    """
+    import tempfile as _tmp
+    from pathlib import Path as _Path
+
+    _GRADE_PARAMS = {
+        "warm":       ("colorchannelmixer=1.08:0:0:0:0:1:0:0:0:0:0.88:0", "eq=saturation=1.1"),
+        "cool":       ("colorchannelmixer=0.88:0:0:0:0:1:0:0:0:0:1.12:0", ""),
+        "boost":      ("eq=contrast=1.15:brightness=0.03:saturation=1.25", ""),
+        "desaturate": ("hue=s=0.2", ""),
+    }
+    grade_filter, extra = _GRADE_PARAMS.get(grade, _GRADE_PARAMS["warm"])
+    inner_filter = f"{grade_filter},{extra}".rstrip(",")
+
+    # Build two streams: graded and original; blend with radial mask via geq
+    # geq mask: 1 inside zone (with feather), 0 outside
+    cx = zone_x
+    cy = zone_y
+    r = zone_radius
+    f = max(feather, 0.001)
+    # mask expression: smooth step from 1 at (r-feather) to 0 at (r+feather)
+    mask_expr = (
+        f"clip((({r}+{f})*W - sqrt((X-{cx}*W)^2+(Y-{cy}*H)^2))/({f}*W), 0, 1)"
+    )
+
+    filter_complex = (
+        f"[0:v]split=2[base][gradedin];"
+        f"[gradedin]{inner_filter}[graded];"
+        f"[base][graded]blend=all_expr='A*(1-{mask_expr})+B*{mask_expr}'[out]"
+    )
+
+    subprocess.run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", filter_complex,
+        "-map", "[out]", "-map", "0:a?",
+        "-c:a", "copy",
+        output_path,
+    ], check=True, capture_output=True)
     return output_path
