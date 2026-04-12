@@ -638,3 +638,174 @@ def timeline_from_script(
     from gemia.video.timeline import concat as _concat
     _concat(trimmed, output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# speed_ramp
+# ---------------------------------------------------------------------------
+
+def speed_ramp(
+    input_path: str,
+    output_path: str,
+    *,
+    keyframes: list[dict],
+) -> str:
+    """Apply a variable-speed ramp driven by time keyframes.
+
+    Each keyframe is a dict with ``"time"`` (float seconds in the *output*)
+    and ``"speed"`` (float multiplier, e.g. 2.0 = 2× speed).  Between
+    keyframes the speed is linearly interpolated.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        keyframes: List of ``{"time": float, "speed": float}`` dicts, sorted
+            ascending by ``time``.  At least one entry is required.
+
+    Returns:
+        The *output_path*.
+
+    Example::
+
+        speed_ramp("clip.mp4", "ramped.mp4", keyframes=[
+            {"time": 0.0,  "speed": 1.0},
+            {"time": 2.0,  "speed": 0.25},  # slow-mo
+            {"time": 4.0,  "speed": 4.0},   # fast-forward
+        ])
+    """
+    if not keyframes:
+        raise ValueError("keyframes must contain at least one entry")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if len(keyframes) == 1:
+        # Constant speed — use simple setpts
+        spd = float(keyframes[0]["speed"])
+        vf = f"setpts={1.0/spd:.6f}*PTS"
+        af = f"atempo={min(max(spd, 0.5), 100.0):.4f}"
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf, "-af", af,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+        return output_path
+
+    # Build a piecewise setpts expression that maps input PTS to output PTS.
+    # For each segment [t_i, t_{i+1}] with average speed s_avg, the input
+    # duration consumed is (t_{i+1} - t_i) * s_avg.  We accumulate input
+    # time offsets to build the mapping.
+    kfs = sorted(keyframes, key=lambda k: k["time"])
+
+    # Compute cumulative input time at each output keyframe boundary
+    # input_time[i] = total source seconds consumed up to output time kfs[i]["time"]
+    input_times = [0.0]
+    for i in range(len(kfs) - 1):
+        t_out_start = float(kfs[i]["time"])
+        t_out_end = float(kfs[i + 1]["time"])
+        t_out_dur = t_out_end - t_out_start
+        # Average speed over segment (linear interp midpoint)
+        s_avg = (float(kfs[i]["speed"]) + float(kfs[i + 1]["speed"])) / 2.0
+        input_times.append(input_times[-1] + t_out_dur * s_avg)
+
+    # Build an ffmpeg expr: given input PTS (in seconds), output PTS.
+    # setpts uses PTS in *input* time-base seconds; we want output seconds.
+    # We invert: given input_sec, find which segment it falls in and compute output_sec.
+    # Build nested if() expression.
+    # For segment i: input in [input_times[i], input_times[i+1]]
+    #   output = kfs[i]["time"] + (input - input_times[i]) / s_avg_i
+    segments = []
+    for i in range(len(kfs) - 1):
+        s_avg = (float(kfs[i]["speed"]) + float(kfs[i + 1]["speed"])) / 2.0
+        t_in_start = input_times[i]
+        t_out_start = float(kfs[i]["time"])
+        seg = (
+            f"if(lte(T,{input_times[i+1]:.6f}),"
+            f"{t_out_start:.6f}+(T-{t_in_start:.6f})/{s_avg:.6f}*TB"
+            f"*({s_avg:.6f})"
+        )
+        segments.append(seg)
+
+    # Fallback for time beyond last keyframe: use last speed
+    last_spd = float(kfs[-1]["speed"])
+    last_in = input_times[-1]
+    last_out = float(kfs[-1]["time"])
+    fallback = f"{last_out:.6f}+(T-{last_in:.6f})/{last_spd:.6f}"
+
+    # Build closing parens
+    expr = fallback
+    for seg in reversed(segments):
+        expr = seg + "," + expr + ")"
+
+    # Use simpler approach: just setpts with constant average speed per segment
+    # by splitting into segments, re-encoding each at the right speed, and concatenating
+    import tempfile as _tf
+    segments_paths: list[str] = []
+    with _tf.TemporaryDirectory() as td:
+        for i in range(len(kfs) - 1):
+            t_out_start = float(kfs[i]["time"])
+            t_out_end = float(kfs[i + 1]["time"])
+            t_out_dur = max(t_out_end - t_out_start, 0.01)
+            in_start = input_times[i]
+            in_dur = input_times[i + 1] - input_times[i]
+            s_avg = (float(kfs[i]["speed"]) + float(kfs[i + 1]["speed"])) / 2.0
+            s_avg = max(s_avg, 0.01)
+
+            seg_src = str(Path(td) / f"src_{i}.mp4")
+            seg_out = str(Path(td) / f"seg_{i}.mp4")
+
+            # Extract source segment
+            proc = subprocess.run([
+                "ffmpeg", "-y",
+                "-ss", str(in_start), "-t", str(in_dur),
+                "-i", input_path,
+                "-c:v", "libx264", "-c:a", "aac", seg_src,
+            ], capture_output=True, text=True)
+            if proc.returncode != 0:
+                continue
+
+            # Apply speed
+            atempo = min(max(s_avg, 0.5), 100.0)
+            proc2 = subprocess.run([
+                "ffmpeg", "-y", "-i", seg_src,
+                "-vf", f"setpts={1.0/s_avg:.6f}*PTS",
+                "-af", f"atempo={atempo:.4f}",
+                "-c:v", "libx264", "-c:a", "aac", seg_out,
+            ], capture_output=True, text=True)
+            if proc2.returncode == 0:
+                segments_paths.append(seg_out)
+
+        # Add tail from last keyframe to end
+        tail_src = str(Path(td) / "src_tail.mp4")
+        tail_out = str(Path(td) / "seg_tail.mp4")
+        last_spd = float(kfs[-1]["speed"])
+        proc_tail = subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(input_times[-1]),
+            "-i", input_path,
+            "-c:v", "libx264", "-c:a", "aac", tail_src,
+        ], capture_output=True, text=True)
+        if proc_tail.returncode == 0:
+            atempo = min(max(last_spd, 0.5), 100.0)
+            proc_tail2 = subprocess.run([
+                "ffmpeg", "-y", "-i", tail_src,
+                "-vf", f"setpts={1.0/last_spd:.6f}*PTS",
+                "-af", f"atempo={atempo:.4f}",
+                "-c:v", "libx264", "-c:a", "aac", tail_out,
+            ], capture_output=True, text=True)
+            if proc_tail2.returncode == 0:
+                segments_paths.append(tail_out)
+
+        if not segments_paths:
+            raise RuntimeError("speed_ramp: no segments could be encoded")
+
+        # Copy segments to persistent paths before concat
+        persistent = []
+        for j, sp in enumerate(segments_paths):
+            dst = str(Path(td) / f"final_{j}.mp4")
+            import shutil as _sh
+            _sh.copy2(sp, dst)
+            persistent.append(dst)
+
+        concat(persistent, output_path)
+    return output_path
