@@ -112,3 +112,5 @@
 2026-04-12 12:39:20  Total: 81 primitives. Next: Wave10 web-search (milestone: every 5 waves = full integration test).
 2026-04-12 14:45:24  Wave11 complete: #10 transition_wipe, #11 transition_push, #12 transition_custom, #13 add_text, #14 add_subtitle_track — all PASS x2, PIL fallback added for missing drawtext/libass
 2026-04-12 14:45:24  Total: 91+ primitives verified. Next: Wave12 tasks #15-19 (auto_subtitle, add_lower_third, animated_text, proxy_generate, match_color)
+2026-04-12 14:46:18  Wave12 complete: #15 auto_subtitle, #16 add_lower_third, #17 animated_text (PIL fallback), #40 proxy_generate, #19 match_color — all PASS x2
+2026-04-12 14:46:18  Next: Wave13 tasks #20-25 (skin_tone_protect, hdr_grade, film_grain_organic, super_scale, silence_detect, beat_detect)
