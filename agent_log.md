@@ -120,3 +120,4 @@
 2026-04-12 14:47:45  Next: Wave15 tasks #30 relight, #31 defocus_background, #32 motion_blur, #33 generate_broll, #34 generative_extend
 2026-04-12 14:48:25  Wave15 complete: #30 relight, #31 defocus_background, #32 motion_blur, #34 generative_extend, #33 generate_broll — all PASS x2
 2026-04-12 14:48:25  Next: Wave16 tasks #35 ai_color_grade, #36 auto_highlight, #37 scene_detect, #38 silence_detect, #39 export_preset, #41 batch_export
+2026-04-12 14:49:01  Wave16 complete: #35 ai_color_grade, #36 auto_highlight, #37 scene_detect, #38 silence_detect, #39 export_preset, #41 batch_export — all PASS x2
