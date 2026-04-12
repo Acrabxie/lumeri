@@ -1567,3 +1567,165 @@ def video_denoise_spatial(
     _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
           "-c:v", "libx264", "-c:a", "copy", output_path])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# chroma_key
+# ---------------------------------------------------------------------------
+
+def chroma_key(
+    input_path: str,
+    output_path: str,
+    *,
+    key_color: str = "0x00ff00",
+    similarity: float = 0.15,
+    blend: float = 0.05,
+    background_path: str | None = None,
+) -> str:
+    """Key out a chroma colour (green/blue screen) from a video.
+
+    Args:
+        input_path: Source video with chroma background.
+        output_path: Destination video.
+        key_color: Hex colour to remove (e.g. ``"0x00ff00"`` for green,
+            ``"0x0000ff"`` for blue).
+        similarity: Threshold distance from key colour (0–1, lower = tighter).
+        blend: Soft edge blend amount (0–1).
+        background_path: Optional replacement background image or video.
+            If *None*, the keyed-out area becomes black.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    ck_filter = (
+        f"chromakey=color={key_color}:similarity={similarity:.3f}"
+        f":blend={blend:.3f}"
+    )
+
+    if background_path:
+        bg_ext = Path(background_path).suffix.lower()
+        if bg_ext in {".jpg", ".jpeg", ".png", ".bmp"}:
+            bg_input = ["-loop", "1", "-i", background_path]
+        else:
+            bg_input = ["-i", background_path]
+        fc = f"[0:v]{ck_filter}[fg];[1:v][fg]overlay[v]"
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            *bg_input,
+            "-filter_complex", fc,
+            "-map", "[v]",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", ck_filter,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+
+    _run(cmd)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# frame_interpolate
+# ---------------------------------------------------------------------------
+
+def frame_interpolate(
+    input_path: str,
+    output_path: str,
+    *,
+    target_fps: float = 60.0,
+    mode: str = "blend",
+) -> str:
+    """Increase video frame rate via frame interpolation.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        target_fps: Desired output frame rate (e.g. 60, 120).
+        mode: Interpolation method — ``"blend"`` (fast, blends frames),
+            ``"mci"`` (motion-compensated, slower but smoother).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if mode == "mci":
+        vf = f"minterpolate=fps={target_fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+    else:
+        vf = f"minterpolate=fps={target_fps}:mi_mode=blend"
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# vignette
+# ---------------------------------------------------------------------------
+
+def vignette(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 0.5,
+    shape: str = "circle",
+) -> str:
+    """Apply a radial vignette (edge darkening) effect.
+
+    Args:
+        input_path: Source image or video file.
+        output_path: Destination file.
+        strength: Vignette intensity in [0, 1].  0 = no effect, 1 = heavy.
+        shape: ``"circle"`` (uniform) or ``"oval"`` (follows frame aspect).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(input_path).suffix.lower()
+    is_image = ext in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+    angle = strength * 1.5707963  # up to π/2
+    vf = f"vignette=angle={angle:.6f}"
+
+    if is_image:
+        # Use PIL for images
+        import numpy as np
+        from PIL import Image
+        img = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+        H, W = img.shape[:2]
+        cx, cy = W / 2.0, H / 2.0
+        if shape == "oval":
+            ys, xs = np.mgrid[0:H, 0:W]
+            dx = (xs - cx) / cx
+            dy = (ys - cy) / cy
+            dist = np.sqrt(dx**2 + dy**2)
+        else:
+            ys, xs = np.mgrid[0:H, 0:W]
+            r = max(cx, cy)
+            dist = np.sqrt((xs - cx)**2 + (ys - cy)**2) / r
+        mask = np.clip(1.0 - dist * strength, 0, 1)[:, :, np.newaxis]
+        img = np.clip(img * mask, 0, 1)
+        Image.fromarray((img * 255).astype(np.uint8)).save(output_path)
+    else:
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    return output_path
