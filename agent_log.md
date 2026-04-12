@@ -123,3 +123,5 @@
 2026-04-12 14:49:01  Wave16 complete: #35 ai_color_grade, #36 auto_highlight, #37 scene_detect, #38 silence_detect, #39 export_preset, #41 batch_export — all PASS x2
 2026-04-12 14:50:26  MILESTONE: All 41 original tasks COMPLETE. Integration test 23/23 PASS.
 2026-04-12 14:50:26  Waves 11-16 complete. Total task list: 41/41 completed. Library covers 90+ primitives across video, audio, picture, generative, subtitle, export modules.
+2026-04-12 16:40:44  Wave17 complete: #42 audio_visualizer, #46 loudness_meter, #45 speed_ramp, #44 picture_in_picture, #43 color_balance — all PASS x2, committed
+2026-04-12 16:40:44  Total: 96+ primitives. Creating Wave18 tasks next.

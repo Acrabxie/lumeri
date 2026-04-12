@@ -969,3 +969,94 @@ def noise_gate(
     else:
         _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_compressor
+# ---------------------------------------------------------------------------
+
+def audio_compressor(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold_db: float = -18.0,
+    ratio: float = 4.0,
+    attack_ms: float = 10.0,
+    release_ms: float = 100.0,
+    knee_db: float = 6.0,
+    makeup_db: float = 0.0,
+) -> str:
+    """Apply dynamic range compression using ffmpeg acompressor filter.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        threshold_db: Level above which compression kicks in (dB).
+        ratio: Compression ratio (e.g. 4.0 = 4:1).
+        attack_ms: Attack time in milliseconds.
+        release_ms: Release time in milliseconds.
+        knee_db: Soft-knee width in dB.
+        makeup_db: Output makeup gain in dB.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    threshold_lin = 10 ** (threshold_db / 20.0)
+    makeup_lin = 10 ** (makeup_db / 20.0)
+
+    af = (
+        f"acompressor=threshold={threshold_lin:.6f}"
+        f":ratio={ratio:.2f}"
+        f":attack={attack_ms:.1f}"
+        f":release={release_ms:.1f}"
+        f":knee={knee_db:.1f}"
+        f":makeup={makeup_lin:.6f}"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_compressor failed:\n{proc.stderr}")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# stereo_widener
+# ---------------------------------------------------------------------------
+
+def stereo_widener(
+    input_path: str,
+    output_path: str,
+    *,
+    width: float = 1.5,
+) -> str:
+    """Widen or narrow the stereo image of an audio file.
+
+    Args:
+        input_path: Source stereo audio file.
+        output_path: Destination audio file.
+        width: Stereo width multiplier.  1.0 = unchanged, > 1.0 = wider,
+            < 1.0 = narrower, 0.0 = mono.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # extrastereo multiplier: 1.0 = unchanged, 2.5 ≈ 1.5× perceived width
+    # Clamp to reasonable range
+    mult = max(0.0, width)
+    af = f"extrastereo={mult:.4f}"
+
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"stereo_widener failed:\n{proc.stderr}")
+    return output_path
