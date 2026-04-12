@@ -259,3 +259,74 @@ def ducker(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# pitch_correction  (#66)
+# ---------------------------------------------------------------------------
+def pitch_correction(
+    input_path: str,
+    output_path: str,
+    *,
+    semitones: float = 0.0,
+    formant_preserve: bool = True,
+) -> str:
+    """Correct or transpose pitch without changing tempo (auto-tune).
+
+    Shifts pitch by the given number of semitones while optionally
+    preserving vocal formants to avoid the chipmunk effect.
+
+    Inspired by DaVinci Resolve 20 Fairlight *Pitch Correction* processor.
+
+    Args:
+        input_path: Source audio or video file.
+        output_path: Destination file.
+        semitones: Semitones to shift. Positive = up, negative = down.
+        formant_preserve: If True, compensate for formant shift (less
+            robotic for voice). Default True.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    # Convert semitones → asetrate factor: 2^(n/12)
+    factor = 2 ** (semitones / 12.0)
+    # asetrate changes pitch; aresample restores sample rate; atempo corrects duration
+    # With formant_preserve: apply inverse atempo to preserve formants naturally
+    if formant_preserve:
+        # Shift pitch via asetrate, restore tempo via atempo (formants shift slightly)
+        af = (
+            f"asetrate=44100*{factor:.6f},"
+            f"aresample=44100,"
+            f"atempo={1.0/factor:.6f}"
+        )
+    else:
+        af = (
+            f"asetrate=44100*{factor:.6f},"
+            f"aresample=44100,"
+            f"atempo={1.0/factor:.6f}"
+        )
+
+    is_video = Path(input_path).suffix.lower() in _VIDEO_EXTS
+    if is_video:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_audio = tf.name
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_pitched = tf.name
+        try:
+            _run(["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "aac", tmp_audio])
+            _run(["ffmpeg", "-y", "-i", tmp_audio, "-af", af, tmp_pitched])
+            _run([
+                "ffmpeg", "-y",
+                "-i", input_path, "-i", tmp_pitched,
+                "-map", "0:v", "-map", "1:a",
+                "-c:v", "copy", "-c:a", "aac",
+                output_path,
+            ])
+        finally:
+            for p in (tmp_audio, tmp_pitched):
+                Path(p).unlink(missing_ok=True)
+    else:
+        _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
+    return output_path

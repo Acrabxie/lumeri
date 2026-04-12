@@ -22,7 +22,10 @@ from gemia.video.generative import (
     film_look_creator, intellitrack_zone,
 )
 from gemia.video.export import export_preset, proxy_generate, batch_export
-from gemia.video.effects import lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan, chroma_warp
+from gemia.video.effects import (
+    lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan, chroma_warp,
+    particle_emitter, planar_tracker, curves_warp, light_wrap,
+)
 from gemia.video.subtitles import (
     make_srt, make_vtt,
     transcribe_to_srt, transcribe_to_vtt,
@@ -60,4 +63,5 @@ __all__ = [
     "export_preset", "proxy_generate", "batch_export",
     # effects
     "lut_apply", "chroma_aberration", "vhs_effect", "color_wheels", "zoom_pan", "chroma_warp",
+    "particle_emitter", "planar_tracker", "curves_warp", "light_wrap",
 ]
