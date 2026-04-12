@@ -104,3 +104,6 @@
 
 2026-04-12 08:42:31  Token optimization pass complete: removed 31 dead-code lines from effects.py (zoom_pan 5 dead blocks, chroma_aberration dead split/rgbashift block). Committed b969123.
 2026-04-12 08:42:31  Status: 71 primitives across video/audio/picture. 7 waves complete. Next: Wave8 web-search + implementation.
+
+2026-04-12 10:40:47  Wave8 complete: #72 remove_silence, #73 speaker_separate, #74 create_adr_cues, #75 deep_composite, #76 rhythm_cut — all PASS x2, committed 023061e
+2026-04-12 10:40:47  Total: 76 primitives (video: 42, audio: 30, picture: 32). 8 waves complete. Next: Wave9 + full codex debug milestone (every 10 functions = every 2 waves).
