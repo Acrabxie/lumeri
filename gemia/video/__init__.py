@@ -26,6 +26,7 @@ from gemia.video.effects import (
     lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan, chroma_warp,
     particle_emitter, planar_tracker, curves_warp, light_wrap,
     ai_cinematic_haze, hdr_vivid,
+    deep_composite, rhythm_cut,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -66,4 +67,5 @@ __all__ = [
     "lut_apply", "chroma_aberration", "vhs_effect", "color_wheels", "zoom_pan", "chroma_warp",
     "particle_emitter", "planar_tracker", "curves_warp", "light_wrap",
     "ai_cinematic_haze", "hdr_vivid",
+    "deep_composite", "rhythm_cut",
 ]
