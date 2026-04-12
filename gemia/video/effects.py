@@ -48,15 +48,6 @@ def chroma_aberration(input_path: str, output_path: str, *, strength: int = 2) -
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     s = int(strength)
-    # Shift red channel right/down, blue channel left/up; green stays
-    vf = (
-        f"split=3[r][g][b];"
-        f"[r]rgbashift=rh={s}:rv={s}[rs];"
-        f"[b]rgbashift=bh=-{s}:bv=-{s}[bs];"
-        f"[rs][g][bs]mergeplanes=0x001020:gbrp"
-    )
-    # Simpler approach using geq per channel
-    w, h = "iw", "ih"
     vf = (
         f"geq="
         f"r='r(X-{s},Y-{s})':"
@@ -182,51 +173,25 @@ def zoom_pan(input_path: str, output_path: str, *,
     Returns:
         output_path
     """
+    import json as _json
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     sz = max(start_zoom, 0.1)
     ez = max(end_zoom, 0.1)
-    # zoompan: z=zoom, x/y=top-left corner of crop window
-    # N = frame number, duration = total frames (use on(1) for first frame duration)
-    zoom_expr = f"'if(eq(on,1),{sz},zoom+({ez}-{sz})/({{'on':'on'}}))'"
-    # Simpler: use linear interpolation with 'on' and total frame count
-    # zoompan requires knowing total frames; use a large value and it'll just hold
-    zoom_expr = f"{sz}+on*({ez}-{sz})/max(1,({ez}-{sz})*10000)"
-    # Use proper zoompan: z progresses from sz to ez over the clip
-    # x,y in zoompan are offsets in the *scaled* image for the crop window
-    px = x
-    py = y
-    vf = (
-        f"zoompan="
-        f"z='min({sz}+on/max(1,{{'dur'}})*({ez}-{sz}),{max(sz,ez)})':"
-        f"x='iw/2-(iw/zoom/2)+{px}*(iw-iw/zoom)':"
-        f"y='ih/2-(ih/zoom/2)+{py}*(ih-ih/zoom)':"
-        f"d=1:s=iw×ih:fps=30"
-    )
-    # Actually, simplest reliable zoompan:
-    vf = (
-        f"scale=8000:-1,zoompan="
-        f"z='if(lte(on,1),{sz},min(zoom+0.0005,{ez}))':"
-        f"x='iw/2-(iw/zoom/2)':"
-        f"y='ih/2-(ih/zoom/2)':"
-        f"d=1:s=iw/8:fps=30,scale=iw:-1"
-    )
-    # Let's use a clean approach based on input resolution
-    import json
+    px, py = x, y
+
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_path],
         capture_output=True, text=True,
     )
-    info = json.loads(probe.stdout)
+    info = _json.loads(probe.stdout)
     vstream = next((s for s in info["streams"] if s["codec_type"] == "video"), {})
     w = vstream.get("width", 1280)
     h = vstream.get("height", 720)
-
-    # frames per second
     fps_str = vstream.get("r_frame_rate", "30/1")
     num, den = (int(v) for v in fps_str.split("/"))
     fps = num / den if den else 30.0
 
-    step = (ez - sz) / max((fps * 10), 1)  # spread over full clip (up to 10s)
+    step = (ez - sz) / max((fps * 10), 1)
     vf = (
         f"zoompan="
         f"z='min(if(lte(on,1),{sz},zoom+{step:.8f}),{ez})':"

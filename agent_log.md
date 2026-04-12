@@ -97,3 +97,7 @@
 2026-04-12 06:46:06  Wave6 complete: #62 particle_emitter, #63 planar_tracker, #64 curves_warp, #65 light_wrap, #66 pitch_correction — all PASS x2, committed c919d07
 2026-04-12 06:46:06  Total: 66 primitives. Fix: curves_warp replaced cv2.createThinPlateSplineShapeTransformer (unavailable) with scipy RectBivariateSpline. light_wrap Path() nameerror fixed.
 2026-04-12 06:46:06  Next: Wave7 web-search + codex token optimization pass (>60 functions = 2x milestone).
+
+2026-04-12 08:41:14  Wave7 complete: #67 ai_cinematic_haze, #68 dynamic_eq_match, #69 level_matcher, #70 spectral_denoise, #71 hdr_vivid — all PASS x2, committed b45f6c1
+2026-04-12 08:41:14  Total: 71 primitives. Fixes: equalizer NaN→Q=2 bandwidth, hdr_vivid zscale unavailable→eq/curves fallback, dynamic_eq_match NaN guard.
+2026-04-12 08:41:14  Token optimization pass: reviewing effects.py for dead code / redundant imports. Next: Wave8 web-search.
