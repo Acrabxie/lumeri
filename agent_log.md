@@ -125,3 +125,5 @@
 2026-04-12 14:50:26  Waves 11-16 complete. Total task list: 41/41 completed. Library covers 90+ primitives across video, audio, picture, generative, subtitle, export modules.
 2026-04-12 16:40:44  Wave17 complete: #42 audio_visualizer, #46 loudness_meter, #45 speed_ramp, #44 picture_in_picture, #43 color_balance — all PASS x2, committed
 2026-04-12 16:40:44  Total: 96+ primitives. Creating Wave18 tasks next.
+2026-04-12 16:42:05  Wave18 complete: #47 chroma_key, #50 frame_interpolate, #49 vignette, #51 audio_compressor, #48 stereo_widener — all PASS x2
+2026-04-12 16:42:05  Total: 101+ primitives. Continuing Wave19.

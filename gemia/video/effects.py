@@ -1729,3 +1729,171 @@ def vignette(
             output_path,
         ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# blur_background
+# ---------------------------------------------------------------------------
+
+def blur_background(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_strength: int = 20,
+    subject_scale: float = 0.5,
+) -> str:
+    """Blur background while keeping a centered subject region sharp.
+
+    Uses a soft elliptical mask composited via ffmpeg filter_complex.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        blur_strength: Gaussian blur radius (pixels) for the background.
+        subject_scale: Fraction of frame (0–1) occupied by the sharp subject
+            ellipse (applied to both width and height).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Probe video dimensions to embed numeric constants in geq expression
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        W, H = map(int, probe.stdout.strip().split(","))
+    except Exception:
+        W, H = 640, 360  # fallback
+
+    cx, cy = W / 2.0, H / 2.0
+    ax = W * subject_scale / 2.0
+    ay = H * subject_scale / 2.0
+    ax2 = ax * ax
+    ay2 = ay * ay
+
+    # geq expression using numeric constants only
+    geq_lum = (
+        f"if(lte("
+        f"(X-{cx:.2f})*(X-{cx:.2f})/{ax2:.4f}+"
+        f"(Y-{cy:.2f})*(Y-{cy:.2f})/{ay2:.4f}"
+        f",1),255,0)"
+    )
+
+    fc = (
+        f"[0:v]split=2[sharp][blur_src];"
+        f"[blur_src]boxblur={blur_strength}[blurred];"
+        f"[0:v]geq=lum='{geq_lum}':cb=128:cr=128,format=gray[mask];"
+        f"[blurred][sharp][mask]maskedmerge[v]"
+    )
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", fc,
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_stabilize
+# ---------------------------------------------------------------------------
+
+def video_stabilize(
+    input_path: str,
+    output_path: str,
+    *,
+    smoothing: int = 10,
+    zoom: float = 0.0,
+) -> str:
+    """Stabilize shaky video using ffmpeg vidstab two-pass pipeline.
+
+    Requires ffmpeg built with libvidstab (``--enable-libvidstab``).
+    Falls back to deshake filter if libvidstab is unavailable.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination stabilized video file.
+        smoothing: Stabilisation smoothness (higher = smoother pan).
+        zoom: Additional zoom to hide black borders (0 = auto).
+
+    Returns:
+        The *output_path*.
+    """
+    import tempfile as _tf
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with _tf.TemporaryDirectory() as td:
+        trf = f"{td}/transforms.trf"
+
+        # Pass 1: detect
+        p1 = subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"vidstabdetect=stepsize=6:shakiness=8:accuracy=9:result={trf}",
+            "-f", "null", "-",
+        ], capture_output=True, text=True)
+
+        if p1.returncode != 0 or not Path(trf).exists():
+            # libvidstab not available — fallback to deshake
+            _run([
+                "ffmpeg", "-y", "-i", input_path,
+                "-vf", "deshake",
+                "-c:v", "libx264", "-c:a", "aac",
+                output_path,
+            ])
+            return output_path
+
+        # Pass 2: transform
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", (
+                f"vidstabtransform=input={trf}:smoothing={smoothing}"
+                f":zoom={zoom}:interpol=linear,unsharp=5:5:0.8:3:3:0.4"
+            ),
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# thumbnail_extract
+# ---------------------------------------------------------------------------
+
+def thumbnail_extract(
+    input_path: str,
+    output_dir: str,
+    *,
+    timestamps: list[float],
+    fmt: str = "jpg",
+) -> list[str]:
+    """Extract thumbnail frames at given timestamps.
+
+    Args:
+        input_path: Source video file.
+        output_dir: Directory to write thumbnail images.
+        timestamps: List of float seconds to extract.
+        fmt: Output image format — ``"jpg"`` or ``"png"``.
+
+    Returns:
+        List of output image paths (one per timestamp).
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    outputs: list[str] = []
+    for i, ts in enumerate(timestamps):
+        out = str(Path(output_dir) / f"thumb_{i:04d}_{ts:.3f}.{fmt}")
+        _run([
+            "ffmpeg", "-y",
+            "-ss", str(ts),
+            "-i", input_path,
+            "-vframes", "1",
+            "-q:v", "2",
+            out,
+        ])
+        outputs.append(out)
+    return outputs
