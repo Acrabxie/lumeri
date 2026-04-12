@@ -98,20 +98,15 @@ def _pil_text_overlay(
 
         # Re-encode frames back to video
         audio_tmp = str(_Path(td) / "audio.aac")
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "copy", audio_tmp],
+        audio_ok = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "aac", audio_tmp],
             capture_output=True,
-        )
-        subprocess.run(
-            ["ffmpeg", "-y",
-             "-framerate", str(fps),
-             "-i", frame_pattern,
-             "-i", audio_tmp,
-             "-c:v", "libx264", "-c:a", "copy",
-             "-pix_fmt", "yuv420p",
-             output_path],
-            check=True, capture_output=True,
-        )
+        ).returncode == 0 and _Path(audio_tmp).exists() and _Path(audio_tmp).stat().st_size > 0
+        cmd_enc = ["ffmpeg", "-y", "-framerate", str(fps), "-i", frame_pattern]
+        if audio_ok:
+            cmd_enc += ["-i", audio_tmp, "-c:a", "copy"]
+        cmd_enc += ["-c:v", "libx264", "-pix_fmt", "yuv420p", output_path]
+        subprocess.run(cmd_enc, check=True, capture_output=True)
     return output_path
 
 
@@ -773,12 +768,121 @@ def add_text(
             )
         vf = ",".join(segments)
 
-    _run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf", vf,
-        "-c:v", "libx264", "-c:a", "aac",
-        output_path,
-    ])
+    if _has_drawtext():
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    else:
+        # PIL fallback when ffmpeg lacks libfreetype/drawtext
+        fontsize = int(style.get("fontsize", 48))
+        fontcolor_str = style.get("fontcolor", "white")
+        if fontcolor_str == "white":
+            rgb = (255, 255, 255)
+        elif fontcolor_str == "black":
+            rgb = (0, 0, 0)
+        else:
+            rgb = (255, 255, 255)
+        lines_spec = [(text, fontsize, rgb)]
+        if keyframe_track:
+            lines_spec = [(kf["text"], fontsize, rgb) for kf in keyframe_track[:1]]
+        _pil_text_overlay(input_path, output_path, lines_spec)
+    return output_path
+
+
+def _parse_srt(srt_path: str) -> list[dict]:
+    """Parse an SRT file into a list of {start, end, text} dicts."""
+    import re
+    text = Path(srt_path).read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"\d+\s*\n"
+        r"(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*\n"
+        r"([\s\S]*?)(?=\n\d+\s*\n|\Z)",
+        re.MULTILINE,
+    )
+
+    def ts_to_sec(ts: str) -> float:
+        ts = ts.replace(",", ".")
+        h, m, rest = ts.split(":")
+        s, ms = rest.split(".")
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+    entries = []
+    for m in pattern.finditer(text):
+        entries.append({
+            "start": ts_to_sec(m.group(1)),
+            "end": ts_to_sec(m.group(2)),
+            "text": m.group(3).strip(),
+        })
+    return entries
+
+
+def _pil_subtitle_overlay(
+    input_path: str,
+    output_path: str,
+    entries: list[dict],
+    *,
+    fontsize: int = 24,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> str:
+    """Render SRT subtitles onto each frame using PIL."""
+    import tempfile, json, os
+    from pathlib import Path as _Path
+    from PIL import Image, ImageDraw, ImageFont
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "json", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    info = json.loads(probe.stdout)["streams"][0]
+    W, H = int(info["width"]), int(info["height"])
+    fps_str = info.get("r_frame_rate", "30/1")
+    fps_num, fps_den = map(int, fps_str.split("/"))
+    fps = fps_num / fps_den
+
+    with tempfile.TemporaryDirectory() as td:
+        frame_pattern = str(_Path(td) / "frame_%06d.png")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", f"fps={fps}", frame_pattern],
+            check=True, capture_output=True,
+        )
+
+        frames = sorted(f for f in os.listdir(td) if f.endswith(".png"))
+        for idx, fname in enumerate(frames):
+            t = idx / fps
+            active = [e for e in entries if e["start"] <= t < e["end"]]
+            if not active:
+                continue
+            fp = str(_Path(td) / fname)
+            img = Image.open(fp).convert("RGBA")
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", fontsize)
+            except Exception:
+                font = ImageFont.load_default()
+            y = H - fontsize - 30
+            for entry in active:
+                draw.text((W // 2, y), entry["text"], font=font, fill=(*color, 255), anchor="mm")
+                y += fontsize + 4
+            combined = Image.alpha_composite(img, overlay).convert("RGB")
+            combined.save(fp)
+
+        audio_tmp = str(_Path(td) / "audio.aac")
+        audio_ok = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "aac", audio_tmp],
+            capture_output=True,
+        ).returncode == 0 and _Path(audio_tmp).exists() and _Path(audio_tmp).stat().st_size > 0
+
+        cmd = ["ffmpeg", "-y", "-framerate", str(fps), "-i", frame_pattern]
+        if audio_ok:
+            cmd += ["-i", audio_tmp, "-c:a", "copy"]
+        cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", output_path]
+        subprocess.run(cmd, check=True, capture_output=True)
     return output_path
 
 
@@ -823,10 +927,21 @@ def add_subtitle_track(
         str(Path(srt_path).resolve()).replace("\\", "/").replace(":", "\\:")
     )
     vf = f"subtitles='{sub_path_esc}':force_style='{force_style}'"
-    _run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf", vf,
-        "-c:v", "libx264", "-c:a", "aac",
-        output_path,
-    ])
+    try:
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ])
+    except RuntimeError:
+        # libass not available — PIL fallback: parse SRT, burn text per-frame
+        entries = _parse_srt(srt_path)
+        if fontcolor == "white":
+            rgb = (255, 255, 255)
+        elif fontcolor == "black":
+            rgb = (0, 0, 0)
+        else:
+            rgb = (255, 255, 255)
+        _pil_subtitle_overlay(input_path, output_path, entries, fontsize=fontsize, color=rgb)
     return output_path
