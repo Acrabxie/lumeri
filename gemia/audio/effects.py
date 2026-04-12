@@ -1060,3 +1060,44 @@ def stereo_widener(
     if proc.returncode != 0:
         raise RuntimeError(f"stereo_widener failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_reverb
+# ---------------------------------------------------------------------------
+
+def audio_reverb(
+    input_path: str,
+    output_path: str,
+    *,
+    room_size: float = 0.5,
+    wet: float = 0.3,
+    dry: float = 0.7,
+) -> str:
+    """Add reverb/room effect to audio using ffmpeg aecho filter.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        room_size: Room size in [0, 1] — controls delay length.
+        wet: Wet (reverb) signal level.
+        dry: Dry (original) signal level.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Map room_size [0,1] to delay 20–500ms, decay 0.1–0.8
+    delay_ms = 20 + int(room_size * 480)
+    decay = 0.1 + room_size * 0.7
+
+    af = f"aecho={dry:.2f}:{wet:.2f}:{delay_ms}:{decay:.2f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_reverb failed:\n{proc.stderr}")
+    return output_path
