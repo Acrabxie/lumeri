@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 
 
-DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+DEFAULT_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-3-flash-preview")
 OUTPUT_DIR = Path("outputs")
 PLAN_SCHEMA_HINT = {
     "version": "1.0",

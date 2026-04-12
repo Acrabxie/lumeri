@@ -272,6 +272,26 @@ def _probe_frame_rate(input_path: str) -> float:
     return fps
 
 
+def _has_audio_stream(input_path: str) -> bool:
+    """Return whether the input contains at least one audio stream."""
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=index",
+            "-of", "csv=p=0",
+            input_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed: {input_path}\nSTDERR:\n{probe.stderr}"
+        )
+    return bool(probe.stdout.strip())
+
+
 def roll_edit(
     input_a: str,
     input_b: str,
@@ -472,4 +492,81 @@ def freeze_frame(
         "-c:v", "libx264", "-c:a", "aac",
         output_path,
     ])
+    return output_path
+
+
+def nest_clips(
+    input_paths: list[str],
+    output_path: str,
+    *,
+    crossfade_sec: float = 0.0,
+) -> str:
+    """Nest multiple clips into a single sub-sequence media file.
+
+    With ``crossfade_sec == 0``, this is equivalent to ``concat``.
+    With ``crossfade_sec > 0``, adjacent clips are joined via FFmpeg
+    ``xfade`` transitions, and audio is crossfaded when all inputs contain
+    audio streams.
+    """
+    if not input_paths:
+        raise ValueError("At least one input path is required.")
+    if crossfade_sec < 0:
+        raise ValueError("crossfade_sec must be >= 0.")
+    if crossfade_sec == 0 or len(input_paths) == 1:
+        return concat(input_paths, output_path)
+
+    durations = [_probe_duration(path) for path in input_paths]
+    for i in range(len(durations) - 1):
+        max_crossfade = min(durations[i], durations[i + 1])
+        if crossfade_sec >= max_crossfade:
+            raise ValueError(
+                "crossfade_sec must be smaller than each adjacent clip pair duration."
+            )
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    has_audio = all(_has_audio_stream(path) for path in input_paths)
+
+    cmd = ["ffmpeg", "-y"]
+    for path in input_paths:
+        cmd += ["-i", path]
+
+    filter_parts: list[str] = []
+    video_label = "v0"
+    filter_parts.append(f"[0:v]setpts=PTS-STARTPTS[{video_label}]")
+    if has_audio:
+        audio_label = "a0"
+        filter_parts.append(f"[0:a]asetpts=PTS-STARTPTS[{audio_label}]")
+    else:
+        audio_label = ""
+
+    elapsed = durations[0]
+    for i in range(1, len(input_paths)):
+        next_video = f"vsrc{i}"
+        filter_parts.append(f"[{i}:v]setpts=PTS-STARTPTS[{next_video}]")
+        next_audio = ""
+        if has_audio:
+            next_audio = f"asrc{i}"
+            filter_parts.append(f"[{i}:a]asetpts=PTS-STARTPTS[{next_audio}]")
+
+        video_out = f"vxf{i}"
+        offset = elapsed - crossfade_sec
+        filter_parts.append(
+            f"[{video_label}][{next_video}]xfade=transition=fade:duration={crossfade_sec}:offset={offset}[{video_out}]"
+        )
+        video_label = video_out
+
+        if has_audio:
+            audio_out = f"axf{i}"
+            filter_parts.append(
+                f"[{audio_label}][{next_audio}]acrossfade=d={crossfade_sec}[{audio_out}]"
+            )
+            audio_label = audio_out
+
+        elapsed += durations[i] - crossfade_sec
+
+    cmd += ["-filter_complex", ";".join(filter_parts), "-map", f"[{video_label}]"]
+    if has_audio:
+        cmd += ["-map", f"[{audio_label}]"]
+    cmd += ["-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
     return output_path

@@ -1,15 +1,8 @@
-"""Gemini image generation client (Nano Banana).
-
-Supports two backends:
-- **Native Gemini REST API** (``GEMINI_API_KEY``) — preferred for image output reliability.
-- **OpenRouter API** (``OPENROUTER_API_KEY``) — fallback when Gemini API key is absent.
+"""Gemini image generation client (Nano Banana) via OpenRouter.
 
 Environment variables
 ---------------------
-GEMINI_API_KEY              : Preferred API key for native Gemini REST.
-OPENROUTER_API_KEY          : Fallback API key for OpenRouter.
-GEMINI_NB_FLASH_MODEL       : Override flash model for native Gemini.
-GEMINI_NB_PRO_MODEL         : Override pro model for native Gemini.
+OPENROUTER_API_KEY          : Required. API key for OpenRouter.
 OPENROUTER_NB_FLASH_MODEL   : Override flash model for OpenRouter.
 OPENROUTER_NB_PRO_MODEL     : Override pro model for OpenRouter.
 GEMIA_SSL_VERIFY            : Set to "0" to disable SSL verification.
@@ -32,53 +25,34 @@ from gemia.primitives_common import ensure_float32, to_uint8
 
 # ── Model name constants ─────────────────────────────────────────────────
 
-_NATIVE_FLASH_DEFAULT = "gemini-2.0-flash-exp-image-generation"
-_NATIVE_PRO_DEFAULT = "gemini-2.5-pro-preview-05-06"
 _OPENROUTER_FLASH_DEFAULT = "google/gemini-2.0-flash-exp"
 _OPENROUTER_PRO_DEFAULT = "google/gemini-2.5-pro-preview-05-06"
 
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 class GenerativeClient:
-    """Client for Gemini image generation (Nano Banana NB2 / Pro).
-
-    Selects backend automatically:
-    - If ``GEMINI_API_KEY`` is set (and ``prefer_native=True``), uses native Gemini REST.
-    - Otherwise falls back to OpenRouter with ``OPENROUTER_API_KEY``.
+    """Client for Gemini image generation (Nano Banana NB2 / Pro) via OpenRouter.
 
     Args:
         model_tier: ``"flash"`` (NB2) or ``"pro"`` (NB Pro). Default ``"flash"``.
-        prefer_native: Prefer native Gemini API when key is available. Default ``True``.
 
     Raises:
-        RuntimeError: If neither ``GEMINI_API_KEY`` nor ``OPENROUTER_API_KEY`` is set.
+        RuntimeError: If ``OPENROUTER_API_KEY`` is not set.
     """
 
-    def __init__(self, model_tier: str = "flash", prefer_native: bool = True) -> None:
+    def __init__(self, model_tier: str = "flash") -> None:
         self.model_tier = model_tier
         self.ssl_verify = os.environ.get("GEMIA_SSL_VERIFY", "1") != "0"
 
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
         openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
-
-        if prefer_native and gemini_key:
-            self._backend = "native"
-            self._api_key = gemini_key
-            self._model = self._resolve_native_model(model_tier)
-        elif openrouter_key:
-            self._backend = "openrouter"
-            self._api_key = openrouter_key
-            self._model = self._resolve_openrouter_model(model_tier)
-        elif gemini_key:
-            self._backend = "native"
-            self._api_key = gemini_key
-            self._model = self._resolve_native_model(model_tier)
-        else:
+        if not openrouter_key:
             raise RuntimeError(
-                "Set GEMINI_API_KEY (preferred) or OPENROUTER_API_KEY for Nano Banana image generation."
+                "Set OPENROUTER_API_KEY for Nano Banana image generation."
             )
+        self._backend = "openrouter"
+        self._api_key = openrouter_key
+        self._model = self._resolve_openrouter_model(model_tier)
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -94,8 +68,6 @@ class GenerativeClient:
         Raises:
             RuntimeError: If the API call fails or returns no image.
         """
-        if self._backend == "native":
-            return self._native_text_to_image(prompt)
         return self._openrouter_text_to_image(prompt)
 
     def generate_image_from_image_and_text(self, img: np.ndarray, prompt: str) -> np.ndarray:
@@ -111,8 +83,6 @@ class GenerativeClient:
         Raises:
             RuntimeError: If the API call fails or returns no image.
         """
-        if self._backend == "native":
-            return self._native_image_and_text(img, prompt)
         return self._openrouter_image_and_text(img, prompt)
 
     def blend_two_images(self, img_a: np.ndarray, img_b: np.ndarray, prompt: str) -> np.ndarray:
@@ -129,68 +99,7 @@ class GenerativeClient:
         Raises:
             RuntimeError: If the API call fails or returns no image.
         """
-        if self._backend == "native":
-            return self._native_blend(img_a, img_b, prompt)
         return self._openrouter_blend(img_a, img_b, prompt)
-
-    # ── Native Gemini REST ────────────────────────────────────────────────
-
-    def _native_text_to_image(self, prompt: str) -> np.ndarray:
-        url = f"{_GEMINI_BASE_URL}/{self._model}:generateContent?key={self._api_key}"
-        payload: dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
-        }
-        body = self._post_json(url, payload, auth_header=False)
-        return self._extract_image_from_native_response(body)
-
-    def _native_image_and_text(self, img: np.ndarray, prompt: str) -> np.ndarray:
-        url = f"{_GEMINI_BASE_URL}/{self._model}:generateContent?key={self._api_key}"
-        b64 = _ndarray_to_b64(img)
-        payload: dict[str, Any] = {
-            "contents": [{
-                "parts": [
-                    {"inlineData": {"mimeType": "image/png", "data": b64}},
-                    {"text": prompt},
-                ]
-            }],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
-        }
-        body = self._post_json(url, payload, auth_header=False)
-        return self._extract_image_from_native_response(body)
-
-    def _native_blend(self, img_a: np.ndarray, img_b: np.ndarray, prompt: str) -> np.ndarray:
-        url = f"{_GEMINI_BASE_URL}/{self._model}:generateContent?key={self._api_key}"
-        b64_a = _ndarray_to_b64(img_a)
-        b64_b = _ndarray_to_b64(img_b)
-        payload: dict[str, Any] = {
-            "contents": [{
-                "parts": [
-                    {"inlineData": {"mimeType": "image/png", "data": b64_a}},
-                    {"inlineData": {"mimeType": "image/png", "data": b64_b}},
-                    {"text": prompt},
-                ]
-            }],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
-        }
-        body = self._post_json(url, payload, auth_header=False)
-        return self._extract_image_from_native_response(body)
-
-    def _extract_image_from_native_response(self, body: dict) -> np.ndarray:
-        """Extract the first inlineData image from a native Gemini response."""
-        try:
-            parts = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError) as exc:
-            raise RuntimeError(f"Unexpected Gemini response structure: {body}") from exc
-        for part in parts:
-            if "inlineData" in part:
-                data = part["inlineData"]["data"]
-                mime = part["inlineData"].get("mimeType", "image/png")
-                return _b64_to_ndarray(data, mime)
-        raise RuntimeError(
-            "Gemini returned no image in response. "
-            "Check that the model supports image generation and GEMINI_API_KEY is valid."
-        )
 
     # ── OpenRouter API ────────────────────────────────────────────────────
 
@@ -294,12 +203,6 @@ class GenerativeClient:
             raise RuntimeError(f"Gemini API request failed: {exc}") from exc
 
     # ── Model resolution ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _resolve_native_model(tier: str) -> str:
-        if tier == "pro":
-            return os.environ.get("GEMINI_NB_PRO_MODEL", _NATIVE_PRO_DEFAULT)
-        return os.environ.get("GEMINI_NB_FLASH_MODEL", _NATIVE_FLASH_DEFAULT)
 
     @staticmethod
     def _resolve_openrouter_model(tier: str) -> str:
