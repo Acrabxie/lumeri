@@ -57,3 +57,18 @@
 - [ ] Design 1 blended cinematic editing scene test with real Pexels video
 - [ ] codex full debug pass (all 41 functions)
 - [ ] Run antigravity loop with real video: download pexels clip → run gemia primitive → review output
+
+## Wave 2: DaVinci Resolve-Inspired Features (+5)
+
+| # | Function | Status | Passes | Notes |
+|---|----------|--------|--------|-------|
+| 42 | optical_flow_retime(clip, target_fps) | pending | 0/2 | AI frame interpolation |
+| 43 | ai_stabilize(clip, strength) | pending | 0/2 | Kalman + feature tracking |
+| 44 | hdr_tone_map(clip, target_format) | pending | 0/2 | HDR10/Dolby Vision |
+| 45 | denoise_temporal(clip, strength) | pending | 0/2 | NLM temporal denoising |
+| 46 | stereo_3d_align(left, right, output) | pending | 0/2 | Side-by-side/anaglyph |
+
+## Blended Cinematic Scene Test (Wave 2)
+- Download Pexels nature footage
+- Apply: scene_detect → ai_color_grade(cinematic) → add_lower_third → export_preset(youtube)
+- Verify end-to-end pipeline PASS x2
