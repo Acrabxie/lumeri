@@ -571,3 +571,60 @@ def motion_blur(
     img = Image.open(input_path).convert("RGB")
     _apply(img).save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# color_balance
+# ---------------------------------------------------------------------------
+
+def color_balance(
+    input_path: str,
+    output_path: str,
+    *,
+    shadows: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    midtones: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    highlights: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> str:
+    """Adjust color balance in shadow/midtone/highlight tonal ranges.
+
+    Each range receives an RGB shift tuple where values are in [-1.0, 1.0].
+    Positive values shift toward that channel; negative away.
+
+    Args:
+        input_path: Source image or video file.
+        output_path: Destination file.
+        shadows: (r, g, b) shift for dark pixels.
+        midtones: (r, g, b) shift for mid-range pixels.
+        highlights: (r, g, b) shift for bright pixels.
+
+    Returns:
+        The *output_path*.
+    """
+    import numpy as np
+    from PIL import Image
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    img = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+
+    # Build per-pixel luminance mask
+    lum = img.mean(axis=2, keepdims=True)  # (H, W, 1)
+
+    # Shadow weight: peaks at lum=0, zero at lum=0.5+
+    w_shadow = np.clip(1.0 - lum * 2.0, 0, 1)
+    # Highlight weight: peaks at lum=1, zero at lum=0.5-
+    w_highlight = np.clip((lum - 0.5) * 2.0, 0, 1)
+    # Midtone weight: peaks at lum=0.5, zero at extremes
+    w_mid = np.clip(1.0 - np.abs(lum - 0.5) * 4.0, 0, 1)
+
+    sr, sg, sb = [float(x) * 0.3 for x in shadows]
+    mr, mg, mb = [float(x) * 0.3 for x in midtones]
+    hr, hg, hb = [float(x) * 0.3 for x in highlights]
+
+    img[:, :, 0] += w_shadow[:, :, 0] * sr + w_mid[:, :, 0] * mr + w_highlight[:, :, 0] * hr
+    img[:, :, 1] += w_shadow[:, :, 0] * sg + w_mid[:, :, 0] * mg + w_highlight[:, :, 0] * hg
+    img[:, :, 2] += w_shadow[:, :, 0] * sb + w_mid[:, :, 0] * mb + w_highlight[:, :, 0] * hb
+
+    img = np.clip(img, 0, 1)
+    Image.fromarray((img * 255).astype(np.uint8)).save(output_path)
+    return output_path

@@ -6,11 +6,11 @@ from gemia.video.frames import (
 from gemia.video.timeline import (
     cut, concat, nest_clips, speed, reverse,
     slip_edit, slide_edit, ripple_trim, roll_edit, freeze_frame,
-    timeline_from_script,
+    timeline_from_script, speed_ramp,
 )
 from gemia.video.compositing import (
     overlay, add_audio_track, object_remove, background_replace, stereo_3d_align,
-    depth_mask,
+    depth_mask, picture_in_picture,
 )
 from gemia.video.transitions import (
     transition_dissolve, transition_wipe, transition_push, transition_custom,
@@ -46,10 +46,10 @@ __all__ = [
     # timeline
     "cut", "concat", "nest_clips", "speed", "reverse",
     "slip_edit", "slide_edit", "ripple_trim", "roll_edit", "freeze_frame",
-    "timeline_from_script",
+    "timeline_from_script", "speed_ramp",
     # compositing
     "overlay", "add_audio_track", "object_remove", "background_replace", "stereo_3d_align",
-    "depth_mask",
+    "depth_mask", "picture_in_picture",
     "lut_apply", "vhs_effect", "chroma_aberration", "zoom_pan", "color_wheels",
     # transitions
     "transition_dissolve", "transition_wipe", "transition_push", "transition_custom",

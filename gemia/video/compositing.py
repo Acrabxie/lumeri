@@ -553,3 +553,77 @@ def color_wheels(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# picture_in_picture
+# ---------------------------------------------------------------------------
+
+def picture_in_picture(
+    main_path: str,
+    overlay_path: str,
+    output_path: str,
+    *,
+    position: str = "top_right",
+    scale: float = 0.25,
+    margin: int = 20,
+    start_sec: float = 0.0,
+    end_sec: float | None = None,
+) -> str:
+    """Composite a picture-in-picture overlay onto a main video.
+
+    Args:
+        main_path: Background/main video file.
+        overlay_path: PiP clip to overlay.
+        output_path: Destination video file.
+        position: Corner placement — ``"top_left"``, ``"top_right"``,
+            ``"bottom_left"``, ``"bottom_right"``, or ``"center"``.
+        scale: PiP size as a fraction of the main video width (0.0–1.0).
+        margin: Pixel gap from the edge of the frame.
+        start_sec: When (in main video seconds) the PiP appears.
+        end_sec: When the PiP disappears (``None`` = until overlay ends).
+
+    Returns:
+        The *output_path*.
+    """
+    from pathlib import Path as _Path
+    _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    scale_vf = f"scale=iw*{scale:.4f}:-2"
+
+    _pos_map = {
+        "top_left":     f"{margin}:{margin}",
+        "top_right":    f"main_w-overlay_w-{margin}:{margin}",
+        "bottom_left":  f"{margin}:main_h-overlay_h-{margin}",
+        "bottom_right": f"main_w-overlay_w-{margin}:main_h-overlay_h-{margin}",
+        "center":       "(main_w-overlay_w)/2:(main_h-overlay_h)/2",
+    }
+    xy = _pos_map.get(position, _pos_map["top_right"])
+
+    if end_sec is not None:
+        enable = f":enable='between(t,{start_sec},{end_sec})'"
+    else:
+        enable = f":enable='gte(t,{start_sec})'"
+
+    fc = (
+        f"[1:v]{scale_vf}[pip];"
+        f"[0:v][pip]overlay={xy}{enable}[v]"
+    )
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
+         "stream=codec_type", "-of", "csv=p=0", main_path],
+        capture_output=True, text=True,
+    )
+    has_audio = bool(probe.stdout.strip())
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", main_path,
+        "-i", overlay_path,
+        "-filter_complex", fc,
+        "-map", "[v]",
+    ]
+    if has_audio:
+        cmd += ["-map", "0:a"]
+    cmd += ["-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+    return output_path

@@ -267,3 +267,142 @@ def silence_detect(
         result.append({"start": start, "end": end, "duration": end - start})
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# loudness_meter
+# ---------------------------------------------------------------------------
+
+def loudness_meter(audio_path: str) -> dict:
+    """Measure integrated LUFS, true-peak dBFS, and LRA using ffmpeg ebur128.
+
+    Args:
+        audio_path: Source audio or video file.
+
+    Returns:
+        Dict with keys ``integrated_lufs`` (float), ``true_peak_dbfs`` (float),
+        ``lra`` (float, loudness range), ``threshold_lufs`` (float).
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", audio_path,
+        "-af", "loudnorm=I=-23:TP=-1:LRA=7:print_format=json",
+        "-f", "null", "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    combined = proc.stdout + proc.stderr
+
+    # Parse the JSON block from loudnorm output
+    start = combined.rfind("{")
+    end = combined.rfind("}") + 1
+    if start != -1 and end > start:
+        data = json.loads(combined[start:end])
+        return {
+            "integrated_lufs": float(data.get("input_i", data.get("output_i", -23))),
+            "true_peak_dbfs": float(data.get("input_tp", data.get("output_tp", -1))),
+            "lra": float(data.get("input_lra", data.get("output_lra", 7))),
+            "threshold_lufs": float(data.get("input_thresh", data.get("output_thresh", -33))),
+        }
+
+    # Fallback: parse ebur128 summary lines
+    result = {"integrated_lufs": -23.0, "true_peak_dbfs": -1.0, "lra": 7.0, "threshold_lufs": -33.0}
+    for line in combined.splitlines():
+        if "I:" in line and "LUFS" in line:
+            m = re.search(r"I:\s*([-\d.]+)\s*LUFS", line)
+            if m:
+                result["integrated_lufs"] = float(m.group(1))
+        if "True peak:" in line or "Peak:" in line:
+            m = re.search(r"(True peak|Peak):\s*([-\d.]+)", line)
+            if m:
+                result["true_peak_dbfs"] = float(m.group(2))
+        if "LRA:" in line:
+            m = re.search(r"LRA:\s*([-\d.]+)\s*LU", line)
+            if m:
+                result["lra"] = float(m.group(1))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# audio_visualizer
+# ---------------------------------------------------------------------------
+
+def audio_visualizer(
+    audio_path: str,
+    output_path: str,
+    *,
+    mode: str = "waveform",
+    width: int = 1280,
+    height: int = 720,
+    fps: int = 30,
+    bg_color: str = "black",
+    fg_color: str = "0x00ff00",
+) -> str:
+    """Render audio as an animated visualization video.
+
+    Args:
+        audio_path: Source audio file.
+        output_path: Destination video file.
+        mode: ``"waveform"`` (showwaves), ``"spectrum"`` (showspectrum),
+              or ``"combined"`` (waveform + spectrum stacked).
+        width: Output video width in pixels.
+        height: Output video height in pixels.
+        fps: Output frame rate.
+        bg_color: Background colour (ffmpeg colour string).
+        fg_color: Foreground/wave colour.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    duration_proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+        capture_output=True, text=True,
+    )
+    duration = float(duration_proc.stdout.strip()) if duration_proc.returncode == 0 else None
+
+    if mode == "spectrum":
+        vf = (
+            f"showspectrum=s={width}x{height}:mode=combined:color=intensity"
+            f":fps={fps}:slide=scroll"
+        )
+        cmd = [
+            "ffmpeg", "-y", "-i", audio_path,
+            "-filter_complex", f"[0:a]{vf}[v]",
+            "-map", "[v]", "-map", "0:a",
+            "-c:v", "libx264", "-c:a", "aac",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+    elif mode == "combined":
+        h2 = height // 2
+        vf_wave = f"showwaves=s={width}x{h2}:mode=line:colors={fg_color}:rate={fps}"
+        vf_spec = f"showspectrum=s={width}x{h2}:mode=combined:fps={fps}:slide=scroll"
+        fc = (
+            f"[0:a]asplit=2[a1][a2];"
+            f"[a1]{vf_wave}[v1];"
+            f"[a2]{vf_spec}[v2];"
+            f"[v1][v2]vstack[v]"
+        )
+        cmd = [
+            "ffmpeg", "-y", "-i", audio_path,
+            "-filter_complex", fc,
+            "-map", "[v]", "-map", "0:a",
+            "-c:v", "libx264", "-c:a", "aac",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+    else:  # waveform (default)
+        vf = f"showwaves=s={width}x{height}:mode=line:colors={fg_color}:rate={fps}"
+        cmd = [
+            "ffmpeg", "-y", "-i", audio_path,
+            "-filter_complex", f"[0:a]{vf}[v]",
+            "-map", "[v]", "-map", "0:a",
+            "-c:v", "libx264", "-c:a", "aac",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_visualizer failed:\n{proc.stderr}")
+    return output_path
