@@ -475,8 +475,11 @@ def relight(
             grad = np.ones((h, 1)) * np.linspace(0.4, 1.2, w)[np.newaxis, :]
         elif d == "top-left":
             grad = (np.linspace(1.2, 0.4, h)[:, np.newaxis] + np.linspace(1.2, 0.4, w)[np.newaxis, :]) / 2
-        else:  # top-right
+        elif d == "top-right":
             grad = (np.linspace(1.2, 0.4, h)[:, np.newaxis] + np.linspace(0.4, 1.2, w)[np.newaxis, :]) / 2
+        else:
+            raise ValueError(f"Unknown light_direction '{light_direction}'. "
+                             f"Choose from: top, bottom, left, right, top-left, top-right")
 
         grad = grad[:, :, np.newaxis]
         result = np.clip(arr * grad, 0.0, 1.0)
@@ -515,7 +518,7 @@ def motion_blur(
     """
     vf = vector_field or {}
     angle_deg = float(vf.get("angle", 0))
-    strength = int(vf.get("strength", 20))
+    strength = max(1, int(vf.get("strength", 20)))
 
     def _apply(img):
         import numpy as np
@@ -538,8 +541,8 @@ def motion_blur(
         if s > 0:
             kernel /= s
 
-        from scipy.ndimage import convolve
         try:
+            from scipy.ndimage import convolve
             result = np.stack([convolve(arr[:, :, c], kernel) for c in range(arr.shape[2])], axis=2)
             result = np.clip(result, 0, 255).astype(np.uint8)
             return _Image.fromarray(result)

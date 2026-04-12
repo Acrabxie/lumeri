@@ -185,7 +185,8 @@ def generative_extend(
             subprocess.run([
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
                 "-i", list_file,
-                "-c:v", "libx264", "-c:a", "copy",
+                "-c:v", "libx264",
+                "-c:a", "aac", "-ac", "2",
                 output_path,
             ], check=True, capture_output=True)
         return output_path
@@ -193,7 +194,7 @@ def generative_extend(
     except Exception:
         # Fallback: freeze last frame
         freeze_frame(input_path, output_path,
-                     timestamp_sec=src_dur - 0.05,
+                     timestamp_sec=max(0.0, src_dur - 0.05),
                      freeze_duration_sec=duration)
         return output_path
 
@@ -237,10 +238,15 @@ def ai_color_grade(
     if vf is None:
         raise ValueError(f"Unknown mood '{mood}'. Choose from: {list(_MOOD_FILTERS)}")
 
+    from pathlib import Path as _Path
+    _IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+    is_image = _Path(input_path).suffix.lower() in _IMG_EXTS
+    audio_args = [] if is_image else ["-c:a", "copy"]
+
     subprocess.run([
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:a", "copy",
+        *audio_args,
         output_path,
     ], check=True, capture_output=True)
     return output_path
@@ -332,7 +338,8 @@ def generate_broll(
 
         subprocess.run([
             "ffmpeg", "-y", "-i", raw_path,
-            "-vf", vf, "-c:a", "copy",
+            "-vf", vf,
+            "-c:a", "aac", "-ac", "2",
             styled_path,
         ], capture_output=True)
         output_paths.append(styled_path)
@@ -378,12 +385,16 @@ def hdr_tone_map(
         f"format=yuv420p10le"
     )
 
+    _IMG_EXTS2 = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+    _is_img = _Path(input_path).suffix.lower() in _IMG_EXTS2
+    _audio_args = [] if _is_img else ["-c:a", "copy"]
+
     _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
             "ffmpeg", "-y", "-i", input_path,
             "-vf", vf,
-            "-c:a", "copy",
+            *_audio_args,
             output_path,
         ],
         check=True, capture_output=True,
