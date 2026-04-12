@@ -1101,3 +1101,61 @@ def audio_reverb(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_reverb failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_fade
+# ---------------------------------------------------------------------------
+
+def audio_fade(
+    input_path: str,
+    output_path: str,
+    *,
+    fade_in_sec: float = 0.0,
+    fade_out_sec: float = 0.0,
+) -> str:
+    """Apply fade-in and/or fade-out to an audio file.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        fade_in_sec: Duration of the fade-in in seconds (0 = no fade-in).
+        fade_out_sec: Duration of the fade-out in seconds (0 = no fade-out).
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess, json
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Probe duration for fade-out offset
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    duration = float(probe.stdout.strip()) if probe.returncode == 0 else 0.0
+
+    parts: list[str] = []
+    if fade_in_sec > 0:
+        parts.append(f"afade=t=in:st=0:d={fade_in_sec:.3f}")
+    if fade_out_sec > 0 and duration > 0:
+        fade_out_start = max(0.0, duration - fade_out_sec)
+        parts.append(f"afade=t=out:st={fade_out_start:.3f}:d={fade_out_sec:.3f}")
+
+    if not parts:
+        # Nothing to do — just copy
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+            capture_output=True, check=True,
+        )
+        return output_path
+
+    af = ",".join(parts)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_fade failed:\n{proc.stderr}")
+    return output_path

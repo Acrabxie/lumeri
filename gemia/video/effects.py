@@ -1897,3 +1897,194 @@ def thumbnail_extract(
         ])
         outputs.append(out)
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# split_screen
+# ---------------------------------------------------------------------------
+
+def split_screen(
+    input_paths: list[str],
+    output_path: str,
+    *,
+    layout: str = "2x1",
+    width: int = 1280,
+    height: int = 720,
+) -> str:
+    """Compose multiple videos into a split-screen layout.
+
+    Args:
+        input_paths: 2–4 source video files.
+        output_path: Destination video file.
+        layout: ``"2x1"`` (side by side), ``"1x2"`` (top/bottom),
+            ``"2x2"`` (grid), ``"3x1"`` (three side by side).
+        width: Output video width in pixels.
+        height: Output video height in pixels.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    n = len(input_paths)
+    if n < 2:
+        raise ValueError("split_screen requires at least 2 input videos")
+
+    if layout == "2x2" and n >= 4:
+        w2, h2 = width // 2, height // 2
+        scale = f"scale={w2}:{h2}"
+        fc = (
+            f"[0:v]{scale}[a];[1:v]{scale}[b];[2:v]{scale}[c];[3:v]{scale}[d];"
+            f"[a][b]hstack[top];[c][d]hstack[bot];[top][bot]vstack[v]"
+        )
+        inputs = [x for p in input_paths[:4] for x in ["-i", p]]
+    elif layout == "1x2" and n >= 2:
+        w2, h2 = width, height // 2
+        scale = f"scale={w2}:{h2}"
+        fc = f"[0:v]{scale}[a];[1:v]{scale}[b];[a][b]vstack[v]"
+        inputs = ["-i", input_paths[0], "-i", input_paths[1]]
+    elif layout == "3x1" and n >= 3:
+        w3, h1 = width // 3, height
+        scale = f"scale={w3}:{h1}"
+        fc = (
+            f"[0:v]{scale}[a];[1:v]{scale}[b];[2:v]{scale}[c];"
+            f"[a][b][c]hstack=inputs=3[v]"
+        )
+        inputs = ["-i", input_paths[0], "-i", input_paths[1], "-i", input_paths[2]]
+    else:  # default 2x1
+        w2, h1 = width // 2, height
+        scale = f"scale={w2}:{h1}"
+        fc = f"[0:v]{scale}[a];[1:v]{scale}[b];[a][b]hstack[v]"
+        inputs = ["-i", input_paths[0], "-i", input_paths[1]]
+
+    _run([
+        "ffmpeg", "-y",
+        *inputs,
+        "-filter_complex", fc,
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_loop
+# ---------------------------------------------------------------------------
+
+def video_loop(
+    input_path: str,
+    output_path: str,
+    *,
+    count: int = 3,
+) -> str:
+    """Loop a video clip N times by concatenating it with itself.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        count: Number of times to loop (1 = original, 2 = doubled, etc.).
+
+    Returns:
+        The *output_path*.
+    """
+    if count < 1:
+        raise ValueError("count must be >= 1")
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Build concat filter_complex: [0:v][0:a] repeated count times
+    has_audio = _has_audio(input_path)
+    n = count
+    video_segs = "".join(f"[0:v]" for _ in range(n))
+    audio_segs = "".join(f"[0:a]" for _ in range(n))
+
+    if has_audio:
+        fc = f"{video_segs}{audio_segs}concat=n={n}:v=1:a=1[v][a]"
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-filter_complex", fc,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-c:a", "aac",
+            output_path,
+        ]
+    else:
+        fc = f"{video_segs}concat=n={n}:v=1:a=0[v]"
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-filter_complex", fc,
+            "-map", "[v]",
+            "-c:v", "libx264",
+            output_path,
+        ]
+    _run(cmd)
+    return output_path
+
+
+def _has_audio(path: str) -> bool:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+        capture_output=True, text=True,
+    )
+    return bool(probe.stdout.strip())
+
+
+# ---------------------------------------------------------------------------
+# video_to_gif
+# ---------------------------------------------------------------------------
+
+def video_to_gif(
+    input_path: str,
+    output_path: str,
+    *,
+    fps: float = 15.0,
+    width: int = 480,
+    start_sec: float = 0.0,
+    duration_sec: float | None = None,
+) -> str:
+    """Convert a video clip to an optimised GIF.
+
+    Uses ffmpeg's palettegen + paletteuse two-pass pipeline for high quality.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination ``.gif`` file.
+        fps: GIF frame rate.
+        width: Output width in pixels (-1 = keep aspect).
+        start_sec: Start offset in the source video.
+        duration_sec: Duration to convert (``None`` = full video).
+
+    Returns:
+        The *output_path*.
+    """
+    import tempfile as _tf
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    trim_args = ["-ss", str(start_sec)]
+    if duration_sec is not None:
+        trim_args += ["-t", str(duration_sec)]
+
+    scale_vf = f"fps={fps},scale={width}:-1:flags=lanczos"
+
+    with _tf.TemporaryDirectory() as td:
+        palette = f"{td}/palette.png"
+
+        # Pass 1: generate palette
+        _run([
+            "ffmpeg", "-y",
+            *trim_args,
+            "-i", input_path,
+            "-vf", f"{scale_vf},palettegen=stats_mode=diff",
+            palette,
+        ])
+
+        # Pass 2: encode GIF with palette
+        _run([
+            "ffmpeg", "-y",
+            *trim_args,
+            "-i", input_path,
+            "-i", palette,
+            "-filter_complex",
+            f"{scale_vf} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5",
+            output_path,
+        ])
+    return output_path
