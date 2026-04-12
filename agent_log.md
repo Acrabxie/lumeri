@@ -92,3 +92,8 @@
 
 2026-04-12 04:43:48  Wave5 complete: #57 voice_isolate, #58 depth_mask, #59 chroma_warp, #60 smart_multicam, #61 timeline_from_script — all PASS x2, committed 4159b21
 2026-04-12 04:43:48  Total: 61 primitives. Inspired by DaVinci Resolve 19: Voice Isolation, Magic Mask Depth Map, Colour Warper, AI Multicam SmartSwitch, IntelliScript. Next: codex full debug pass (>50 milestone overdue) + Wave6.
+
+2026-04-12 06:46:06  Manual debug pass for Wave5: all ffmpeg filters (agate, loudnorm, alphamerge, geq lum) confirmed working. No bugs found.
+2026-04-12 06:46:06  Wave6 complete: #62 particle_emitter, #63 planar_tracker, #64 curves_warp, #65 light_wrap, #66 pitch_correction — all PASS x2, committed c919d07
+2026-04-12 06:46:06  Total: 66 primitives. Fix: curves_warp replaced cv2.createThinPlateSplineShapeTransformer (unavailable) with scipy RectBivariateSpline. light_wrap Path() nameerror fixed.
+2026-04-12 06:46:06  Next: Wave7 web-search + codex token optimization pass (>60 functions = 2x milestone).
