@@ -101,3 +101,240 @@ def extend_video(
         RuntimeError: If ``LAOZHANG_API_KEY`` is not set or generation fails.
     """
     return VeoClient().extend(video_path, prompt, duration=duration)
+
+
+# ---------------------------------------------------------------------------
+# generative_extend  (#34)
+# ---------------------------------------------------------------------------
+def generative_extend(
+    input_path: str,
+    output_path: str,
+    *,
+    duration: float = 2.0,
+) -> str:
+    """Extend a video by generating new frames at the end.
+
+    Tries optical-flow extrapolation (OpenCV), then falls back to freezing
+    the last frame for ``duration`` seconds.
+
+    Args:
+        input_path: Source video.
+        output_path: Destination video.
+        duration: Extension duration in seconds.
+
+    Returns:
+        output_path
+    """
+    import subprocess, tempfile
+    from pathlib import Path as _Path
+    from gemia.video.timeline import freeze_frame, _probe_duration
+
+    src_dur = _probe_duration(input_path)
+
+    try:
+        import cv2, numpy as np
+        # Extract last 10 frames
+        cap = cv2.VideoCapture(input_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        start_frame = max(0, total - 10)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        frames = []
+        while True:
+            ret, f = cap.read()
+            if not ret:
+                break
+            frames.append(f)
+        cap.release()
+
+        if len(frames) < 2:
+            raise ValueError("not enough frames")
+
+        flow = cv2.calcOpticalFlowFarneback(
+            cv2.cvtColor(frames[-2], cv2.COLOR_BGR2GRAY),
+            cv2.cvtColor(frames[-1], cv2.COLOR_BGR2GRAY),
+            None, 0.5, 3, 15, 3, 5, 1.2, 0,
+        )
+
+        n_new = int(duration * fps)
+        new_frames = []
+        last = frames[-1].astype(np.float32)
+        for i in range(1, n_new + 1):
+            ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+            map_x = (xs + flow[:, :, 0] * i).clip(0, w - 1)
+            map_y = (ys + flow[:, :, 1] * i).clip(0, h - 1)
+            warped = cv2.remap(last, map_x, map_y, cv2.INTER_LINEAR)
+            new_frames.append(warped.clip(0, 255).astype(np.uint8))
+
+        with tempfile.TemporaryDirectory() as td:
+            ext_video = str(_Path(td) / "ext.mp4")
+            out_ext = cv2.VideoWriter(ext_video, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+            for f in new_frames:
+                out_ext.write(f)
+            out_ext.release()
+
+            # concat list
+            list_file = str(_Path(td) / "list.txt")
+            with open(list_file, "w") as lf:
+                lf.write(f"file '{_Path(input_path).resolve()}'\n")
+                lf.write(f"file '{_Path(ext_video).resolve()}'\n")
+
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file,
+                "-c:v", "libx264", "-c:a", "copy",
+                output_path,
+            ], check=True, capture_output=True)
+        return output_path
+
+    except Exception:
+        # Fallback: freeze last frame
+        freeze_frame(input_path, output_path,
+                     timestamp_sec=src_dur - 0.05,
+                     freeze_duration_sec=duration)
+        return output_path
+
+
+# ---------------------------------------------------------------------------
+# ai_color_grade  (#35)
+# ---------------------------------------------------------------------------
+_MOOD_FILTERS = {
+    "cinematic": (
+        "colorchannelmixer=.9:0:.1:0:.1:.8:.1:0:.1:.1:.9:0,"
+        "curves=r='0/0 0.5/0.45 1/1':g='0/0 0.5/0.5 1/1':b='0/0 0.5/0.58 1/1'"
+    ),
+    "warm": "colorchannelmixer=1.1:0:0:0:0:1:0:0:0:0:0.85:0",
+    "cool": "colorchannelmixer=0.85:0:0:0:0:1:0:0:0:0:1.15:0",
+    "vintage": "curves=preset=vintage,hue=s=0.7,vignette=PI/4",
+    "moody": "eq=contrast=1.2:brightness=-0.05:saturation=0.8,vignette=PI/3",
+    "vibrant": "eq=saturation=1.4:contrast=1.05,curves=r='0/0 0.5/0.52 1/1'",
+    "bw": "format=gray,format=yuv420p",
+}
+
+
+def ai_color_grade(
+    input_path: str,
+    output_path: str,
+    *,
+    mood: str = "cinematic",
+) -> str:
+    """Apply a colour-grading preset inspired by common AI/cinematic looks.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination.
+        mood: One of ``"cinematic"``, ``"warm"``, ``"cool"``, ``"vintage"``,
+              ``"moody"``, ``"vibrant"``, ``"bw"``.
+
+    Returns:
+        output_path
+    """
+    import subprocess
+    vf = _MOOD_FILTERS.get(mood)
+    if vf is None:
+        raise ValueError(f"Unknown mood '{mood}'. Choose from: {list(_MOOD_FILTERS)}")
+
+    subprocess.run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ], check=True, capture_output=True)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# generate_broll  (#33)
+# ---------------------------------------------------------------------------
+def generate_broll(
+    script_text: str,
+    output_dir: str,
+    *,
+    style: str = "cinematic",
+) -> list[str]:
+    """Download B-roll clips from Pexels matching keywords in script_text.
+
+    Args:
+        script_text: Script or description to extract keywords from.
+        output_dir: Directory to save downloaded clips.
+        style: Colour grade preset to apply (``"cinematic"``, ``"documentary"``,
+               ``"vintage"``).
+
+    Returns:
+        List of paths to downloaded and styled clips.
+
+    Raises:
+        EnvironmentError: If ``PEXELS_API_KEY`` env var is not set.
+    """
+    import os, re, subprocess, urllib.request, urllib.parse, json
+    from pathlib import Path as _Path
+
+    api_key = os.environ.get("PEXELS_API_KEY") or os.environ.get("EXA_API_KEY", "")
+    pexels_key = os.environ.get("PEXELS_API_KEY", "")
+    if not pexels_key:
+        raise EnvironmentError(
+            "PEXELS_API_KEY env var not set. "
+            "Get a free key at https://www.pexels.com/api/"
+        )
+
+    _Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Extract keywords: take top 5 non-stopword words by frequency
+    stopwords = {"the", "a", "an", "is", "are", "was", "were", "in", "on",
+                 "at", "to", "of", "and", "or", "but", "with", "for", "it"}
+    words = re.findall(r"\b[a-z]{4,}\b", script_text.lower())
+    freq: dict[str, int] = {}
+    for w in words:
+        if w not in stopwords:
+            freq[w] = freq.get(w, 0) + 1
+    keywords = sorted(freq, key=lambda k: -freq[k])[:5] or ["nature"]
+
+    _STYLE_FILTERS = {
+        "cinematic": "colorchannelmixer=.9:0:.1:0:.1:.8:.1:0:.1:.1:.9:0",
+        "documentary": "hue=s=0.7,eq=contrast=1.1:brightness=-0.05",
+        "vintage": "hue=s=0.5,curves=preset=vintage",
+    }
+    vf = _STYLE_FILTERS.get(style, _STYLE_FILTERS["cinematic"])
+
+    output_paths: list[str] = []
+    for kw in keywords:
+        url = (f"https://api.pexels.com/videos/search"
+               f"?query={urllib.parse.quote(kw)}&per_page=1&size=medium")
+        req = urllib.request.Request(url, headers={"Authorization": pexels_key})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+        except Exception:
+            continue
+
+        videos = data.get("videos", [])
+        if not videos:
+            continue
+        video_files = videos[0].get("video_files", [])
+        if not video_files:
+            continue
+        # Pick SD quality
+        file_url = sorted(video_files, key=lambda f: f.get("width", 0))[len(video_files) // 2]["link"]
+
+        raw_path = str(_Path(output_dir) / f"broll_{kw}_raw.mp4")
+        styled_path = str(_Path(output_dir) / f"broll_{kw}.mp4")
+
+        req2 = urllib.request.Request(file_url)
+        try:
+            with urllib.request.urlopen(req2, timeout=30) as resp2:
+                with open(raw_path, "wb") as fout:
+                    fout.write(resp2.read())
+        except Exception:
+            continue
+
+        subprocess.run([
+            "ffmpeg", "-y", "-i", raw_path,
+            "-vf", vf, "-c:a", "copy",
+            styled_path,
+        ], capture_output=True)
+        output_paths.append(styled_path)
+
+    return output_paths

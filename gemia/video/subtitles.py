@@ -211,7 +211,7 @@ def burn_subtitles(
     return output_path
 
 
-def add_subtitle_track(
+def mux_subtitle_track(
     input_path: str,
     subtitle_path: str,
     output_path: str,
@@ -274,6 +274,283 @@ def extract_subtitle_track(
     return output_path
 
 
+# ── Auto-subtitle (transcribe + burn) ────────────────────────────────────────
+
+def auto_subtitle(input_path: str, output_path: str, *, language: str = "en") -> str:
+    """Transcribe video audio with Whisper and burn the subtitles into the video.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file with burned-in subtitles.
+        language: ISO-639-1 language code passed to Whisper (e.g. ``'en'``, ``'zh'``).
+
+    Returns:
+        The *output_path*.
+    """
+    try:
+        import whisper  # type: ignore
+    except ImportError:
+        raise ImportError("openai-whisper is required: pip install openai-whisper")
+
+    import uuid
+
+    uid = uuid.uuid4().hex
+    wav_path = f"/tmp/gemia_whisper_{uid}.wav"
+    srt_path = f"/tmp/gemia_whisper_{uid}.srt"
+
+    try:
+        # Step 1: extract mono 16 kHz WAV
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+            wav_path,
+        ])
+
+        # Step 2: transcribe with Whisper
+        model = whisper.load_model("base")
+        result = model.transcribe(wav_path, language=language)
+
+        # Step 3: write SRT
+        entries = [
+            {"start": seg["start"], "end": seg["end"], "text": seg["text"]}
+            for seg in result["segments"]
+        ]
+        make_srt(entries, srt_path)
+
+        # Step 4: burn subtitles
+        burn_subtitles(input_path, srt_path, output_path)
+
+    finally:
+        # Step 5: clean up temp files
+        for tmp in (wav_path, srt_path):
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    return output_path
+
+
+# ── Lower-third graphic ───────────────────────────────────────────────────────
+
+def add_lower_third(
+    input_path: str,
+    output_path: str,
+    *,
+    title: str,
+    subtitle: str = "",
+    style: dict | None = None,
+) -> str:
+    """Overlay a lower-third title/subtitle bar onto a video using ffmpeg.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        title: Primary text line.
+        subtitle: Secondary (smaller) text line below the title.
+        style: Optional dict with keys ``bg_color``, ``title_size``,
+            ``subtitle_size``, ``color``, ``x``, ``y_offset``, ``duration``.
+
+    Returns:
+        The *output_path*.
+    """
+    s = style or {}
+    bg_color = s.get("bg_color", "black@0.7")
+    title_size = int(s.get("title_size", 40))
+    subtitle_size = int(s.get("subtitle_size", 28))
+    color = s.get("color", "white")
+    x = int(s.get("x", 20))
+    y_offset = int(s.get("y_offset", 80))
+    duration = s.get("duration", None)  # float seconds or None for full video
+
+    # Height of the box: title + subtitle (if any) + padding
+    if subtitle:
+        box_height = title_size + subtitle_size + 4 + 20
+    else:
+        box_height = title_size + 20
+
+    # Escape single quotes for ffmpeg filter syntax
+    title_esc = title.replace("'", "\\'")
+    subtitle_esc = subtitle.replace("'", "\\'")
+
+    # Build time-enable expression if duration is given
+    if duration is not None:
+        enable = f":enable='between(t,0,{float(duration)})'"
+    else:
+        enable = ""
+
+    box_filter = (
+        f"drawbox=x=0:y=ih-{box_height}:w=iw:h={box_height}"
+        f":color={bg_color}:t=fill{enable}"
+    )
+    title_filter = (
+        f"drawtext=text='{title_esc}':fontsize={title_size}"
+        f":fontcolor={color}:x={x}:y=ih-{y_offset}{enable}"
+    )
+
+    vf_parts = [box_filter, title_filter]
+
+    if subtitle:
+        subtitle_filter = (
+            f"drawtext=text='{subtitle_esc}':fontsize={subtitle_size}"
+            f":fontcolor={color}:x={x}:y=ih-{y_offset}+{title_size}+4{enable}"
+        )
+        vf_parts.append(subtitle_filter)
+
+    vf = ",".join(vf_parts)
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ── Animated text overlay ─────────────────────────────────────────────────────
+
+
+def animated_text(
+    input_path: str,
+    output_path: str,
+    *,
+    text: str,
+    animation_preset: str = "fade_in",
+    duration_sec: float | None = None,
+    start_sec: float = 0.0,
+    style: dict | None = None,
+) -> str:
+    """Overlay animated text on a video using ffmpeg drawtext.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        text: The text string to display.
+        animation_preset: One of ``'fade_in'``, ``'fade_out'``,
+            ``'fade_in_out'``, ``'slide_up'``, ``'typewriter'``, ``'blink'``.
+        duration_sec: How long to show the text (seconds). If *None*, the
+            text is shown from *start_sec* to the end of the video.
+        start_sec: When (in seconds) to start showing the text.
+        style: Optional dict overriding default drawtext style keys
+            (``fontsize``, ``fontcolor``, ``x``, ``y``).
+
+    Returns:
+        The *output_path*.
+    """
+    # Resolve duration via ffprobe when not given
+    if duration_sec is None:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode != 0:
+            raise RuntimeError(f"ffprobe failed:\n{probe.stderr}")
+        total_duration = float(probe.stdout.strip())
+        duration_sec = max(0.0, total_duration - start_sec)
+
+    end_sec = start_sec + duration_sec
+
+    # Merge caller overrides with defaults
+    default_style: dict = {
+        "fontsize": 60,
+        "fontcolor": "white",
+        "x": "(w-text_w)/2",
+        "y": "(h-text_h)/2",
+    }
+    if style:
+        default_style.update(style)
+
+    s = start_sec
+    dur = duration_sec
+    target_y = default_style["y"]
+
+    def _esc(t: str) -> str:
+        """Escape text for ffmpeg drawtext (backslash, colon, single-quote)."""
+        return t.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+    escaped_text = _esc(text)
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if animation_preset == "typewriter":
+        # 10 sequential drawtext segments each revealing more characters
+        n_steps = 10
+        step_dur = dur / n_steps
+        char_total = len(text)
+        filters: list[str] = []
+        for i in range(n_steps):
+            n_chars = max(1, round(char_total * (i + 1) / n_steps))
+            partial = _esc(text[:n_chars])
+            seg_start = s + i * step_dur
+            seg_end = s + (i + 1) * step_dur
+            parts = [
+                f"text='{partial}'",
+                f"fontsize={default_style['fontsize']}",
+                f"fontcolor={default_style['fontcolor']}",
+                f"x={default_style['x']}",
+                f"y={default_style['y']}",
+                f"enable='between(t,{seg_start},{seg_end})'",
+            ]
+            filters.append("drawtext=" + ":".join(parts))
+        vf = ",".join(filters)
+    else:
+        enable = f"between(t,{s},{end_sec})"
+
+        if animation_preset == "fade_in":
+            alpha = f"if(lt(t-{s},0.5),(t-{s})/0.5,1)"
+            extra = f":alpha='{alpha}'"
+            y_expr = str(default_style["y"])
+        elif animation_preset == "fade_out":
+            alpha = f"if(gt(t-{s},{dur}-0.5),({s}+{dur}-t)/0.5,1)"
+            extra = f":alpha='{alpha}'"
+            y_expr = str(default_style["y"])
+        elif animation_preset == "fade_in_out":
+            alpha = (
+                f"if(lt(t-{s},0.5),(t-{s})/0.5,"
+                f"if(gt(t-{s},{dur}-0.5),({s}+{dur}-t)/0.5,1))"
+            )
+            extra = f":alpha='{alpha}'"
+            y_expr = str(default_style["y"])
+        elif animation_preset == "slide_up":
+            y_expr = (
+                f"if(lt(t-{s},0.5),ih-(ih-({target_y}))*(t-{s})/0.5,{target_y})"
+            )
+            extra = ""
+        elif animation_preset == "blink":
+            alpha = f"if(mod(floor((t-{s})*2),2),1,0)"
+            extra = f":alpha='{alpha}'"
+            y_expr = str(default_style["y"])
+        else:
+            raise ValueError(f"Unknown animation_preset: {animation_preset!r}")
+
+        vf = (
+            f"drawtext="
+            f"text='{escaped_text}'"
+            f":fontsize={default_style['fontsize']}"
+            f":fontcolor={default_style['fontcolor']}"
+            f":x={default_style['x']}"
+            f":y={y_expr}"
+            f":enable='{enable}'"
+            f"{extra}"
+        )
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
 # ── Internal colour helpers ───────────────────────────────────────────────────
 
 _NAMED_COLORS: dict[str, str] = {
@@ -296,3 +573,145 @@ def _css_to_bgr(color: str) -> str:
         return "FFFFFF"
     r, g, b = hex6[0:2], hex6[2:4], hex6[4:6]
     return f"{b}{g}{r}"
+
+
+# ── Text overlay ──────────────────────────────────────────────────────────────
+
+def _pos_to_ffmpeg(value: "int | str") -> str:
+    """Convert a position value to an ffmpeg drawtext expression string."""
+    if isinstance(value, int):
+        return str(value)
+    if value == "center":
+        return "(w-text_w)/2"
+    return value  # already an ffmpeg expression
+
+
+def add_text(
+    input_path: str,
+    output_path: str,
+    *,
+    text: str,
+    style: dict,
+    position: dict,
+    keyframe_track: "list[dict] | None" = None,
+) -> str:
+    """Burn text onto a video using the ffmpeg ``drawtext`` filter.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        text: Text string to render (used when *keyframe_track* is ``None``).
+        style: Rendering options — ``font`` (str, default ``'Arial'``),
+            ``fontsize`` (int, default 48), ``fontcolor`` (str, default
+            ``'white'``), ``box`` (bool, default ``False``),
+            ``boxcolor`` (str, default ``'black@0.5'``),
+            ``bold`` (bool, default ``False``).
+        position: ``x`` and ``y`` values — integers (pixels) or strings such
+            as ``'center'``, ``'(w-text_w)/2'``, or ``'h-100'``.
+        keyframe_track: Optional list of ``{"time": float, "text": str}``
+            dicts.  Each entry is shown from its ``time`` to the next
+            entry's ``time`` (or end of video for the last entry).  When
+            ``None`` the *text* argument is shown for the full duration.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    font = style.get("font", "Arial")
+    fontsize = int(style.get("fontsize", 48))
+    fontcolor = style.get("fontcolor", "white")
+    box = int(bool(style.get("box", False)))
+    boxcolor = style.get("boxcolor", "black@0.5")
+    bold = int(bool(style.get("bold", False)))
+
+    x_expr = _pos_to_ffmpeg(position.get("x", 0))
+    y_expr = _pos_to_ffmpeg(position.get("y", 0))
+
+    base_opts = (
+        f":font={font}"
+        f":fontsize={fontsize}"
+        f":fontcolor={fontcolor}"
+        f":box={box}"
+        f":boxcolor={boxcolor}"
+        f":bold={bold}"
+        f":x={x_expr}"
+        f":y={y_expr}"
+    )
+
+    if keyframe_track is None:
+        escaped_text = text.replace("'", "\\'").replace(":", "\\:")
+        vf = f"drawtext=text='{escaped_text}'{base_opts}"
+    else:
+        segments: list[str] = []
+        for i, kf in enumerate(keyframe_track):
+            t_start = float(kf["time"])
+            t_end = (
+                float(keyframe_track[i + 1]["time"])
+                if i + 1 < len(keyframe_track)
+                else 9999999
+            )
+            seg_text = kf["text"].replace("'", "\\'").replace(":", "\\:")
+            enable = f"between(t\\,{t_start}\\,{t_end})"
+            segments.append(
+                f"drawtext=text='{seg_text}'{base_opts}:enable='{enable}'"
+            )
+        vf = ",".join(segments)
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+def add_subtitle_track(
+    input_path: str,
+    output_path: str,
+    *,
+    srt_path: str,
+    style: "dict | None" = None,
+) -> str:
+    """Burn SRT subtitles into a video using the ffmpeg ``subtitles`` filter.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        srt_path: Path to the ``.srt`` subtitle file.
+        style: Optional style overrides — ``fontsize`` (int, default 24),
+            ``fontcolor`` (str, default ``'white'``), ``outline`` (int,
+            default 1), ``shadow`` (int, default 0), ``alignment`` (int
+            ASS alignment value, default 2 = bottom-centre).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    s = style or {}
+    fontsize = int(s.get("fontsize", 24))
+    fontcolor = s.get("fontcolor", "white")
+    outline = int(s.get("outline", 1))
+    shadow = int(s.get("shadow", 0))
+    alignment = int(s.get("alignment", 2))
+
+    primary_colour = f"&H00{_css_to_bgr(fontcolor)}"
+    force_style = (
+        f"Fontsize={fontsize},"
+        f"PrimaryColour={primary_colour},"
+        f"Outline={outline},"
+        f"Shadow={shadow},"
+        f"Alignment={alignment}"
+    )
+    sub_path_esc = (
+        str(Path(srt_path).resolve()).replace("\\", "/").replace(":", "\\:")
+    )
+    vf = f"subtitles='{sub_path_esc}':force_style='{force_style}'"
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
