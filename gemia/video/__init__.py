@@ -25,6 +25,7 @@ from gemia.video.export import export_preset, proxy_generate, batch_export
 from gemia.video.effects import (
     lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan, chroma_warp,
     particle_emitter, planar_tracker, curves_warp, light_wrap,
+    ai_cinematic_haze, hdr_vivid,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -64,4 +65,5 @@ __all__ = [
     # effects
     "lut_apply", "chroma_aberration", "vhs_effect", "color_wheels", "zoom_pan", "chroma_warp",
     "particle_emitter", "planar_tracker", "curves_warp", "light_wrap",
+    "ai_cinematic_haze", "hdr_vivid",
 ]

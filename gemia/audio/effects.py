@@ -330,3 +330,289 @@ def pitch_correction(
     else:
         _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# dynamic_eq_match  (#68)
+# ---------------------------------------------------------------------------
+def dynamic_eq_match(
+    source_path: str,
+    reference_path: str,
+    output_path: str,
+    *,
+    bands: int = 8,
+) -> str:
+    """Match the EQ profile of source audio to a reference track.
+
+    Analyses the frequency spectrum of both tracks using numpy FFT and
+    applies a compensating EQ curve via ffmpeg's ``equalizer`` filter chain.
+
+    Inspired by DaVinci Resolve 20 Fairlight *EQ Match* AI feature.
+
+    Args:
+        source_path: Audio/video file to correct.
+        reference_path: Target reference audio/video file.
+        output_path: Destination file.
+        bands: Number of EQ bands (4-16). Default 8.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+    import numpy as np
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    bands = max(4, min(16, bands))
+
+    def _extract_wav(src: str, dst: str) -> None:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", src, "-vn", "-ar", "44100", "-ac", "1", dst],
+            capture_output=True, check=True,
+        )
+
+    def _spectrum(wav_path: str) -> np.ndarray:
+        import wave, struct
+        with wave.open(wav_path, "rb") as wf:
+            n = wf.getnframes()
+            raw = wf.readframes(n)
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        N = min(len(samples), 131072)
+        spec = np.abs(np.fft.rfft(samples[:N]))
+        return spec
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        src_wav = tf.name
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        ref_wav = tf.name
+
+    try:
+        _extract_wav(source_path, src_wav)
+        _extract_wav(reference_path, ref_wav)
+
+        src_spec = _spectrum(src_wav)
+        ref_spec = _spectrum(ref_wav)
+
+        # Divide into bands and compute gain needed per band
+        sr = 44100
+        freqs = np.fft.rfftfreq(min(len(src_spec) * 2 - 2, 131072), 1 / sr)
+        n_bins = len(src_spec)
+
+        band_freqs = np.logspace(np.log10(80), np.log10(16000), bands + 1)
+        eq_filters: list[str] = []
+
+        for i in range(bands):
+            f_lo, f_hi = band_freqs[i], band_freqs[i + 1]
+            f_center = np.sqrt(f_lo * f_hi)
+            idx_lo = int(f_lo / (sr / 2) * n_bins)
+            idx_hi = int(f_hi / (sr / 2) * n_bins)
+            idx_lo = max(0, min(idx_lo, n_bins - 1))
+            idx_hi = max(idx_lo + 1, min(idx_hi, n_bins))
+
+            src_rms = float(np.mean(src_spec[idx_lo:idx_hi]) + 1e-9)
+            ref_rms = float(np.mean(ref_spec[idx_lo:idx_hi]) + 1e-9)
+            ratio = ref_rms / src_rms
+            if ratio <= 0 or not np.isfinite(ratio):
+                continue
+            gain_db = float(np.clip(20 * np.log10(ratio), -12, 12))
+            if not np.isfinite(gain_db):
+                continue
+
+            # Use Q=2 (moderate bandwidth) — avoids NaN from bw-based width
+            eq_filters.append(
+                f"equalizer=f={f_center:.1f}:t=q:w=2:g={gain_db:.2f}"
+            )
+
+        af = ",".join(eq_filters)
+        is_video = Path(source_path).suffix.lower() in _VIDEO_EXTS
+        if is_video:
+            with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+                tmp_a = tf.name
+            with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+                tmp_eq = tf.name
+            try:
+                _run(["ffmpeg", "-y", "-i", source_path, "-vn", "-c:a", "aac", tmp_a])
+                _run(["ffmpeg", "-y", "-i", tmp_a, "-af", af, tmp_eq])
+                _run(["ffmpeg", "-y", "-i", source_path, "-i", tmp_eq,
+                      "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", output_path])
+            finally:
+                for p in (tmp_a, tmp_eq):
+                    Path(p).unlink(missing_ok=True)
+        else:
+            _run(["ffmpeg", "-y", "-i", source_path, "-af", af, output_path])
+    finally:
+        for p in (src_wav, ref_wav):
+            Path(p).unlink(missing_ok=True)
+
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# level_matcher  (#69)
+# ---------------------------------------------------------------------------
+def level_matcher(
+    clip_paths: list[str],
+    output_dir: str,
+    *,
+    target_lufs: float = -14.0,
+) -> list[str]:
+    """Match loudness across a set of audio/video clips to a common LUFS target.
+
+    Measures each clip's integrated loudness and applies a gain correction
+    so all clips reach *target_lufs* LUFS when played in sequence.
+
+    Inspired by DaVinci Resolve 20 Fairlight *Level Matcher*.
+
+    Args:
+        clip_paths: Input audio or video file paths.
+        output_dir: Directory to write matched clips.
+        target_lufs: Target integrated loudness in LUFS.  Default -14.
+
+    Returns:
+        List of output file paths.
+    """
+    import re
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outputs: list[str] = []
+
+    for clip in clip_paths:
+        # Measure current loudness
+        r = subprocess.run(
+            ["ffmpeg", "-i", clip, "-af",
+             "loudnorm=I=-23:LRA=11:TP=-2:print_format=summary",
+             "-f", "null", "-"],
+            capture_output=True, text=True,
+        )
+        text = r.stderr
+        # Parse integrated loudness
+        m = re.search(r"Input Integrated:\s*([-\d.]+)", text)
+        current_lufs = float(m.group(1)) if m else -23.0
+        gain_db = target_lufs - current_lufs
+
+        out_path = str(out_dir / Path(clip).name)
+        is_video = Path(clip).suffix.lower() in _VIDEO_EXTS
+        if is_video:
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+                tmp_a = tf.name
+            with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+                tmp_g = tf.name
+            try:
+                _run(["ffmpeg", "-y", "-i", clip, "-vn", "-c:a", "aac", tmp_a])
+                _run(["ffmpeg", "-y", "-i", tmp_a, "-af", f"volume={gain_db:.2f}dB", tmp_g])
+                _run(["ffmpeg", "-y", "-i", clip, "-i", tmp_g,
+                      "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", out_path])
+            finally:
+                for p in (tmp_a, tmp_g):
+                    Path(p).unlink(missing_ok=True)
+        else:
+            _run(["ffmpeg", "-y", "-i", clip, "-af", f"volume={gain_db:.2f}dB", out_path])
+        outputs.append(out_path)
+
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# spectral_denoise  (#70)
+# ---------------------------------------------------------------------------
+def spectral_denoise(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 0.5,
+    noise_floor_db: float = -50.0,
+) -> str:
+    """Remove broadband noise using spectral subtraction (STFT-based).
+
+    Estimates the noise floor from the first 0.5 s of silence and subtracts
+    it from the magnitude spectrum of each frame.
+
+    Inspired by DaVinci Resolve 20 Fairlight *Noise Reduction* AI feature.
+
+    Args:
+        input_path: Source audio or video file.
+        output_path: Destination file.
+        strength: Subtraction strength [0, 1]. Default 0.5.
+        noise_floor_db: Assumed noise floor dBFS. Default -50.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+    import numpy as np
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    strength = max(0.0, min(1.0, strength))
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        in_wav = tf.name
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        out_wav = tf.name
+
+    is_video = Path(input_path).suffix.lower() in _VIDEO_EXTS
+    try:
+        _run(["ffmpeg", "-y", "-i", input_path, "-vn", "-ar", "44100", "-ac", "1", in_wav])
+
+        import wave, struct
+        with wave.open(in_wav, "rb") as wf:
+            sr = wf.getframerate()
+            n = wf.getnframes()
+            raw = wf.readframes(n)
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Estimate noise profile from first 0.5s
+        noise_samples = samples[:int(sr * 0.5)]
+        frame_size = 2048
+        hop = 512
+        noise_frames = [noise_samples[i:i + frame_size] for i in range(0, len(noise_samples) - frame_size, hop)]
+        if noise_frames:
+            noise_specs = np.array([np.abs(np.fft.rfft(f * np.hanning(frame_size))) for f in noise_frames])
+            noise_profile = noise_specs.mean(axis=0)
+        else:
+            noise_floor_lin = 10 ** (noise_floor_db / 20.0)
+            noise_profile = np.full(frame_size // 2 + 1, noise_floor_lin)
+
+        # Process full signal with overlap-add
+        window = np.hanning(frame_size)
+        out = np.zeros(len(samples) + frame_size, dtype=np.float32)
+        norm = np.zeros(len(samples) + frame_size, dtype=np.float32)
+
+        for start in range(0, len(samples) - frame_size, hop):
+            frame = samples[start:start + frame_size] * window
+            spec = np.fft.rfft(frame)
+            mag = np.abs(spec)
+            phase = np.angle(spec)
+            # Spectral subtraction
+            mag_denoised = np.maximum(mag - noise_profile * strength, mag * (1 - strength) * 0.1)
+            spec_denoised = mag_denoised * np.exp(1j * phase)
+            frame_out = np.fft.irfft(spec_denoised).real * window
+            out[start:start + frame_size] += frame_out
+            norm[start:start + frame_size] += window ** 2
+
+        norm = np.where(norm > 0, norm, 1.0)
+        out /= norm
+        out_int = (out[:len(samples)] * 32767).clip(-32768, 32767).astype(np.int16)
+
+        with wave.open(out_wav, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(44100)
+            wf.writeframes(out_int.tobytes())
+
+        if is_video:
+            with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+                tmp_aac = tf.name
+            try:
+                _run(["ffmpeg", "-y", "-i", out_wav, "-c:a", "aac", tmp_aac])
+                _run(["ffmpeg", "-y", "-i", input_path, "-i", tmp_aac,
+                      "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", output_path])
+            finally:
+                Path(tmp_aac).unlink(missing_ok=True)
+        else:
+            _run(["ffmpeg", "-y", "-i", out_wav, output_path])
+    finally:
+        for p in (in_wav, out_wav):
+            Path(p).unlink(missing_ok=True)
+
+    return output_path
