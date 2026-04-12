@@ -1,19 +1,20 @@
 """gemia.video — Video primitive operations."""
 from gemia.video.frames import (
     extract_frames, frames_to_video, apply_picture_op_to_video, speed_curve,
+    optical_flow_retime, ai_stabilize, denoise_temporal,
 )
 from gemia.video.timeline import (
     cut, concat, nest_clips, speed, reverse,
     slip_edit, slide_edit, ripple_trim, roll_edit, freeze_frame,
 )
-from gemia.video.compositing import overlay, add_audio_track, object_remove, background_replace
+from gemia.video.compositing import overlay, add_audio_track, object_remove, background_replace, stereo_3d_align
 from gemia.video.transitions import (
     transition_dissolve, transition_wipe, transition_push, transition_custom,
 )
 from gemia.video.analysis import detect_scenes, get_metadata, multicam_sync, scene_detect, auto_highlight
 from gemia.video.generative import (
     generate_video, generate_video_from_image, extend_video,
-    generative_extend, ai_color_grade, generate_broll,
+    generative_extend, ai_color_grade, generate_broll, hdr_tone_map,
 )
 from gemia.video.export import export_preset, proxy_generate, batch_export
 from gemia.video.subtitles import (
@@ -28,18 +29,19 @@ from gemia.video.subtitles import (
 __all__ = [
     # frames
     "extract_frames", "frames_to_video", "apply_picture_op_to_video", "speed_curve",
+    "optical_flow_retime", "ai_stabilize", "denoise_temporal",
     # timeline
     "cut", "concat", "nest_clips", "speed", "reverse",
     "slip_edit", "slide_edit", "ripple_trim", "roll_edit", "freeze_frame",
     # compositing
-    "overlay", "add_audio_track", "object_remove", "background_replace",
+    "overlay", "add_audio_track", "object_remove", "background_replace", "stereo_3d_align",
     # transitions
     "transition_dissolve", "transition_wipe", "transition_push", "transition_custom",
     # analysis
     "detect_scenes", "get_metadata", "multicam_sync", "scene_detect", "auto_highlight",
     # generative
     "generate_video", "generate_video_from_image", "extend_video",
-    "generative_extend", "ai_color_grade", "generate_broll",
+    "generative_extend", "ai_color_grade", "generate_broll", "hdr_tone_map",
     # subtitles / text
     "make_srt", "make_vtt", "transcribe_to_srt", "transcribe_to_vtt",
     "burn_subtitles", "mux_subtitle_track", "extract_subtitle_track",

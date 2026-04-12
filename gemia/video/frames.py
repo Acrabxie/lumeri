@@ -364,6 +364,191 @@ def stabilize(video_path: str, output_path: str, *, smoothness: int = 30) -> str
     return output_path
 
 
+def optical_flow_retime(input_path: str, output_path: str, *, target_fps: float = 60) -> str:
+    """Retime video to target_fps using optical flow frame interpolation.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        target_fps: Target frames per second. Default 60.
+
+    Returns:
+        output_path
+    """
+    # Probe source fps
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path,
+        ],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {probe.stderr}")
+    fps_str = probe.stdout.strip()
+    if "/" in fps_str:
+        num, den = fps_str.split("/")
+        src_fps = float(num) / float(den)
+    else:
+        src_fps = float(fps_str) if fps_str else 30.0
+
+    try:
+        cap = cv2.VideoCapture(input_path)
+        if not cap.isOpened():
+            raise RuntimeError("Cannot open video")
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        all_frames: list[np.ndarray] = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            all_frames.append(frame)
+        cap.release()
+
+        if len(all_frames) < 2:
+            raise RuntimeError("Not enough frames")
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(output_path, fourcc, target_fps, (w, h))
+
+        # For 2x slowmo (1 intermediate frame per pair)
+        for i in range(len(all_frames) - 1):
+            fa = all_frames[i]
+            fb = all_frames[i + 1]
+            writer.write(fa)
+            # Compute optical flow and interpolate midpoint
+            fa_gray = cv2.cvtColor(fa, cv2.COLOR_BGR2GRAY)
+            fb_gray = cv2.cvtColor(fb, cv2.COLOR_BGR2GRAY)
+            flow_ab = cv2.calcOpticalFlowFarneback(
+                fa_gray, fb_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
+            )
+            flow_ba = cv2.calcOpticalFlowFarneback(
+                fb_gray, fa_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
+            )
+            t = 0.5
+            warped_a = _warp_frame(fa.astype(np.float32), flow_ab, t)
+            warped_b = _warp_frame(fb.astype(np.float32), flow_ba, 1.0 - t)
+            blended = np.clip(warped_a * (1.0 - t) + warped_b * t, 0, 255).astype(np.uint8)
+            writer.write(blended)
+        if all_frames:
+            writer.write(all_frames[-1])
+        writer.release()
+
+    except Exception:
+        # Fallback: ffmpeg minterpolate
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"minterpolate=fps={target_fps}:mi_mode=mci:mc_mode=aobmc",
+            "-c:a", "copy",
+            output_path,
+        ], check=True, capture_output=True)
+
+    return output_path
+
+
+def ai_stabilize(input_path: str, output_path: str, *, strength: float = 0.8,
+                 preserve_intent: bool = True) -> str:
+    """Stabilize shaky footage with configurable strength.
+
+    Uses ffmpeg vidstabdetect + vidstabtransform (two-pass) when available,
+    falling back to the deshake filter.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        strength: Stabilization strength 0-1. Default 0.8.
+        preserve_intent: Unused flag reserved for future intent-preserving logic.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as td:
+        trf_file = str(Path(td) / "transforms.trf")
+
+        # Try two-pass vidstab
+        pass1 = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_path,
+                "-vf", f"vidstabdetect=shakiness=10:accuracy=15:result={trf_file}",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True,
+        )
+        if pass1.returncode == 0:
+            smoothing = int(strength * 30)
+            zoom = int((1 - strength) * 5)
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", input_path,
+                    "-vf",
+                    f"vidstabtransform=input={trf_file}:smoothing={smoothing}:zoom={zoom}",
+                    "-c:a", "copy",
+                    output_path,
+                ],
+                check=True, capture_output=True,
+            )
+        else:
+            # Fallback: deshake
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", input_path,
+                    "-vf", "deshake",
+                    "-c:a", "copy",
+                    output_path,
+                ],
+                check=True, capture_output=True,
+            )
+
+    return output_path
+
+
+def denoise_temporal(input_path: str, output_path: str, *, strength: float = 0.7,
+                     detail_threshold: float = 0.5) -> str:
+    """Temporal noise reduction preserving detail.
+
+    Uses ffmpeg hqdn3d filter with optional unsharp masking.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        strength: Denoise strength 0-1. Default 0.7.
+        detail_threshold: Unsharp amount to restore detail after denoising.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    s = strength * 10
+    vf = (
+        f"hqdn3d=luma_spatial={s*4}:chroma_spatial={s*3}"
+        f":luma_tmp={s*6}:chroma_tmp={s*4.5}"
+    )
+    if detail_threshold > 0:
+        vf += f",unsharp=5:5:{detail_threshold}"
+
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:a", "copy",
+            output_path,
+        ],
+        check=True, capture_output=True,
+    )
+    return output_path
+
+
 def _remux_with_audio(video_path: str, audio_source: str, output_path: str) -> None:
     """Combine processed video with audio from the original file."""
     proc = subprocess.run(
