@@ -257,6 +257,67 @@ def stereo_3d_align(
 
 
 # ---------------------------------------------------------------------------
+# #58  depth_mask
+# ---------------------------------------------------------------------------
+def depth_mask(
+    input_path: str,
+    output_path: str,
+    *,
+    fg_blur: int = 0,
+    bg_blur: int = 15,
+    depth_threshold: float = 0.5,
+) -> str:
+    """Simulate depth-of-field by blurring the background based on a simple
+    luminance-based depth proxy (bright = near, dark = far).
+
+    Mirrors DaVinci Resolve 19's *Magic Mask → Depth Map* workflow with a
+    luminance-threshold approximation using ffmpeg.
+
+    Args:
+        input_path: Source video or image path.
+        output_path: Destination path.
+        fg_blur: Blur radius for foreground (bright/near) region. 0 = sharp.
+        bg_blur: Blur radius for background (dark/far) region. Default 15.
+        depth_threshold: Luminance threshold [0, 1] separating FG/BG.
+            Default 0.5.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    t = int(depth_threshold * 255)
+    fb = max(1, fg_blur) if fg_blur > 0 else 0
+    bb = max(1, bg_blur)
+
+    # Build mask: pixels brighter than threshold → white (FG), else black (BG)
+    # Foreground: original (or lightly blurred)
+    # Background: heavily blurred
+    # Composite: mask blends FG over BG
+    fg_stream = f"[0:v]{'boxblur=' + str(fb) if fb else 'copy'}[fg]"
+    bg_stream = f"[0:v]boxblur={bb}[bg]"
+    mask_stream = (
+        f"[0:v]geq="
+        f"lum='if(gt(lum(X,Y),{t}),255,0)':"
+        f"cb=128:cr=128[mask]"
+    )
+    composite = (
+        "[bg][fg]blend=all_expr='A*(1-ALPHA/255)+B*(ALPHA/255)'[out]"
+        if False  # placeholder; use overlay with alphaextract below
+        else "[fg][mask]alphamerge[fga];[bg][fga]overlay[out]"
+    )
+
+    fc = f"{bg_stream};{fg_stream};{mask_stream};{composite}"
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", fc,
+        "-map", "[out]", "-map", "0:a?",
+        "-c:v", "libx264", "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
 # #52  lut_apply
 # ---------------------------------------------------------------------------
 def lut_apply(input_path: str, output_path: str, *, lut_path: str, intensity: float = 1.0) -> str:

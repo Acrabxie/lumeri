@@ -1,4 +1,4 @@
-"""Video effects: lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan."""
+"""Video effects: lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan, chroma_warp."""
 from __future__ import annotations
 
 import subprocess
@@ -133,6 +133,34 @@ def color_wheels(input_path: str, output_path: str, *,
         f"g='{ch_expr(lg, gg, kg, 'g')}':"
         f"b='{ch_expr(lb, gb, kb, 'b')}'"
     )
+    _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+          "-c:v", "libx264", "-c:a", "copy", output_path])
+    return output_path
+
+
+def chroma_warp(
+    input_path: str,
+    output_path: str,
+    *,
+    hue_shift: float = 30.0,
+    saturation_boost: float = 1.5,
+) -> str:
+    """Warp hue and saturation of video colours.
+
+    Mirrors DaVinci Resolve's *Colour Warper*: globally shifts hue and boosts
+    saturation. For selective hue-band warping use colorslice_grade instead.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination path.
+        hue_shift: Degrees to rotate all hues. Default 30.
+        saturation_boost: Saturation multiplier. Default 1.5.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    vf = f"hue=h={hue_shift:.1f}:s={saturation_boost:.2f}"
     _run(["ffmpeg", "-y", "-i", input_path, "-vf", vf,
           "-c:v", "libx264", "-c:a", "copy", output_path])
     return output_path

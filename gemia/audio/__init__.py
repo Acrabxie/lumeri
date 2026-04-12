@@ -7,7 +7,7 @@ from gemia.audio.dynamics import normalize, compress, adjust_gain, lufs_normaliz
 from gemia.audio.frequency import eq, highpass, lowpass
 from gemia.audio.time_pitch import time_stretch, pitch_shift, detect_bpm
 from gemia.audio.analysis import silence_detect, beat_detect, music_extend, stem_separate
-from gemia.audio.effects import voice_convert, auto_mix, ducker
+from gemia.audio.effects import voice_convert, auto_mix, ducker, voice_isolate
 
 __all__ = [
     "load", "save", "trim", "concat", "mix",
@@ -18,4 +18,5 @@ __all__ = [
     "beat_detect", "music_extend", "stem_separate",
     "voice_convert", "auto_mix", "ducker",
     "lufs_normalize",
+    "voice_isolate",
 ]
