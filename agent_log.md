@@ -110,3 +110,5 @@
 
 2026-04-12 12:39:20  Wave9 complete: #77 timecode_burn, #78 auto_reframe, #79 color_space_convert, #80 deinterlace, #81 spatial_video_render — all PASS x2, committed 4f80066
 2026-04-12 12:39:20  Total: 81 primitives. Next: Wave10 web-search (milestone: every 5 waves = full integration test).
+2026-04-12 14:45:24  Wave11 complete: #10 transition_wipe, #11 transition_push, #12 transition_custom, #13 add_text, #14 add_subtitle_track — all PASS x2, PIL fallback added for missing drawtext/libass
+2026-04-12 14:45:24  Total: 91+ primitives verified. Next: Wave12 tasks #15-19 (auto_subtitle, add_lower_third, animated_text, proxy_generate, match_color)
