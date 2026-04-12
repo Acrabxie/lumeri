@@ -116,3 +116,5 @@
 2026-04-12 14:46:18  Next: Wave13 tasks #20-25 (skin_tone_protect, hdr_grade, film_grain_organic, super_scale, silence_detect, beat_detect)
 2026-04-12 14:47:08  Wave13 complete: #20 skin_tone_protect, #21 hdr_grade (PIL fallback), #22 film_grain_organic, #23 beat_detect, #25 stem_separate — all PASS x2
 2026-04-12 14:47:08  Next: Wave14 tasks #24 music_extend, #26 voice_convert, #27 auto_mix, #28 object_remove, #29 background_replace
+2026-04-12 14:47:45  Wave14 complete: #24 music_extend, #26 voice_convert, #27 auto_mix, #28 object_remove, #29 background_replace — all PASS x2
+2026-04-12 14:47:45  Next: Wave15 tasks #30 relight, #31 defocus_background, #32 motion_blur, #33 generate_broll, #34 generative_extend
