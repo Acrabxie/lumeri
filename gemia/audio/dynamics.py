@@ -1,5 +1,9 @@
-"""Audio dynamics: normalize, compress, adjust_gain."""
+"""Audio dynamics: normalize, compress, adjust_gain, lufs_normalize."""
 from __future__ import annotations
+
+import subprocess
+import tempfile
+from pathlib import Path
 
 import numpy as np
 
@@ -73,3 +77,64 @@ def adjust_gain(audio: np.ndarray, *, db: float = 0.0) -> np.ndarray:
     """
     factor = 10 ** (db / 20.0)
     return np.clip(audio * factor, -1, 1).astype(np.float32)
+
+
+def lufs_normalize(
+    input_path: str,
+    output_path: str,
+    *,
+    target_lufs: float = -14.0,
+    true_peak: float = -1.0,
+) -> str:
+    """Normalize audio/video loudness to a target integrated LUFS level.
+
+    Implements the EBU R128 / ITU-R BS.1770 loudness standard used in
+    DaVinci Resolve's Fairlight page.  Uses ffmpeg's ``loudnorm`` filter for
+    a two-pass measurement + correction so the output hits *target_lufs*
+    integrated loudness exactly.
+
+    Args:
+        input_path: Source audio or video file.
+        output_path: Destination file.
+        target_lufs: Target integrated loudness in LUFS (e.g. -14 for
+            streaming, -23 for broadcast).  Default -14.
+        true_peak: Maximum true peak level in dBTP.  Default -1.0.
+
+    Returns:
+        output_path
+    """
+    def _run(cmd: list) -> str:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"ffmpeg error: {r.stderr[-800:]}")
+        return r.stderr  # ffmpeg writes stats to stderr
+
+    # Pass 1: measure
+    af_measure = (
+        f"loudnorm=I={target_lufs}:TP={true_peak}:LRA=11:print_format=json"
+    )
+    stderr = _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", af_measure,
+        "-f", "null", "-",
+    ])
+
+    # Parse measured values
+    import json, re
+    m = re.search(r'\{[^{}]+\}', stderr, re.DOTALL)
+    stats = json.loads(m.group()) if m else {}
+    measured_I = stats.get("input_i", "-70")
+    measured_LRA = stats.get("input_lra", "0")
+    measured_TP = stats.get("input_tp", "-1")
+    measured_thresh = stats.get("input_thresh", "-80")
+    offset = stats.get("target_offset", "0")
+
+    # Pass 2: apply
+    af_apply = (
+        f"loudnorm=I={target_lufs}:TP={true_peak}:LRA=11"
+        f":measured_I={measured_I}:measured_LRA={measured_LRA}"
+        f":measured_TP={measured_TP}:measured_thresh={measured_thresh}"
+        f":offset={offset}:linear=true:print_format=none"
+    )
+    _run(["ffmpeg", "-y", "-i", input_path, "-af", af_apply, output_path])
+    return output_path

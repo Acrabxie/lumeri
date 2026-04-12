@@ -220,6 +220,70 @@ def apply_3d_lut(img: Image, *, lut_path: str) -> Image:
     return np.clip(result, 0, 1).astype(np.float32)
 
 
+@batchable
+def colorslice_grade(
+    img: Image,
+    *,
+    hue_adjustments: dict[str, tuple[float, float, float]] | None = None,
+) -> Image:
+    """Six-vector hue-selective color grading inspired by DaVinci ColorSlice.
+
+    Independently adjusts hue, saturation, and luminance for each of the six
+    canonical hue vectors: red, yellow, green, cyan, blue, magenta.
+
+    Args:
+        img: Input BGR float32 image [0, 1].
+        hue_adjustments: Dict mapping vector name → ``(hue_shift°, sat_scale,
+            lum_shift)`` where *hue_shift* is in degrees [-30, 30],
+            *sat_scale* multiplies saturation [0, 3], and *lum_shift* adds
+            to value [-0.3, 0.3].  Any vector not specified is left untouched.
+            Vector names: ``'red'``, ``'yellow'``, ``'green'``,
+            ``'cyan'``, ``'blue'``, ``'magenta'``.
+
+    Returns:
+        Graded image, float32 [0, 1] BGR.
+
+    Example::
+
+        colorslice_grade(img, hue_adjustments={
+            'sky': ...,   # ignored — unknown key
+            'blue': (5.0, 1.3, 0.05),   # shift blues toward cyan, boost sat
+            'red':  (0.0, 0.8, 0.0),    # desaturate reds slightly
+        })
+    """
+    img = ensure_float32(img)
+    if hue_adjustments is None:
+        return img.copy()
+
+    # Center hues (degrees) for each vector
+    _CENTERS: dict[str, float] = {
+        "red": 0.0, "yellow": 60.0, "green": 120.0,
+        "cyan": 180.0, "blue": 240.0, "magenta": 300.0,
+    }
+    u8 = np.clip(img * 255, 0, 255).astype(np.uint8)
+    hsv = cv2.cvtColor(u8, cv2.COLOR_BGR2HSV).astype(np.float32)
+    # OpenCV H range: [0, 180], so divide center by 2
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+
+    for vector, (h_shift, s_scale, l_shift) in hue_adjustments.items():
+        center = _CENTERS.get(vector.lower())
+        if center is None:
+            continue
+        center_cv = center / 2.0  # convert to [0,90] OpenCV range
+        # Gaussian weight: full effect at center hue, falls off over ±15°(cv)
+        dist = np.abs(H - center_cv)
+        dist = np.minimum(dist, 90.0 - dist)  # wrap at 180 -> 90 in cv units
+        weight = np.exp(-0.5 * (dist / 7.5) ** 2)
+
+        H[:] = np.clip(H + weight * (h_shift / 2.0), 0, 179)
+        S[:] = np.clip(S * (1 + weight * (s_scale - 1)), 0, 255)
+        V[:] = np.clip(V + weight * l_shift * 255, 0, 255)
+
+    hsv_out = np.stack([H, S, V], axis=2).astype(np.uint8)
+    bgr_out = cv2.cvtColor(hsv_out, cv2.COLOR_HSV2BGR)
+    return bgr_out.astype(np.float32) / 255.0
+
+
 def color_space_convert(img: Image, *, from_space: str, to_space: str) -> Image:
     """Convert between color spaces.
 

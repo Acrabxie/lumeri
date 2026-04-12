@@ -140,3 +140,61 @@ def auto_mix(track_list: list[str], output_path: str) -> str:
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# ducker  — Fairlight-style sidechain ducking
+# ---------------------------------------------------------------------------
+def ducker(
+    bed_path: str,
+    dialogue_path: str,
+    output_path: str,
+    *,
+    reduction_db: float = 12.0,
+    attack_ms: float = 50.0,
+    release_ms: float = 200.0,
+    threshold: float = -30.0,
+) -> str:
+    """Auto-duck a music/bed track whenever dialogue is present.
+
+    Mirrors DaVinci Resolve 19's Fairlight *Ducker Track FX*: the bed level
+    is automatically reduced by *reduction_db* dB whenever the dialogue track
+    exceeds *threshold* dBFS, with smooth attack/release envelopes.
+
+    Args:
+        bed_path: Path to background music / bed audio file.
+        dialogue_path: Path to dialogue audio file (used as sidechain).
+        output_path: Destination mixed audio file.
+        reduction_db: How many dB to lower the bed when dialogue is active.
+            Default 12.
+        attack_ms: Gain reduction attack time in ms.  Default 50.
+        release_ms: Gain recovery release time in ms.  Default 200.
+        threshold: dBFS level above which dialogue triggers ducking.
+            Default -30.
+
+    Returns:
+        output_path
+    """
+    attack_s = attack_ms / 1000.0
+    release_s = release_ms / 1000.0
+    # ffmpeg sidechaincompress: ducking via sidechain signal
+    # input 0 = bed, input 1 = dialogue (sidechain)
+    filtergraph = (
+        f"[0:a][1:a]sidechaincompress="
+        f"threshold={10 ** (threshold / 20.0):.6f}"
+        f":ratio=20"
+        f":attack={attack_ms:.1f}"
+        f":release={release_ms:.1f}"
+        f":makeup={reduction_db:.1f}"
+        f":level_sc=1[ducked];"
+        f"[ducked][1:a]amix=inputs=2:duration=longest:normalize=0[out]"
+    )
+    _run([
+        "ffmpeg", "-y",
+        "-i", bed_path,
+        "-i", dialogue_path,
+        "-filter_complex", filtergraph,
+        "-map", "[out]",
+        output_path,
+    ])
+    return output_path

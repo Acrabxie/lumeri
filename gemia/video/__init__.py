@@ -15,6 +15,7 @@ from gemia.video.analysis import detect_scenes, get_metadata, multicam_sync, sce
 from gemia.video.generative import (
     generate_video, generate_video_from_image, extend_video,
     generative_extend, ai_color_grade, generate_broll, hdr_tone_map,
+    film_look_creator, intellitrack_zone,
 )
 from gemia.video.export import export_preset, proxy_generate, batch_export
 from gemia.video.subtitles import (
@@ -42,6 +43,7 @@ __all__ = [
     # generative
     "generate_video", "generate_video_from_image", "extend_video",
     "generative_extend", "ai_color_grade", "generate_broll", "hdr_tone_map",
+    "film_look_creator", "intellitrack_zone",
     # subtitles / text
     "make_srt", "make_vtt", "transcribe_to_srt", "transcribe_to_vtt",
     "burn_subtitles", "mux_subtitle_track", "extract_subtitle_track",

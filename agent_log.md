@@ -75,3 +75,10 @@
 
 2026-04-11 20:46:21  Wave2 complete: #42 optical_flow_retime, #43 ai_stabilize, #44 hdr_tone_map, #45 denoise_temporal, #46 stereo_3d_align — all PASS x2, committed e48b4ee
 2026-04-11 20:46:21  Total: 46 functions implemented. Next: codex full debug pass (>40 done), then Wave3 web-search
+2026-04-11 20:53:17  Codex debug pass complete: 9 bugs fixed, committed 1934c39
+2026-04-11 20:53:17  Status: 46 functions, 4 commits, all imports verified
+
+2026-04-11 22:38:24  Auto-loop triggered (idle 104m). All 46 functions confirmed working.
+2026-04-11 22:38:24  Blended cinematic pipeline test: 8/8 PASS — denoise→grade→trim→dissolve→lower_third→export→proxy→scene_detect (14s output)
+2026-04-11 22:38:24  Wave3 research+implementation started in background (#47-51)
+2026-04-11 22:55:00  Wave3: implemented #47-51: lufs_normalize, ducker, colorslice_grade, film_look_creator, intellitrack_zone — all imports OK
