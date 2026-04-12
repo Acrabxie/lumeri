@@ -28,6 +28,7 @@ from gemia.video.effects import (
     ai_cinematic_haze, hdr_vivid,
     deep_composite, rhythm_cut,
     timecode_burn, auto_reframe, color_space_convert, deinterlace, spatial_video_render,
+    waveform_monitor, keyframe_extract, aspect_ratio_pad, video_denoise_spatial,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -70,4 +71,5 @@ __all__ = [
     "ai_cinematic_haze", "hdr_vivid",
     "deep_composite", "rhythm_cut",
     "timecode_burn", "auto_reframe", "color_space_convert", "deinterlace", "spatial_video_render",
+    "waveform_monitor", "keyframe_extract", "aspect_ratio_pad", "video_denoise_spatial",
 ]

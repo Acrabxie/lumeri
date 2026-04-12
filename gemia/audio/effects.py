@@ -907,3 +907,65 @@ def speaker_separate(
         Path(tmp_wav).unlink(missing_ok=True)
 
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# noise_gate  (#82)
+# ---------------------------------------------------------------------------
+def noise_gate(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold_db: float = -40.0,
+    attack_ms: float = 10.0,
+    release_ms: float = 100.0,
+    hold_ms: float = 50.0,
+    reduction_db: float = -80.0,
+) -> str:
+    """Apply a noise gate to suppress audio below a threshold level.
+
+    Uses ffmpeg's ``agate`` filter for transparent, low-latency gating.
+    Inspired by DaVinci Resolve 20 Fairlight *Noise Gate* dynamics processor.
+
+    Args:
+        input_path: Source audio or video file.
+        output_path: Destination file.
+        threshold_db: Open/close threshold in dBFS. Default -40.
+        attack_ms: Gate open time in ms. Default 10.
+        release_ms: Gate close time in ms. Default 100.
+        hold_ms: Minimum hold time after signal drops below threshold. Default 50.
+        reduction_db: Gain applied when gate is closed (dBFS). Default -80.
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    threshold_lin = 10 ** (threshold_db / 20.0)
+    reduction_lin = 10 ** (reduction_db / 20.0)
+    af = (
+        f"agate="
+        f"threshold={threshold_lin:.6f}:"
+        f"attack={attack_ms:.1f}:"
+        f"release={release_ms:.1f}:"
+        
+        f"range={reduction_lin:.6f}"
+    )
+    is_video = Path(input_path).suffix.lower() in _VIDEO_EXTS
+    if is_video:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_a = tf.name
+        with tempfile.NamedTemporaryFile(suffix=".aac", delete=False) as tf:
+            tmp_g = tf.name
+        try:
+            _run(["ffmpeg", "-y", "-i", input_path, "-vn", "-c:a", "aac", tmp_a])
+            _run(["ffmpeg", "-y", "-i", tmp_a, "-af", af, tmp_g])
+            _run(["ffmpeg", "-y", "-i", input_path, "-i", tmp_g,
+                  "-map", "0:v", "-map", "1:a",
+                  "-c:v", "copy", "-c:a", "aac", output_path])
+        finally:
+            for p in (tmp_a, tmp_g):
+                Path(p).unlink(missing_ok=True)
+    else:
+        _run(["ffmpeg", "-y", "-i", input_path, "-af", af, output_path])
+    return output_path
