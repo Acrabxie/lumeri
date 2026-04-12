@@ -345,3 +345,95 @@ def multicam_sync(input_paths: list[str], output_dir: str, *, method: str = "aud
         outputs.append(str(output_path))
 
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# #60  smart_multicam
+# ---------------------------------------------------------------------------
+def smart_multicam(
+    camera_paths: list[str],
+    output_path: str,
+    *,
+    clip_duration: float = 5.0,
+    strategy: str = "round_robin",
+) -> str:
+    """Assemble multi-camera footage by auto-selecting angles.
+
+    Inspired by DaVinci Resolve 19 *AI Multicam* feature. Synchronises clips
+    via audio (using :func:`multicam_sync`), then cuts between cameras using
+    the chosen strategy.
+
+    Args:
+        camera_paths: List of video paths (one per camera).
+        output_path: Destination assembled video path.
+        clip_duration: Duration (seconds) of each camera cut.  Default 5.
+        strategy: ``"round_robin"`` cycles cameras evenly; ``"motion"``
+            picks the camera with the most motion per segment.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+    from gemia.video.timeline import cut, concat as _concat
+
+    if not camera_paths:
+        raise ValueError("camera_paths must not be empty")
+    if len(camera_paths) == 1:
+        raise ValueError("smart_multicam requires at least 2 cameras")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp())
+
+    # Sync cameras
+    sync_dir = str(tmp_dir / "synced")
+    synced = multicam_sync(camera_paths, sync_dir)
+
+    # Determine total usable duration
+    metas = [get_metadata(p) for p in synced]
+    total_dur = min(m["duration"] for m in metas)
+    n_cams = len(synced)
+
+    segments: list[str] = []
+    t = 0.0
+    cam_idx = 0
+
+    while t + clip_duration <= total_dur:
+        if strategy == "motion":
+            # Pick camera with highest inter-frame motion in this window
+            best_cam = 0
+            best_score = -1.0
+            for ci, cam_path in enumerate(synced):
+                cap = cv2.VideoCapture(cam_path)
+                cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+                prev = None
+                score = 0.0
+                for _ in range(int(metas[ci]["fps"] * min(2.0, clip_duration))):
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
+                    if prev is not None:
+                        score += float(np.abs(gray - prev).mean())
+                    prev = gray
+                cap.release()
+                if score > best_score:
+                    best_score = score
+                    best_cam = ci
+            cam_idx = best_cam
+        else:
+            # round-robin
+            cam_idx = cam_idx % n_cams
+
+        seg_path = str(tmp_dir / f"seg_{len(segments):04d}.mp4")
+        cut(synced[cam_idx], seg_path, start_sec=t, end_sec=t + clip_duration)
+        segments.append(seg_path)
+
+        t += clip_duration
+        if strategy == "round_robin":
+            cam_idx += 1
+
+    if not segments:
+        raise RuntimeError("smart_multicam: no segments assembled")
+
+    _concat(segments, output_path)
+    return output_path

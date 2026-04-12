@@ -570,3 +570,71 @@ def nest_clips(
     cmd += ["-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# #61  timeline_from_script
+# ---------------------------------------------------------------------------
+def timeline_from_script(
+    clips: list[str],
+    script_lines: list[str],
+    output_path: str,
+    *,
+    words_per_second: float = 2.5,
+    min_clip_sec: float = 2.0,
+    max_clip_sec: float = 10.0,
+) -> str:
+    """Assemble clips into a timed sequence driven by a text script.
+
+    Estimates the on-screen duration of each line by counting words, then
+    trims the corresponding clip to that duration and concatenates.
+
+    Inspired by DaVinci Resolve 19 *IntelliScript* timeline generator.
+
+    Args:
+        clips: List of source video paths (one per script line, or cycled).
+        script_lines: Text lines — each line maps to one clip.
+        output_path: Destination video path.
+        words_per_second: Reading/narration pace.  Default 2.5 wps.
+        min_clip_sec: Minimum clip duration in seconds.  Default 2.0.
+        max_clip_sec: Maximum clip duration in seconds.  Default 10.0.
+
+    Returns:
+        output_path
+    """
+    import tempfile
+    if not clips or not script_lines:
+        raise ValueError("clips and script_lines must not be empty")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp())
+    trimmed: list[str] = []
+
+    for idx, line in enumerate(script_lines):
+        src = clips[idx % len(clips)]
+        word_count = max(1, len(line.split()))
+        duration = word_count / words_per_second
+        duration = min(max(duration, min_clip_sec), max_clip_sec)
+
+        out = str(tmp_dir / f"seg_{idx:04d}.mp4")
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", "0",
+                "-i", src,
+                "-t", f"{duration:.3f}",
+                "-map", "0:v:0?", "-map", "0:a?",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", out,
+            ],
+            capture_output=True, text=True,
+        )
+        if proc.returncode == 0:
+            trimmed.append(out)
+
+    if not trimmed:
+        raise RuntimeError("timeline_from_script: no segments could be extracted")
+
+    from gemia.video.timeline import concat as _concat
+    _concat(trimmed, output_path)
+    return output_path
