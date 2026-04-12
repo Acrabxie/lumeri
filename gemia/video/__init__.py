@@ -7,7 +7,9 @@ from gemia.video.timeline import (
     cut, concat, nest_clips, speed, reverse,
     slip_edit, slide_edit, ripple_trim, roll_edit, freeze_frame,
 )
-from gemia.video.compositing import overlay, add_audio_track, object_remove, background_replace, stereo_3d_align
+from gemia.video.compositing import (
+    overlay, add_audio_track, object_remove, background_replace, stereo_3d_align,
+)
 from gemia.video.transitions import (
     transition_dissolve, transition_wipe, transition_push, transition_custom,
 )
@@ -18,6 +20,7 @@ from gemia.video.generative import (
     film_look_creator, intellitrack_zone,
 )
 from gemia.video.export import export_preset, proxy_generate, batch_export
+from gemia.video.effects import lut_apply, chroma_aberration, vhs_effect, color_wheels, zoom_pan
 from gemia.video.subtitles import (
     make_srt, make_vtt,
     transcribe_to_srt, transcribe_to_vtt,
@@ -36,6 +39,7 @@ __all__ = [
     "slip_edit", "slide_edit", "ripple_trim", "roll_edit", "freeze_frame",
     # compositing
     "overlay", "add_audio_track", "object_remove", "background_replace", "stereo_3d_align",
+    "lut_apply", "vhs_effect", "chroma_aberration", "zoom_pan", "color_wheels",
     # transitions
     "transition_dissolve", "transition_wipe", "transition_push", "transition_custom",
     # analysis
@@ -50,4 +54,6 @@ __all__ = [
     "auto_subtitle", "add_lower_third", "add_text", "add_subtitle_track", "animated_text",
     # export
     "export_preset", "proxy_generate", "batch_export",
+    # effects
+    "lut_apply", "chroma_aberration", "vhs_effect", "color_wheels", "zoom_pan",
 ]

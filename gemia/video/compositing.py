@@ -254,3 +254,241 @@ def stereo_3d_align(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# #52  lut_apply
+# ---------------------------------------------------------------------------
+def lut_apply(input_path: str, output_path: str, *, lut_path: str, intensity: float = 1.0) -> str:
+    """Apply a .cube LUT file to a video using ffmpeg lut3d filter.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination.
+        lut_path: Path to a .cube LUT file.
+        intensity: Blend strength [0, 1]. 1 = full LUT, 0 = passthrough.
+
+    Returns:
+        output_path
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    if intensity >= 0.999:
+        vf = f"lut3d=file='{lut_path}'"
+    else:
+        # Blend with original using mix
+        vf = f"split[a][b];[b]lut3d=file='{lut_path}'[c];[a][c]blend=all_expr='A*{1-intensity}+B*{intensity}'"
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-filter_complex", vf,
+            "-c:a", "copy",
+            output_path,
+        ])
+        return output_path
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #53  vhs_effect
+# ---------------------------------------------------------------------------
+def vhs_effect(input_path: str, output_path: str, *, strength: float = 0.5) -> str:
+    """Apply VHS/retro aesthetic (color bleed, scan lines, noise, desaturation).
+
+    Args:
+        input_path: Source video.
+        output_path: Destination video.
+        strength: Effect intensity [0, 1]. Default 0.5.
+
+    Returns:
+        output_path
+    """
+    s = max(0.0, min(1.0, strength))
+    noise_level = int(s * 25)
+    sat = 1.0 - s * 0.3          # slight desaturation
+    contrast = 1.0 + s * 0.1
+
+    # Scanlines via geq: darken every other row slightly
+    scanline = f"geq=lum='lum(X,Y)*if(mod(Y,2),1,{1.0 - s*0.12})':cb='cb(X,Y)':cr='cr(X,Y)'"
+
+    vf = ",".join([
+        # 1. Color bleed: slight horizontal chroma shift via hue+eq
+        f"hue=s={sat:.2f}",
+        f"eq=contrast={contrast:.2f}",
+        # 2. Noise
+        f"noise=alls={noise_level}:allf=t+u",
+        # 3. Scan lines
+        scanline,
+        # 4. Slight vignette
+        f"vignette=PI/{int(3 + (1-s)*4)}",
+    ])
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #54  chroma_aberration
+# ---------------------------------------------------------------------------
+def chroma_aberration(input_path: str, output_path: str, *, strength: int = 2) -> str:
+    """Add chromatic aberration (RGB channel split) effect.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination.
+        strength: Pixel offset for colour channel separation. Default 2.
+
+    Returns:
+        output_path
+    """
+    s = max(1, int(strength))
+    # Split into R/G/B channels, shift R left and B right, then merge
+    fc = (
+        f"[0:v]split=3[r][g][b];"
+        f"[r]lutrgb=g=0:b=0,pad=iw+{s*2}:ih:{s}:0[rs];"
+        f"[g]lutrgb=r=0:b=0,pad=iw+{s*2}:ih:{s}:0[gs];"
+        f"[b]lutrgb=r=0:g=0,pad=iw+{s*2}:ih:0:0[bs];"
+        f"[rs][gs]blend=all_mode=addition[rg];"
+        f"[rg][bs]blend=all_mode=addition[rgb];"
+        f"[rgb]crop=iw-{s*2}:ih:{s}:0[out]"
+    )
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", fc,
+        "-map", "[out]", "-map", "0:a?",
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #55  zoom_pan
+# ---------------------------------------------------------------------------
+def zoom_pan(
+    input_path: str,
+    output_path: str,
+    *,
+    start_zoom: float = 1.0,
+    end_zoom: float = 1.3,
+    x: float = 0.5,
+    y: float = 0.5,
+) -> str:
+    """Ken Burns zoom-pan effect.
+
+    Args:
+        input_path: Source video or image.
+        output_path: Destination.
+        start_zoom: Starting zoom level (1.0 = original). Default 1.0.
+        end_zoom: Ending zoom level. Default 1.3.
+        x: Horizontal anchor [0, 1] (0=left, 0.5=centre, 1=right). Default 0.5.
+        y: Vertical anchor [0, 1] (0=top, 0.5=centre, 1=bottom). Default 0.5.
+
+    Returns:
+        output_path
+    """
+    import subprocess as _sp
+    # Probe duration and fps
+    r = _sp.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate,width,height",
+         "-of", "csv=p=0", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    parts = r.stdout.strip().split(",")
+    fps_raw = parts[0] if parts else "30/1"
+    w = int(parts[1]) if len(parts) > 1 else 1280
+    h = int(parts[2]) if len(parts) > 2 else 720
+    fps_num, fps_den = map(int, fps_raw.split("/"))
+    fps = fps_num / fps_den
+
+    dur_r = _sp.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True, check=True,
+    )
+    dur = float(dur_r.stdout.strip())
+    total_frames = int(dur * fps)
+
+    sz = start_zoom
+    ez = end_zoom
+    # zoompan: z expr animates zoom, x/y keep anchor
+    z_expr = f"'{sz}+({ez}-{sz})*on/{total_frames}'"
+    px = f"'(iw-iw/zoom)*{x}'"
+    py = f"'(ih-ih/zoom)*{y}'"
+
+    vf = f"zoompan=z={z_expr}:x={px}:y={py}:d={total_frames}:s={w}x{h}:fps={fps}"
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# #56  color_wheels
+# ---------------------------------------------------------------------------
+def color_wheels(
+    input_path: str,
+    output_path: str,
+    *,
+    lift: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    gamma: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    gain: tuple[float, float, float] = (1.0, 1.0, 1.0),
+) -> str:
+    """3-way colour wheel adjustment (lift/gamma/gain = shadows/mids/highlights).
+
+    Each parameter is an (R, G, B) tuple:
+    - lift: additive offset for shadows [-0.5, 0.5]. Default (0, 0, 0).
+    - gamma: midtone power curve [0.1, 4.0]. Default (1, 1, 1).
+    - gain: multiplicative gain for highlights [0, 4]. Default (1, 1, 1).
+
+    Returns:
+        output_path
+    """
+    lr, lg, lb = lift
+    gr, gg, gb = gamma
+    nr, ng, nb = gain
+
+    # Build curves expression per channel:
+    # out = clamp((in * gain + lift) ^ (1/gamma), 0, 1)
+    # ffmpeg colorlevels handles gain+lift; curves handles gamma
+    color_levels = (
+        f"colorlevels="
+        f"rimin=0:rimax=1:romin={lr:.4f}:romax={nr:.4f},"
+        # repeat for g and b via separate filter invocations isn't straightforward;
+        # use colorchannelmixer for lift then curves for gamma
+    )
+    # Simpler: use geq per channel
+    def _ch(lift_v, gamma_v, gain_v):
+        # clamp((X/255 * gain + lift)^(1/gamma) * 255, 0, 255)
+        expr = f"clip(pow(clip(val*{gain_v:.4f}+{lift_v:.4f},0,1),1/{gamma_v:.4f})*255,0,255)"
+        return expr
+
+    vf = (
+        f"geq="
+        f"r='{_ch(lr,gr,nr)}':"
+        f"g='{_ch(lg,gg,ng)}':"
+        f"b='{_ch(lb,gb,nb)}'"
+    )
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:a", "copy",
+        output_path,
+    ])
+    return output_path
