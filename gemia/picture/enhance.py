@@ -628,3 +628,93 @@ def color_balance(
     img = np.clip(img, 0, 1)
     Image.fromarray((img * 255).astype(np.uint8)).save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# color_lookup
+# ---------------------------------------------------------------------------
+
+def color_lookup(
+    input_path: str,
+    output_path: str,
+    *,
+    lut_file: str,
+    strength: float = 1.0,
+) -> str:
+    """Apply a .cube LUT file to an image using trilinear interpolation.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination image file.
+        lut_file: Path to a ``.cube`` LUT file (3D LUT, 17³ or 33³ grid).
+        strength: Blend strength between original (0.0) and LUT-graded (1.0).
+
+    Returns:
+        The *output_path*.
+    """
+    import numpy as np
+    from PIL import Image
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    # Parse .cube file
+    size = 0
+    table: list[list[float]] = []
+    with open(lut_file, "r") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if line.startswith("LUT_3D_SIZE"):
+                size = int(line.split()[-1])
+            elif line and not line.startswith("#") and not line.startswith("TITLE") \
+                    and not line.startswith("DOMAIN") and not line.startswith("LUT"):
+                parts = line.split()
+                if len(parts) == 3:
+                    try:
+                        table.append([float(x) for x in parts])
+                    except ValueError:
+                        pass
+
+    if size == 0 or not table:
+        raise ValueError(f"Could not parse LUT from {lut_file!r}")
+
+    lut_data = np.array(table, dtype=np.float32).reshape(size, size, size, 3)
+
+    img = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+
+    # Trilinear lookup
+    def _trilinear(img_arr: np.ndarray, lut: np.ndarray, n: int) -> np.ndarray:
+        idx = img_arr * (n - 1)
+        i0 = np.floor(idx).astype(int).clip(0, n - 2)
+        i1 = i0 + 1
+        f = idx - i0  # fractional part
+
+        r0, g0, b0 = i0[..., 0], i0[..., 1], i0[..., 2]
+        r1, g1, b1 = i1[..., 0], i1[..., 1], i1[..., 2]
+        fr, fg, fb = f[..., 0:1], f[..., 1:2], f[..., 2:3]
+
+        # Trilinear interpolation over 8 corners
+        c000 = lut[r0, g0, b0]
+        c100 = lut[r1, g0, b0]
+        c010 = lut[r0, g1, b0]
+        c110 = lut[r1, g1, b0]
+        c001 = lut[r0, g0, b1]
+        c101 = lut[r1, g0, b1]
+        c011 = lut[r0, g1, b1]
+        c111 = lut[r1, g1, b1]
+
+        return (
+            c000 * (1-fr)*(1-fg)*(1-fb) +
+            c100 * fr*(1-fg)*(1-fb) +
+            c010 * (1-fr)*fg*(1-fb) +
+            c110 * fr*fg*(1-fb) +
+            c001 * (1-fr)*(1-fg)*fb +
+            c101 * fr*(1-fg)*fb +
+            c011 * (1-fr)*fg*fb +
+            c111 * fr*fg*fb
+        )
+
+    graded = _trilinear(img, lut_data, size)
+    result = img * (1.0 - strength) + graded * strength
+    result = np.clip(result, 0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+    return output_path
