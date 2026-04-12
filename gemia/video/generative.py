@@ -338,3 +338,54 @@ def generate_broll(
         output_paths.append(styled_path)
 
     return output_paths
+
+
+# ---------------------------------------------------------------------------
+# hdr_tone_map  (#44)
+# ---------------------------------------------------------------------------
+def hdr_tone_map(
+    input_path: str,
+    output_path: str,
+    *,
+    target_format: str = "hdr10",
+) -> str:
+    """Tone-map video to HDR format.
+
+    Args:
+        input_path: Source video path.
+        output_path: Destination video path.
+        target_format: ``"hdr10"`` or ``"hlg"``.
+
+    Returns:
+        output_path
+    """
+    import subprocess
+    from pathlib import Path as _Path
+
+    trc_map = {
+        "hdr10": "smpte2084",
+        "hlg": "arib-std-b67",
+    }
+    trc = trc_map.get(target_format)
+    if trc is None:
+        raise ValueError(f"Unknown target_format '{target_format}'. Choose from: {list(trc_map)}")
+
+    vf = (
+        f"zscale=t=linear:npl=100,format=gbrpf32le,"
+        f"zscale=p=bt2020:t={trc}:m=bt2020nc:r=tv,"
+        f"tonemap=hable,"
+        f"zscale=p=bt2020:t={trc}:m=bt2020nc:r=tv:npl=1000,"
+        f"format=yuv420p10le"
+    )
+
+    _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf,
+            "-c:a", "copy",
+            output_path,
+        ],
+        check=True, capture_output=True,
+    )
+    return output_path

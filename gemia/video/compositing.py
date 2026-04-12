@@ -171,3 +171,82 @@ def background_replace(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# stereo_3d_align  (#46)
+# ---------------------------------------------------------------------------
+def stereo_3d_align(
+    left_path: str,
+    right_path: str,
+    output_path: str,
+    *,
+    convergence_offset: int = 0,
+    format: str = "sbs",
+) -> str:
+    """Create stereoscopic 3D output from left/right eye videos.
+
+    Args:
+        left_path: Left-eye video path.
+        right_path: Right-eye video path.
+        output_path: Destination video path.
+        convergence_offset: Pixels to shift right eye horizontally.
+        format: ``"sbs"`` (side-by-side), ``"anaglyph"`` (red-cyan),
+                or ``"ou"`` (over-under).
+
+    Returns:
+        output_path
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Build right-eye stream (with optional convergence crop)
+    if convergence_offset != 0:
+        offset = convergence_offset
+        crop_x = offset if offset > 0 else 0
+        right_stream = (
+            f"[1:v]crop=iw-{abs(offset)}:ih:{crop_x}:0[right]"
+        )
+        right_label = "[right]"
+    else:
+        right_stream = None
+        right_label = "[1:v]"
+
+    left_label = "[0:v]"
+
+    if format == "sbs":
+        if right_stream:
+            fc = f"{right_stream};{left_label}{right_label}hstack[v]"
+        else:
+            fc = f"{left_label}{right_label}hstack[v]"
+    elif format == "anaglyph":
+        if right_stream:
+            fc = (
+                f"{right_stream};"
+                f"{left_label}lutrgb=g=0:b=0[r];"
+                f"{right_label}lutrgb=r=0[c];"
+                f"[r][c]blend=all_mode=addition[v]"
+            )
+        else:
+            fc = (
+                f"{left_label}lutrgb=g=0:b=0[r];"
+                f"{right_label}lutrgb=r=0[c];"
+                f"[r][c]blend=all_mode=addition[v]"
+            )
+    elif format == "ou":
+        if right_stream:
+            fc = f"{right_stream};{left_label}{right_label}vstack[v]"
+        else:
+            fc = f"{left_label}{right_label}vstack[v]"
+    else:
+        raise ValueError(f"Unknown format '{format}'. Choose from: sbs, anaglyph, ou")
+
+    _run([
+        "ffmpeg", "-y",
+        "-i", left_path,
+        "-i", right_path,
+        "-filter_complex", fc,
+        "-map", "[v]", "-map", "0:a?",
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
