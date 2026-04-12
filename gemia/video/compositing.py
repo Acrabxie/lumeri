@@ -199,12 +199,14 @@ def stereo_3d_align(
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Build right-eye stream (with optional convergence crop)
+    # Build right-eye stream (with optional convergence crop + pad to restore width)
     if convergence_offset != 0:
         offset = convergence_offset
         crop_x = offset if offset > 0 else 0
+        pad_x = 0 if offset > 0 else abs(offset)
         right_stream = (
-            f"[1:v]crop=iw-{abs(offset)}:ih:{crop_x}:0[right]"
+            f"[1:v]crop=iw-{abs(offset)}:ih:{crop_x}:0,"
+            f"pad=iw+{abs(offset)}:ih:{pad_x}:0[right]"
         )
         right_label = "[right]"
     else:
@@ -246,7 +248,9 @@ def stereo_3d_align(
         "-i", right_path,
         "-filter_complex", fc,
         "-map", "[v]", "-map", "0:a?",
-        "-c:v", "libx264", "-c:a", "aac",
+        "-c:v", "libx264",
+        "-c:a", "aac", "-ac", "2",
+        "-shortest",
         output_path,
     ])
     return output_path
