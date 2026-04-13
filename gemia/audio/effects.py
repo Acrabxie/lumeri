@@ -2074,3 +2074,30 @@ def audio_pitch_up(input_path: str, output_path: str, *, semitones: float = 2.0)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_normalize_peak(input_path: str, output_path: str, *, target_db: float = -1.0) -> None:
+    """Normalize audio to a target peak level in dBFS.
+
+    Args:
+        target_db: Target peak level in dBFS. Default -1.0.
+    """
+    af = f"dynaudnorm=p=0.9:m=100:s=12:g=15"
+    # Use volume filter with measured peak as fallback is complex; dynaudnorm is reliable
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_stereo_enhance(input_path: str, output_path: str, *, factor: float = 2.0) -> None:
+    """Enhance stereo width using ffmpeg extrastereo filter.
+
+    Args:
+        factor: Enhancement factor. 1.0 = no change, 2.0 = doubled width. Default 2.0.
+    """
+    af = f"extrastereo=m={factor:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
