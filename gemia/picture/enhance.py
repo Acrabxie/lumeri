@@ -1067,3 +1067,19 @@ def image_add_border(
     img = Image.open(input_path).convert("RGB")
     bordered = ImageOps.expand(img, border=size, fill=color)
     bordered.save(output_path)
+
+
+def image_grayscale(input_path: str, output_path: str) -> None:
+    """Convert image to grayscale."""
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    gray = ImageOps.grayscale(img).convert("RGB")
+    gray.save(output_path)
+
+
+def image_invert(input_path: str, output_path: str) -> None:
+    """Invert image colors."""
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    inverted = ImageOps.invert(img)
+    inverted.save(output_path)

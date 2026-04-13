@@ -3101,3 +3101,21 @@ def video_subtitle_extract(input_path: str, output_srt: str, *, stream_index: in
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def video_mute(input_path: str, output_path: str) -> None:
+    """Remove audio track from video (mute)."""
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-an", "-c:v", "copy", output_path]
+    _run(cmd)
+
+
+def video_to_audio(input_path: str, output_path: str) -> None:
+    """Extract audio track from video to an audio file.
+
+    Args:
+        output_path: Output audio file path. Format determined by extension (e.g. .mp3, .wav, .aac).
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vn", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
