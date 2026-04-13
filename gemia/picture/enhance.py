@@ -1245,3 +1245,29 @@ def image_rounded_corners(input_path: str, output_path: str, *, radius: int = 30
         bg.save(output_path)
     else:
         img.save(output_path)
+
+
+def image_composite_alpha(
+    background_path: str,
+    foreground_path: str,
+    output_path: str,
+    *,
+    x: int = 0,
+    y: int = 0,
+) -> None:
+    """Composite a foreground RGBA image over a background image.
+
+    Args:
+        background_path: Path to background image (any mode).
+        foreground_path: Path to foreground image (should have alpha channel).
+        x: X offset for foreground placement. Default 0.
+        y: Y offset for foreground placement. Default 0.
+    """
+    from PIL import Image
+    bg = Image.open(background_path).convert("RGBA")
+    fg = Image.open(foreground_path).convert("RGBA")
+    canvas = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+    canvas.paste(bg, (0, 0))
+    canvas.paste(fg, (x, y), mask=fg.split()[3])
+    result = canvas.convert("RGB")
+    result.save(output_path)

@@ -3478,3 +3478,77 @@ def video_zoom_out(
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_fade(
+    input_path: str,
+    output_path: str,
+    *,
+    fade_in: float = 0.0,
+    fade_out: float = 0.0,
+) -> None:
+    """Apply fade-in and/or fade-out to video.
+
+    Args:
+        fade_in: Fade-in duration in seconds. 0 = no fade-in. Default 0.0.
+        fade_out: Fade-out duration in seconds. 0 = no fade-out. Default 0.0.
+    """
+    import json
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    fps_probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams",
+         "-select_streams", "v:0", input_path],
+        capture_output=True, text=True,
+    )
+    stream = json.loads(fps_probe.stdout)["streams"][0]
+    fr = stream.get("r_frame_rate", "25/1")
+    num, den = fr.split("/")
+    fps = float(num) / float(den)
+
+    vf_parts = []
+    af_parts = []
+    if fade_in > 0:
+        frames_in = int(fade_in * fps)
+        vf_parts.append(f"fade=t=in:st=0:d={fade_in:.4f}")
+        af_parts.append(f"afade=t=in:st=0:d={fade_in:.4f}")
+    if fade_out > 0:
+        start_out = max(0.0, total - fade_out)
+        vf_parts.append(f"fade=t=out:st={start_out:.4f}:d={fade_out:.4f}")
+        af_parts.append(f"afade=t=out:st={start_out:.4f}:d={fade_out:.4f}")
+
+    vf = ",".join(vf_parts) if vf_parts else "null"
+    af = ",".join(af_parts) if af_parts else "anull"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-af", af,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_shake(
+    input_path: str,
+    output_path: str,
+    *,
+    amplitude: int = 10,
+    frequency: float = 8.0,
+) -> None:
+    """Add camera shake effect to video using crop with sinusoidal offset.
+
+    Args:
+        amplitude: Shake amplitude in pixels. Default 10.
+        frequency: Shake frequency in Hz. Default 8.0.
+    """
+    # Use crop with time-varying offset to simulate shake
+    # Crop slightly smaller to allow room for movement
+    pad = amplitude * 2
+    vf = (
+        f"crop=iw-{pad}:ih-{pad}"
+        f":x='{amplitude}+{amplitude}*sin(2*PI*{frequency:.2f}*t)'"
+        f":y='{amplitude}+{amplitude}*cos(2*PI*{frequency:.2f}*t*1.3)'"
+        f",scale=iw+{pad}:ih+{pad}"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

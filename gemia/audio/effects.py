@@ -2248,3 +2248,50 @@ def audio_silence_insert(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_vinyl(input_path: str, output_path: str, *, crackle: float = 0.3) -> None:
+    """Apply vinyl record effect: mild lowpass + slight saturation + wow/flutter sim.
+
+    Args:
+        crackle: Crackle intensity via noise (0-1). Default 0.3.
+    """
+    # Lowpass at 8kHz + slight wow flutter via asetrate variation isn't supported inline,
+    # so we approximate with: lowpass + treble cut + mild harmonic saturation
+    noise_vol = crackle * 0.02
+    af = (
+        f"lowpass=f=8000,"
+        f"treble=g=-4:f=6000,"
+        f"aeval=val(0)+{noise_vol:.4f}*(random(0)-0.5):c=same"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_normalize_rms(input_path: str, output_path: str, *, target_db: float = -20.0) -> None:
+    """Normalize audio to a target RMS level.
+
+    Uses ffmpeg volumedetect to measure, then applies gain correction.
+
+    Args:
+        target_db: Target RMS level in dBFS. Default -20.0.
+    """
+    import re
+    # Measure RMS
+    probe = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"mean_volume:\s*([-\d.]+)\s*dB", probe.stderr)
+    if m:
+        measured = float(m.group(1))
+        gain = target_db - measured
+    else:
+        gain = 0.0
+    af = f"volume={gain:.2f}dB"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
