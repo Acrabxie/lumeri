@@ -2445,3 +2445,33 @@ def audio_noise_reduce(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_speed_change(
+    input_path: str,
+    output_path: str,
+    *,
+    speed: float = 1.5,
+) -> None:
+    """Change audio playback speed without pitch shift using atempo filter.
+
+    atempo supports 0.5–2.0; values outside this range are handled by chaining.
+
+    Args:
+        speed: Playback speed multiplier. Default 1.5.
+    """
+    # Build chained atempo filter for out-of-range values
+    filters = []
+    s = speed
+    while s > 2.0:
+        filters.append("atempo=2.0")
+        s /= 2.0
+    while s < 0.5:
+        filters.append("atempo=0.5")
+        s /= 0.5
+    filters.append(f"atempo={s:.6f}")
+    af = ",".join(filters)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

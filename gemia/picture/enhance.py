@@ -1451,3 +1451,68 @@ def image_oil_paint(
             out[y, x] = patch_c[mask].mean(axis=0).astype(np.uint8)
 
     Image.fromarray(out).save(output_path)
+
+
+def image_cartoon(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_radius: int = 5,
+    edge_threshold: int = 100,
+    levels: int = 6,
+) -> None:
+    """Apply a cartoon effect: color quantization + edge overlay.
+
+    Args:
+        blur_radius: Bilateral-like blur radius. Default 5.
+        edge_threshold: Canny-style edge threshold (0-255). Default 100.
+        levels: Color quantization levels. Default 6.
+    """
+    from PIL import Image, ImageFilter
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+
+    # Quantize colors
+    quantized = (np.floor(arr / (256.0 / levels)) * (256.0 / levels)).clip(0, 255).astype(np.uint8)
+
+    # Smooth the quantized image
+    smooth = Image.fromarray(quantized).filter(ImageFilter.MedianFilter(size=max(3, blur_radius | 1)))
+
+    # Edge detection on grayscale
+    gray = img.convert("L")
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    edges_arr = np.array(edges)
+    edge_mask = (edges_arr > edge_threshold).astype(np.uint8) * 255
+    edge_img = Image.fromarray(edge_mask, "L")
+
+    # Overlay edges as black lines onto smooth image
+    smooth_arr = np.array(smooth)
+    mask = np.array(edge_img) > 128
+    smooth_arr[mask] = 0
+    Image.fromarray(smooth_arr).save(output_path)
+
+
+def image_sepia(
+    input_path: str,
+    output_path: str,
+    *,
+    intensity: float = 1.0,
+) -> None:
+    """Apply a sepia tone to an image.
+
+    Args:
+        intensity: Blend intensity 0–1. Default 1.0 (full sepia).
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    r = arr[..., 0] * 0.393 + arr[..., 1] * 0.769 + arr[..., 2] * 0.189
+    g = arr[..., 0] * 0.349 + arr[..., 1] * 0.686 + arr[..., 2] * 0.168
+    b = arr[..., 0] * 0.272 + arr[..., 1] * 0.534 + arr[..., 2] * 0.131
+    sepia = np.stack([r, g, b], axis=-1).clip(0, 1)
+    result = (sepia * intensity + arr * (1.0 - intensity)).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
