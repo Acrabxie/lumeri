@@ -1176,3 +1176,50 @@ def image_tint(
     blended = img * (1.0 - strength) + tint * strength
     blended = np.clip(blended, 0, 255).astype(np.uint8)
     Image.fromarray(blended).save(output_path)
+
+
+def image_watermark_text(
+    input_path: str,
+    output_path: str,
+    *,
+    text: str = "WATERMARK",
+    position: str = "bottom_right",
+    opacity: float = 0.5,
+    font_size: int = 24,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> None:
+    """Add text watermark to image.
+
+    Args:
+        text: Watermark text. Default 'WATERMARK'.
+        position: One of 'top_left', 'top_right', 'bottom_left', 'bottom_right', 'center'. Default 'bottom_right'.
+        opacity: Text opacity 0-1. Default 0.5.
+        font_size: Font size in pixels. Default 24.
+        color: RGB text color. Default white.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    import os
+    img = Image.open(input_path).convert("RGBA")
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    # Try to use a default font
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except Exception:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    w, h = img.size
+    margin = 10
+    pos_map = {
+        "top_left": (margin, margin),
+        "top_right": (w - tw - margin, margin),
+        "bottom_left": (margin, h - th - margin),
+        "bottom_right": (w - tw - margin, h - th - margin),
+        "center": ((w - tw) // 2, (h - th) // 2),
+    }
+    xy = pos_map.get(position, pos_map["bottom_right"])
+    alpha = int(opacity * 255)
+    draw.text(xy, text, font=font, fill=(*color, alpha))
+    result = Image.alpha_composite(img, overlay).convert("RGB")
+    result.save(output_path)

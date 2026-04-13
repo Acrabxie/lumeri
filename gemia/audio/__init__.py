@@ -28,6 +28,7 @@ from gemia.audio.effects import (
     audio_normalize_peak, audio_stereo_enhance,
     audio_bass_boost, audio_treble_boost,
     audio_telephone, audio_lowpass,
+    audio_highpass, audio_compand,
 )
 
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     "audio_normalize_peak", "audio_stereo_enhance",
     "audio_bass_boost", "audio_treble_boost",
     "audio_telephone", "audio_lowpass",
+    "audio_highpass", "audio_compand",
 ]

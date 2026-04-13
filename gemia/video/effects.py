@@ -3405,3 +3405,29 @@ def video_glitch(input_path: str, output_path: str, *, intensity: float = 0.05) 
         cmd2 = ["ffmpeg", "-y", "-i", input_path, "-vf", vf2,
                 "-c:v", "libx264", "-c:a", "aac", output_path]
         _run(cmd2)
+
+
+def video_denoise(input_path: str, output_path: str, *, strength: float = 3.0) -> None:
+    """Apply temporal noise reduction to video using hqdn3d filter.
+
+    Args:
+        strength: Denoising strength (0-10). Default 3.0.
+    """
+    s = max(0.0, min(10.0, strength))
+    vf = f"hqdn3d={s}:{s}:{s*2}:{s*2}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_sharpen(input_path: str, output_path: str, *, strength: float = 1.5) -> None:
+    """Sharpen video using ffmpeg unsharp filter.
+
+    Args:
+        strength: Sharpening amount (0.0-5.0). Default 1.5.
+    """
+    s = max(0.0, min(5.0, strength))
+    vf = f"unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount={s:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
