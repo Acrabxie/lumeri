@@ -1378,3 +1378,76 @@ def image_collage(
         y = gap + row * (thumb_height + gap) + (thumb_height - img.height) // 2
         canvas.paste(img, (x, y))
     canvas.save(output_path)
+
+
+def image_sketch(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_radius: int = 21,
+    intensity: float = 1.0,
+) -> None:
+    """Convert an image to a pencil-sketch look.
+
+    Args:
+        blur_radius: Gaussian blur radius (odd int) for the dodge step. Default 21.
+        intensity: Blend intensity 0–1. Default 1.0 (full sketch).
+    """
+    from PIL import Image, ImageFilter, ImageChops
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    gray = img.convert("L")
+    # Invert and blur (dodge layer)
+    inv = ImageChops.invert(gray)
+    radius = max(1, blur_radius | 1)  # ensure odd
+    blurred = inv.filter(ImageFilter.GaussianBlur(radius=radius))
+    # Color dodge: gray / (1 - blurred/255)
+    g = np.array(gray, dtype=np.float32)
+    b = np.array(blurred, dtype=np.float32)
+    dodge = np.clip(g / (1.0 - b / 255.0 + 1e-7) * 255.0, 0, 255).astype(np.uint8)
+    sketch = Image.fromarray(dodge, "L")
+    # Blend with original gray according to intensity
+    if intensity < 1.0:
+        sketch = Image.blend(gray, sketch, intensity)
+    sketch.convert("RGB").save(output_path)
+
+
+def image_oil_paint(
+    input_path: str,
+    output_path: str,
+    *,
+    radius: int = 4,
+    levels: int = 8,
+) -> None:
+    """Apply an oil-paint stylization effect.
+
+    Args:
+        radius: Brush radius in pixels. Default 4.
+        levels: Number of intensity levels for quantization. Default 8.
+    """
+    from PIL import Image
+    import numpy as np
+    from collections import Counter
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    out = arr.copy()
+    # Quantize intensity to discrete levels
+    gray = (arr[..., 0].astype(np.float32) * 0.299
+            + arr[..., 1].astype(np.float32) * 0.587
+            + arr[..., 2].astype(np.float32) * 0.114)
+    quantized = (gray / 255.0 * (levels - 1)).astype(np.int32)
+
+    r = radius
+    for y in range(r, h - r):
+        for x in range(r, w - r):
+            patch_q = quantized[y - r:y + r + 1, x - r:x + r + 1].ravel()
+            patch_c = arr[y - r:y + r + 1, x - r:x + r + 1].reshape(-1, 3)
+            # Find most common intensity level
+            most_common_level = Counter(patch_q).most_common(1)[0][0]
+            mask = patch_q == most_common_level
+            out[y, x] = patch_c[mask].mean(axis=0).astype(np.uint8)
+
+    Image.fromarray(out).save(output_path)
