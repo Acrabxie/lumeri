@@ -3119,3 +3119,62 @@ def video_to_audio(input_path: str, output_path: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def video_delogo(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+) -> None:
+    """Remove logo/watermark from a rectangular region using ffmpeg delogo filter.
+
+    Args:
+        x: Left edge of the logo region in pixels.
+        y: Top edge of the logo region in pixels.
+        w: Width of the logo region in pixels.
+        h: Height of the logo region in pixels.
+    """
+    vf = f"delogo=x={x}:y={y}:w={w}:h={h}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_zoom_in(
+    input_path: str,
+    output_path: str,
+    *,
+    zoom_end: float = 1.5,
+    fps: int = 25,
+) -> None:
+    """Animate a slow zoom-in effect over the video duration using zoompan filter.
+
+    Args:
+        zoom_end: Final zoom level (1.0 = no zoom, 2.0 = 2x). Default 1.5.
+        fps: Output frame rate for zoompan processing. Default 25.
+    """
+    import json
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams",
+         "-select_streams", "v:0", input_path],
+        capture_output=True, text=True,
+    )
+    info = json.loads(probe.stdout)
+    duration = float(info["format"]["duration"])
+    stream = info["streams"][0]
+    w = stream["width"]; h = stream["height"]
+    total_frames = int(duration * fps)
+    # zoom increments from 1 to zoom_end over total_frames
+    dz = (zoom_end - 1.0) / max(total_frames, 1)
+    vf = (
+        f"zoompan=z='min(zoom+{dz:.6f},{zoom_end})':d=1"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":s={w}x{h}:fps={fps}"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

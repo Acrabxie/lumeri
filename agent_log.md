@@ -147,3 +147,4 @@
 2026-04-12 20:48 Wave 30 complete: audio_trim, audio_mix_stereo, image_crop, video_frame_rate_convert, video_letterbox — all 2x PASS, committed
 2026-04-12 22:38 Wave 31 complete: audio_sample_rate_convert, audio_channels_to_mono, image_resize_to_fit, video_extract_frames_range, video_color_temp — all 2x PASS, committed
 2026-04-12 22:40 Wave 32 complete: audio_loudness_normalize, audio_bit_depth_convert, image_add_border, video_split, video_subtitle_extract — all 2x PASS, committed
+2026-04-12 22:41 Wave 33 complete: audio_stereo_to_lr, image_grayscale, image_invert, video_mute, video_to_audio — all 2x PASS, committed

@@ -35,6 +35,7 @@ from gemia.video.effects import (
     video_extract_frames_range, video_color_temp,
     video_split, video_subtitle_extract,
     video_mute, video_to_audio,
+    video_delogo, video_zoom_in,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -84,4 +85,5 @@ __all__ = [
     "video_extract_frames_range", "video_color_temp",
     "video_split", "video_subtitle_extract",
     "video_mute", "video_to_audio",
+    "video_delogo", "video_zoom_in",
 ]
