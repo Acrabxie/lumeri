@@ -1589,3 +1589,56 @@ def image_lens_blur(
     blur_arr = np.array(blurred, dtype=np.float32)
     result = (orig_arr * (1 - alpha) + blur_arr * alpha).clip(0, 255).astype(np.uint8)
     Image.fromarray(result).save(output_path)
+
+
+def image_cross_process(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Simulate cross-process film look via channel-specific gamma curves."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    # Red: boosted contrast
+    r = np.power(arr[..., 0], 0.7)
+    # Green: slight S-curve via gamma
+    g = np.power(arr[..., 1], 1.2)
+    # Blue: boosted and pushed towards cyan
+    b = np.power(arr[..., 2], 0.6) * 0.9 + 0.05
+    result = np.stack([r, g, b], axis=-1).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_halftone(
+    input_path: str,
+    output_path: str,
+    *,
+    dot_size: int = 8,
+) -> None:
+    """Apply a halftone dot pattern effect.
+
+    Args:
+        dot_size: Cell size in pixels. Default 8.
+    """
+    from PIL import Image, ImageDraw
+    import numpy as np
+
+    img = Image.open(input_path).convert("L")
+    w, h = img.size
+    arr = np.array(img, dtype=np.float32) / 255.0
+    canvas = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(canvas)
+    half = dot_size // 2
+    for y in range(0, h, dot_size):
+        for x in range(0, w, dot_size):
+            # Average brightness in cell
+            cell = arr[y:y + dot_size, x:x + dot_size]
+            if cell.size == 0:
+                continue
+            brightness = cell.mean()
+            radius = int((1 - brightness) * half)
+            cx, cy = x + half, y + half
+            draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=0)
+    canvas.convert("RGB").save(output_path)

@@ -51,6 +51,7 @@ from gemia.video.effects import (
     video_stabilize_simple, video_loop,
     video_rotate_90, video_add_watermark_text,
     video_extract_audio_segment, video_trim_silence,
+    video_freeze_at, video_concat_with_transition,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -116,4 +117,5 @@ __all__ = [
     "video_stabilize_simple", "video_loop",
     "video_rotate_90", "video_add_watermark_text",
     "video_extract_audio_segment", "video_trim_silence",
+    "video_freeze_at", "video_concat_with_transition",
 ]
