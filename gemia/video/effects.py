@@ -2571,3 +2571,109 @@ def image_to_video(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_extract_audio
+# ---------------------------------------------------------------------------
+
+def video_extract_audio(
+    input_path: str,
+    output_path: str,
+    *,
+    codec: str = "copy",
+) -> str:
+    """Extract the audio track from a video to a standalone audio file.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination audio file (``.aac``, ``.mp3``, ``.wav``, etc.).
+        codec: Audio codec for output (``"copy"`` = lossless remux;
+            ``"aac"``, ``"mp3"`` = transcode).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vn", "-c:a", codec,
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_replace_audio
+# ---------------------------------------------------------------------------
+
+def video_replace_audio(
+    video_path: str,
+    audio_path: str,
+    output_path: str,
+    *,
+    shortest: bool = True,
+) -> str:
+    """Replace the audio track in a video with a different audio file.
+
+    Args:
+        video_path: Source video file (video stream is kept).
+        audio_path: Audio file to use as the new track.
+        output_path: Destination video file.
+        shortest: Truncate output to the shorter of video/audio (True recommended).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-c:a", "aac",
+    ]
+    if shortest:
+        cmd.append("-shortest")
+    cmd.append(output_path)
+    _run(cmd)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_trim
+# ---------------------------------------------------------------------------
+
+def video_trim(
+    input_path: str,
+    output_path: str,
+    *,
+    start_sec: float = 0.0,
+    end_sec: float | None = None,
+    stream_copy: bool = True,
+) -> str:
+    """Trim a video to the [start_sec, end_sec] range.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        start_sec: Start time in seconds.
+        end_sec: End time in seconds (``None`` = until end of file).
+        stream_copy: Use stream copy for speed (True) or re-encode (False).
+            Stream copy may have slight precision issues near keyframes.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = ["ffmpeg", "-y", "-ss", str(start_sec), "-i", input_path]
+    if end_sec is not None:
+        cmd += ["-t", str(end_sec - start_sec)]
+    if stream_copy:
+        cmd += ["-c", "copy"]
+    else:
+        cmd += ["-c:v", "libx264", "-c:a", "aac"]
+    cmd.append(output_path)
+    _run(cmd)
+    return output_path
