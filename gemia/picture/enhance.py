@@ -1011,3 +1011,21 @@ def image_rotate(input_path: str, output_path: str, *, angle: float = 90.0, expa
     img = Image.open(input_path).convert("RGB")
     rotated = img.rotate(angle, expand=expand)
     rotated.save(output_path)
+
+
+def image_crop(input_path: str, output_path: str, *, left: int = 0, top: int = 0, right: int | None = None, bottom: int | None = None) -> None:
+    """Crop image to a specific region.
+    
+    Args:
+        left: Left pixel offset. Default 0.
+        top: Top pixel offset. Default 0.
+        right: Right pixel boundary. None means image width.
+        bottom: Bottom pixel boundary. None means image height.
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    r = right if right is not None else w
+    b = bottom if bottom is not None else h
+    cropped = img.crop((left, top, r, b))
+    cropped.save(output_path)

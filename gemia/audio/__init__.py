@@ -17,6 +17,7 @@ from gemia.audio.effects import (
     audio_mix_to_mono, audio_concat, audio_ducking, audio_speed,
     audio_volume, audio_equalizer, audio_reverse,
     audio_fade_in, audio_fade_out,
+    audio_trim, audio_mix_stereo,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "audio_mix_to_mono", "audio_concat", "audio_ducking", "audio_speed",
     "audio_volume", "audio_equalizer", "audio_reverse",
     "audio_fade_in", "audio_fade_out",
+    "audio_trim", "audio_mix_stereo",
 ]

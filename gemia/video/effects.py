@@ -2967,3 +2967,28 @@ def video_thumbnail_grid(input_path: str, output_path: str, *, cols: int = 4, ro
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def video_frame_rate_convert(input_path: str, output_path: str, *, fps: float = 30.0) -> None:
+    """Convert video to a different frame rate.
+    
+    Args:
+        fps: Target frame rate. Default 30.0.
+    """
+    vf = f"fps={fps}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_letterbox(input_path: str, output_path: str, *, width: int = 1920, height: int = 1080) -> None:
+    """Fit video into target dimensions with letterbox/pillarbox black bars.
+    
+    Args:
+        width: Target width in pixels. Default 1920.
+        height: Target height in pixels. Default 1080.
+    """
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
