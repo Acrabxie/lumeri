@@ -2182,3 +2182,114 @@ def video_watermark(
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", output_path]
     _run(cmd)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_flip
+# ---------------------------------------------------------------------------
+
+def video_flip(
+    input_path: str,
+    output_path: str,
+    *,
+    direction: str = "horizontal",
+) -> str:
+    """Flip a video horizontally or vertically.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        direction: ``"horizontal"`` (left-right mirror) or ``"vertical"``
+            (upside-down flip).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    if direction == "vertical":
+        vf = "vflip"
+    else:
+        vf = "hflip"
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_rotate
+# ---------------------------------------------------------------------------
+
+def video_rotate(
+    input_path: str,
+    output_path: str,
+    *,
+    angle: float = 90.0,
+) -> str:
+    """Rotate a video by a given angle.
+
+    For multiples of 90°, uses lossless ``transpose`` (fast).
+    For arbitrary angles, uses the ``rotate`` filter with black fill.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        angle: Clockwise rotation in degrees (e.g. 90, 180, 270, 45).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    angle_mod = angle % 360
+    if angle_mod == 90:
+        vf = "transpose=1"
+    elif angle_mod == 180:
+        vf = "transpose=1,transpose=1"
+    elif angle_mod == 270:
+        vf = "transpose=2"
+    else:
+        rad = angle_mod * 3.14159265358979 / 180.0
+        vf = (
+            f"rotate={rad:.6f}:c=black:"
+            "ow=rotw({angle}):oh=roth({angle})".replace("{angle}", str(rad))
+        )
+        # Simpler: use fixed output size
+        vf = f"rotate=angle={rad:.6f}:c=black"
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_mute
+# ---------------------------------------------------------------------------
+
+def video_mute(
+    input_path: str,
+    output_path: str,
+) -> str:
+    """Remove audio from a video, producing a video-only output.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file (no audio stream).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-c:v", "copy", "-an",
+        output_path,
+    ])
+    return output_path

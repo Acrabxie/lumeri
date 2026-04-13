@@ -1315,3 +1315,131 @@ def text_to_speech(
         "text_to_speech requires macOS 'say' or 'espeak'. "
         "Install espeak: brew install espeak"
     )
+
+
+# ---------------------------------------------------------------------------
+# audio_normalize_loudness
+# ---------------------------------------------------------------------------
+
+def audio_normalize_loudness(
+    input_path: str,
+    output_path: str,
+    *,
+    target_lufs: float = -14.0,
+    true_peak_dbfs: float = -1.0,
+    lra: float = 11.0,
+) -> str:
+    """Two-pass loudness normalization to a precise LUFS target.
+
+    Pass 1 analyses the source; Pass 2 encodes with corrected parameters.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        target_lufs: Integrated loudness target in LUFS (e.g. -14 for streaming).
+        true_peak_dbfs: Maximum true-peak level in dBFS.
+        lra: Loudness range target in LU.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess, json
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Pass 1: measure
+    p1 = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"loudnorm=I={target_lufs}:TP={true_peak_dbfs}:LRA={lra}:print_format=json",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    combined = p1.stdout + p1.stderr
+    start = combined.rfind("{")
+    end = combined.rfind("}") + 1
+    if start == -1 or end <= start:
+        raise RuntimeError(f"loudnorm pass 1 failed:\n{combined}")
+
+    stats = json.loads(combined[start:end])
+    measured_i = stats.get("input_i", "-23")
+    measured_tp = stats.get("input_tp", "-1")
+    measured_lra = stats.get("input_lra", "7")
+    measured_thresh = stats.get("input_thresh", "-33")
+    offset = stats.get("target_offset", "0")
+
+    # Pass 2: normalize with measured values
+    af2 = (
+        f"loudnorm=I={target_lufs}:TP={true_peak_dbfs}:LRA={lra}"
+        f":measured_I={measured_i}"
+        f":measured_TP={measured_tp}"
+        f":measured_LRA={measured_lra}"
+        f":measured_thresh={measured_thresh}"
+        f":offset={offset}:linear=true:print_format=none"
+    )
+    p2 = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af2, output_path],
+        capture_output=True, text=True,
+    )
+    if p2.returncode != 0:
+        raise RuntimeError(f"loudnorm pass 2 failed:\n{p2.stderr}")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_pitch_shift_semitones
+# ---------------------------------------------------------------------------
+
+def audio_pitch_shift_semitones(
+    input_path: str,
+    output_path: str,
+    *,
+    semitones: float,
+) -> str:
+    """Shift audio pitch by N semitones without changing tempo.
+
+    Uses asetrate (resample speed) + atempo (time-correct) approach.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        semitones: Number of semitones to shift (positive = up, negative = down).
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Probe sample rate
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=sample_rate",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    sr = int(probe.stdout.strip()) if probe.returncode == 0 and probe.stdout.strip() else 44100
+
+    ratio = 2 ** (semitones / 12.0)
+    new_sr = int(sr * ratio)
+    # atempo must be in [0.5, 2.0]; chain multiple if needed
+    tempo = 1.0 / ratio
+    atempo_filters: list[str] = []
+    t = tempo
+    while t < 0.5:
+        atempo_filters.append("atempo=0.5")
+        t /= 0.5
+    while t > 2.0:
+        atempo_filters.append("atempo=2.0")
+        t /= 2.0
+    atempo_filters.append(f"atempo={t:.6f}")
+
+    af = f"asetrate={new_sr}," + ",".join(atempo_filters) + f",aresample={sr}"
+
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_pitch_shift_semitones failed:\n{proc.stderr}")
+    return output_path
