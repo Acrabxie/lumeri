@@ -2424,3 +2424,24 @@ def audio_waveform_image(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_noise_reduce(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 10.0,
+) -> None:
+    """Reduce background noise using ffmpeg afftdn filter.
+
+    Args:
+        strength: Noise reduction strength in dB (1–97). Default 10.0.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", f"afftdn=nr={strength}",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
