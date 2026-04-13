@@ -2388,3 +2388,39 @@ def audio_ducking_auto(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_format_convert(input_path: str, output_path: str, *, bitrate: str = "192k") -> None:
+    """Convert audio to a different format determined by output file extension.
+
+    Args:
+        output_path: Output path. Format inferred from extension (.mp3, .aac, .flac, .ogg, .wav, etc.)
+        bitrate: Target bitrate for lossy formats. Default '192k'.
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-b:a", bitrate, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_waveform_image(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int = 800,
+    height: int = 200,
+    color: str = "0x00aaff",
+) -> None:
+    """Render audio waveform as a static PNG image using ffmpeg showwavespic filter.
+
+    Args:
+        width: Output image width. Default 800.
+        height: Output image height. Default 200.
+        color: Waveform color as hex (e.g. '0x00aaff'). Default blue.
+    """
+    fc = f"[0:a]showwavespic=s={width}x{height}:colors={color}[v]"
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-filter_complex", fc, "-map", "[v]", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
