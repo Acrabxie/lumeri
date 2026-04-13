@@ -2475,3 +2475,27 @@ def audio_speed_change(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_stereo_swap(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Swap left and right stereo channels.
+
+    If the input is mono it is passed through unchanged.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", "pan=stereo|c0=c1|c1=c0",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Mono fallback: just copy
+        proc2 = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+            capture_output=True, text=True,
+        )
+        if proc2.returncode != 0:
+            raise RuntimeError(proc.stderr[-1000:])
