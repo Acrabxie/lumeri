@@ -854,3 +854,40 @@ def image_collage(
 
     canvas.save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_sharpen
+# ---------------------------------------------------------------------------
+
+def image_sharpen(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 1.0,
+    radius: int = 2,
+    threshold: int = 3,
+) -> str:
+    """Sharpen an image using PIL unsharp mask.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination image file.
+        strength: Sharpening amount multiplier (1.0 = standard unsharp mask).
+        radius: Blur radius for unsharp mask in pixels.
+        threshold: Minimum brightness difference to sharpen (0–255).
+
+    Returns:
+        The *output_path*.
+    """
+    from PIL import Image, ImageFilter
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    img = Image.open(input_path).convert("RGB")
+    # PIL UnsharpMask: radius, percent (strength*100), threshold
+    sharpened = img.filter(
+        ImageFilter.UnsharpMask(radius=radius, percent=int(strength * 150), threshold=threshold)
+    )
+    sharpened.save(output_path)
+    return output_path
