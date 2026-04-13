@@ -42,6 +42,7 @@ from gemia.audio.effects import (
     audio_resample,
     audio_normalize_to_target_db,
     audio_apply_eq_bands,
+    audio_gate,
 )
 
 __all__ = [
@@ -90,4 +91,5 @@ __all__ = [
     "audio_resample",
     "audio_normalize_to_target_db",
     "audio_apply_eq_bands",
+    "audio_gate",
 ]

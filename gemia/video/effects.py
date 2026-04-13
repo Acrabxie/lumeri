@@ -4263,3 +4263,33 @@ def video_thumbnail(
         "-i", input_path,
         "-vframes", "1", output_path,
     ])
+
+
+def video_add_silent_audio(
+    input_path: str,
+    output_path: str,
+    *,
+    sample_rate: int = 44100,
+) -> None:
+    """Add a silent audio track to a video that has no audio stream.
+
+    Args:
+        sample_rate: Sample rate for the silent audio. Default 44100.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=stereo",
+        "-c:v", "copy", "-c:a", "aac", "-shortest", output_path,
+    ])
+
+
+def video_remove_audio(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Strip audio stream from a video file."""
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vn" if False else "-an",  # -an removes audio
+        "-c:v", "copy", output_path,
+    ])

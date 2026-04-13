@@ -2638,3 +2638,25 @@ def audio_apply_eq_bands(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_gate(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold: float = 0.01,
+    attack: float = 20.0,
+    release: float = 250.0,
+) -> None:
+    """Apply a noise gate to mute audio below threshold.
+
+    Args:
+        threshold: Gate open threshold 0–1 (linear). Default 0.01.
+        attack: Attack time in ms. Default 20.
+        release: Release time in ms. Default 250.
+    """
+    af = f"agate=threshold={threshold}:attack={attack}:release={release}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
