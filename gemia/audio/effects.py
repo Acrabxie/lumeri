@@ -1483,3 +1483,132 @@ def audio_mix_to_mono(
         if proc2.returncode != 0:
             raise RuntimeError(f"audio_mix_to_mono failed:\n{proc2.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_concat
+# ---------------------------------------------------------------------------
+
+def audio_concat(
+    input_paths: list[str],
+    output_path: str,
+) -> str:
+    """Concatenate multiple audio files into one.
+
+    Args:
+        input_paths: List of source audio files (at least 2).
+        output_path: Destination audio file.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess, tempfile
+    from pathlib import Path
+
+    if len(input_paths) < 2:
+        raise ValueError("audio_concat requires at least 2 inputs")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Use concat demuxer via a temp list file
+    with tempfile.TemporaryDirectory() as td:
+        list_path = str(Path(td) / "inputs.txt")
+        with open(list_path, "w") as f:
+            for p in input_paths:
+                abs_p = str(Path(p).resolve())
+                f.write(f"file '{abs_p}'\n")
+
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", list_path, "-c", "copy", output_path],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0:
+            # Fallback: re-encode with filter concat
+            n = len(input_paths)
+            inputs = [x for p in input_paths for x in ["-i", p]]
+            segs = "".join(f"[{i}:a]" for i in range(n))
+            fc = f"{segs}concat=n={n}:v=0:a=1[a]"
+            proc2 = subprocess.run(
+                ["ffmpeg", "-y", *inputs,
+                 "-filter_complex", fc, "-map", "[a]", output_path],
+                capture_output=True, text=True,
+            )
+            if proc2.returncode != 0:
+                raise RuntimeError(f"audio_concat failed:\n{proc2.stderr}")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_ducking
+# ---------------------------------------------------------------------------
+
+def audio_ducking(
+    main_path: str,
+    voice_path: str,
+    output_path: str,
+    *,
+    threshold_db: float = -20.0,
+    reduction_db: float = -10.0,
+    attack_ms: float = 50.0,
+    release_ms: float = 300.0,
+) -> str:
+    """Duck the main audio level when voice/sidechain signal is active.
+
+    Uses ffmpeg ``sidechaincompress`` filter.
+
+    Args:
+        main_path: Background music / main audio to duck.
+        voice_path: Sidechain (voice/narration) that triggers ducking.
+        output_path: Destination audio file with ducked main + voice mix.
+        threshold_db: Level of sidechain that triggers compression.
+        reduction_db: How much to reduce main in dB (negative = cut).
+        attack_ms: Compressor attack time in ms.
+        release_ms: Compressor release time in ms.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    threshold_lin = 10 ** (threshold_db / 20.0)
+    ratio = 20.0  # high ratio = near-limiter behavior
+    makeup_lin = 10 ** (reduction_db / 20.0)
+
+    fc = (
+        f"[0:a][1:a]sidechaincompress="
+        f"threshold={threshold_lin:.6f}:"
+        f"ratio={ratio:.1f}:"
+        f"attack={attack_ms:.1f}:"
+        f"release={release_ms:.1f}:"
+        f"makeup={makeup_lin:.6f}[ducked];"
+        f"[ducked][1:a]amix=inputs=2:duration=first[out]"
+    )
+
+    proc = subprocess.run(
+        ["ffmpeg", "-y",
+         "-i", main_path,
+         "-i", voice_path,
+         "-filter_complex", fc,
+         "-map", "[out]",
+         output_path],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        # sidechaincompress may not be available — fallback: simple volume duck
+        proc2 = subprocess.run(
+            ["ffmpeg", "-y",
+             "-i", main_path,
+             "-i", voice_path,
+             "-filter_complex",
+             f"[0:a]volume={makeup_lin:.4f}[main_duck];[main_duck][1:a]amix=inputs=2:duration=first[out]",
+             "-map", "[out]",
+             output_path],
+            capture_output=True, text=True,
+        )
+        if proc2.returncode != 0:
+            raise RuntimeError(f"audio_ducking failed:\n{proc2.stderr}")
+    return output_path
