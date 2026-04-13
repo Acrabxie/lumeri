@@ -29,6 +29,7 @@ from gemia.audio.effects import (
     audio_bass_boost, audio_treble_boost,
     audio_telephone, audio_lowpass,
     audio_highpass, audio_compand,
+    audio_mix_tracks, audio_silence_insert,
 )
 
 __all__ = [
@@ -64,4 +65,5 @@ __all__ = [
     "audio_bass_boost", "audio_treble_boost",
     "audio_telephone", "audio_lowpass",
     "audio_highpass", "audio_compand",
+    "audio_mix_tracks", "audio_silence_insert",
 ]
