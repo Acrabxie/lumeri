@@ -23,6 +23,7 @@ from gemia.audio.effects import (
     audio_stereo_to_lr,
     audio_echo, audio_chorus,
     audio_tremolo, audio_flanger,
+    audio_vibrato, audio_robot,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "audio_stereo_to_lr",
     "audio_echo", "audio_chorus",
     "audio_tremolo", "audio_flanger",
+    "audio_vibrato", "audio_robot",
 ]

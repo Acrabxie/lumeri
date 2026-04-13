@@ -10,7 +10,7 @@ from gemia.picture.color import color_grade, adjust_exposure, adjust_temperature
 from gemia.picture.analysis import histogram, dominant_colors, edge_detect
 from gemia.picture.composite import create_mask, blend, composite
 from gemia.picture.generative import generate_image, edit_image, style_transfer, blend_images
-from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize
+from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize, image_pixelate
 
 __all__ = [
     # geometry
@@ -29,5 +29,5 @@ __all__ = [
     "super_scale", "match_color", "skin_tone_protect", "hdr_grade", "film_grain_organic",
     "defocus_background", "relight", "motion_blur", "color_balance", "image_flip", "image_rotate", "image_crop",
     "image_resize_to_fit", "image_add_border", "image_grayscale", "image_invert", "image_posterize",
-    "image_solarize",
+    "image_solarize", "image_pixelate",
 ]
