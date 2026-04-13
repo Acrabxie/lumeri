@@ -1757,3 +1757,46 @@ def image_palette_swap(
     idx = np.argmin((diffs ** 2).sum(axis=-1), axis=1)  # (H*W,)
     result = pal[idx].reshape(arr.shape).astype(np.uint8)
     Image.fromarray(result).save(output_path)
+
+
+def image_channel_split(
+    input_path: str,
+    output_r: str,
+    output_g: str,
+    output_b: str,
+) -> None:
+    """Split an RGB image into three grayscale channel images.
+
+    Args:
+        output_r: Path for the red-channel image.
+        output_g: Path for the green-channel image.
+        output_b: Path for the blue-channel image.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    r, g, b = img.split()
+    r.save(output_r)
+    g.save(output_g)
+    b.save(output_b)
+
+
+def image_channel_merge(
+    input_r: str,
+    input_g: str,
+    input_b: str,
+    output_path: str,
+) -> None:
+    """Merge three grayscale images into a single RGB image.
+
+    Args:
+        input_r: Path to red-channel image.
+        input_g: Path to green-channel image.
+        input_b: Path to blue-channel image.
+    """
+    from PIL import Image
+
+    r = Image.open(input_r).convert("L")
+    g = Image.open(input_g).convert("L")
+    b = Image.open(input_b).convert("L")
+    Image.merge("RGB", (r, g, b)).save(output_path)

@@ -4174,3 +4174,47 @@ def video_scale_to_height(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_set_fps(
+    input_path: str,
+    output_path: str,
+    *,
+    fps: float = 30.0,
+) -> None:
+    """Change video frame rate.
+
+    Args:
+        fps: Target frames per second. Default 30.0.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"fps={fps}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_crop(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int,
+    height: int,
+    x: int = 0,
+    y: int = 0,
+) -> None:
+    """Crop video to a rectangle.
+
+    Args:
+        width: Crop width in pixels.
+        height: Crop height in pixels.
+        x: X offset from left. Default 0.
+        y: Y offset from top. Default 0.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"crop={width}:{height}:{x}:{y}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
