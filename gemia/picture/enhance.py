@@ -1083,3 +1083,15 @@ def image_invert(input_path: str, output_path: str) -> None:
     img = Image.open(input_path).convert("RGB")
     inverted = ImageOps.invert(img)
     inverted.save(output_path)
+
+
+def image_posterize(input_path: str, output_path: str, *, bits: int = 4) -> None:
+    """Posterize image by reducing color bit depth.
+
+    Args:
+        bits: Number of bits per channel (1-8). Lower = more posterized. Default 4.
+    """
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    posterized = ImageOps.posterize(img, bits)
+    posterized.save(output_path)
