@@ -4293,3 +4293,56 @@ def video_remove_audio(
         "-vn" if False else "-an",  # -an removes audio
         "-c:v", "copy", output_path,
     ])
+
+
+def video_info(input_path: str) -> dict:
+    """Return video metadata as a dict.
+
+    Returns keys: width, height, fps, duration, codec, audio_codec.
+    """
+    import json
+
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_streams", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    data = json.loads(proc.stdout)
+    info: dict = {}
+    for stream in data.get("streams", []):
+        if stream.get("codec_type") == "video":
+            info["width"] = stream.get("width")
+            info["height"] = stream.get("height")
+            info["codec"] = stream.get("codec_name")
+            r_fps = stream.get("r_frame_rate", "0/1")
+            try:
+                num, den = r_fps.split("/")
+                info["fps"] = float(num) / float(den) if float(den) else 0.0
+            except Exception:
+                info["fps"] = 0.0
+        elif stream.get("codec_type") == "audio":
+            info["audio_codec"] = stream.get("codec_name")
+    info["duration"] = float(data.get("format", {}).get("duration", 0))
+    return info
+
+
+def video_concat_list(
+    input_paths: list[str],
+    output_path: str,
+) -> None:
+    """Concatenate a list of video files in order.
+
+    Args:
+        input_paths: Ordered list of video file paths.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        list_file = f"{tmp}/list.txt"
+        with open(list_file, "w") as f:
+            for p in input_paths:
+                f.write(f"file '{p}'\n")
+        _run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", list_file, "-c", "copy", output_path,
+        ])
