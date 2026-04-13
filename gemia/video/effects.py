@@ -4027,3 +4027,86 @@ def video_trim_silence(
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
             "-i", list_file, "-c", "copy", output_path,
         ])
+
+
+def video_freeze_at(
+    input_path: str,
+    output_path: str,
+    *,
+    freeze_time: float = 1.0,
+    freeze_duration: float = 2.0,
+) -> None:
+    """Freeze video at a specific time for a given duration, then continue.
+
+    Args:
+        freeze_time: Timestamp (seconds) at which to freeze. Default 1.0.
+        freeze_duration: How long to hold the freeze frame (seconds). Default 2.0.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        before = f"{tmp}/before.mp4"
+        frozen = f"{tmp}/frozen.mp4"
+        after = f"{tmp}/after.mp4"
+        list_file = f"{tmp}/list.txt"
+
+        # Segment before freeze
+        _run(["ffmpeg", "-y", "-i", input_path,
+              "-t", str(freeze_time),
+              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", before])
+
+        # Extract freeze frame and loop it
+        frame_file = f"{tmp}/freeze.png"
+        _run(["ffmpeg", "-y", "-ss", str(freeze_time), "-i", input_path,
+              "-vframes", "1", frame_file])
+        _run(["ffmpeg", "-y",
+              "-loop", "1", "-i", frame_file,
+              "-t", str(freeze_duration),
+              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+              "-r", "25", frozen])
+
+        # Segment after freeze
+        _run(["ffmpeg", "-y", "-ss", str(freeze_time), "-i", input_path,
+              "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", after])
+
+        with open(list_file, "w") as f:
+            for p in [before, frozen, after]:
+                f.write(f"file '{p}'\n")
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+              "-i", list_file, "-c", "copy", output_path])
+
+
+def video_concat_with_transition(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+    *,
+    transition: str = "dissolve",
+    duration: float = 1.0,
+) -> None:
+    """Concatenate two videos with a cross-dissolve (or other) xfade transition.
+
+    Args:
+        transition: xfade transition name. Default 'dissolve'.
+        duration: Transition duration in seconds. Default 1.0.
+    """
+    import subprocess as _sp
+
+    # Get duration of first video
+    dur_proc = _sp.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_a],
+        capture_output=True, text=True,
+    )
+    dur_a = float(dur_proc.stdout.strip())
+    offset = max(0.0, dur_a - duration)
+
+    fc = (f"[0:v][1:v]xfade=transition={transition}:duration={duration}:offset={offset}[v];"
+          f"[0:a][1:a]acrossfade=d={duration}[a]")
+    _run([
+        "ffmpeg", "-y", "-i", input_a, "-i", input_b,
+        "-filter_complex", fc,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        output_path,
+    ])
