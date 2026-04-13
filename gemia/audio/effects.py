@@ -1790,3 +1790,38 @@ def audio_fade_out(input_path: str, output_path: str, *, duration: float = 1.0) 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_trim(input_path: str, output_path: str, *, start: float = 0.0, end: float | None = None) -> None:
+    """Trim audio to a specific time range.
+    
+    Args:
+        start: Start time in seconds. Default 0.0.
+        end: End time in seconds. None means until end of file.
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-ss", str(start)]
+    if end is not None:
+        cmd += ["-to", str(end)]
+    cmd += [output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_mix_stereo(left_path: str, right_path: str, output_path: str) -> None:
+    """Mix two audio files as left and right stereo channels.
+    
+    Args:
+        left_path: Audio file to use as the left channel.
+        right_path: Audio file to use as the right channel.
+    """
+    af = "amerge=inputs=2,pan=stereo|c0=c0|c1=c2"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", left_path, "-i", right_path,
+        "-filter_complex", af,
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

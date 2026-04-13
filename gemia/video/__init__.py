@@ -31,6 +31,7 @@ from gemia.video.effects import (
     waveform_monitor, keyframe_extract, aspect_ratio_pad, video_denoise_spatial,
     video_vignette, video_mirror, video_brightness_contrast,
     video_rotate, video_thumbnail_grid,
+    video_frame_rate_convert, video_letterbox,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -76,4 +77,5 @@ __all__ = [
     "waveform_monitor", "keyframe_extract", "aspect_ratio_pad", "video_denoise_spatial",
     "video_vignette", "video_mirror", "video_brightness_contrast",
     "video_rotate", "video_thumbnail_grid",
+    "video_frame_rate_convert", "video_letterbox",
 ]
