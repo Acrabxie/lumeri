@@ -24,6 +24,7 @@ from gemia.audio.effects import (
     audio_echo, audio_chorus,
     audio_tremolo, audio_flanger,
     audio_vibrato, audio_robot,
+    audio_pitch_up,
 )
 
 __all__ = [
@@ -54,4 +55,5 @@ __all__ = [
     "audio_echo", "audio_chorus",
     "audio_tremolo", "audio_flanger",
     "audio_vibrato", "audio_robot",
+    "audio_pitch_up",
 ]
