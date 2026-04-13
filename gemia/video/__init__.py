@@ -36,6 +36,7 @@ from gemia.video.effects import (
     video_split, video_subtitle_extract,
     video_mute, video_to_audio,
     video_delogo, video_zoom_in,
+    video_aspect_ratio_change, video_ken_burns,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -86,4 +87,5 @@ __all__ = [
     "video_split", "video_subtitle_extract",
     "video_mute", "video_to_audio",
     "video_delogo", "video_zoom_in",
+    "video_aspect_ratio_change", "video_ken_burns",
 ]

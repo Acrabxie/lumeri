@@ -22,6 +22,7 @@ from gemia.audio.effects import (
     audio_loudness_normalize, audio_bit_depth_convert,
     audio_stereo_to_lr,
     audio_echo, audio_chorus,
+    audio_tremolo, audio_flanger,
 )
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "audio_loudness_normalize", "audio_bit_depth_convert",
     "audio_stereo_to_lr",
     "audio_echo", "audio_chorus",
+    "audio_tremolo", "audio_flanger",
 ]
