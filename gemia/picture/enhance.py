@@ -1138,3 +1138,11 @@ def image_find_edges(input_path: str, output_path: str) -> None:
     img = Image.open(input_path).convert("RGB")
     edges = img.filter(ImageFilter.FIND_EDGES)
     edges.save(output_path)
+
+
+def image_smooth(input_path: str, output_path: str) -> None:
+    """Smooth image using PIL SMOOTH_MORE filter."""
+    from PIL import Image, ImageFilter
+    img = Image.open(input_path).convert("RGB")
+    smoothed = img.filter(ImageFilter.SMOOTH_MORE)
+    smoothed.save(output_path)

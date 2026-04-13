@@ -3316,3 +3316,22 @@ def video_timelapse(input_path: str, output_path: str, *, factor: float = 10.0) 
            "-vf", vf, "-an",
            "-c:v", "libx264", output_path]
     _run(cmd)
+
+
+def video_color_invert(input_path: str, output_path: str) -> None:
+    """Invert video colors using ffmpeg negate filter."""
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", "negate",
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_frame_blend(input_path: str, output_path: str, *, mode: str = "average") -> None:
+    """Blend adjacent frames to create motion blur effect using tblend filter.
+
+    Args:
+        mode: Blend mode. Options: 'average', 'addition', 'difference'. Default 'average'.
+    """
+    vf = f"tblend=all_mode={mode}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
