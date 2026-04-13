@@ -1612,3 +1612,52 @@ def audio_ducking(
         if proc2.returncode != 0:
             raise RuntimeError(f"audio_ducking failed:\n{proc2.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_speed
+# ---------------------------------------------------------------------------
+
+def audio_speed(
+    input_path: str,
+    output_path: str,
+    *,
+    factor: float,
+) -> str:
+    """Change audio playback speed without changing pitch.
+
+    Uses ffmpeg ``atempo`` filter, chained for values outside [0.5, 2.0].
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        factor: Speed multiplier (e.g. 2.0 = double speed, 0.5 = half speed).
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    if factor <= 0:
+        raise ValueError("factor must be > 0")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Build chained atempo filters to handle factors outside [0.5, 2.0]
+    filters: list[str] = []
+    f = factor
+    while f > 2.0:
+        filters.append("atempo=2.0")
+        f /= 2.0
+    while f < 0.5:
+        filters.append("atempo=0.5")
+        f *= 2.0
+    filters.append(f"atempo={f:.6f}")
+
+    af = ",".join(filters)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_speed failed:\n{proc.stderr}")
+    return output_path
