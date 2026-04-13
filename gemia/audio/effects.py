@@ -1897,3 +1897,22 @@ def audio_bit_depth_convert(input_path: str, output_path: str, *, bits: int = 16
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_stereo_to_lr(input_path: str, left_output: str, right_output: str) -> None:
+    """Split stereo audio into separate left and right channel mono files.
+
+    Args:
+        left_output: Output path for the left channel audio.
+        right_output: Output path for the right channel audio.
+    """
+    # Extract left channel
+    cmd_l = ["ffmpeg", "-y", "-i", input_path, "-af", "pan=mono|c0=FL", left_output]
+    proc = subprocess.run(cmd_l, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+    # Extract right channel
+    cmd_r = ["ffmpeg", "-y", "-i", input_path, "-af", "pan=mono|c0=FR", right_output]
+    proc = subprocess.run(cmd_r, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
