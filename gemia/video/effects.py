@@ -2446,3 +2446,128 @@ def video_concat_crossfade(
             ])
             current = step_out
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_change_fps
+# ---------------------------------------------------------------------------
+
+def video_change_fps(
+    input_path: str,
+    output_path: str,
+    *,
+    target_fps: float,
+) -> str:
+    """Change video frame rate by dropping or duplicating frames.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        target_fps: Desired output frame rate (e.g. 24, 30, 60).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"fps={target_fps}",
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_add_silence
+# ---------------------------------------------------------------------------
+
+def video_add_silence(
+    input_path: str,
+    output_path: str,
+    *,
+    sample_rate: int = 44100,
+) -> str:
+    """Add a silent audio track to a video-only file.
+
+    If the input already has audio this is a no-op (audio is copied).
+
+    Args:
+        input_path: Source video file (typically without audio).
+        output_path: Destination video file with silent audio stream.
+        sample_rate: Sample rate for the generated silence (Hz).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Check if audio already present
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True,
+    )
+    has_audio = bool(probe.stdout.strip())
+
+    if has_audio:
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+    else:
+        _run([
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=stereo",
+            "-shortest",
+            "-c:v", "copy", "-c:a", "aac",
+            output_path,
+        ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_to_video
+# ---------------------------------------------------------------------------
+
+def image_to_video(
+    input_path: str,
+    output_path: str,
+    *,
+    duration_sec: float = 5.0,
+    fps: float = 30.0,
+    width: int | None = None,
+    height: int | None = None,
+) -> str:
+    """Convert a still image to a video of given duration.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination video file.
+        duration_sec: Length of the output video in seconds.
+        fps: Output frame rate.
+        width: Optional output width (``None`` = keep original).
+        height: Optional output height (``None`` = keep original).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    vf_parts = [f"fps={fps}"]
+    if width and height:
+        vf_parts.append(f"scale={width}:{height}")
+    elif width:
+        vf_parts.append(f"scale={width}:-2")
+    elif height:
+        vf_parts.append(f"scale=-2:{height}")
+    vf = ",".join(vf_parts)
+
+    _run([
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", input_path,
+        "-vf", vf,
+        "-t", str(duration_sec),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+    return output_path
