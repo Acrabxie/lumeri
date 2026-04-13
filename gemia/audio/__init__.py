@@ -26,6 +26,7 @@ from gemia.audio.effects import (
     audio_vibrato, audio_robot,
     audio_pitch_up,
     audio_normalize_peak, audio_stereo_enhance,
+    audio_bass_boost, audio_treble_boost,
 )
 
 __all__ = [
@@ -58,4 +59,5 @@ __all__ = [
     "audio_vibrato", "audio_robot",
     "audio_pitch_up",
     "audio_normalize_peak", "audio_stereo_enhance",
+    "audio_bass_boost", "audio_treble_boost",
 ]
