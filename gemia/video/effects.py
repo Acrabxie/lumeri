@@ -4110,3 +4110,27 @@ def video_concat_with_transition(
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
         output_path,
     ])
+
+
+def video_flip_horizontal(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Flip video horizontally (mirror left-right)."""
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "hflip", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_flip_vertical(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Flip video vertically (upside down)."""
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "vflip", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
