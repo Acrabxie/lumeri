@@ -891,3 +891,33 @@ def image_sharpen(
     )
     sharpened.save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_blur
+# ---------------------------------------------------------------------------
+
+def image_blur(
+    input_path: str,
+    output_path: str,
+    *,
+    radius: float = 2.0,
+) -> str:
+    """Apply Gaussian blur to an image.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination image file.
+        radius: Blur radius in pixels (larger = more blur).
+
+    Returns:
+        The *output_path*.
+    """
+    from PIL import Image, ImageFilter
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    img = Image.open(input_path).convert("RGB")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
+    blurred.save(output_path)
+    return output_path
