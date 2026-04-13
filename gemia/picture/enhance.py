@@ -718,3 +718,76 @@ def color_lookup(
     result = np.clip(result, 0, 1)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# batch_image_resize
+# ---------------------------------------------------------------------------
+
+def batch_image_resize(
+    input_dir: str,
+    output_dir: str,
+    *,
+    width: int,
+    height: int,
+    fit: str = "contain",
+    bg_color: tuple[int, int, int] = (0, 0, 0),
+    exts: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff"),
+) -> list[str]:
+    """Resize all images in a directory to the target dimensions.
+
+    Args:
+        input_dir: Source directory containing image files.
+        output_dir: Destination directory for resized images.
+        width: Target width in pixels.
+        height: Target height in pixels.
+        fit: ``"contain"`` (letterbox/pillarbox, preserves aspect),
+            ``"cover"`` (crop to fill), or ``"stretch"`` (ignore aspect).
+        bg_color: Background fill colour for ``"contain"`` mode (RGB).
+        exts: File extensions to process (case-insensitive).
+
+    Returns:
+        List of output file paths.
+    """
+    import glob, numpy as np
+    from pathlib import Path as _Path
+    from PIL import Image
+
+    _Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    files = [
+        f for f in sorted(_Path(input_dir).iterdir())
+        if f.suffix.lower() in exts
+    ]
+    if not files:
+        return []
+
+    outputs: list[str] = []
+    for src in files:
+        img = Image.open(src).convert("RGB")
+        iw, ih = img.size
+
+        if fit == "stretch":
+            resized = img.resize((width, height), Image.LANCZOS)
+        elif fit == "cover":
+            scale = max(width / iw, height / ih)
+            nw, nh = int(iw * scale), int(ih * scale)
+            resized = img.resize((nw, nh), Image.LANCZOS)
+            left = (nw - width) // 2
+            top = (nh - height) // 2
+            resized = resized.crop((left, top, left + width, top + height))
+        else:  # contain
+            scale = min(width / iw, height / ih)
+            nw, nh = int(iw * scale), int(ih * scale)
+            resized_inner = img.resize((nw, nh), Image.LANCZOS)
+            canvas = Image.new("RGB", (width, height), bg_color)
+            x_off = (width - nw) // 2
+            y_off = (height - nh) // 2
+            canvas.paste(resized_inner, (x_off, y_off))
+            resized = canvas
+
+        out_path = str(_Path(output_dir) / src.name)
+        resized.save(out_path)
+        outputs.append(out_path)
+
+    return outputs
