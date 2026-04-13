@@ -137,3 +137,5 @@
 2026-04-12 18:41:18  Wave23 complete: #76 video_crop, #72 video_scale, #75 video_concat_crossfade, #74 audio_mix_to_mono, #73 image_collage — all PASS x2
 2026-04-12 18:41:18  Grand total: 140+ primitives verified. Continuing Wave24.
 2026-04-12 20:38:31  Wave24 complete: #77 video_change_fps, #79 video_add_silence, #80 image_to_video, #78 audio_concat, #81 audio_ducking — all PASS x2
+2026-04-12 20:39:37  Wave25 complete: #82 video_extract_audio, #86 video_replace_audio, #83 video_trim, #84 audio_speed, #85 image_sharpen — all PASS x2
+2026-04-12 20:39:37  Total: 150+ primitives. Continuing Wave26.

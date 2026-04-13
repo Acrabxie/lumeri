@@ -2677,3 +2677,116 @@ def video_trim(
     cmd.append(output_path)
     _run(cmd)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_info
+# ---------------------------------------------------------------------------
+
+def video_info(input_path: str) -> dict:
+    """Return structured metadata about a video file.
+
+    Args:
+        input_path: Source video or audio file.
+
+    Returns:
+        Dict with keys: ``duration`` (float), ``fps`` (float),
+        ``width`` (int), ``height`` (int), ``video_codec`` (str),
+        ``audio_codec`` (str), ``bitrate_kbps`` (float),
+        ``audio_sample_rate`` (int), ``audio_channels`` (int).
+    """
+    import json
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error",
+         "-show_streams", "-show_format",
+         "-of", "json", input_path],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        raise RuntimeError(f"ffprobe failed:\n{probe.stderr}")
+
+    data = json.loads(probe.stdout)
+    fmt = data.get("format", {})
+    streams = data.get("streams", [])
+
+    video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+    audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), {})
+
+    # Parse fps
+    fps = 0.0
+    fps_str = video_stream.get("r_frame_rate", "0/1")
+    try:
+        num, den = fps_str.split("/")
+        fps = float(num) / float(den) if float(den) else 0.0
+    except Exception:
+        pass
+
+    return {
+        "duration": float(fmt.get("duration", 0)),
+        "fps": round(fps, 3),
+        "width": int(video_stream.get("width", 0)),
+        "height": int(video_stream.get("height", 0)),
+        "video_codec": video_stream.get("codec_name", ""),
+        "audio_codec": audio_stream.get("codec_name", ""),
+        "bitrate_kbps": round(float(fmt.get("bit_rate", 0)) / 1000, 1),
+        "audio_sample_rate": int(audio_stream.get("sample_rate", 0)),
+        "audio_channels": int(audio_stream.get("channels", 0)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# video_black_and_white
+# ---------------------------------------------------------------------------
+
+def video_black_and_white(
+    input_path: str,
+    output_path: str,
+) -> str:
+    """Convert a video to grayscale (black and white).
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination grayscale video file.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "hue=s=0",
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_subtitles_hardcode
+# ---------------------------------------------------------------------------
+
+def video_subtitles_hardcode(
+    input_path: str,
+    output_path: str,
+    *,
+    srt_path: str,
+    font_size: int = 28,
+) -> str:
+    """Hard-code SRT subtitles into video frames.
+
+    Tries ffmpeg ``subtitles`` filter first; falls back to PIL frame rendering
+    when libass is unavailable.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file with burned subtitles.
+        srt_path: Path to the ``.srt`` subtitle file.
+        font_size: Subtitle font size in points.
+
+    Returns:
+        The *output_path*.
+    """
+    from gemia.video.subtitles import add_subtitle_track
+    return add_subtitle_track(input_path, output_path, srt_path=srt_path,
+                              style={"fontsize": font_size})
