@@ -44,6 +44,7 @@ from gemia.video.effects import (
     video_colorize, video_glitch,
     video_denoise, video_sharpen,
     video_blur, video_zoom_out,
+    video_fade, video_shake,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -102,4 +103,5 @@ __all__ = [
     "video_colorize", "video_glitch",
     "video_denoise", "video_sharpen",
     "video_blur", "video_zoom_out",
+    "video_fade", "video_shake",
 ]
