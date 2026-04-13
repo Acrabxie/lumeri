@@ -1516,3 +1516,76 @@ def image_sepia(
     sepia = np.stack([r, g, b], axis=-1).clip(0, 1)
     result = (sepia * intensity + arr * (1.0 - intensity)).clip(0, 1)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_hdr_simulate(
+    input_path: str,
+    output_path: str,
+    *,
+    gamma: float = 0.85,
+    unsharp_strength: float = 1.5,
+    saturation_boost: float = 1.3,
+) -> None:
+    """Simulate an HDR look via gamma + local contrast + saturation boost.
+
+    Args:
+        gamma: Gamma correction < 1 brightens shadows. Default 0.85.
+        unsharp_strength: Local contrast unsharp amount. Default 1.5.
+        saturation_boost: Saturation multiplier. Default 1.3.
+    """
+    from PIL import Image, ImageFilter, ImageEnhance
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+
+    # Gamma
+    arr = np.power(arr, gamma)
+
+    # Unsharp mask for local contrast
+    base = Image.fromarray((arr * 255).clip(0, 255).astype(np.uint8))
+    blurred = base.filter(ImageFilter.GaussianBlur(radius=3))
+    b_arr = np.array(blurred, dtype=np.float32) / 255.0
+    arr = np.clip(arr + unsharp_strength * (arr - b_arr), 0, 1)
+
+    result = Image.fromarray((arr * 255).astype(np.uint8))
+    # Saturation boost
+    result = ImageEnhance.Color(result).enhance(saturation_boost)
+    result.save(output_path)
+
+
+def image_lens_blur(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_radius: int = 15,
+    center_x: float = 0.5,
+    center_y: float = 0.5,
+    focus_radius: float = 0.25,
+) -> None:
+    """Apply radial lens blur — sharp center, blurred periphery.
+
+    Args:
+        blur_radius: Gaussian blur radius for edges. Default 15.
+        center_x: Horizontal center 0–1. Default 0.5.
+        center_y: Vertical center 0–1. Default 0.5.
+        focus_radius: Fraction of image dimension kept sharp. Default 0.25.
+    """
+    from PIL import Image, ImageFilter
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    w, h = img.size
+    cx, cy = int(center_x * w), int(center_y * h)
+    focus_r = focus_radius * min(w, h)
+
+    ys, xs = np.mgrid[0:h, 0:w]
+    dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+    # Alpha: 0 at center (use sharp), 1 far out (use blur)
+    alpha = np.clip((dist - focus_r) / (focus_r * 2), 0, 1)[..., np.newaxis]
+
+    orig_arr = np.array(img, dtype=np.float32)
+    blur_arr = np.array(blurred, dtype=np.float32)
+    result = (orig_arr * (1 - alpha) + blur_arr * alpha).clip(0, 255).astype(np.uint8)
+    Image.fromarray(result).save(output_path)

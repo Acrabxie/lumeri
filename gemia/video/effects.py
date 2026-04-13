@@ -3919,3 +3919,111 @@ def video_add_watermark_text(
         "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_extract_audio_segment(
+    input_path: str,
+    output_path: str,
+    *,
+    start: float = 0.0,
+    duration: float | None = None,
+) -> None:
+    """Extract an audio segment from a video file.
+
+    Args:
+        start: Start time in seconds. Default 0.0.
+        duration: Duration in seconds. None means to end of file.
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-ss", str(start)]
+    if duration is not None:
+        cmd += ["-t", str(duration)]
+    cmd += ["-vn", "-c:a", "copy", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Try re-encode
+        cmd2 = ["ffmpeg", "-y", "-i", input_path, "-ss", str(start)]
+        if duration is not None:
+            cmd2 += ["-t", str(duration)]
+        cmd2 += ["-vn", output_path]
+        _run(cmd2)
+
+
+def video_trim_silence(
+    input_path: str,
+    output_path: str,
+    *,
+    noise_threshold: float = -40.0,
+    min_silence_duration: float = 0.5,
+) -> None:
+    """Remove silent segments from a video.
+
+    Uses silencedetect to locate silent spans, then concat demuxer
+    to stitch the non-silent segments.
+
+    Args:
+        noise_threshold: dB level below which audio is considered silent. Default -40.
+        min_silence_duration: Minimum silence duration (s) to remove. Default 0.5.
+    """
+    import tempfile, re
+
+    # Detect silence
+    detect_cmd = [
+        "ffmpeg", "-i", input_path,
+        "-af", f"silencedetect=n={noise_threshold}dB:d={min_silence_duration}",
+        "-f", "null", "-",
+    ]
+    proc = subprocess.run(detect_cmd, capture_output=True, text=True)
+    stderr = proc.stderr
+
+    # Parse silence_start / silence_end pairs
+    starts = [float(m) for m in re.findall(r"silence_start: (\S+)", stderr)]
+    ends = [float(m) for m in re.findall(r"silence_end: (\S+)", stderr)]
+
+    if not starts:
+        # No silence found — just copy
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    # Get total duration
+    dur_proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(dur_proc.stdout.strip()) if dur_proc.stdout.strip() else None
+
+    # Build keep segments (between silences)
+    keep = []
+    pos = 0.0
+    for s, e in zip(starts, ends):
+        if s > pos:
+            keep.append((pos, s))
+        pos = e
+    if total and pos < total:
+        keep.append((pos, total))
+
+    if not keep:
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        segments = []
+        for i, (seg_start, seg_end) in enumerate(keep):
+            seg_path = f"{tmp}/seg_{i:04d}.mp4"
+            _run([
+                "ffmpeg", "-y", "-ss", str(seg_start),
+                "-t", str(seg_end - seg_start),
+                "-i", input_path,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                seg_path,
+            ])
+            segments.append(seg_path)
+
+        list_file = f"{tmp}/list.txt"
+        with open(list_file, "w") as f:
+            for s in segments:
+                f.write(f"file '{s}'\n")
+        _run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", list_file, "-c", "copy", output_path,
+        ])
