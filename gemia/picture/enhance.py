@@ -1687,3 +1687,73 @@ def image_dither(
     # Quantize with dithering
     quantized = img.quantize(colors=colors, dither=Image.Dither.FLOYDSTEINBERG)
     quantized.convert("RGB").save(output_path)
+
+
+def image_clahe(
+    input_path: str,
+    output_path: str,
+    *,
+    clip_limit: float = 2.0,
+    tile_size: int = 8,
+) -> None:
+    """Apply CLAHE (Contrast-Limited Adaptive Histogram Equalization).
+
+    Args:
+        clip_limit: Contrast clipping limit. Default 2.0.
+        tile_size: Grid tile size. Default 8.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+
+    def _clahe_channel(ch):
+        h, w = ch.shape
+        th, tw = tile_size, tile_size
+        rows = max(1, (h + th - 1) // th)
+        cols = max(1, (w + tw - 1) // tw)
+        out = np.zeros_like(ch, dtype=np.float32)
+        for r in range(rows):
+            for c in range(cols):
+                y0, y1 = r * th, min((r + 1) * th, h)
+                x0, x1 = c * tw, min((c + 1) * tw, w)
+                tile = ch[y0:y1, x0:x1]
+                hist, bins = np.histogram(tile.ravel(), 256, [0, 256])
+                # Clip and redistribute
+                excess = np.sum(np.maximum(hist - clip_limit * tile.size / 256, 0))
+                hist = np.minimum(hist, clip_limit * tile.size / 256)
+                hist += excess / 256
+                cdf = hist.cumsum()
+                cdf_min = cdf[cdf > 0][0] if cdf[cdf > 0].size else 1
+                total = tile.size
+                lut = np.clip(np.round((cdf - cdf_min) / (total - cdf_min) * 255), 0, 255).astype(np.uint8)
+                out[y0:y1, x0:x1] = lut[tile]
+        return out.clip(0, 255).astype(np.uint8)
+
+    result = np.stack([_clahe_channel(arr[..., i]) for i in range(3)], axis=-1)
+    Image.fromarray(result).save(output_path)
+
+
+def image_palette_swap(
+    input_path: str,
+    output_path: str,
+    palette: list[tuple[int, int, int]],
+) -> None:
+    """Map every pixel to the nearest color in the provided palette.
+
+    Args:
+        palette: List of RGB tuples to use as the target palette.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    pal = np.array(palette, dtype=np.float32)  # (N, 3)
+    # Compute nearest palette color per pixel
+    flat = arr.reshape(-1, 3)  # (H*W, 3)
+    diffs = flat[:, np.newaxis, :] - pal[np.newaxis, :, :]  # (H*W, N, 3)
+    idx = np.argmin((diffs ** 2).sum(axis=-1), axis=1)  # (H*W,)
+    result = pal[idx].reshape(arr.shape).astype(np.uint8)
+    Image.fromarray(result).save(output_path)

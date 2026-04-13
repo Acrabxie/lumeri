@@ -39,6 +39,7 @@ from gemia.audio.effects import (
     audio_stereo_swap,
     audio_generate_tone,
     audio_silence_trim,
+    audio_resample,
 )
 
 __all__ = [
@@ -84,4 +85,5 @@ __all__ = [
     "audio_stereo_swap",
     "audio_generate_tone",
     "audio_silence_trim",
+    "audio_resample",
 ]
