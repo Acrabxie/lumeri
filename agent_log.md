@@ -141,3 +141,4 @@
 2026-04-12 20:39:37  Total: 150+ primitives. Continuing Wave26.
 2026-04-12 20:40:44  Wave26 complete: #91 video_info, #89 video_black_and_white, #90 video_subtitles_hardcode, #88 audio_volume, #87 image_blur — all PASS x2
 2026-04-12 20:40:44  Total: 160+ primitives. Continuing Wave27.
+2026-04-12 20:44 Wave 27 complete: audio_equalizer, image_contrast, image_saturation, video_sepia, video_boomerang — all 2x PASS, committed a4c252f

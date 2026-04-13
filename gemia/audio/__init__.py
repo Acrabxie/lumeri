@@ -15,7 +15,7 @@ from gemia.audio.effects import (
     audio_trim_silence, text_to_speech,
     audio_normalize_loudness, audio_pitch_shift_semitones,
     audio_mix_to_mono, audio_concat, audio_ducking, audio_speed,
-    audio_volume, audio_equalizer,
+    audio_volume, audio_equalizer, audio_reverse,
 )
 
 __all__ = [
@@ -37,5 +37,5 @@ __all__ = [
     "audio_trim_silence", "text_to_speech",
     "audio_normalize_loudness", "audio_pitch_shift_semitones",
     "audio_mix_to_mono", "audio_concat", "audio_ducking", "audio_speed",
-    "audio_volume", "audio_equalizer",
+    "audio_volume", "audio_equalizer", "audio_reverse",
 ]

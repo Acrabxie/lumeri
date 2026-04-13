@@ -2885,3 +2885,48 @@ def video_boomerang(
             output_path,
         ])
     return output_path
+
+
+def video_vignette(input_path: str, output_path: str, *, angle: float = 1.0) -> None:
+    """Apply vignette darkening effect around video edges.
+    
+    Args:
+        angle: Vignette angle in radians (controls strength). Default 1.0 (π/4).
+    """
+    vf = f"vignette=angle={angle:.4f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_mirror(input_path: str, output_path: str, *, direction: str = "horizontal") -> None:
+    """Mirror video horizontally or vertically.
+    
+    Args:
+        direction: 'horizontal' (left-right flip) or 'vertical' (top-bottom flip)
+    """
+    if direction == "horizontal":
+        vf = "hflip"
+    elif direction == "vertical":
+        vf = "vflip"
+    else:
+        raise ValueError(f"direction must be 'horizontal' or 'vertical', got {direction!r}")
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_brightness_contrast(
+    input_path: str, output_path: str,
+    *, brightness: float = 0.0, contrast: float = 1.0
+) -> None:
+    """Adjust video brightness and contrast using ffmpeg eq filter.
+    
+    Args:
+        brightness: Brightness offset in range [-1.0, 1.0]. Default 0.0.
+        contrast: Contrast multiplier >= 0. Default 1.0 (no change).
+    """
+    vf = f"eq=brightness={brightness:.4f}:contrast={contrast:.4f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

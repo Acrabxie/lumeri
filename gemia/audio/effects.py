@@ -1748,3 +1748,11 @@ def audio_equalizer(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_equalizer failed:\n{proc.stderr}")
     return output_path
+
+
+def audio_reverse(input_path: str, output_path: str) -> None:
+    """Reverse audio using ffmpeg areverse filter."""
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", "areverse", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
