@@ -3276,3 +3276,43 @@ def video_slow_motion(input_path: str, output_path: str, *, factor: float = 0.5)
            "-vf", vf, "-af", af,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_fast_forward(input_path: str, output_path: str, *, factor: float = 2.0) -> None:
+    """Speed up video by a factor > 1x.
+
+    Args:
+        factor: Speed factor > 1.0 (e.g. 2.0 = double speed). Default 2.0.
+    """
+    if factor <= 1.0:
+        raise ValueError(f"factor must be > 1.0, got {factor}")
+    pts = 1.0 / factor
+    vf = f"setpts={pts:.6f}*PTS"
+    # atempo range 0.5-2.0; chain for values > 2.0
+    remaining = factor
+    atempo_filters = []
+    while remaining > 2.0:
+        atempo_filters.append("atempo=2.0")
+        remaining /= 2.0
+    atempo_filters.append(f"atempo={remaining:.6f}")
+    af = ",".join(atempo_filters)
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-vf", vf, "-af", af,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_timelapse(input_path: str, output_path: str, *, factor: float = 10.0) -> None:
+    """Create timelapse by speeding up video by a large factor (video only, drops audio).
+
+    Args:
+        factor: Speed factor (e.g. 10.0 = 10x faster). Default 10.0.
+    """
+    if factor <= 1.0:
+        raise ValueError(f"factor must be > 1.0, got {factor}")
+    pts = 1.0 / factor
+    vf = f"setpts={pts:.6f}*PTS"
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-vf", vf, "-an",
+           "-c:v", "libx264", output_path]
+    _run(cmd)

@@ -2041,3 +2041,36 @@ def audio_robot(input_path: str, output_path: str, *, pitch_shift: float = 0.8) 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_pitch_up(input_path: str, output_path: str, *, semitones: float = 2.0) -> None:
+    """Shift audio pitch up by semitones while preserving duration.
+
+    Args:
+        semitones: Number of semitones to shift up (negative = shift down). Default 2.0.
+    """
+    import json
+    factor = 2 ** (semitones / 12.0)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams",
+         "-select_streams", "a:0", input_path],
+        capture_output=True, text=True,
+    )
+    sr = int(json.loads(probe.stdout)["streams"][0]["sample_rate"])
+    new_sr = int(sr * factor)
+    # Chain atempo to compensate for rate change
+    tempo = 1.0 / factor
+    atempo_filters = []
+    t = tempo
+    while t < 0.5:
+        atempo_filters.append("atempo=0.5")
+        t /= 0.5
+    while t > 2.0:
+        atempo_filters.append("atempo=2.0")
+        t /= 2.0
+    atempo_filters.append(f"atempo={t:.6f}")
+    af = f"asetrate={new_sr}," + ",".join(atempo_filters)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, "-ar", str(sr), output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
