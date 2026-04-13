@@ -2129,3 +2129,25 @@ def audio_treble_boost(input_path: str, output_path: str, *, gain_db: float = 6.
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_telephone(input_path: str, output_path: str) -> None:
+    """Apply telephone effect by bandpass-filtering to 300-3400 Hz range."""
+    af = "highpass=f=300,lowpass=f=3400"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_lowpass(input_path: str, output_path: str, *, frequency: float = 1000.0) -> None:
+    """Apply lowpass filter to audio — attenuates frequencies above cutoff.
+
+    Args:
+        frequency: Cutoff frequency in Hz. Default 1000.0.
+    """
+    af = f"lowpass=f={frequency:.1f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
