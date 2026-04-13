@@ -32,6 +32,7 @@ from gemia.audio.effects import (
     audio_mix_tracks, audio_silence_insert,
     audio_vinyl, audio_normalize_rms,
     audio_silence_detect, audio_export_wav,
+    audio_crossfade, audio_ducking_auto,
 )
 
 __all__ = [
@@ -70,4 +71,5 @@ __all__ = [
     "audio_mix_tracks", "audio_silence_insert",
     "audio_vinyl", "audio_normalize_rms",
     "audio_silence_detect", "audio_export_wav",
+    "audio_crossfade", "audio_ducking_auto",
 ]
