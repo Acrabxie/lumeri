@@ -3848,3 +3848,74 @@ def video_loop(
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
             "-i", list_file, "-c", "copy", output_path,
         ])
+
+
+def video_rotate_90(
+    input_path: str,
+    output_path: str,
+    *,
+    angle: int = 90,
+) -> None:
+    """Rotate video by 90, 180, or 270 degrees.
+
+    Args:
+        angle: Rotation in degrees: 90, 180, or 270. Default 90.
+    """
+    angle = angle % 360
+    if angle == 90:
+        vf = "transpose=1"
+    elif angle == 180:
+        vf = "transpose=1,transpose=1"
+    elif angle == 270:
+        vf = "transpose=2"
+    else:
+        vf = "null"
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ]
+    _run(cmd)
+
+
+def video_add_watermark_text(
+    input_path: str,
+    output_path: str,
+    *,
+    text: str = "WATERMARK",
+    x: str = "10",
+    y: str = "10",
+    font_size: int = 24,
+    color: str = "white",
+    alpha: float = 0.6,
+) -> None:
+    """Burn a text watermark onto video using ffmpeg drawtext.
+
+    Falls back to copy if drawtext is unavailable.
+
+    Args:
+        text: Watermark text. Default 'WATERMARK'.
+        x: X position expression (ffmpeg drawtext notation). Default '10'.
+        y: Y position expression. Default '10'.
+        font_size: Font size in pixels. Default 24.
+        color: Font color name or hex. Default 'white'.
+        alpha: Text opacity 0–1. Default 0.6.
+    """
+    # Check drawtext
+    probe = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:size=2x2:rate=1",
+         "-vf", "drawtext=text=x", "-t", "0.04", "-f", "null", "-"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    safe_text = text.replace("'", "\\'").replace(":", "\\:")
+    vf = (f"drawtext=text='{safe_text}':fontsize={font_size}"
+          f":fontcolor={color}@{alpha:.2f}:x={x}:y={y}")
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])

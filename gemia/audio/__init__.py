@@ -35,6 +35,7 @@ from gemia.audio.effects import (
     audio_crossfade, audio_ducking_auto,
     audio_format_convert, audio_waveform_image,
     audio_noise_reduce,
+    audio_speed_change,
 )
 
 __all__ = [
@@ -76,4 +77,5 @@ __all__ = [
     "audio_crossfade", "audio_ducking_auto",
     "audio_format_convert", "audio_waveform_image",
     "audio_noise_reduce",
+    "audio_speed_change",
 ]
