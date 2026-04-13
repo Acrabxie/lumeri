@@ -1825,3 +1825,23 @@ def audio_mix_stereo(left_path: str, right_path: str, output_path: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_sample_rate_convert(input_path: str, output_path: str, *, sample_rate: int = 44100) -> None:
+    """Convert audio to a different sample rate.
+
+    Args:
+        sample_rate: Target sample rate in Hz. Default 44100.
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-ar", str(sample_rate), output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_channels_to_mono(input_path: str, output_path: str) -> None:
+    """Downmix any audio to a single mono channel."""
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-ac", "1", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
