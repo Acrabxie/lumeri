@@ -1999,3 +1999,45 @@ def audio_flanger(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_vibrato(
+    input_path: str,
+    output_path: str,
+    *,
+    frequency: float = 5.0,
+    depth: float = 0.5,
+) -> None:
+    """Add vibrato (frequency modulation) effect to audio.
+
+    Args:
+        frequency: Modulation frequency in Hz (0.1-20). Default 5.0.
+        depth: Modulation depth (0-1). Default 0.5.
+    """
+    af = f"vibrato=f={frequency:.2f}:d={depth:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_robot(input_path: str, output_path: str, *, pitch_shift: float = 0.8) -> None:
+    """Apply robot voice effect by combining ring modulation via asetrate and atempo.
+
+    Args:
+        pitch_shift: Pitch factor (< 1.0 = lower, > 1.0 = higher). Default 0.8.
+    """
+    import json
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams",
+         "-select_streams", "a:0", input_path],
+        capture_output=True, text=True,
+    )
+    sr = int(json.loads(probe.stdout)["streams"][0]["sample_rate"])
+    new_sr = int(sr * pitch_shift)
+    # asetrate shifts pitch, atempo corrects tempo back to original speed
+    af = f"asetrate={new_sr},atempo={1.0/pitch_shift:.6f},aphaser=in_gain=0.4:out_gain=0.74:delay=3:decay=0.4:speed=0.5:type=t"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, "-ar", str(sr), output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
