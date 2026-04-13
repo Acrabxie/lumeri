@@ -4218,3 +4218,48 @@ def video_crop(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_pad(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int,
+    height: int,
+    x: int | str = 0,
+    y: int | str = 0,
+    color: str = "black",
+) -> None:
+    """Pad video to target dimensions with a colored background.
+
+    Args:
+        width: Output width in pixels.
+        height: Output height in pixels.
+        x: X offset of original video (pixels or ffmpeg expr). Default 0.
+        y: Y offset. Default 0.
+        color: Background color. Default 'black'.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"pad={width}:{height}:{x}:{y}:color={color}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_thumbnail(
+    input_path: str,
+    output_path: str,
+    *,
+    timestamp: float = 0.0,
+) -> None:
+    """Extract a single frame as a thumbnail image.
+
+    Args:
+        timestamp: Time in seconds to extract. Default 0.0.
+    """
+    _run([
+        "ffmpeg", "-y", "-ss", str(timestamp),
+        "-i", input_path,
+        "-vframes", "1", output_path,
+    ])

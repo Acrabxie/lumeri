@@ -168,3 +168,4 @@
 2026-04-13 12:50 Wave 50 complete — image_cross_process, image_halftone, audio_generate_tone, video_freeze_at, video_concat_with_transition (2×PASS each)
 2026-04-13 14:38 Wave 51 complete — image_noise, image_dither, audio_silence_trim, video_flip_horizontal, video_flip_vertical (2×PASS each)
 2026-04-13 14:40 Wave 52 complete — image_clahe, image_palette_swap, audio_resample, video_scale_to_width, video_scale_to_height (2×PASS each)
+2026-04-13 14:41 Wave 53 complete — image_channel_split, image_channel_merge, audio_normalize_to_target_db, video_set_fps, video_crop (2×PASS each)

@@ -1800,3 +1800,53 @@ def image_channel_merge(
     g = Image.open(input_g).convert("L")
     b = Image.open(input_b).convert("L")
     Image.merge("RGB", (r, g, b)).save(output_path)
+
+
+def image_blend_overlay(
+    base_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Blend two images using the Overlay blend mode.
+
+    Overlay = 2*a*b if a<0.5, else 1-2*(1-a)*(1-b).
+
+    Args:
+        opacity: Blend strength 0–1. Default 1.0.
+    """
+    from PIL import Image
+    import numpy as np
+
+    base = Image.open(base_path).convert("RGB")
+    blend = Image.open(blend_path).convert("RGB").resize(base.size, Image.LANCZOS)
+    a = np.array(base, dtype=np.float32) / 255.0
+    b = np.array(blend, dtype=np.float32) / 255.0
+    overlay = np.where(a < 0.5, 2 * a * b, 1 - 2 * (1 - a) * (1 - b))
+    result = (a * (1 - opacity) + overlay * opacity).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_blend_multiply(
+    base_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Blend two images using the Multiply blend mode.
+
+    Args:
+        opacity: Blend strength 0–1. Default 1.0.
+    """
+    from PIL import Image
+    import numpy as np
+
+    base = Image.open(base_path).convert("RGB")
+    blend = Image.open(blend_path).convert("RGB").resize(base.size, Image.LANCZOS)
+    a = np.array(base, dtype=np.float32) / 255.0
+    b = np.array(blend, dtype=np.float32) / 255.0
+    mult = a * b
+    result = (a * (1 - opacity) + mult * opacity).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
