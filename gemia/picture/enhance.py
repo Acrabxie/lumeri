@@ -1271,3 +1271,36 @@ def image_composite_alpha(
     canvas.paste(fg, (x, y), mask=fg.split()[3])
     result = canvas.convert("RGB")
     result.save(output_path)
+
+
+def image_adjust_hsl(
+    input_path: str,
+    output_path: str,
+    *,
+    hue_shift: float = 0.0,
+    saturation: float = 1.0,
+    lightness: float = 0.0,
+) -> None:
+    """Adjust image hue, saturation, and lightness.
+
+    Args:
+        hue_shift: Hue rotation in degrees (-180 to 180). Default 0.0.
+        saturation: Saturation multiplier (0=gray, 1=original, 2=doubled). Default 1.0.
+        lightness: Lightness offset (-1 to 1). Default 0.0.
+    """
+    import colorsys
+    import numpy as np
+    from PIL import Image
+    img = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32) / 255.0
+    out = np.zeros_like(img)
+    h_shift = hue_shift / 360.0
+    for i in range(img.shape[0]):
+        for j in range(img.shape[1]):
+            r, g, b = img[i, j]
+            h, l, s = colorsys.rgb_to_hls(r, g, b)
+            h = (h + h_shift) % 1.0
+            s = max(0.0, min(1.0, s * saturation))
+            l = max(0.0, min(1.0, l + lightness))
+            out[i, j] = colorsys.hls_to_rgb(h, l, s)
+    result = (np.clip(out, 0, 1) * 255).astype(np.uint8)
+    Image.fromarray(result).save(output_path)

@@ -10,7 +10,7 @@ from gemia.picture.color import color_grade, adjust_exposure, adjust_temperature
 from gemia.picture.analysis import histogram, dominant_colors, edge_detect
 from gemia.picture.composite import create_mask, blend, composite
 from gemia.picture.generative import generate_image, edit_image, style_transfer, blend_images
-from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize, image_pixelate, image_emboss, image_find_edges, image_smooth, image_auto_enhance, image_tint, image_watermark_text, image_rounded_corners, image_composite_alpha
+from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize, image_pixelate, image_emboss, image_find_edges, image_smooth, image_auto_enhance, image_tint, image_watermark_text, image_rounded_corners, image_composite_alpha, image_adjust_hsl
 
 __all__ = [
     # geometry
@@ -31,5 +31,5 @@ __all__ = [
     "image_resize_to_fit", "image_add_border", "image_grayscale", "image_invert", "image_posterize",
     "image_solarize", "image_pixelate", "image_emboss", "image_find_edges", "image_smooth",
     "image_auto_enhance", "image_tint", "image_watermark_text", "image_rounded_corners",
-    "image_composite_alpha",
+    "image_composite_alpha", "image_adjust_hsl",
 ]

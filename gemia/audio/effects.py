@@ -2295,3 +2295,39 @@ def audio_normalize_rms(input_path: str, output_path: str, *, target_db: float =
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_silence_detect(input_path: str, *, noise_db: float = -30.0, duration: float = 0.5) -> list[dict]:
+    """Detect silent regions in audio.
+
+    Args:
+        noise_db: Noise threshold in dBFS. Quieter = more strict. Default -30.0.
+        duration: Minimum silence duration in seconds. Default 0.5.
+
+    Returns:
+        List of dicts with 'start' and 'end' keys in seconds.
+    """
+    import re
+    af = f"silencedetect=noise={noise_db:.1f}dB:d={duration:.3f}"
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    starts = [float(m) for m in re.findall(r"silence_start: ([\d.]+)", proc.stderr)]
+    ends = [float(m) for m in re.findall(r"silence_end: ([\d.]+)", proc.stderr)]
+    return [{"start": s, "end": e} for s, e in zip(starts, ends)]
+
+
+def audio_export_wav(input_path: str, output_path: str, *, sample_rate: int = 44100, channels: int = 2) -> None:
+    """Convert any audio format to uncompressed PCM WAV.
+
+    Args:
+        sample_rate: Output sample rate. Default 44100.
+        channels: Number of output channels. Default 2 (stereo).
+    """
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-acodec", "pcm_s16le", "-ar", str(sample_rate), "-ac", str(channels),
+           output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
