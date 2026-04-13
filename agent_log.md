@@ -139,3 +139,5 @@
 2026-04-12 20:38:31  Wave24 complete: #77 video_change_fps, #79 video_add_silence, #80 image_to_video, #78 audio_concat, #81 audio_ducking — all PASS x2
 2026-04-12 20:39:37  Wave25 complete: #82 video_extract_audio, #86 video_replace_audio, #83 video_trim, #84 audio_speed, #85 image_sharpen — all PASS x2
 2026-04-12 20:39:37  Total: 150+ primitives. Continuing Wave26.
+2026-04-12 20:40:44  Wave26 complete: #91 video_info, #89 video_black_and_white, #90 video_subtitles_hardcode, #88 audio_volume, #87 image_blur — all PASS x2
+2026-04-12 20:40:44  Total: 160+ primitives. Continuing Wave27.

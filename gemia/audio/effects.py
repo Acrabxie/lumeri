@@ -1695,3 +1695,56 @@ def audio_volume(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_volume failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_equalizer
+# ---------------------------------------------------------------------------
+
+def audio_equalizer(
+    input_path: str,
+    output_path: str,
+    *,
+    bands: list[dict],
+) -> str:
+    """Apply parametric EQ to audio using ffmpeg equalizer filter.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        bands: List of band dicts, each with:
+            - ``freq`` (float): Centre frequency in Hz.
+            - ``gain_db`` (float): Gain in dB (positive = boost, negative = cut).
+            - ``q`` (float, optional): Q-factor (default 1.0 ≈ 1 octave).
+
+    Example::
+
+        audio_equalizer(src, out, bands=[
+            {"freq": 100, "gain_db": +3.0},
+            {"freq": 3000, "gain_db": -2.0, "q": 2.0},
+        ])
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if not bands:
+        raise ValueError("bands must not be empty")
+
+    parts = []
+    for band in bands:
+        freq = float(band["freq"])
+        gain = float(band["gain_db"])
+        q = float(band.get("q", 1.0))
+        parts.append(f"equalizer=f={freq:.1f}:t=q:w={q:.2f}:g={gain:.2f}")
+
+    af = ",".join(parts)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_equalizer failed:\n{proc.stderr}")
+    return output_path
