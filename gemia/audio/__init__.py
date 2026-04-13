@@ -12,6 +12,7 @@ from gemia.audio.effects import (
     dynamic_eq_match, level_matcher, spectral_denoise,
     remove_silence, speaker_separate, create_adr_cues,
     noise_gate, audio_compressor, stereo_widener, audio_reverb, audio_fade,
+    audio_trim_silence, text_to_speech,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "spectral_denoise",
     "remove_silence", "speaker_separate", "create_adr_cues",
     "noise_gate", "audio_compressor", "stereo_widener", "audio_reverb", "audio_fade",
+    "audio_trim_silence", "text_to_speech",
 ]
