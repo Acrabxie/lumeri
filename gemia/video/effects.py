@@ -3552,3 +3552,60 @@ def video_shake(
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_crop_center(input_path: str, output_path: str, *, width: int, height: int) -> None:
+    """Crop video to a specific width/height centered on the frame.
+
+    Args:
+        width: Output width in pixels.
+        height: Output height in pixels.
+    """
+    vf = f"crop={width}:{height}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_transition_fade_black(
+    clip1_path: str,
+    clip2_path: str,
+    output_path: str,
+    *,
+    fade_duration: float = 0.5,
+) -> None:
+    """Concatenate two videos with a fade-to-black transition between them.
+
+    Args:
+        fade_duration: Duration of fade-out and fade-in in seconds each. Default 0.5.
+    """
+    import json, tempfile, os
+
+    def get_duration(p):
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", p],
+            capture_output=True, text=True,
+        )
+        return float(json.loads(r.stdout)["format"]["duration"])
+
+    d1 = get_duration(clip1_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        f1 = os.path.join(tmp, "f1.mp4")
+        f2 = os.path.join(tmp, "f2.mp4")
+        # Fade out end of clip1
+        fade_start1 = max(0.0, d1 - fade_duration)
+        vf1 = f"fade=t=out:st={fade_start1:.4f}:d={fade_duration:.4f}"
+        af1 = f"afade=t=out:st={fade_start1:.4f}:d={fade_duration:.4f}"
+        _run(["ffmpeg", "-y", "-i", clip1_path, "-vf", vf1, "-af", af1,
+              "-c:v", "libx264", "-c:a", "aac", f1])
+        # Fade in start of clip2
+        vf2 = f"fade=t=in:st=0:d={fade_duration:.4f}"
+        af2 = f"afade=t=in:st=0:d={fade_duration:.4f}"
+        _run(["ffmpeg", "-y", "-i", clip2_path, "-vf", vf2, "-af", af2,
+              "-c:v", "libx264", "-c:a", "aac", f2])
+        # Concat
+        list_file = os.path.join(tmp, "list.txt")
+        with open(list_file, "w") as lf:
+            lf.write(f"file '{f1}'\nfile '{f2}'\n")
+        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+              "-c", "copy", output_path])
