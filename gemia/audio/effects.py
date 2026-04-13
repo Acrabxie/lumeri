@@ -1661,3 +1661,37 @@ def audio_speed(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_speed failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_volume
+# ---------------------------------------------------------------------------
+
+def audio_volume(
+    input_path: str,
+    output_path: str,
+    *,
+    gain_db: float,
+) -> str:
+    """Adjust audio volume by a fixed dB gain.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        gain_db: Gain in dB (positive = louder, negative = quieter).
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    gain_lin = 10 ** (gain_db / 20.0)
+    af = f"volume={gain_lin:.6f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"audio_volume failed:\n{proc.stderr}")
+    return output_path
