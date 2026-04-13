@@ -49,6 +49,7 @@ from gemia.video.effects import (
     video_overlay_image, video_audio_visualizer,
     video_chapters_from_timestamps, video_countdown,
     video_stabilize_simple, video_loop,
+    video_rotate_90, video_add_watermark_text,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -112,4 +113,5 @@ __all__ = [
     "video_overlay_image", "video_audio_visualizer",
     "video_chapters_from_timestamps", "video_countdown",
     "video_stabilize_simple", "video_loop",
+    "video_rotate_90", "video_add_watermark_text",
 ]
