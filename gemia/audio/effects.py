@@ -1443,3 +1443,43 @@ def audio_pitch_shift_semitones(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_pitch_shift_semitones failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_mix_to_mono
+# ---------------------------------------------------------------------------
+
+def audio_mix_to_mono(
+    input_path: str,
+    output_path: str,
+) -> str:
+    """Downmix audio to mono by averaging all channels.
+
+    Args:
+        input_path: Source audio file (any number of channels).
+        output_path: Destination mono audio file.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", "pan=mono|c0=0.5*c0+0.5*c1",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # fallback for mono input or different channel layouts
+        proc2 = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-ac", "1", output_path],
+            capture_output=True, text=True,
+        )
+        if proc2.returncode != 0:
+            raise RuntimeError(f"audio_mix_to_mono failed:\n{proc2.stderr}")
+    return output_path

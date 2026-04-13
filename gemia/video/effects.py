@@ -2293,3 +2293,156 @@ def video_mute(
         output_path,
     ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_crop
+# ---------------------------------------------------------------------------
+
+def video_crop(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int | str = "center",
+    y: int | str = "center",
+    width: int,
+    height: int,
+) -> str:
+    """Crop a rectangular region from a video.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        x: Left edge pixel offset, or ``"center"`` to center horizontally.
+        y: Top edge pixel offset, or ``"center"`` to center vertically.
+        width: Crop width in pixels.
+        height: Crop height in pixels.
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    x_expr = "(iw-{w})/2".format(w=width) if x == "center" else str(x)
+    y_expr = "(ih-{h})/2".format(h=height) if y == "center" else str(y)
+    vf = f"crop={width}:{height}:{x_expr}:{y_expr}"
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_scale
+# ---------------------------------------------------------------------------
+
+def video_scale(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int,
+    height: int,
+    fit: str = "contain",
+) -> str:
+    """Scale a video to target resolution.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        width: Target width in pixels.
+        height: Target height in pixels.
+        fit: ``"stretch"`` (ignore aspect), ``"contain"`` (letterbox),
+            ``"cover"`` (crop to fill).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    if fit == "stretch":
+        vf = f"scale={width}:{height}"
+    elif fit == "cover":
+        vf = (
+            f"scale=w='if(gt(iw/ih,{width}/{height}),{width},-1)':"
+            f"h='if(gt(iw/ih,{width}/{height}),-1,{height})',"
+            f"crop={width}:{height}"
+        )
+    else:  # contain (letterbox)
+        vf = (
+            f"scale=w='if(gt(iw/ih,{width}/{height}),{width},-2)':"
+            f"h='if(gt(iw/ih,{width}/{height}),-2,{height})',"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+        )
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_concat_crossfade
+# ---------------------------------------------------------------------------
+
+def video_concat_crossfade(
+    input_paths: list[str],
+    output_path: str,
+    *,
+    crossfade_sec: float = 0.5,
+) -> str:
+    """Concatenate clips with a dissolve crossfade between each.
+
+    Args:
+        input_paths: List of video files to concatenate (at least 2).
+        output_path: Destination video file.
+        crossfade_sec: Overlap/dissolve duration in seconds.
+
+    Returns:
+        The *output_path*.
+    """
+    if len(input_paths) < 2:
+        raise ValueError("video_concat_crossfade requires at least 2 clips")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Build chain: dissolve clip[0]→clip[1], result→clip[2], etc.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as td:
+        current = input_paths[0]
+        for idx in range(1, len(input_paths)):
+            nxt = input_paths[idx]
+            # Probe current duration for xfade offset
+            dur_proc = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", current],
+                capture_output=True, text=True,
+            )
+            dur = float(dur_proc.stdout.strip()) if dur_proc.returncode == 0 else crossfade_sec + 1
+            offset = max(0.0, dur - crossfade_sec)
+
+            is_last = (idx == len(input_paths) - 1)
+            step_out = output_path if is_last else f"{td}/xf_{idx}.mp4"
+
+            fc = (
+                f"[0:v]setpts=PTS-STARTPTS[v0];"
+                f"[1:v]setpts=PTS-STARTPTS[v1];"
+                f"[v0][v1]xfade=transition=dissolve:duration={crossfade_sec}:offset={offset}[v]"
+            )
+            _run([
+                "ffmpeg", "-y",
+                "-i", current,
+                "-i", nxt,
+                "-filter_complex", fc,
+                "-map", "[v]",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                step_out,
+            ])
+            current = step_out
+    return output_path
