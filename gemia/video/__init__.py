@@ -54,6 +54,7 @@ from gemia.video.effects import (
     video_freeze_at, video_concat_with_transition,
     video_flip_horizontal, video_flip_vertical,
     video_scale_to_width, video_scale_to_height,
+    video_set_fps, video_crop,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -122,4 +123,5 @@ __all__ = [
     "video_freeze_at", "video_concat_with_transition",
     "video_flip_horizontal", "video_flip_vertical",
     "video_scale_to_width", "video_scale_to_height",
+    "video_set_fps", "video_crop",
 ]
