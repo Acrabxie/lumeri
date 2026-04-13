@@ -3047,3 +3047,57 @@ def video_color_temp(input_path: str, output_path: str, *, temperature: float = 
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_split(input_path: str, output_dir: str, *, n: int = 2, prefix: str = "segment") -> list[str]:
+    """Split a video into N equal-duration segments.
+
+    Args:
+        n: Number of segments. Default 2.
+        prefix: Output filename prefix. Default 'segment'.
+
+    Returns:
+        Sorted list of output file paths.
+    """
+    import json, os
+    os.makedirs(output_dir, exist_ok=True)
+    # Get duration
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    seg_dur = total / n
+    ext = Path(input_path).suffix
+    outputs = []
+    for i in range(n):
+        out = str(Path(output_dir) / f"{prefix}_{i:03d}{ext}")
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{i * seg_dur:.4f}",
+            "-i", input_path,
+            "-t", f"{seg_dur:.4f}",
+            "-c:v", "libx264", "-c:a", "aac",
+            out,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr[-1000:])
+        outputs.append(out)
+    return outputs
+
+
+def video_subtitle_extract(input_path: str, output_srt: str, *, stream_index: int = 0) -> None:
+    """Extract an embedded subtitle track from a video to an SRT file.
+
+    Args:
+        stream_index: Subtitle stream index (0 = first subtitle track). Default 0.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-map", f"0:s:{stream_index}",
+        output_srt,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

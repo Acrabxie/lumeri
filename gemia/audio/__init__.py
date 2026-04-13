@@ -19,6 +19,7 @@ from gemia.audio.effects import (
     audio_fade_in, audio_fade_out,
     audio_trim, audio_mix_stereo,
     audio_sample_rate_convert, audio_channels_to_mono,
+    audio_loudness_normalize, audio_bit_depth_convert,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "audio_fade_in", "audio_fade_out",
     "audio_trim", "audio_mix_stereo",
     "audio_sample_rate_convert", "audio_channels_to_mono",
+    "audio_loudness_normalize", "audio_bit_depth_convert",
 ]

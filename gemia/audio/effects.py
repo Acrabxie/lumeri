@@ -1845,3 +1845,55 @@ def audio_channels_to_mono(input_path: str, output_path: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_loudness_normalize(
+    input_path: str,
+    output_path: str,
+    *,
+    target_lufs: float = -14.0,
+) -> None:
+    """Normalize audio loudness to a target integrated LUFS level (two-pass loudnorm).
+
+    Args:
+        target_lufs: Target integrated loudness in LUFS. Default -14.0 (streaming standard).
+    """
+    import json, re
+    # Pass 1: measure
+    cmd1 = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11:print_format=json",
+        "-f", "null", "-",
+    ]
+    r1 = subprocess.run(cmd1, capture_output=True, text=True)
+    # Extract JSON block from stderr
+    m = re.search(r'\{[^{}]+\}', r1.stderr, re.DOTALL)
+    if m:
+        stats = json.loads(m.group())
+        il = stats["input_i"]; lra = stats["input_lra"]; tp = stats["input_tp"]; thr = stats["input_thresh"]
+        af2 = (
+            f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11"
+            f":measured_I={il}:measured_LRA={lra}:measured_TP={tp}:measured_thresh={thr}:linear=true"
+        )
+    else:
+        # Fallback: single-pass
+        af2 = f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11"
+    cmd2 = ["ffmpeg", "-y", "-i", input_path, "-af", af2, output_path]
+    proc = subprocess.run(cmd2, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_bit_depth_convert(input_path: str, output_path: str, *, bits: int = 16) -> None:
+    """Convert audio to a specific bit depth.
+
+    Args:
+        bits: Target bit depth: 16, 24, or 32. Default 16.
+    """
+    # Map bit depth to (sample_fmt, codec) pairs for WAV-compatible output
+    fmt_map = {16: ("s16", "pcm_s16le"), 24: ("s32", "pcm_s32le"), 32: ("flt", "pcm_f32le")}
+    sample_fmt, codec = fmt_map.get(bits, ("s16", "pcm_s16le"))
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-acodec", codec, "-sample_fmt", sample_fmt, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
