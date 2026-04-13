@@ -2088,3 +2088,97 @@ def video_to_gif(
             output_path,
         ])
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_snapshot
+# ---------------------------------------------------------------------------
+
+def video_snapshot(
+    input_path: str,
+    output_path: str,
+    *,
+    time_sec: float = 0.0,
+    quality: int = 2,
+) -> str:
+    """Extract a single frame from a video as a still image.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination image file (``.jpg``, ``.png``, etc.).
+        time_sec: Timestamp in seconds to extract.
+        quality: JPEG quality scale 1–31 (1 = best; ignored for PNG).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y",
+        "-ss", str(time_sec),
+        "-i", input_path,
+        "-vframes", "1",
+        "-q:v", str(quality),
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_watermark
+# ---------------------------------------------------------------------------
+
+def video_watermark(
+    input_path: str,
+    output_path: str,
+    *,
+    watermark_path: str,
+    position: str = "bottom_right",
+    margin: int = 20,
+    opacity: float = 0.7,
+) -> str:
+    """Burn a semi-transparent watermark/logo onto a video.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        watermark_path: Path to watermark image (PNG with alpha recommended).
+        position: ``"top_left"``, ``"top_right"``, ``"bottom_left"``,
+            ``"bottom_right"``, or ``"center"``.
+        margin: Pixel gap from the chosen edge.
+        opacity: Alpha multiplier in [0, 1].
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    _pos_map = {
+        "top_left":     f"{margin}:{margin}",
+        "top_right":    f"main_w-overlay_w-{margin}:{margin}",
+        "bottom_left":  f"{margin}:main_h-overlay_h-{margin}",
+        "bottom_right": f"main_w-overlay_w-{margin}:main_h-overlay_h-{margin}",
+        "center":       "(main_w-overlay_w)/2:(main_h-overlay_h)/2",
+    }
+    xy = _pos_map.get(position, _pos_map["bottom_right"])
+
+    # Apply opacity via colorchannelmixer alpha channel
+    alpha_expr = f"{opacity:.4f}"
+    fc = (
+        f"[1:v]format=rgba,colorchannelmixer=aa={alpha_expr}[wm];"
+        f"[0:v][wm]overlay={xy}[v]"
+    )
+
+    has_aud = _has_audio(input_path)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-i", watermark_path,
+        "-filter_complex", fc,
+        "-map", "[v]",
+    ]
+    if has_aud:
+        cmd += ["-map", "0:a", "-c:a", "aac"]
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", output_path]
+    _run(cmd)
+    return output_path

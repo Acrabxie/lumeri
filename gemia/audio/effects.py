@@ -1159,3 +1159,159 @@ def audio_fade(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_fade failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# audio_trim_silence
+# ---------------------------------------------------------------------------
+
+def audio_trim_silence(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold_db: float = -50.0,
+    min_silence_sec: float = 0.1,
+) -> str:
+    """Remove leading and trailing silence from an audio file.
+
+    Args:
+        input_path: Source audio file.
+        output_path: Destination audio file.
+        threshold_db: dB level considered silence.
+        min_silence_sec: Minimum silence duration to detect at edges.
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess, re
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Detect silence
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"silencedetect=noise={threshold_db}dB:d={min_silence_sec}",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    combined = proc.stdout + proc.stderr
+
+    # Parse leading silence end (first silence_end = first non-silence start)
+    starts = re.findall(r"silence_start:\s*([\d.]+)", combined)
+    ends = re.findall(r"silence_end:\s*([\d.]+)", combined)
+
+    # Probe total duration
+    dur_proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(dur_proc.stdout.strip()) if dur_proc.returncode == 0 else None
+
+    # Determine trim points
+    trim_start = 0.0
+    trim_end = total  # None = don't trim end
+
+    # If audio starts with silence, first end marks content start
+    if ends and float(starts[0]) < 0.1 if starts else True:
+        if ends:
+            trim_start = float(ends[0])
+
+    # If audio ends with silence: last start of silence that goes to end
+    if starts and total is not None:
+        last_start = float(starts[-1])
+        if last_start > total - 2.0:  # within last 2s
+            trim_end = last_start
+
+    af_parts = []
+    if trim_start > 0:
+        af_parts.append(f"atrim=start={trim_start:.3f}")
+        af_parts.append("asetpts=PTS-STARTPTS")
+    if trim_end is not None and total is not None and trim_end < total - 0.05:
+        af_parts.append(f"atrim=end={trim_end - trim_start:.3f}" if trim_start > 0
+                        else f"atrim=end={trim_end:.3f}")
+        af_parts.append("asetpts=PTS-STARTPTS")
+
+    if not af_parts:
+        # Nothing to trim — copy
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+            capture_output=True, check=True,
+        )
+        return output_path
+
+    af = ",".join(af_parts)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc2 = subprocess.run(cmd, capture_output=True, text=True)
+    if proc2.returncode != 0:
+        raise RuntimeError(f"audio_trim_silence failed:\n{proc2.stderr}")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# text_to_speech
+# ---------------------------------------------------------------------------
+
+def text_to_speech(
+    text: str,
+    output_path: str,
+    *,
+    voice: str = "auto",
+    rate: int = 175,
+) -> str:
+    """Generate speech audio from text.
+
+    Primary backend: macOS ``say`` command.
+    Fallback: ``espeak`` (Linux/cross-platform).
+
+    Args:
+        text: Text string to synthesize.
+        output_path: Destination audio file (``.aiff``, ``.wav``, ``.mp3``).
+        voice: TTS voice name (``"auto"`` = system default).
+        rate: Words per minute (macOS say: typical range 100–300).
+
+    Returns:
+        The *output_path*.
+    """
+    import subprocess, shutil, tempfile
+    from pathlib import Path
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    ext = Path(output_path).suffix.lower()
+
+    # macOS say — native, no deps
+    if shutil.which("say"):
+        # say writes AIFF natively; convert if needed
+        with tempfile.TemporaryDirectory() as td:
+            aiff = str(Path(td) / "tts.aiff")
+            cmd = ["say", "-r", str(rate), "-o", aiff, text]
+            if voice != "auto":
+                cmd = ["say", "-v", voice, "-r", str(rate), "-o", aiff, text]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise RuntimeError(f"say failed:\n{proc.stderr}")
+            if ext in {".aiff", ".aif"}:
+                import shutil as _sh
+                _sh.copy2(aiff, output_path)
+            else:
+                proc2 = subprocess.run(
+                    ["ffmpeg", "-y", "-i", aiff, output_path],
+                    capture_output=True, text=True,
+                )
+                if proc2.returncode != 0:
+                    raise RuntimeError(f"ffmpeg convert failed:\n{proc2.stderr}")
+        return output_path
+
+    # espeak fallback
+    if shutil.which("espeak"):
+        cmd = ["espeak", "-s", str(rate), "-w", output_path, text]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"espeak failed:\n{proc.stderr}")
+        return output_path
+
+    raise EnvironmentError(
+        "text_to_speech requires macOS 'say' or 'espeak'. "
+        "Install espeak: brew install espeak"
+    )
