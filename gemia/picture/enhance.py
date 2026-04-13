@@ -1122,3 +1122,19 @@ def image_pixelate(input_path: str, output_path: str, *, block_size: int = 16) -
     small_h = max(1, h // block_size)
     pixelated = img.resize((small_w, small_h), Image.NEAREST).resize((w, h), Image.NEAREST)
     pixelated.save(output_path)
+
+
+def image_emboss(input_path: str, output_path: str) -> None:
+    """Apply emboss effect to image."""
+    from PIL import Image, ImageFilter
+    img = Image.open(input_path).convert("RGB")
+    embossed = img.filter(ImageFilter.EMBOSS)
+    embossed.save(output_path)
+
+
+def image_find_edges(input_path: str, output_path: str) -> None:
+    """Apply edge detection to image using PIL FIND_EDGES filter."""
+    from PIL import Image, ImageFilter
+    img = Image.open(input_path).convert("RGB")
+    edges = img.filter(ImageFilter.FIND_EDGES)
+    edges.save(output_path)
