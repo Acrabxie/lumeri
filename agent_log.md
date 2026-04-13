@@ -144,3 +144,4 @@
 2026-04-12 20:44 Wave 27 complete: audio_equalizer, image_contrast, image_saturation, video_sepia, video_boomerang — all 2x PASS, committed a4c252f
 2026-04-12 20:45 Wave 28 complete: audio_reverse, image_flip, video_vignette, video_mirror, video_brightness_contrast — all 2x PASS, committed
 2026-04-12 20:47 Wave 29 complete: audio_fade_in, audio_fade_out, image_rotate, video_rotate, video_thumbnail_grid — all 2x PASS, committed
+2026-04-12 20:48 Wave 30 complete: audio_trim, audio_mix_stereo, image_crop, video_frame_rate_convert, video_letterbox — all 2x PASS, committed

@@ -1029,3 +1029,22 @@ def image_crop(input_path: str, output_path: str, *, left: int = 0, top: int = 0
     b = bottom if bottom is not None else h
     cropped = img.crop((left, top, r, b))
     cropped.save(output_path)
+
+
+def image_resize_to_fit(
+    input_path: str,
+    output_path: str,
+    *,
+    max_width: int = 1920,
+    max_height: int = 1080,
+) -> None:
+    """Resize image to fit within max_width x max_height preserving aspect ratio.
+
+    Args:
+        max_width: Maximum output width in pixels.
+        max_height: Maximum output height in pixels.
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    img.thumbnail((max_width, max_height), Image.LANCZOS)
+    img.save(output_path)

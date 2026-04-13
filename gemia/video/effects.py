@@ -2992,3 +2992,58 @@ def video_letterbox(input_path: str, output_path: str, *, width: int = 1920, hei
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_extract_frames_range(
+    input_path: str,
+    output_dir: str,
+    *,
+    start: float = 0.0,
+    end: float | None = None,
+    fps: float = 1.0,
+    prefix: str = "frame",
+) -> list[str]:
+    """Extract frames from a video between start and end time as JPEG files.
+
+    Args:
+        start: Start time in seconds.
+        end: End time in seconds. None means until end of file.
+        fps: Frames per second to extract. Default 1.0.
+        prefix: Filename prefix. Default 'frame'.
+
+    Returns:
+        Sorted list of output file paths.
+    """
+    import os, glob
+    os.makedirs(output_dir, exist_ok=True)
+    out_pattern = str(Path(output_dir) / f"{prefix}_%06d.jpg")
+    cmd = ["ffmpeg", "-y", "-ss", str(start)]
+    if end is not None:
+        cmd += ["-to", str(end)]
+    cmd += ["-i", input_path, "-vf", f"fps={fps}", out_pattern]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+    return sorted(glob.glob(str(Path(output_dir) / f"{prefix}_*.jpg")))
+
+
+def video_color_temp(input_path: str, output_path: str, *, temperature: float = 6500.0) -> None:
+    """Adjust video color temperature (warm = lower values, cool = higher values).
+
+    Approximates color temperature shift using colorchannelmixer.
+    Neutral is ~6500 K. Lower values warm the image, higher values cool it.
+
+    Args:
+        temperature: Color temperature in Kelvin. Range 2000-10000. Default 6500.
+    """
+    # Map temperature to warm/cool RGB adjustments relative to 6500 K neutral
+    t = max(2000.0, min(10000.0, temperature))
+    delta = (t - 6500.0) / 6500.0  # -0.69 (warm) to +0.54 (cool)
+    # Warm: boost red/green, reduce blue. Cool: boost blue, reduce red.
+    rr = max(0.5, min(1.5, 1.0 - delta * 0.3))
+    gg = 1.0
+    bb = max(0.5, min(1.5, 1.0 + delta * 0.5))
+    vf = f"colorchannelmixer=rr={rr:.4f}:gg={gg:.4f}:bb={bb:.4f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
