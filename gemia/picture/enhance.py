@@ -1048,3 +1048,22 @@ def image_resize_to_fit(
     img = Image.open(input_path).convert("RGB")
     img.thumbnail((max_width, max_height), Image.LANCZOS)
     img.save(output_path)
+
+
+def image_add_border(
+    input_path: str,
+    output_path: str,
+    *,
+    size: int = 20,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> None:
+    """Add a solid color border around an image.
+
+    Args:
+        size: Border width in pixels. Default 20.
+        color: Border RGB color tuple. Default white (255, 255, 255).
+    """
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    bordered = ImageOps.expand(img, border=size, fill=color)
+    bordered.save(output_path)
