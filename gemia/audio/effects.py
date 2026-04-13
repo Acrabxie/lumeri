@@ -2499,3 +2499,31 @@ def audio_stereo_swap(
         )
         if proc2.returncode != 0:
             raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_generate_tone(
+    output_path: str,
+    *,
+    frequency: float = 440.0,
+    duration: float = 1.0,
+    amplitude: float = 0.5,
+    sample_rate: int = 44100,
+) -> None:
+    """Generate a sine-wave tone audio file.
+
+    Args:
+        frequency: Tone frequency in Hz. Default 440.0.
+        duration: Duration in seconds. Default 1.0.
+        amplitude: Amplitude 0–1. Default 0.5.
+        sample_rate: Sample rate. Default 44100.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"sine=frequency={frequency}:sample_rate={sample_rate}:duration={duration}",
+        "-af", f"volume={amplitude}",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
