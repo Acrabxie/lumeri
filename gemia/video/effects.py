@@ -3776,3 +3776,75 @@ def video_countdown(
             "-i", f"{tmp}/frame_%06d.png",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path,
         ])
+
+
+def video_stabilize_simple(
+    input_path: str,
+    output_path: str,
+    *,
+    shakiness: int = 5,
+    smoothing: int = 10,
+) -> None:
+    """Stabilize a shaky video using ffmpeg vidstab (2-pass).
+
+    Requires libvidstab. Falls back to copy if unavailable.
+
+    Args:
+        shakiness: Detection shakiness level 1–10. Default 5.
+        smoothing: Smoothing window in frames. Default 10.
+    """
+    import tempfile
+    # Check vidstab availability
+    probe = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:size=2x2:rate=1",
+         "-vf", "vidstabdetect", "-t", "0.04", "-f", "null", "-"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        # Fallback: just copy
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        trf = f"{tmp}/transforms.trf"
+        # Pass 1: detect
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"vidstabdetect=shakiness={shakiness}:result={trf}",
+            "-f", "null", "-",
+        ])
+        # Pass 2: transform
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"vidstabtransform=smoothing={smoothing}:input={trf}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "copy", output_path,
+        ])
+
+
+def video_loop(
+    input_path: str,
+    output_path: str,
+    *,
+    times: int = 3,
+) -> None:
+    """Loop a video N times by concatenating copies.
+
+    Args:
+        times: Number of times to repeat (1 = no repeat, 2 = play twice, etc.). Default 3.
+    """
+    import tempfile
+    n = max(1, times)
+    if n == 1:
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        list_file = f"{tmp}/list.txt"
+        with open(list_file, "w") as f:
+            for _ in range(n):
+                f.write(f"file '{input_path}'\n")
+        _run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", list_file, "-c", "copy", output_path,
+        ])
