@@ -57,6 +57,7 @@ from gemia.video.effects import (
     video_set_fps, video_crop,
     video_pad, video_thumbnail,
     video_add_silent_audio, video_remove_audio,
+    video_info, video_concat_list,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -128,4 +129,5 @@ __all__ = [
     "video_set_fps", "video_crop",
     "video_pad", "video_thumbnail",
     "video_add_silent_audio", "video_remove_audio",
+    "video_info", "video_concat_list",
 ]

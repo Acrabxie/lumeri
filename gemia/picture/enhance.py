@@ -1909,3 +1909,69 @@ def image_pixelate_region(
     pixelated = small.resize((width, height), Image.NEAREST)
     img.paste(pixelated, (x, y))
     img.save(output_path)
+
+
+def image_text_overlay(
+    input_path: str,
+    output_path: str,
+    text: str,
+    *,
+    x: int = 10,
+    y: int = 10,
+    font_size: int = 20,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> None:
+    """Draw text onto an image.
+
+    Args:
+        text: Text string to draw.
+        x: X position. Default 10.
+        y: Y position. Default 10.
+        font_size: Font size in points. Default 20.
+        color: RGB color tuple. Default white.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.open(input_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except Exception:
+        font = ImageFont.load_default()
+    draw.text((x, y), text, fill=color, font=font)
+    img.save(output_path)
+
+
+def image_draw_rect(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int = 10,
+    y: int = 10,
+    width: int = 50,
+    height: int = 50,
+    color: tuple[int, int, int] = (255, 0, 0),
+    fill: bool = False,
+    line_width: int = 2,
+) -> None:
+    """Draw a rectangle onto an image.
+
+    Args:
+        x: X offset. Default 10.
+        y: Y offset. Default 10.
+        width: Rectangle width. Default 50.
+        height: Rectangle height. Default 50.
+        color: RGB color. Default red.
+        fill: Fill rectangle if True. Default False (outline only).
+        line_width: Outline width in pixels. Default 2.
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.open(input_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    bbox = [x, y, x + width, y + height]
+    if fill:
+        draw.rectangle(bbox, fill=color)
+    else:
+        draw.rectangle(bbox, outline=color, width=line_width)
+    img.save(output_path)
