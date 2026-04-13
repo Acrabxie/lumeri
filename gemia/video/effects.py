@@ -3363,3 +3363,45 @@ def video_edge_detect(input_path: str, output_path: str, *, low: float = 0.1, hi
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_colorize(
+    input_path: str,
+    output_path: str,
+    *,
+    hue: float = 0.0,
+    saturation: float = 0.5,
+    lightness: float = 0.0,
+) -> None:
+    """Apply color tint to video using hue/saturation adjustment.
+
+    Args:
+        hue: Hue shift in degrees (0-360). Default 0.0.
+        saturation: Saturation multiplier (0-3). Default 0.5.
+        lightness: Lightness offset (-1 to 1). Default 0.0.
+    """
+    vf = f"hue=h={hue:.2f}:s={saturation:.3f}:b={lightness:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_glitch(input_path: str, output_path: str, *, intensity: float = 0.05) -> None:
+    """Apply glitch effect using RGB channel offset (chromatic aberration + noise).
+
+    Args:
+        intensity: Effect intensity 0-1. Default 0.05.
+    """
+    # Use rgbashift for channel offset glitch effect
+    px = max(1, int(intensity * 20))
+    vf = f"rgbashift=rh={px}:bh=-{px}:rv={px}:bv=-{px}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    try:
+        _run(cmd)
+    except RuntimeError:
+        # Fallback: use hue+noise combo if rgbashift unavailable
+        vf2 = f"noise=alls={int(intensity*100)}:allf=t"
+        cmd2 = ["ffmpeg", "-y", "-i", input_path, "-vf", vf2,
+                "-c:v", "libx264", "-c:a", "aac", output_path]
+        _run(cmd2)

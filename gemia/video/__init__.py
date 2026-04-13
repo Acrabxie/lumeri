@@ -41,6 +41,7 @@ from gemia.video.effects import (
     video_fast_forward, video_timelapse,
     video_color_invert, video_frame_blend,
     video_pixelate, video_edge_detect,
+    video_colorize, video_glitch,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -96,4 +97,5 @@ __all__ = [
     "video_fast_forward", "video_timelapse",
     "video_color_invert", "video_frame_blend",
     "video_pixelate", "video_edge_detect",
+    "video_colorize", "video_glitch",
 ]

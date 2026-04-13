@@ -1154,3 +1154,25 @@ def image_auto_enhance(input_path: str, output_path: str) -> None:
     img = Image.open(input_path).convert("RGB")
     enhanced = ImageOps.autocontrast(img, cutoff=1)
     enhanced.save(output_path)
+
+
+def image_tint(
+    input_path: str,
+    output_path: str,
+    *,
+    color: tuple[int, int, int] = (255, 100, 0),
+    strength: float = 0.3,
+) -> None:
+    """Apply a color tint to image by blending with a solid color.
+
+    Args:
+        color: RGB color tuple for the tint. Default orange (255, 100, 0).
+        strength: Blend strength 0-1. 0 = no tint, 1 = full color. Default 0.3.
+    """
+    from PIL import Image
+    import numpy as np
+    img = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32)
+    tint = np.array(color, dtype=np.float32)
+    blended = img * (1.0 - strength) + tint * strength
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+    Image.fromarray(blended).save(output_path)
