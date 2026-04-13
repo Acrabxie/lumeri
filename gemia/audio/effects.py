@@ -1916,3 +1916,44 @@ def audio_stereo_to_lr(input_path: str, left_output: str, right_output: str) -> 
     proc = subprocess.run(cmd_r, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_echo(
+    input_path: str,
+    output_path: str,
+    *,
+    delay_ms: float = 500.0,
+    decay: float = 0.5,
+) -> None:
+    """Add echo effect to audio using ffmpeg aecho filter.
+
+    Args:
+        delay_ms: Echo delay in milliseconds. Default 500.
+        decay: Echo decay factor (0-1). Default 0.5.
+    """
+    af = f"aecho=0.8:{decay:.3f}:{delay_ms:.1f}:{decay:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_chorus(
+    input_path: str,
+    output_path: str,
+    *,
+    depth: float = 0.4,
+    speed: float = 0.5,
+) -> None:
+    """Add chorus effect to audio using ffmpeg chorus filter.
+
+    Args:
+        depth: Chorus depth (0-1). Default 0.4.
+        speed: Modulation speed in Hz. Default 0.5.
+    """
+    # chorus=in_gain:out_gain:delay:decay:speed:depth
+    af = f"chorus=0.7:0.9:55:{depth:.3f}:{speed:.3f}:0.25"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

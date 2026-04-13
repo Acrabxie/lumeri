@@ -21,6 +21,7 @@ from gemia.audio.effects import (
     audio_sample_rate_convert, audio_channels_to_mono,
     audio_loudness_normalize, audio_bit_depth_convert,
     audio_stereo_to_lr,
+    audio_echo, audio_chorus,
 )
 
 __all__ = [
@@ -48,4 +49,5 @@ __all__ = [
     "audio_sample_rate_convert", "audio_channels_to_mono",
     "audio_loudness_normalize", "audio_bit_depth_convert",
     "audio_stereo_to_lr",
+    "audio_echo", "audio_chorus",
 ]
