@@ -2151,3 +2151,40 @@ def audio_lowpass(input_path: str, output_path: str, *, frequency: float = 1000.
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_highpass(input_path: str, output_path: str, *, frequency: float = 200.0) -> None:
+    """Apply highpass filter to audio — attenuates frequencies below cutoff.
+
+    Args:
+        frequency: Cutoff frequency in Hz. Default 200.0.
+    """
+    af = f"highpass=f={frequency:.1f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_compand(
+    input_path: str,
+    output_path: str,
+    *,
+    attack: float = 0.3,
+    decay: float = 0.8,
+    soft_knee: float = 6.0,
+    gain: float = 0.0,
+) -> None:
+    """Apply dynamic range compression/expansion using ffmpeg compand filter.
+
+    Args:
+        attack: Attack time in seconds. Default 0.3.
+        decay: Decay time in seconds. Default 0.8.
+        soft_knee: Soft knee in dB. Default 6.0.
+        gain: Output gain in dB. Default 0.0.
+    """
+    af = f"compand=attacks={attack:.3f}:decays={decay:.3f}:soft-knee={soft_knee:.1f}:gain={gain:.1f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
