@@ -33,6 +33,7 @@ from gemia.video.effects import (
     video_rotate, video_thumbnail_grid,
     video_frame_rate_convert, video_letterbox,
     video_extract_frames_range, video_color_temp,
+    video_split, video_subtitle_extract,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -80,4 +81,5 @@ __all__ = [
     "video_rotate", "video_thumbnail_grid",
     "video_frame_rate_convert", "video_letterbox",
     "video_extract_frames_range", "video_color_temp",
+    "video_split", "video_subtitle_extract",
 ]
