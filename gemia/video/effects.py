@@ -3240,3 +3240,39 @@ def video_ken_burns(
         output_path,
     ]
     _run(cmd)
+
+
+def video_hue_rotate(input_path: str, output_path: str, *, degrees: float = 90.0) -> None:
+    """Rotate video hue by a given number of degrees.
+
+    Args:
+        degrees: Hue rotation in degrees (0-360). Default 90.
+    """
+    vf = f"hue=h={degrees:.2f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_slow_motion(input_path: str, output_path: str, *, factor: float = 0.5) -> None:
+    """Create slow motion video by reducing playback speed.
+
+    Args:
+        factor: Speed factor < 1.0 (e.g. 0.5 = half speed). Default 0.5.
+    """
+    if factor <= 0 or factor >= 1.0:
+        raise ValueError(f"factor must be in (0, 1), got {factor}")
+    pts = 1.0 / factor
+    vf = f"setpts={pts:.4f}*PTS"
+    # atempo range is 0.5–2.0; chain for values below 0.5
+    remaining = factor
+    atempo_filters = []
+    while remaining < 0.5:
+        atempo_filters.append("atempo=0.5")
+        remaining /= 0.5
+    atempo_filters.append(f"atempo={remaining:.6f}")
+    af = ",".join(atempo_filters)
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-vf", vf, "-af", af,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

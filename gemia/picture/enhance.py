@@ -1107,3 +1107,18 @@ def image_solarize(input_path: str, output_path: str, *, threshold: int = 128) -
     img = Image.open(input_path).convert("RGB")
     solarized = ImageOps.solarize(img, threshold=threshold)
     solarized.save(output_path)
+
+
+def image_pixelate(input_path: str, output_path: str, *, block_size: int = 16) -> None:
+    """Pixelate image by downscaling then upscaling with nearest-neighbor interpolation.
+
+    Args:
+        block_size: Pixel block size in pixels. Larger = more pixelated. Default 16.
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    small_w = max(1, w // block_size)
+    small_h = max(1, h // block_size)
+    pixelated = img.resize((small_w, small_h), Image.NEAREST).resize((w, h), Image.NEAREST)
+    pixelated.save(output_path)
