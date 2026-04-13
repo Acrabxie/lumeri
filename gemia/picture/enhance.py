@@ -1642,3 +1642,48 @@ def image_halftone(
             cx, cy = x + half, y + half
             draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=0)
     canvas.convert("RGB").save(output_path)
+
+
+def image_noise(
+    input_path: str,
+    output_path: str,
+    *,
+    amount: float = 0.05,
+    noise_type: str = "gaussian",
+) -> None:
+    """Add random noise to an image.
+
+    Args:
+        amount: Noise standard deviation (gaussian) or max uniform range, 0–1. Default 0.05.
+        noise_type: 'gaussian' or 'uniform'. Default 'gaussian'.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    if noise_type == "gaussian":
+        noise = np.random.normal(0, amount, arr.shape).astype(np.float32)
+    else:
+        noise = np.random.uniform(-amount, amount, arr.shape).astype(np.float32)
+    result = (arr + noise).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_dither(
+    input_path: str,
+    output_path: str,
+    *,
+    colors: int = 16,
+) -> None:
+    """Reduce image to N colors with Floyd-Steinberg dithering.
+
+    Args:
+        colors: Number of colors. Default 16.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    # Quantize with dithering
+    quantized = img.quantize(colors=colors, dither=Image.Dither.FLOYDSTEINBERG)
+    quantized.convert("RGB").save(output_path)

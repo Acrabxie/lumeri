@@ -2527,3 +2527,25 @@ def audio_generate_tone(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_silence_trim(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold: float = -50.0,
+    duration: float = 0.1,
+) -> None:
+    """Trim leading and trailing silence from an audio file.
+
+    Args:
+        threshold: dB level below which audio is considered silent. Default -50.
+        duration: Minimum silence duration to trim. Default 0.1s.
+    """
+    # silenceremove: trim start (start_periods=1) and end (stop_periods=1)
+    af = (f"silenceremove=start_periods=1:start_duration={duration}:start_threshold={threshold}dB"
+          f":stop_periods=-1:stop_duration={duration}:stop_threshold={threshold}dB")
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
