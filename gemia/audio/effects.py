@@ -2571,3 +2571,40 @@ def audio_resample(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_normalize_to_target_db(
+    input_path: str,
+    output_path: str,
+    *,
+    target_db: float = -3.0,
+) -> None:
+    """Normalize audio peak to a target dB level.
+
+    Uses a two-pass approach: measure max volume, then apply compensating gain.
+
+    Args:
+        target_db: Target peak dB (negative). Default -3.0.
+    """
+    import re
+
+    # Pass 1: measure peak
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"max_volume:\s*([-\d.]+)\s*dB", proc.stderr)
+    if not m:
+        # Fallback: just copy
+        subprocess.run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+                       capture_output=True)
+        return
+    max_vol = float(m.group(1))
+    gain_db = target_db - max_vol
+
+    # Pass 2: apply gain
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-af", f"volume={gain_db:.2f}dB", output_path]
+    proc2 = subprocess.run(cmd, capture_output=True, text=True)
+    if proc2.returncode != 0:
+        raise RuntimeError(proc2.stderr[-1000:])

@@ -40,6 +40,7 @@ from gemia.audio.effects import (
     audio_generate_tone,
     audio_silence_trim,
     audio_resample,
+    audio_normalize_to_target_db,
 )
 
 __all__ = [
@@ -86,4 +87,5 @@ __all__ = [
     "audio_generate_tone",
     "audio_silence_trim",
     "audio_resample",
+    "audio_normalize_to_target_db",
 ]
