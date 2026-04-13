@@ -10,7 +10,7 @@ from gemia.picture.color import color_grade, adjust_exposure, adjust_temperature
 from gemia.picture.analysis import histogram, dominant_colors, edge_detect
 from gemia.picture.composite import create_mask, blend, composite
 from gemia.picture.generative import generate_image, edit_image, style_transfer, blend_images
-from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize, image_pixelate, image_emboss, image_find_edges, image_smooth, image_auto_enhance, image_tint, image_watermark_text, image_rounded_corners, image_composite_alpha, image_adjust_hsl, image_resize_canvas, image_collage, image_sketch, image_oil_paint, image_cartoon, image_sepia, image_hdr_simulate, image_lens_blur, image_cross_process, image_halftone, image_noise, image_dither, image_clahe, image_palette_swap, image_channel_split, image_channel_merge, image_blend_overlay, image_blend_multiply
+from gemia.picture.enhance import super_scale, match_color, skin_tone_protect, hdr_grade, film_grain_organic, defocus_background, relight, motion_blur, color_balance, image_flip, image_rotate, image_crop, image_resize_to_fit, image_add_border, image_grayscale, image_invert, image_posterize, image_solarize, image_pixelate, image_emboss, image_find_edges, image_smooth, image_auto_enhance, image_tint, image_watermark_text, image_rounded_corners, image_composite_alpha, image_adjust_hsl, image_resize_canvas, image_collage, image_sketch, image_oil_paint, image_cartoon, image_sepia, image_hdr_simulate, image_lens_blur, image_cross_process, image_halftone, image_noise, image_dither, image_clahe, image_palette_swap, image_channel_split, image_channel_merge, image_blend_overlay, image_blend_multiply, image_blend_screen, image_pixelate_region
 
 __all__ = [
     # geometry
@@ -40,4 +40,5 @@ __all__ = [
     "image_clahe", "image_palette_swap",
     "image_channel_split", "image_channel_merge",
     "image_blend_overlay", "image_blend_multiply",
+    "image_blend_screen", "image_pixelate_region",
 ]

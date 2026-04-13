@@ -1850,3 +1850,62 @@ def image_blend_multiply(
     mult = a * b
     result = (a * (1 - opacity) + mult * opacity).clip(0, 1)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_blend_screen(
+    base_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Blend two images using the Screen blend mode.
+
+    Screen = 1 - (1-a)*(1-b).
+
+    Args:
+        opacity: Blend strength 0–1. Default 1.0.
+    """
+    from PIL import Image
+    import numpy as np
+
+    base = Image.open(base_path).convert("RGB")
+    blend = Image.open(blend_path).convert("RGB").resize(base.size, Image.LANCZOS)
+    a = np.array(base, dtype=np.float32) / 255.0
+    b = np.array(blend, dtype=np.float32) / 255.0
+    screen = 1.0 - (1.0 - a) * (1.0 - b)
+    result = (a * (1 - opacity) + screen * opacity).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pixelate_region(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int = 0,
+    y: int = 0,
+    width: int = 50,
+    height: int = 50,
+    block_size: int = 10,
+) -> None:
+    """Pixelate a rectangular region of an image (for privacy/censorship).
+
+    Args:
+        x: X offset of region. Default 0.
+        y: Y offset of region. Default 0.
+        width: Region width in pixels. Default 50.
+        height: Region height in pixels. Default 50.
+        block_size: Pixel block size. Default 10.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    region = img.crop((x, y, x + width, y + height))
+    # Downscale then upscale to pixelate
+    small = region.resize(
+        (max(1, width // block_size), max(1, height // block_size)),
+        Image.NEAREST,
+    )
+    pixelated = small.resize((width, height), Image.NEAREST)
+    img.paste(pixelated, (x, y))
+    img.save(output_path)
