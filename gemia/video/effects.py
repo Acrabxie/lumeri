@@ -3609,3 +3609,65 @@ def video_transition_fade_black(
             lf.write(f"file '{f1}'\nfile '{f2}'\n")
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
               "-c", "copy", output_path])
+
+
+def video_overlay_image(
+    video_path: str,
+    image_path: str,
+    output_path: str,
+    *,
+    x: int = 10,
+    y: int = 10,
+    scale: float = 1.0,
+) -> None:
+    """Overlay a static image on top of video at a given position.
+
+    Args:
+        x: Horizontal offset in pixels from top-left. Default 10.
+        y: Vertical offset in pixels from top-left. Default 10.
+        scale: Scale factor for the overlay image. Default 1.0 (original size).
+    """
+    scale_vf = f"scale=iw*{scale:.4f}:-1" if scale != 1.0 else "null"
+    fc = f"[1:v]{scale_vf}[ovr];[0:v][ovr]overlay={x}:{y}"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path, "-i", image_path,
+        "-filter_complex", fc,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ]
+    _run(cmd)
+
+
+def video_audio_visualizer(
+    audio_path: str,
+    output_path: str,
+    *,
+    mode: str = "waveform",
+    width: int = 640,
+    height: int = 200,
+    duration: float | None = None,
+) -> None:
+    """Render audio as a video visualization (waveform or spectrum).
+
+    Args:
+        mode: 'waveform' or 'spectrum'. Default 'waveform'.
+        width: Output video width. Default 640.
+        height: Output video height. Default 200.
+        duration: Limit output duration in seconds. None = full audio length.
+    """
+    if mode == "waveform":
+        fc = f"[0:a]showwaves=s={width}x{height}:mode=line:colors=white[v]"
+    elif mode == "spectrum":
+        fc = f"[0:a]showspectrum=s={width}x{height}:color=intensity:scale=log[v]"
+    else:
+        raise ValueError(f"mode must be 'waveform' or 'spectrum', got {mode!r}")
+
+    cmd = ["ffmpeg", "-y", "-i", audio_path, "-filter_complex", fc,
+           "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if duration is not None:
+        cmd += ["-t", str(duration)]
+    cmd += [output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

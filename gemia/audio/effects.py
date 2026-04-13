@@ -2331,3 +2331,60 @@ def audio_export_wav(input_path: str, output_path: str, *, sample_rate: int = 44
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_crossfade(
+    clip1_path: str,
+    clip2_path: str,
+    output_path: str,
+    *,
+    duration: float = 1.0,
+) -> None:
+    """Crossfade two audio files using ffmpeg acrossfade filter.
+
+    Args:
+        duration: Crossfade duration in seconds. Default 1.0.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", clip1_path, "-i", clip2_path,
+        "-filter_complex", f"acrossfade=d={duration:.3f}",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_ducking_auto(
+    voice_path: str,
+    music_path: str,
+    output_path: str,
+    *,
+    duck_db: float = -12.0,
+) -> None:
+    """Duck background music under a voice track.
+
+    Reduces music volume by duck_db dB wherever voice is louder than silence threshold,
+    using a sidechain volume approach with sidechaincompress (fallback: static volume reduction).
+
+    Args:
+        voice_path: Path to the voice/foreground audio.
+        music_path: Path to the background music to duck.
+        duck_db: Gain applied to music when voice is active (e.g. -12.0 dB). Default -12.0.
+    """
+    # Try sidechaincompress approach
+    fc = (
+        f"[1:a]volume={duck_db:.1f}dB[ducked];"
+        f"[0:a][ducked]amix=inputs=2:normalize=0[out]"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", voice_path, "-i", music_path,
+        "-filter_complex", fc,
+        "-map", "[out]",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

@@ -1304,3 +1304,40 @@ def image_adjust_hsl(
             out[i, j] = colorsys.hls_to_rgb(h, l, s)
     result = (np.clip(out, 0, 1) * 255).astype(np.uint8)
     Image.fromarray(result).save(output_path)
+
+
+def image_resize_canvas(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int,
+    height: int,
+    fill_color: tuple[int, int, int] = (0, 0, 0),
+    anchor: str = "center",
+) -> None:
+    """Resize canvas to target dimensions, padding with fill_color without scaling the image.
+
+    Args:
+        width: Target canvas width in pixels.
+        height: Target canvas height in pixels.
+        fill_color: Background fill color RGB. Default black.
+        anchor: Image placement: 'center', 'top_left', 'top_right', 'bottom_left', 'bottom_right'. Default 'center'.
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    iw, ih = img.size
+    canvas = Image.new("RGB", (width, height), fill_color)
+    if anchor == "center":
+        x, y = (width - iw) // 2, (height - ih) // 2
+    elif anchor == "top_left":
+        x, y = 0, 0
+    elif anchor == "top_right":
+        x, y = width - iw, 0
+    elif anchor == "bottom_left":
+        x, y = 0, height - ih
+    elif anchor == "bottom_right":
+        x, y = width - iw, height - ih
+    else:
+        x, y = (width - iw) // 2, (height - ih) // 2
+    canvas.paste(img, (max(0, x), max(0, y)))
+    canvas.save(output_path)

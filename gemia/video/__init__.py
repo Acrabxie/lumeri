@@ -46,6 +46,7 @@ from gemia.video.effects import (
     video_blur, video_zoom_out,
     video_fade, video_shake,
     video_crop_center, video_transition_fade_black,
+    video_overlay_image, video_audio_visualizer,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -106,4 +107,5 @@ __all__ = [
     "video_blur", "video_zoom_out",
     "video_fade", "video_shake",
     "video_crop_center", "video_transition_fade_black",
+    "video_overlay_image", "video_audio_visualizer",
 ]
