@@ -43,6 +43,7 @@ from gemia.video.effects import (
     video_pixelate, video_edge_detect,
     video_colorize, video_glitch,
     video_denoise, video_sharpen,
+    video_blur, video_zoom_out,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -100,4 +101,5 @@ __all__ = [
     "video_pixelate", "video_edge_detect",
     "video_colorize", "video_glitch",
     "video_denoise", "video_sharpen",
+    "video_blur", "video_zoom_out",
 ]

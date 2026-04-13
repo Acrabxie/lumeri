@@ -3431,3 +3431,50 @@ def video_sharpen(input_path: str, output_path: str, *, strength: float = 1.5) -
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_blur(input_path: str, output_path: str, *, sigma: float = 5.0) -> None:
+    """Apply Gaussian blur to video using gblur filter.
+
+    Args:
+        sigma: Blur radius (sigma). Default 5.0.
+    """
+    vf = f"gblur=sigma={sigma:.2f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_zoom_out(
+    input_path: str,
+    output_path: str,
+    *,
+    zoom_start: float = 1.5,
+    fps: int = 25,
+) -> None:
+    """Animate a slow zoom-out effect over the video duration (starts zoomed in, ends at normal).
+
+    Args:
+        zoom_start: Starting zoom level (> 1.0). Default 1.5.
+        fps: Output frame rate. Default 25.
+    """
+    import json
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams",
+         "-select_streams", "v:0", input_path],
+        capture_output=True, text=True,
+    )
+    info = json.loads(probe.stdout)
+    duration = float(info["format"]["duration"])
+    stream = info["streams"][0]
+    w = stream["width"]; h = stream["height"]
+    total_frames = int(duration * fps)
+    dz = (zoom_start - 1.0) / max(total_frames, 1)
+    vf = (
+        f"zoompan=z='max(1\\,{zoom_start}-on*{dz:.6f})':d=1"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":s={w}x{h}:fps={fps}"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

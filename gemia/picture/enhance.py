@@ -1223,3 +1223,25 @@ def image_watermark_text(
     draw.text(xy, text, font=font, fill=(*color, alpha))
     result = Image.alpha_composite(img, overlay).convert("RGB")
     result.save(output_path)
+
+
+def image_rounded_corners(input_path: str, output_path: str, *, radius: int = 30) -> None:
+    """Apply rounded corners to image using an alpha mask.
+
+    Args:
+        radius: Corner radius in pixels. Default 30.
+    """
+    from PIL import Image, ImageDraw
+    img = Image.open(input_path).convert("RGBA")
+    w, h = img.size
+    mask = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+    img.putalpha(mask)
+    # Save with transparency or convert to RGB on white background if output is JPEG
+    if output_path.lower().endswith((".jpg", ".jpeg")):
+        bg = Image.new("RGB", (w, h), (255, 255, 255))
+        bg.paste(img, mask=img.split()[3])
+        bg.save(output_path)
+    else:
+        img.save(output_path)
