@@ -2608,3 +2608,33 @@ def audio_normalize_to_target_db(
     proc2 = subprocess.run(cmd, capture_output=True, text=True)
     if proc2.returncode != 0:
         raise RuntimeError(proc2.stderr[-1000:])
+
+
+def audio_apply_eq_bands(
+    input_path: str,
+    output_path: str,
+    bands: list[dict],
+) -> None:
+    """Apply a multi-band parametric EQ.
+
+    Args:
+        bands: List of dicts with keys:
+            - freq (float): Center frequency in Hz
+            - gain (float): Gain in dB (positive=boost, negative=cut)
+            - width (float, optional): Bandwidth in Hz. Default 100.
+    """
+    if not bands:
+        subprocess.run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+                       capture_output=True)
+        return
+    parts = []
+    for b in bands:
+        freq = b["freq"]
+        gain = b["gain"]
+        width = b.get("width", 100)
+        parts.append(f"equalizer=f={freq}:width_type=h:width={width}:g={gain}")
+    af = ",".join(parts)
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
