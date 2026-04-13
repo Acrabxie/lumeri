@@ -2930,3 +2930,40 @@ def video_brightness_contrast(
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_rotate(input_path: str, output_path: str, *, angle: float = 90.0) -> None:
+    """Rotate video by arbitrary degrees.
+    
+    Args:
+        angle: Rotation angle in degrees, clockwise. Common values: 90, 180, 270.
+    """
+    import math
+    angle_rad = math.radians(angle)
+    vf = f"rotate={angle_rad:.6f}:c=black:ow=rotw({angle_rad:.6f}):oh=roth({angle_rad:.6f})"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_thumbnail_grid(input_path: str, output_path: str, *, cols: int = 4, rows: int = 3) -> None:
+    """Generate a grid of thumbnails from a video at regular intervals.
+    
+    Args:
+        cols: Number of columns in the grid. Default 4.
+        rows: Number of rows in the grid. Default 3.
+    """
+    import json, tempfile, os
+    count = cols * rows
+    # Get video duration
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    interval = total / count
+    vf = f"fps=1/{interval:.4f},scale=160:-2,tile={cols}x{rows}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-frames:v", "1", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
