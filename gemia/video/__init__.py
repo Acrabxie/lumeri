@@ -29,6 +29,7 @@ from gemia.video.effects import (
     deep_composite, rhythm_cut,
     timecode_burn, auto_reframe, color_space_convert, deinterlace, spatial_video_render,
     waveform_monitor, keyframe_extract, aspect_ratio_pad, video_denoise_spatial,
+    video_vignette, video_mirror, video_brightness_contrast,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -72,4 +73,6 @@ __all__ = [
     "deep_composite", "rhythm_cut",
     "timecode_burn", "auto_reframe", "color_space_convert", "deinterlace", "spatial_video_render",
     "waveform_monitor", "keyframe_extract", "aspect_ratio_pad", "video_denoise_spatial",
+    "video_vignette", "video_mirror", "video_brightness_contrast",
+    "video_vignette", "video_mirror", "video_brightness_contrast",
 ]

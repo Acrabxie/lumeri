@@ -981,3 +981,20 @@ def image_saturation(
     enhanced = ImageEnhance.Color(img).enhance(factor)
     enhanced.save(output_path)
     return output_path
+
+
+def image_flip(input_path: str, output_path: str, *, direction: str = "horizontal") -> None:
+    """Flip image horizontally or vertically using PIL.
+    
+    Args:
+        direction: 'horizontal' or 'vertical'
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    if direction == "horizontal":
+        flipped = img.transpose(Image.FLIP_LEFT_RIGHT)
+    elif direction == "vertical":
+        flipped = img.transpose(Image.FLIP_TOP_BOTTOM)
+    else:
+        raise ValueError(f"direction must be 'horizontal' or 'vertical', got {direction!r}")
+    flipped.save(output_path)
