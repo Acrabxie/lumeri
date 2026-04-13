@@ -1756,3 +1756,37 @@ def audio_reverse(input_path: str, output_path: str) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_fade_in(input_path: str, output_path: str, *, duration: float = 1.0) -> None:
+    """Apply fade-in effect to audio.
+    
+    Args:
+        duration: Duration of fade-in in seconds. Default 1.0.
+    """
+    af = f"afade=t=in:st=0:d={duration:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_fade_out(input_path: str, output_path: str, *, duration: float = 1.0) -> None:
+    """Apply fade-out effect to audio.
+    
+    Args:
+        duration: Duration of fade-out in seconds. Default 1.0.
+    """
+    import json
+    # Get audio duration via ffprobe
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    start = max(0.0, total - duration)
+    af = f"afade=t=out:st={start:.3f}:d={duration:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

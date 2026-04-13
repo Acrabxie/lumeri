@@ -998,3 +998,16 @@ def image_flip(input_path: str, output_path: str, *, direction: str = "horizonta
     else:
         raise ValueError(f"direction must be 'horizontal' or 'vertical', got {direction!r}")
     flipped.save(output_path)
+
+
+def image_rotate(input_path: str, output_path: str, *, angle: float = 90.0, expand: bool = True) -> None:
+    """Rotate image by arbitrary degrees.
+    
+    Args:
+        angle: Rotation angle in degrees, counter-clockwise. Default 90.
+        expand: If True, expand output to fit the rotated image. Default True.
+    """
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    rotated = img.rotate(angle, expand=expand)
+    rotated.save(output_path)
