@@ -2188,3 +2188,63 @@ def audio_compand(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_mix_tracks(input_paths: list[str], output_path: str, *, normalize: bool = True) -> None:
+    """Mix multiple audio tracks together into one using ffmpeg amix filter.
+
+    Args:
+        input_paths: List of input audio file paths (2 or more).
+        normalize: Whether to normalize the output. Default True.
+    """
+    if len(input_paths) < 2:
+        raise ValueError("Need at least 2 input tracks to mix.")
+    n = len(input_paths)
+    cmd = ["ffmpeg", "-y"]
+    for p in input_paths:
+        cmd += ["-i", p]
+    normalize_flag = 1 if normalize else 0
+    cmd += ["-filter_complex", f"amix=inputs={n}:normalize={normalize_flag}", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_silence_insert(
+    input_path: str,
+    output_path: str,
+    *,
+    position: float = 0.0,
+    duration: float = 1.0,
+) -> None:
+    """Insert silence at a given position in audio.
+
+    Args:
+        position: Time in seconds where silence is inserted. Default 0.0 (prepend).
+        duration: Duration of silence in seconds. Default 1.0.
+    """
+    import json
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    sr_info = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams",
+         "-select_streams", "a:0", input_path],
+        capture_output=True, text=True,
+    )
+    sr = int(json.loads(sr_info.stdout)["streams"][0]["sample_rate"])
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    pos = max(0.0, min(position, total))
+    # Build filter_complex: split at position, insert silence, concat
+    fc = (
+        f"[0:a]atrim=end={pos:.4f}[a1];"
+        f"[0:a]atrim=start={pos:.4f}[a2];"
+        f"anullsrc=r={sr}:cl=mono,atrim=duration={duration:.4f}[sil];"
+        f"[a1][sil][a2]concat=n=3:v=0:a=1[out]"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-filter_complex", fc, "-map", "[out]", output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
