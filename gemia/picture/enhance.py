@@ -791,3 +791,66 @@ def batch_image_resize(
         outputs.append(out_path)
 
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# image_collage
+# ---------------------------------------------------------------------------
+
+def image_collage(
+    image_paths: list[str],
+    output_path: str,
+    *,
+    cols: int = 2,
+    cell_width: int = 400,
+    cell_height: int = 300,
+    padding: int = 10,
+    bg_color: tuple[int, int, int] = (255, 255, 255),
+) -> str:
+    """Assemble multiple images into a grid collage.
+
+    Args:
+        image_paths: List of source image file paths.
+        output_path: Destination image file.
+        cols: Number of columns in the grid.
+        cell_width: Width of each cell in pixels.
+        cell_height: Height of each cell in pixels.
+        padding: Gap between cells and border in pixels.
+        bg_color: Background fill colour (RGB).
+
+    Returns:
+        The *output_path*.
+    """
+    import math
+    import numpy as np
+    from PIL import Image
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    n = len(image_paths)
+    if n == 0:
+        raise ValueError("image_collage: no images provided")
+
+    rows = math.ceil(n / cols)
+    total_w = cols * cell_width + (cols + 1) * padding
+    total_h = rows * cell_height + (rows + 1) * padding
+
+    canvas = Image.new("RGB", (total_w, total_h), bg_color)
+
+    for idx, path in enumerate(image_paths):
+        row = idx // cols
+        col = idx % cols
+        img = Image.open(path).convert("RGB")
+
+        # Fit image into cell with letterboxing
+        iw, ih = img.size
+        scale = min(cell_width / iw, cell_height / ih)
+        nw, nh = int(iw * scale), int(ih * scale)
+        img_resized = img.resize((nw, nh), Image.LANCZOS)
+
+        x = padding + col * (cell_width + padding) + (cell_width - nw) // 2
+        y = padding + row * (cell_height + padding) + (cell_height - nh) // 2
+        canvas.paste(img_resized, (x, y))
+
+    canvas.save(output_path)
+    return output_path
