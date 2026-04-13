@@ -4134,3 +4134,43 @@ def video_flip_vertical(
         "-vf", "vflip", "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_scale_to_width(
+    input_path: str,
+    output_path: str,
+    *,
+    width: int = 1280,
+) -> None:
+    """Scale video to a given width, preserving aspect ratio.
+
+    Args:
+        width: Target width in pixels (must be even). Default 1280.
+    """
+    w = width if width % 2 == 0 else width + 1
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"scale={w}:-2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_scale_to_height(
+    input_path: str,
+    output_path: str,
+    *,
+    height: int = 720,
+) -> None:
+    """Scale video to a given height, preserving aspect ratio.
+
+    Args:
+        height: Target height in pixels (must be even). Default 720.
+    """
+    h = height if height % 2 == 0 else height + 1
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"scale=-2:{h}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
