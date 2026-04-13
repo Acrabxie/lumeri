@@ -47,6 +47,7 @@ from gemia.video.effects import (
     video_fade, video_shake,
     video_crop_center, video_transition_fade_black,
     video_overlay_image, video_audio_visualizer,
+    video_chapters_from_timestamps, video_countdown,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -108,4 +109,5 @@ __all__ = [
     "video_fade", "video_shake",
     "video_crop_center", "video_transition_fade_black",
     "video_overlay_image", "video_audio_visualizer",
+    "video_chapters_from_timestamps", "video_countdown",
 ]
