@@ -2660,3 +2660,42 @@ def audio_gate(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_pitch_detect(
+    input_path: str,
+    *,
+    duration: float = 5.0,
+) -> float:
+    """Estimate the dominant pitch frequency of an audio file.
+
+    Uses numpy FFT on the first ``duration`` seconds of audio decoded via ffmpeg.
+
+    Args:
+        duration: Seconds of audio to analyse. Default 5.0.
+
+    Returns:
+        Estimated fundamental frequency in Hz.
+    """
+    import numpy as np
+
+    # Decode to raw PCM (mono, 44100)
+    sr = 44100
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path, "-t", str(duration),
+         "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
+        capture_output=True,
+    )
+    if proc.returncode != 0 or len(proc.stdout) == 0:
+        return 0.0
+    samples = np.frombuffer(proc.stdout, dtype=np.float32)
+    if samples.size == 0:
+        return 0.0
+    fft = np.abs(np.fft.rfft(samples))
+    freqs = np.fft.rfftfreq(samples.size, d=1.0 / sr)
+    # Ignore DC and very low freqs
+    mask = freqs > 20
+    if not mask.any():
+        return 0.0
+    peak_idx = np.argmax(fft[mask])
+    return float(freqs[mask][peak_idx])
