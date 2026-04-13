@@ -921,3 +921,63 @@ def image_blur(
     blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
     blurred.save(output_path)
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_contrast
+# ---------------------------------------------------------------------------
+
+def image_contrast(
+    input_path: str,
+    output_path: str,
+    *,
+    factor: float = 1.5,
+) -> str:
+    """Adjust image contrast.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination image file.
+        factor: Contrast multiplier. 1.0 = original, > 1.0 = more contrast,
+            0.0 = solid grey.
+
+    Returns:
+        The *output_path*.
+    """
+    from PIL import Image, ImageEnhance
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    img = Image.open(input_path).convert("RGB")
+    enhanced = ImageEnhance.Contrast(img).enhance(factor)
+    enhanced.save(output_path)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# image_saturation
+# ---------------------------------------------------------------------------
+
+def image_saturation(
+    input_path: str,
+    output_path: str,
+    *,
+    factor: float = 1.5,
+) -> str:
+    """Adjust image color saturation.
+
+    Args:
+        input_path: Source image file.
+        output_path: Destination image file.
+        factor: Saturation multiplier. 1.0 = original, > 1.0 = more vivid,
+            0.0 = grayscale.
+
+    Returns:
+        The *output_path*.
+    """
+    from PIL import Image, ImageEnhance
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    img = Image.open(input_path).convert("RGB")
+    enhanced = ImageEnhance.Color(img).enhance(factor)
+    enhanced.save(output_path)
+    return output_path
