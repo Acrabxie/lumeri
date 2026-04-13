@@ -131,3 +131,4 @@
 2026-04-12 16:44:40  Total: 111+ primitives across all modules. Continuing Wave20.
 2026-04-12 16:46:08  Wave20 complete: #61 split_screen, #57 video_loop, #59 video_to_gif, #60 audio_fade, #58 image_sequence_to_video — all PASS x2
 2026-04-12 16:46:08  Session total: Waves 17-20 implemented 20 new primitives. Grand total: 120+ primitives. All tasks completed.
+2026-04-12 18:38:45  Wave21 complete: #62 video_snapshot, #63 video_watermark, #64 audio_trim_silence, #66 text_to_speech, #65 batch_image_resize — all PASS x2
