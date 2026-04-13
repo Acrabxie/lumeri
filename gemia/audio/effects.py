@@ -2101,3 +2101,31 @@ def audio_stereo_enhance(input_path: str, output_path: str, *, factor: float = 2
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_bass_boost(input_path: str, output_path: str, *, gain_db: float = 6.0, frequency: float = 100.0) -> None:
+    """Boost bass frequencies using ffmpeg bass filter.
+
+    Args:
+        gain_db: Gain in dB. Default 6.0.
+        frequency: Center frequency in Hz. Default 100.0.
+    """
+    af = f"bass=g={gain_db:.2f}:f={frequency:.1f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_treble_boost(input_path: str, output_path: str, *, gain_db: float = 6.0, frequency: float = 3000.0) -> None:
+    """Boost treble frequencies using ffmpeg treble filter.
+
+    Args:
+        gain_db: Gain in dB. Default 6.0.
+        frequency: Center frequency in Hz. Default 3000.0.
+    """
+    af = f"treble=g={gain_db:.2f}:f={frequency:.1f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

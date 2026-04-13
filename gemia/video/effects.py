@@ -3335,3 +3335,31 @@ def video_frame_blend(input_path: str, output_path: str, *, mode: str = "average
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_pixelate(input_path: str, output_path: str, *, block_size: int = 16) -> None:
+    """Pixelate video by scaling down then back up with nearest-neighbor interpolation.
+
+    Args:
+        block_size: Pixel block size. Larger = more pixelated. Default 16.
+    """
+    vf = (
+        f"scale=iw/{block_size}:ih/{block_size}:flags=neighbor,"
+        f"scale=iw*{block_size}:ih*{block_size}:flags=neighbor"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_edge_detect(input_path: str, output_path: str, *, low: float = 0.1, high: float = 0.4) -> None:
+    """Apply edge detection effect to video using ffmpeg edgedetect filter.
+
+    Args:
+        low: Low threshold (0-1). Default 0.1.
+        high: High threshold (0-1). Default 0.4.
+    """
+    vf = f"edgedetect=low={low:.3f}:high={high:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)

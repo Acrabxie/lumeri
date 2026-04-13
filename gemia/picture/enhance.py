@@ -1146,3 +1146,11 @@ def image_smooth(input_path: str, output_path: str) -> None:
     img = Image.open(input_path).convert("RGB")
     smoothed = img.filter(ImageFilter.SMOOTH_MORE)
     smoothed.save(output_path)
+
+
+def image_auto_enhance(input_path: str, output_path: str) -> None:
+    """Auto-enhance image by applying auto-contrast and equalizing histogram."""
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    enhanced = ImageOps.autocontrast(img, cutoff=1)
+    enhanced.save(output_path)
