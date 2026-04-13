@@ -3671,3 +3671,108 @@ def video_audio_visualizer(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def video_chapters_from_timestamps(
+    input_path: str,
+    output_dir: str,
+    timestamps: list[tuple[str, float]],
+) -> list[str]:
+    """Split video into chapter segments based on timestamps.
+
+    Args:
+        timestamps: List of (label, start_sec) tuples, sorted by start_sec.
+                    The last chapter runs to the end of the video.
+
+    Returns:
+        List of output file paths in timestamp order.
+    """
+    import json, os
+    os.makedirs(output_dir, exist_ok=True)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    total = float(json.loads(probe.stdout)["format"]["duration"])
+    ext = Path(input_path).suffix
+    outputs = []
+    for i, (label, start) in enumerate(timestamps):
+        safe_label = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
+        out = str(Path(output_dir) / f"{i:03d}_{safe_label}{ext}")
+        end = timestamps[i + 1][1] if i + 1 < len(timestamps) else total
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start:.4f}", "-to", f"{end:.4f}",
+            "-i", input_path,
+            "-c:v", "libx264", "-c:a", "aac",
+            out,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr[-500:])
+        outputs.append(out)
+    return outputs
+
+
+def video_countdown(
+    output_path: str,
+    *,
+    seconds: int = 5,
+    width: int = 640,
+    height: int = 480,
+    fps: int = 25,
+    font_size: int = 120,
+) -> None:
+    """Generate a countdown timer video from N seconds to 0.
+
+    Args:
+        seconds: Starting count value. Default 5.
+        width: Video width. Default 640.
+        height: Video height. Default 480.
+        fps: Frame rate. Default 25.
+        font_size: Font size for the countdown number. Default 120.
+    """
+    # Use drawtext with expression: ceil(duration - t + 1)
+    duration = float(seconds)
+    # Check if drawtext filter is available
+    _dt_probe = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:size=2x2:rate=1",
+         "-vf", "drawtext=text=x", "-t", "0.04", "-f", "null", "-"],
+        capture_output=True,
+    )
+    has_dt = _dt_probe.returncode == 0
+    if has_dt:
+        vf = (
+            f"drawtext=text='%{{eif\\:({seconds}+1)-floor(t)\\:d}}'"
+            f":fontsize={font_size}:fontcolor=white"
+            f":x=(w-text_w)/2:y=(h-text_h)/2"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"color=c=black:size={width}x{height}:rate={fps}",
+            "-vf", vf,
+            "-t", str(duration),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return
+    # PIL fallback: render each second as a frame
+    from PIL import Image, ImageDraw
+    import tempfile, glob
+    with tempfile.TemporaryDirectory() as tmp:
+        frame_num = 0
+        for s in range(seconds, 0, -1):
+            for _ in range(fps):
+                img = Image.new("RGB", (width, height), (0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                text = str(s)
+                draw.text((width // 2, height // 2), text, fill=(255, 255, 255), anchor="mm")
+                img.save(f"{tmp}/frame_{frame_num:06d}.png")
+                frame_num += 1
+        _run([
+            "ffmpeg", "-y", "-framerate", str(fps),
+            "-i", f"{tmp}/frame_%06d.png",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path,
+        ])

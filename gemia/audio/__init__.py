@@ -33,6 +33,7 @@ from gemia.audio.effects import (
     audio_vinyl, audio_normalize_rms,
     audio_silence_detect, audio_export_wav,
     audio_crossfade, audio_ducking_auto,
+    audio_format_convert, audio_waveform_image,
 )
 
 __all__ = [
@@ -72,4 +73,5 @@ __all__ = [
     "audio_vinyl", "audio_normalize_rms",
     "audio_silence_detect", "audio_export_wav",
     "audio_crossfade", "audio_ducking_auto",
+    "audio_format_convert", "audio_waveform_image",
 ]

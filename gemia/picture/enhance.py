@@ -1341,3 +1341,40 @@ def image_resize_canvas(
         x, y = (width - iw) // 2, (height - ih) // 2
     canvas.paste(img, (max(0, x), max(0, y)))
     canvas.save(output_path)
+
+
+def image_collage(
+    image_paths: list[str],
+    output_path: str,
+    *,
+    cols: int = 3,
+    thumb_width: int = 200,
+    thumb_height: int = 150,
+    gap: int = 5,
+    bg_color: tuple[int, int, int] = (40, 40, 40),
+) -> None:
+    """Create a grid collage from multiple images.
+
+    Args:
+        image_paths: List of input image paths.
+        cols: Number of columns in the grid. Default 3.
+        thumb_width: Width of each thumbnail. Default 200.
+        thumb_height: Height of each thumbnail. Default 150.
+        gap: Gap in pixels between thumbnails. Default 5.
+        bg_color: Background color RGB. Default dark gray.
+    """
+    from PIL import Image
+    n = len(image_paths)
+    rows = (n + cols - 1) // cols
+    canvas_w = cols * thumb_width + (cols + 1) * gap
+    canvas_h = rows * thumb_height + (rows + 1) * gap
+    canvas = Image.new("RGB", (canvas_w, canvas_h), bg_color)
+    for idx, path in enumerate(image_paths):
+        img = Image.open(path).convert("RGB")
+        img.thumbnail((thumb_width, thumb_height), Image.LANCZOS)
+        col = idx % cols
+        row = idx // cols
+        x = gap + col * (thumb_width + gap) + (thumb_width - img.width) // 2
+        y = gap + row * (thumb_height + gap) + (thumb_height - img.height) // 2
+        canvas.paste(img, (x, y))
+    canvas.save(output_path)

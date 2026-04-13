@@ -160,3 +160,4 @@
 2026-04-13 10:00:01 auto-loop triggered
 2026-04-13 10:38 Wave 43 complete: audio_vinyl, audio_normalize_rms, image_composite_alpha, video_fade, video_shake — all 2x PASS, committed
 2026-04-13 10:40 Wave 44 complete: audio_silence_detect, audio_export_wav, image_adjust_hsl, video_crop_center, video_transition_fade_black — all 2x PASS, committed
+2026-04-13 12:39 Wave 45 complete: audio_crossfade, audio_ducking_auto, image_resize_canvas, video_overlay_image, video_audio_visualizer — all 2x PASS, committed
