@@ -2790,3 +2790,98 @@ def video_subtitles_hardcode(
     from gemia.video.subtitles import add_subtitle_track
     return add_subtitle_track(input_path, output_path, srt_path=srt_path,
                               style={"fontsize": font_size})
+
+
+# ---------------------------------------------------------------------------
+# video_sepia
+# ---------------------------------------------------------------------------
+
+def video_sepia(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 1.0,
+) -> str:
+    """Apply a sepia tone effect to a video.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+        strength: Blend strength between original (0.0) and full sepia (1.0).
+
+    Returns:
+        The *output_path*.
+    """
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    s = max(0.0, min(1.0, strength))
+    # Classic sepia matrix blended with identity by `s`
+    def _blend(sepia_val: float, identity_val: float) -> float:
+        return s * sepia_val + (1 - s) * identity_val
+
+    rr = _blend(0.393, 1.0); rg = _blend(0.769, 0.0); rb = _blend(0.189, 0.0)
+    gr = _blend(0.349, 0.0); gg = _blend(0.686, 1.0); gb = _blend(0.168, 0.0)
+    br = _blend(0.272, 0.0); bg = _blend(0.534, 0.0); bb = _blend(0.131, 1.0)
+
+    vf = (
+        f"colorchannelmixer="
+        f"rr={rr:.4f}:rg={rg:.4f}:rb={rb:.4f}:"
+        f"gr={gr:.4f}:gg={gg:.4f}:gb={gb:.4f}:"
+        f"br={br:.4f}:bg={bg:.4f}:bb={bb:.4f}"
+    )
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-c:a", "aac",
+        output_path,
+    ])
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# video_boomerang
+# ---------------------------------------------------------------------------
+
+def video_boomerang(
+    input_path: str,
+    output_path: str,
+) -> str:
+    """Create a boomerang effect: forward + reverse playback loop.
+
+    Args:
+        input_path: Source video file.
+        output_path: Destination video file.
+
+    Returns:
+        The *output_path*.
+    """
+    import tempfile as _tf
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with _tf.TemporaryDirectory() as td:
+        rev = f"{td}/reversed.mp4"
+        # Reverse video (no audio)
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", "reverse",
+            "-an", "-c:v", "libx264",
+            rev,
+        ])
+        # Concat forward + reversed
+        fwd_na = f"{td}/fwd_na.mp4"
+        _run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-an", "-c:v", "libx264",
+            fwd_na,
+        ])
+        fc = "[0:v][1:v]concat=n=2:v=1:a=0[v]"
+        _run([
+            "ffmpeg", "-y",
+            "-i", fwd_na,
+            "-i", rev,
+            "-filter_complex", fc,
+            "-map", "[v]",
+            "-c:v", "libx264",
+            output_path,
+        ])
+    return output_path
