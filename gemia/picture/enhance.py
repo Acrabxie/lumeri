@@ -1095,3 +1095,15 @@ def image_posterize(input_path: str, output_path: str, *, bits: int = 4) -> None
     img = Image.open(input_path).convert("RGB")
     posterized = ImageOps.posterize(img, bits)
     posterized.save(output_path)
+
+
+def image_solarize(input_path: str, output_path: str, *, threshold: int = 128) -> None:
+    """Apply solarize effect (invert pixels above threshold).
+
+    Args:
+        threshold: Pixel value threshold 0-255. Pixels above are inverted. Default 128.
+    """
+    from PIL import Image, ImageOps
+    img = Image.open(input_path).convert("RGB")
+    solarized = ImageOps.solarize(img, threshold=threshold)
+    solarized.save(output_path)

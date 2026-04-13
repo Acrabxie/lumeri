@@ -3178,3 +3178,65 @@ def video_zoom_in(
     cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
            "-c:v", "libx264", "-c:a", "aac", output_path]
     _run(cmd)
+
+
+def video_aspect_ratio_change(
+    input_path: str,
+    output_path: str,
+    *,
+    ratio: str = "16:9",
+) -> None:
+    """Change video aspect ratio by cropping to fit the target ratio.
+
+    Args:
+        ratio: Target aspect ratio as 'W:H' string (e.g. '16:9', '9:16', '1:1'). Default '16:9'.
+    """
+    rw, rh = (int(x) for x in ratio.split(":"))
+    # Crop to target ratio from center
+    vf = (
+        f"crop=if(gt(iw/ih\\,{rw}/{rh})\\,ih*{rw}/{rh}\\,iw)"
+        f":if(gt(iw/ih\\,{rw}/{rh})\\,ih\\,iw*{rh}/{rw})"
+    )
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+           "-c:v", "libx264", "-c:a", "aac", output_path]
+    _run(cmd)
+
+
+def video_ken_burns(
+    input_path: str,
+    output_path: str,
+    *,
+    duration: float = 5.0,
+    fps: int = 25,
+    zoom_start: float = 1.0,
+    zoom_end: float = 1.5,
+    width: int = 1920,
+    height: int = 1080,
+) -> None:
+    """Create Ken Burns pan-and-zoom video from a still image.
+
+    Args:
+        duration: Output video duration in seconds. Default 5.0.
+        fps: Output frame rate. Default 25.
+        zoom_start: Starting zoom level. Default 1.0.
+        zoom_end: Ending zoom level. Default 1.5.
+        width: Output width in pixels. Default 1920.
+        height: Output height in pixels. Default 1080.
+    """
+    total_frames = int(duration * fps)
+    dz = (zoom_end - zoom_start) / max(total_frames, 1)
+    vf = (
+        f"scale={width * 2}:{height * 2},"
+        f"zoompan=z='min(zoom+{dz:.6f},{zoom_end})':d=1"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":s={width}x{height}:fps={fps}"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1", "-i", input_path,
+        "-vf", vf,
+        "-t", str(duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+    _run(cmd)

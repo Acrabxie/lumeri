@@ -1957,3 +1957,45 @@ def audio_chorus(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_tremolo(
+    input_path: str,
+    output_path: str,
+    *,
+    frequency: float = 5.0,
+    depth: float = 0.5,
+) -> None:
+    """Add tremolo (amplitude modulation) effect to audio.
+
+    Args:
+        frequency: Modulation frequency in Hz (0.1-20). Default 5.0.
+        depth: Modulation depth (0-1). Default 0.5.
+    """
+    af = f"tremolo=f={frequency:.2f}:d={depth:.3f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_flanger(
+    input_path: str,
+    output_path: str,
+    *,
+    delay: float = 0.0,
+    depth: float = 2.0,
+    speed: float = 0.5,
+) -> None:
+    """Add flanger effect to audio.
+
+    Args:
+        delay: Base delay in ms (0-30). Default 0.0.
+        depth: Sweep depth in ms (0-10). Default 2.0.
+        speed: Sweep speed in Hz (0.1-10). Default 0.5.
+    """
+    af = f"flanger=delay={delay:.2f}:depth={depth:.2f}:speed={speed:.2f}"
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
