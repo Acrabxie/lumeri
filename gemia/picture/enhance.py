@@ -2828,3 +2828,54 @@ def image_vignette(
     mask = 1 - strength * np.clip((dist - radius) / (1 - radius + 1e-6), 0, 1)
     arr *= mask[:, :, np.newaxis]
     Image.fromarray(arr.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_chromatic_aberration(
+    input_path: str,
+    output_path: str,
+    *,
+    shift: int = 4,
+) -> None:
+    """Simulate chromatic aberration by shifting R and B channels."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    out = arr.copy()
+    # Shift R channel left/up
+    if shift > 0:
+        out[:, :w-shift, 0] = arr[:, shift:, 0]
+        out[:, w-shift:, 0] = arr[:, w-1:w, 0]
+        # Shift B channel right/down
+        out[:, shift:, 2] = arr[:, :w-shift, 2]
+        out[:, :shift, 2] = arr[:, :1, 2]
+    Image.fromarray(out, "RGB").save(output_path)
+
+
+def image_focus_region(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_radius: int = 15,
+    focus_radius: float = 0.35,
+) -> None:
+    """Sharp center with blurred periphery (simulated focus/tilt-shift effect)."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    img = Image.open(input_path).convert("RGB")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    arr = np.array(img, dtype=np.float32)
+    barr = np.array(blurred, dtype=np.float32)
+    h, w = arr.shape[:2]
+
+    xs = np.linspace(-1, 1, w)
+    ys = np.linspace(-1, 1, h)
+    xg, yg = np.meshgrid(xs, ys)
+    dist = np.sqrt(xg**2 + yg**2)
+    # Smooth transition: 0 = sharp, 1 = fully blurred
+    blend = np.clip((dist - focus_radius) / (1 - focus_radius + 1e-6), 0, 1)
+    result = arr * (1 - blend[:, :, np.newaxis]) + barr * blend[:, :, np.newaxis]
+    Image.fromarray(result.clip(0, 255).astype(np.uint8), "RGB").save(output_path)

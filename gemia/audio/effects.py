@@ -3052,3 +3052,74 @@ def audio_stereo_panning(
         ["ffmpeg", "-y", "-i", input_path, "-af", pan_filter, output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_cut_silence(
+    input_path: str,
+    output_path: str,
+    *,
+    silence_thresh_db: float = -40.0,
+    min_silence_duration: float = 0.5,
+) -> None:
+    """Remove silent sections from audio using silencedetect + concat."""
+    import re, tempfile, os
+
+    # Detect silence
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path,
+         "-af", f"silencedetect=noise={silence_thresh_db}dB:d={min_silence_duration}",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    text = proc.stderr
+    starts = [float(m) for m in re.findall(r"silence_start:\s*([\d.]+)", text)]
+    ends = [float(m) for m in re.findall(r"silence_end:\s*([\d.]+)", text)]
+
+    # Probe total duration
+    dur_proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(dur_proc.stdout.strip())
+    except ValueError:
+        total = 3600.0
+
+    # Build non-silent intervals
+    intervals = []
+    pos = 0.0
+    for s, e in zip(starts, ends):
+        if s > pos:
+            intervals.append((pos, s))
+        pos = e
+    if pos < total:
+        intervals.append((pos, total))
+
+    if not intervals:
+        # No speech found, copy as-is
+        subprocess.run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+                       check=True, capture_output=True)
+        return
+
+    # Extract each interval to temp files then concat
+    tmpdir = tempfile.mkdtemp()
+    parts = []
+    for i, (s, e) in enumerate(intervals):
+        part = os.path.join(tmpdir, f"part_{i:04d}.wav")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ss", str(s), "-to", str(e),
+             "-c", "copy", part],
+            check=True, capture_output=True,
+        )
+        parts.append(part)
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as lf:
+        for p in parts:
+            lf.write(f"file '{p}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
