@@ -51,6 +51,7 @@ from gemia.audio.effects import (
     audio_split_at,
     audio_loop,
     audio_info,
+    audio_merge_channels,
 )
 
 __all__ = [
@@ -108,4 +109,5 @@ __all__ = [
     "audio_split_at",
     "audio_loop",
     "audio_info",
+    "audio_merge_channels",
 ]

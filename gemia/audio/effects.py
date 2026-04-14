@@ -2879,3 +2879,30 @@ def audio_info(input_path: str) -> dict:
             break
     info["duration"] = float(data.get("format", {}).get("duration", 0))
     return info
+
+
+def audio_merge_channels(
+    input_paths: list[str],
+    output_path: str,
+) -> None:
+    """Merge multiple mono audio files into a single multi-channel file.
+
+    Args:
+        input_paths: List of mono (or any) audio file paths to merge as channels.
+    """
+    n = len(input_paths)
+    if n == 0:
+        raise ValueError("No input files provided")
+    inputs = []
+    for p in input_paths:
+        inputs += ["-i", p]
+    # Build amerge filter
+    fc = f"{''.join(f'[{i}:a]' for i in range(n))}amerge=inputs={n}[aout]"
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", fc,
+        "-map", "[aout]",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])
