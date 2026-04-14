@@ -44,6 +44,7 @@ from gemia.audio.effects import (
     audio_apply_eq_bands,
     audio_gate,
     audio_pitch_detect,
+    audio_measure_rms,
 )
 
 __all__ = [
@@ -94,4 +95,5 @@ __all__ = [
     "audio_apply_eq_bands",
     "audio_gate",
     "audio_pitch_detect",
+    "audio_measure_rms",
 ]

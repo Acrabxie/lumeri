@@ -2699,3 +2699,21 @@ def audio_pitch_detect(
         return 0.0
     peak_idx = np.argmax(fft[mask])
     return float(freqs[mask][peak_idx])
+
+
+def audio_measure_rms(input_path: str) -> float:
+    """Measure the RMS loudness of an audio file.
+
+    Returns:
+        RMS level in dBFS (negative float). Returns -inf if silent.
+    """
+    import re, math
+
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"mean_volume:\s*([-\d.]+)\s*dB", proc.stderr)
+    if m:
+        return float(m.group(1))
+    return float("-inf")
