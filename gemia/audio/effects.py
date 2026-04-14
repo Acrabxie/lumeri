@@ -2829,3 +2829,28 @@ def audio_split_at(
     )
     if proc_b.returncode != 0:
         raise RuntimeError(proc_b.stderr[-1000:])
+
+
+def audio_loop(
+    input_path: str,
+    output_path: str,
+    *,
+    times: int = 3,
+) -> None:
+    """Loop an audio file N times.
+
+    Args:
+        times: Number of repetitions. Default 3.
+    """
+    import tempfile as _tmp
+    n = max(1, times)
+    with _tmp.TemporaryDirectory() as tmp:
+        list_file = f"{tmp}/list.txt"
+        with open(list_file, "w") as f:
+            for _ in range(n):
+                f.write(f"file '{input_path}'\n")
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+               "-i", list_file, output_path]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr[-1000:])
