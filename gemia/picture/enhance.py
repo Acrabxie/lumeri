@@ -2687,3 +2687,89 @@ def image_bilateral_blur(
             norm += spatial[dy, dx] * color_w
     out /= norm[:, :, np.newaxis]
     Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_morphology(
+    input_path: str,
+    output_path: str,
+    *,
+    operation: str = "dilate",
+    kernel_size: int = 3,
+) -> None:
+    """Morphological operation: erode, dilate, open, or close (numpy-based)."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.uint8)
+    pad = kernel_size // 2
+
+    def _dilate(a):
+        h, w = a.shape
+        p = np.pad(a, pad, mode="edge")
+        out = np.zeros_like(a)
+        for dy in range(kernel_size):
+            for dx in range(kernel_size):
+                out = np.maximum(out, p[dy:dy+h, dx:dx+w])
+        return out
+
+    def _erode(a):
+        h, w = a.shape
+        p = np.pad(a, pad, mode="edge")
+        out = np.full_like(a, 255)
+        for dy in range(kernel_size):
+            for dx in range(kernel_size):
+                out = np.minimum(out, p[dy:dy+h, dx:dx+w])
+        return out
+
+    if operation == "dilate":
+        result = _dilate(arr)
+    elif operation == "erode":
+        result = _erode(arr)
+    elif operation == "open":
+        result = _dilate(_erode(arr))
+    elif operation == "close":
+        result = _erode(_dilate(arr))
+    else:
+        raise ValueError(f"Unknown operation: {operation}")
+
+    Image.fromarray(result, "L").convert("RGB").save(output_path)
+
+
+def image_threshold(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold: int = -1,
+) -> None:
+    """Threshold to binary. If threshold < 0, use Otsu's method."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.uint8)
+
+    if threshold < 0:
+        # Otsu's method
+        hist, bins = np.histogram(arr.flatten(), 256, [0, 256])
+        hist = hist.astype(np.float64)
+        total = arr.size
+        sum_all = np.dot(np.arange(256), hist)
+        sum_b = 0.0; w_b = 0.0; max_var = 0.0; thresh = 0
+        for t in range(256):
+            w_b += hist[t]
+            if w_b == 0:
+                continue
+            w_f = total - w_b
+            if w_f == 0:
+                break
+            sum_b += t * hist[t]
+            mb = sum_b / w_b
+            mf = (sum_all - sum_b) / w_f
+            var = w_b * w_f * (mb - mf) ** 2
+            if var > max_var:
+                max_var = var; thresh = t
+        threshold = thresh
+
+    binary = ((arr >= threshold) * 255).astype(np.uint8)
+    Image.fromarray(binary, "L").convert("RGB").save(output_path)

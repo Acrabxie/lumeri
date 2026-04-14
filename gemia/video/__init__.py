@@ -69,6 +69,7 @@ from gemia.video.effects import (
     video_vstack, video_draw_box,
     video_xfade, video_motion_blur,
     video_color_lut_apply, video_reverse_audio,
+    video_audio_normalize, video_subtitle_burn_style,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -152,4 +153,5 @@ __all__ = [
     "video_vstack", "video_draw_box",
     "video_xfade", "video_motion_blur",
     "video_color_lut_apply", "video_reverse_audio",
+    "video_audio_normalize", "video_subtitle_burn_style",
 ]
