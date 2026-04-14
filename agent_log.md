@@ -171,3 +171,4 @@
 2026-04-13 14:41 Wave 53 complete — image_channel_split, image_channel_merge, audio_normalize_to_target_db, video_set_fps, video_crop (2×PASS each)
 2026-04-13 16:38 Wave 54 complete — image_blend_overlay, image_blend_multiply, audio_apply_eq_bands, video_pad, video_thumbnail (2×PASS each)
 2026-04-13 16:40 Wave 55 complete — image_blend_screen, image_pixelate_region, audio_gate, video_add_silent_audio, video_remove_audio (2×PASS each)
+2026-04-13 16:41 Wave 56 complete — image_text_overlay, image_draw_rect, audio_pitch_detect, video_info, video_concat_list (2×PASS each)
