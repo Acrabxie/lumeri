@@ -4685,3 +4685,60 @@ def video_denoise_hqdn3d(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_add_timestamp(
+    input_path: str,
+    output_path: str,
+    *,
+    x: str = "10",
+    y: str = "10",
+    font_size: int = 24,
+    color: str = "white",
+) -> None:
+    """Burn a running timestamp (HH:MM:SS) onto video.
+
+    Falls back to copy if drawtext is unavailable.
+
+    Args:
+        x: X position expression. Default '10'.
+        y: Y position expression. Default '10'.
+        font_size: Font size. Default 24.
+        color: Text color. Default 'white'.
+    """
+    probe = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:size=2x2:rate=1",
+         "-vf", "drawtext=text=x", "-t", "0.04", "-f", "null", "-"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        _run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path])
+        return
+
+    vf = (f"drawtext=text='%{{pts\\:hms}}':fontsize={font_size}"
+          f":fontcolor={color}:x={x}:y={y}")
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_hstack(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+) -> None:
+    """Stack two videos side by side horizontally using hstack filter.
+
+    Both videos must have the same height and frame rate.
+    """
+    _run([
+        "ffmpeg", "-y",
+        "-i", input_a, "-i", input_b,
+        "-filter_complex", "[0:v][1:v]hstack=inputs=2[v]",
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])

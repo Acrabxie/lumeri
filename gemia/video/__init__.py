@@ -65,6 +65,7 @@ from gemia.video.effects import (
     video_adjust_brightness, video_adjust_contrast,
     video_adjust_gamma, video_split_to_frames,
     video_frames_to_video, video_denoise_hqdn3d,
+    video_add_timestamp, video_hstack,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -144,4 +145,5 @@ __all__ = [
     "video_adjust_brightness", "video_adjust_contrast",
     "video_adjust_gamma", "video_split_to_frames",
     "video_frames_to_video", "video_denoise_hqdn3d",
+    "video_add_timestamp", "video_hstack",
 ]
