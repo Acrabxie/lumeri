@@ -4886,3 +4886,45 @@ def video_reverse_audio(
             "-c:v", "copy", output_path,
         ]
         subprocess.run(cmd2, check=True, capture_output=True)
+
+
+def video_audio_normalize(
+    input_path: str,
+    output_path: str,
+    *,
+    target_lufs: float = -23.0,
+) -> None:
+    """Normalize video audio to target LUFS using ffmpeg loudnorm filter."""
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", f"loudnorm=I={target_lufs}:TP=-2:LRA=11",
+        "-c:v", "copy", output_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def video_subtitle_burn_style(
+    input_path: str,
+    srt_path: str,
+    output_path: str,
+    *,
+    font_size: int = 24,
+    font_color: str = "white",
+    outline_color: str = "black",
+) -> None:
+    """Burn SRT subtitles with custom style using ffmpeg subtitles filter."""
+    style = f"FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000"
+    # Map color names to ASS hex (BGR)
+    _colors = {"white": "FFFFFF", "yellow": "00FFFF", "red": "0000FF",
+               "green": "00FF00", "blue": "FF0000", "black": "000000"}
+    fc = _colors.get(font_color.lower(), "FFFFFF")
+    oc = _colors.get(outline_color.lower(), "000000")
+    style = f"FontSize={font_size},PrimaryColour=&H00{fc},OutlineColour=&H00{oc}"
+    vf = f"subtitles={srt_path}:force_style='{style}'"
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
