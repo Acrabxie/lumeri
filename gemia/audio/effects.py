@@ -2763,3 +2763,39 @@ def audio_mix_with_volume(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_fade_both(
+    input_path: str,
+    output_path: str,
+    *,
+    fade_in: float = 0.5,
+    fade_out: float = 0.5,
+) -> None:
+    """Apply fade-in at start and fade-out at end.
+
+    Args:
+        fade_in: Fade-in duration in seconds. Default 0.5.
+        fade_out: Fade-out duration in seconds. Default 0.5.
+    """
+    # Get duration first
+    dur_proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(dur_proc.stdout.strip())
+    except ValueError:
+        total = None
+
+    if total is not None:
+        start_out = max(0.0, total - fade_out)
+        af = f"afade=t=in:st=0:d={fade_in},afade=t=out:st={start_out}:d={fade_out}"
+    else:
+        af = f"afade=t=in:st=0:d={fade_in}"
+
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

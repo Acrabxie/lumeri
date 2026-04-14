@@ -4499,3 +4499,57 @@ def video_speed_audio_sync(
         "-c:a", "aac",
         output_path,
     ])
+
+
+def video_slow_zoom(
+    input_path: str,
+    output_path: str,
+    *,
+    zoom_factor: float = 1.3,
+    fps: int = 25,
+) -> None:
+    """Apply a slow animated zoom-in using ffmpeg zoompan filter.
+
+    Args:
+        zoom_factor: Final zoom level (1.0 = no zoom). Default 1.3.
+        fps: Output frame rate. Default 25.
+    """
+    import json as _json
+    # Get input dimensions for zoompan s= parameter (must be numeric, not iw/ih)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_path],
+        capture_output=True, text=True,
+    )
+    dims = _json.loads(probe.stdout)
+    w, h = 640, 480
+    for s in dims.get("streams", []):
+        if s.get("codec_type") == "video":
+            w, h = s.get("width", 640), s.get("height", 480)
+            break
+    vf = (f"zoompan=z='min(zoom+0.0005,{zoom_factor})':x='iw/2-(iw/zoom/2)'"
+          f":y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps={fps}")
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_color_boost(
+    input_path: str,
+    output_path: str,
+    *,
+    saturation: float = 1.5,
+) -> None:
+    """Boost video color saturation.
+
+    Args:
+        saturation: Saturation multiplier (1.0 = original). Default 1.5.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"eq=saturation={saturation}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
