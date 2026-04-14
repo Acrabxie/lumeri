@@ -2945,3 +2945,21 @@ def audio_trim_to_duration(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_peak_detect(input_path: str) -> float:
+    """Detect the peak amplitude of an audio file.
+
+    Returns:
+        Peak level in dBFS (negative float). 0.0 = digital full scale.
+    """
+    import re
+
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path, "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"max_volume:\s*([-\d.]+)\s*dB", proc.stderr)
+    if m:
+        return float(m.group(1))
+    return float("-inf")

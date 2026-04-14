@@ -4792,3 +4792,60 @@ def video_draw_box(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_xfade(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+    *,
+    transition: str = "fade",
+    duration: float = 1.0,
+    offset: float | None = None,
+) -> None:
+    """Apply xfade transition between two videos.
+
+    Args:
+        transition: xfade transition name (e.g. 'fade', 'dissolve', 'wipeleft'). Default 'fade'.
+        duration: Transition duration in seconds. Default 1.0.
+        offset: Start of transition in seconds from video A start. None = auto (end of A - duration).
+    """
+    import subprocess as _sp, json as _json
+
+    if offset is None:
+        probe = _sp.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", input_a],
+            capture_output=True, text=True,
+        )
+        dur_a = float(_json.loads(probe.stdout).get("format", {}).get("duration", 5))
+        offset = max(0.0, dur_a - duration)
+
+    fc = (f"[0:v][1:v]xfade=transition={transition}:duration={duration}:offset={offset}[v]")
+    _run([
+        "ffmpeg", "-y", "-i", input_a, "-i", input_b,
+        "-filter_complex", fc,
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+
+
+def video_motion_blur(
+    input_path: str,
+    output_path: str,
+    *,
+    frames: int = 4,
+) -> None:
+    """Apply motion blur by blending consecutive frames using tblend.
+
+    Args:
+        frames: Number of frames to blend. Default 4 (uses tblend mode=average).
+    """
+    # tblend averages consecutive pairs; chain for more frames
+    vf = "tblend=all_mode=average"
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
