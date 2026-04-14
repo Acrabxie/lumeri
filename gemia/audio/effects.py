@@ -2963,3 +2963,31 @@ def audio_peak_detect(input_path: str) -> float:
     if m:
         return float(m.group(1))
     return float("-inf")
+
+
+def audio_loudness_scan(input_path: str) -> dict:
+    """Scan audio for integrated/short-term/momentary LUFS using ffmpeg ebur128.
+
+    Returns a dict with keys: integrated, short_term_max, momentary_max (all float, LUFS).
+    """
+    import re
+    proc = subprocess.run(
+        ["ffmpeg", "-i", input_path, "-af", "ebur128=peak=true", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    text = proc.stderr
+    result = {"integrated": float("-inf"), "short_term_max": float("-inf"), "momentary_max": float("-inf")}
+    m = re.search(r"Integrated loudness:\s*\n\s*I:\s*([-\d.]+)\s*LUFS", text)
+    if m:
+        result["integrated"] = float(m.group(1))
+    m = re.search(r"Loudness range:\s*\n.*?\n\s*LRA max:\s*([-\d.]+)", text)
+    # Try alternative patterns
+    for pat, key in [
+        (r"I:\s*([-\d.]+)\s*LUFS", "integrated"),
+        (r"Short-term.*?max:\s*([-\d.]+)", "short_term_max"),
+        (r"Momentary.*?max:\s*([-\d.]+)", "momentary_max"),
+    ]:
+        m2 = re.search(pat, text)
+        if m2:
+            result[key] = float(m2.group(1))
+    return result

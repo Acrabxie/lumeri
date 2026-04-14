@@ -54,6 +54,7 @@ from gemia.audio.effects import (
     audio_merge_channels,
     audio_trim_to_duration,
     audio_peak_detect,
+    audio_loudness_scan,
 )
 
 __all__ = [
@@ -114,4 +115,5 @@ __all__ = [
     "audio_merge_channels",
     "audio_trim_to_duration",
     "audio_peak_detect",
+    "audio_loudness_scan",
 ]
