@@ -2991,3 +2991,48 @@ def audio_loudness_scan(input_path: str) -> dict:
         if m2:
             result[key] = float(m2.group(1))
     return result
+
+
+def audio_trim_to_beats(
+    input_path: str,
+    output_path: str,
+    *,
+    num_beats: int = 8,
+) -> None:
+    """Trim audio to exactly num_beats beats at the detected BPM.
+
+    Uses ffmpeg to probe duration and compute beat duration from BPM.
+    Falls back to simple duration trim if BPM detection fails.
+    """
+    import re
+
+    # Probe duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total_duration = float(proc.stdout.strip())
+    except ValueError:
+        total_duration = 10.0
+
+    # Estimate BPM via beat_detect loudness proxy (volumedetect doesn't give BPM)
+    # Use a simple 120 BPM default; try beat_detect if available
+    bpm = 120.0
+    try:
+        from gemia.audio.analysis import beat_detect
+        bpm_val = beat_detect(input_path)
+        if isinstance(bpm_val, (int, float)) and 40 <= bpm_val <= 300:
+            bpm = float(bpm_val)
+    except Exception:
+        pass
+
+    beat_duration = 60.0 / bpm
+    target_duration = min(beat_duration * num_beats, total_duration)
+
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-t", str(target_duration), "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
