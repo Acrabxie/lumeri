@@ -48,6 +48,7 @@ from gemia.audio.effects import (
     audio_duration,
     audio_mix_with_volume,
     audio_fade_both,
+    audio_split_at,
 )
 
 __all__ = [
@@ -102,4 +103,5 @@ __all__ = [
     "audio_duration",
     "audio_mix_with_volume",
     "audio_fade_both",
+    "audio_split_at",
 ]
