@@ -2854,3 +2854,28 @@ def audio_loop(
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_info(input_path: str) -> dict:
+    """Return audio metadata as a dict.
+
+    Returns keys: duration, sample_rate, channels, codec, bit_rate.
+    """
+    import json as _json
+
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_streams", "-show_format", input_path],
+        capture_output=True, text=True,
+    )
+    data = _json.loads(proc.stdout)
+    info: dict = {}
+    for stream in data.get("streams", []):
+        if stream.get("codec_type") == "audio":
+            info["codec"] = stream.get("codec_name")
+            info["sample_rate"] = int(stream.get("sample_rate", 0))
+            info["channels"] = stream.get("channels")
+            info["bit_rate"] = int(stream.get("bit_rate", 0)) if stream.get("bit_rate") else None
+            break
+    info["duration"] = float(data.get("format", {}).get("duration", 0))
+    return info

@@ -2368,3 +2368,60 @@ def image_color_map(
     fn = _MAPS.get(colormap, _MAPS["viridis"])
     rgb = (fn(t) * 255).clip(0, 255).astype(np.uint8)
     Image.fromarray(rgb).save(output_path)
+
+
+def image_frames_to_gif(
+    frame_paths: list[str],
+    output_path: str,
+    *,
+    duration_ms: int = 100,
+    loop: int = 0,
+) -> None:
+    """Combine image frames into an animated GIF.
+
+    Args:
+        frame_paths: Ordered list of image file paths.
+        duration_ms: Frame duration in milliseconds. Default 100.
+        loop: GIF loop count (0 = infinite). Default 0.
+    """
+    from PIL import Image
+
+    frames = [Image.open(p).convert("RGBA") for p in frame_paths]
+    if not frames:
+        raise ValueError("No frames provided")
+    frames[0].save(
+        output_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=loop,
+    )
+
+
+def image_gif_to_frames(
+    input_path: str,
+    output_dir: str,
+    *,
+    fmt: str = "frame_{:04d}.png",
+) -> list[str]:
+    """Extract frames from an animated GIF as PNG files.
+
+    Args:
+        output_dir: Directory to write frames.
+        fmt: Filename format with index placeholder. Default 'frame_{:04d}.png'.
+
+    Returns:
+        List of output file paths.
+    """
+    import os as _os
+    from PIL import Image
+
+    _os.makedirs(output_dir, exist_ok=True)
+    gif = Image.open(input_path)
+    paths = []
+    for i in range(getattr(gif, "n_frames", 1)):
+        gif.seek(i)
+        out = _os.path.join(output_dir, fmt.format(i))
+        gif.convert("RGB").save(out)
+        paths.append(out)
+    return paths
