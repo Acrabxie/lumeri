@@ -45,6 +45,7 @@ from gemia.audio.effects import (
     audio_gate,
     audio_pitch_detect,
     audio_measure_rms,
+    audio_duration,
 )
 
 __all__ = [
@@ -96,4 +97,5 @@ __all__ = [
     "audio_gate",
     "audio_pitch_detect",
     "audio_measure_rms",
+    "audio_duration",
 ]
