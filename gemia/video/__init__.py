@@ -61,6 +61,7 @@ from gemia.video.effects import (
     video_replace_audio, video_segment_export,
     video_grayscale, video_sepia,
     video_normalize, video_speed_audio_sync,
+    video_slow_zoom, video_color_boost,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -136,4 +137,5 @@ __all__ = [
     "video_replace_audio", "video_segment_export",
     "video_grayscale", "video_sepia",
     "video_normalize", "video_speed_audio_sync",
+    "video_slow_zoom", "video_color_boost",
 ]
