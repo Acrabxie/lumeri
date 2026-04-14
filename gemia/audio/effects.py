@@ -2734,3 +2734,32 @@ def audio_duration(input_path: str) -> float:
         return float(proc.stdout.strip())
     except ValueError:
         return 0.0
+
+
+def audio_mix_with_volume(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+    *,
+    vol_a: float = 1.0,
+    vol_b: float = 1.0,
+) -> None:
+    """Mix two audio files with independent volume controls.
+
+    Args:
+        vol_a: Volume multiplier for first input. Default 1.0.
+        vol_b: Volume multiplier for second input. Default 1.0.
+    """
+    fc = (f"[0:a]volume={vol_a}[a0];"
+          f"[1:a]volume={vol_b}[a1];"
+          f"[a0][a1]amix=inputs=2:duration=longest[aout]")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_a, "-i", input_b,
+        "-filter_complex", fc,
+        "-map", "[aout]",
+        output_path,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

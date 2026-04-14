@@ -4437,3 +4437,65 @@ def video_sepia(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_normalize(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Normalize video brightness/contrast using ffmpeg normalize filter.
+
+    Falls back to eq with auto-contrast if normalize is unavailable.
+    """
+    # Try normalize filter
+    probe = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:size=2x2:rate=1",
+         "-vf", "normalize", "-t", "0.04", "-f", "null", "-"],
+        capture_output=True,
+    )
+    if probe.returncode == 0:
+        _run(["ffmpeg", "-y", "-i", input_path,
+              "-vf", "normalize",
+              "-c:v", "libx264", "-pix_fmt", "yuv420p",
+              "-c:a", "copy", output_path])
+    else:
+        # Fallback: use eq for brightness/contrast normalization
+        _run(["ffmpeg", "-y", "-i", input_path,
+              "-vf", "eq=contrast=1.1:brightness=0.05",
+              "-c:v", "libx264", "-pix_fmt", "yuv420p",
+              "-c:a", "copy", output_path])
+
+
+def video_speed_audio_sync(
+    input_path: str,
+    output_path: str,
+    *,
+    speed: float = 2.0,
+) -> None:
+    """Change video speed while keeping audio in sync.
+
+    Args:
+        speed: Speed multiplier (e.g. 2.0 = 2× faster). Default 2.0.
+    """
+    # Video: setpts
+    pts = f"setpts={1.0/speed:.6f}*PTS"
+    # Audio: chain atempo
+    atempo_filters = []
+    s = speed
+    while s > 2.0:
+        atempo_filters.append("atempo=2.0")
+        s /= 2.0
+    while s < 0.5:
+        atempo_filters.append("atempo=0.5")
+        s /= 0.5
+    atempo_filters.append(f"atempo={s:.6f}")
+    af = ",".join(atempo_filters)
+
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", pts,
+        "-af", af,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        output_path,
+    ])
