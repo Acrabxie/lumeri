@@ -2085,3 +2085,59 @@ def image_normalize_brightness(
     scale = target / mean
     result = (arr * scale).clip(0, 1)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_split_quadrants(
+    input_path: str,
+    output_tl: str,
+    output_tr: str,
+    output_bl: str,
+    output_br: str,
+) -> None:
+    """Split an image into 4 quadrant images (top-left, top-right, bottom-left, bottom-right).
+
+    Args:
+        output_tl: Path for top-left quadrant.
+        output_tr: Path for top-right quadrant.
+        output_bl: Path for bottom-left quadrant.
+        output_br: Path for bottom-right quadrant.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    hw, hh = w // 2, h // 2
+    img.crop((0, 0, hw, hh)).save(output_tl)
+    img.crop((hw, 0, w, hh)).save(output_tr)
+    img.crop((0, hh, hw, h)).save(output_bl)
+    img.crop((hw, hh, w, h)).save(output_br)
+
+
+def image_stitch_horizontal(
+    image_paths: list[str],
+    output_path: str,
+    *,
+    align: str = "top",
+) -> None:
+    """Stitch images side-by-side horizontally.
+
+    Args:
+        align: Vertical alignment of images: 'top', 'center', or 'bottom'. Default 'top'.
+    """
+    from PIL import Image
+
+    imgs = [Image.open(p).convert("RGB") for p in image_paths]
+    total_w = sum(im.width for im in imgs)
+    max_h = max(im.height for im in imgs)
+    canvas = Image.new("RGB", (total_w, max_h), (0, 0, 0))
+    x = 0
+    for im in imgs:
+        if align == "center":
+            y = (max_h - im.height) // 2
+        elif align == "bottom":
+            y = max_h - im.height
+        else:
+            y = 0
+        canvas.paste(im, (x, y))
+        x += im.width
+    canvas.save(output_path)
