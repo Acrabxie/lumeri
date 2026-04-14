@@ -2476,3 +2476,46 @@ def image_compare(
     else:
         psnr = float(10 * np.log10(255.0 ** 2 / mse))
     return {"mse": mse, "psnr": psnr}
+
+
+def image_mean_color(input_path: str) -> tuple[int, int, int]:
+    """Return the mean RGB color of an image.
+
+    Returns:
+        (R, G, B) tuple with integer values 0–255.
+    """
+    from PIL import Image
+    import numpy as np
+
+    arr = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32)
+    mean = arr.mean(axis=(0, 1))
+    return (int(mean[0]), int(mean[1]), int(mean[2]))
+
+
+def image_make_transparent(
+    input_path: str,
+    output_path: str,
+    *,
+    color: tuple[int, int, int] = (0, 255, 0),
+    tolerance: int = 30,
+) -> None:
+    """Replace a color with transparency (image chroma key).
+
+    Args:
+        color: RGB color to make transparent. Default green (0, 255, 0).
+        tolerance: Color distance tolerance 0–255. Default 30.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGBA")
+    arr = np.array(img, dtype=np.int32)
+    r, g, b = color
+    dist = np.sqrt(
+        (arr[..., 0] - r) ** 2 +
+        (arr[..., 1] - g) ** 2 +
+        (arr[..., 2] - b) ** 2
+    )
+    mask = dist <= tolerance
+    arr[mask, 3] = 0
+    Image.fromarray(arr.astype(np.uint8), "RGBA").save(output_path)
