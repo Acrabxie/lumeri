@@ -4928,3 +4928,53 @@ def video_subtitle_burn_style(
         "-c:a", "copy", output_path,
     ]
     subprocess.run(cmd, check=True, capture_output=True)
+
+
+def video_extract_i_frames(
+    input_path: str,
+    output_dir: str,
+    *,
+    pattern: str = "frame_%04d.jpg",
+) -> list:
+    """Extract only I-frames (keyframes) from a video as image files.
+
+    Returns a list of output file paths.
+    """
+    import os, glob
+    os.makedirs(output_dir, exist_ok=True)
+    out_pattern = os.path.join(output_dir, pattern)
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", "select=eq(pict_type\\,I)",
+         "-vsync", "vfr", out_pattern],
+        check=True, capture_output=True,
+    )
+    base, ext = os.path.splitext(pattern)
+    return sorted(glob.glob(os.path.join(output_dir, f"*{ext}")))
+
+
+def video_fade_audio(
+    input_path: str,
+    output_path: str,
+    *,
+    fade_in: float = 1.0,
+    fade_out: float = 1.0,
+) -> None:
+    """Fade audio in at start and out at end of video."""
+    # Get duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        duration = float(proc.stdout.strip())
+    except ValueError:
+        duration = 10.0
+    fade_out_start = max(0.0, duration - fade_out)
+    af = f"afade=t=in:st=0:d={fade_in},afade=t=out:st={fade_out_start:.3f}:d={fade_out}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", af, "-c:v", "copy", output_path],
+        check=True, capture_output=True,
+    )
