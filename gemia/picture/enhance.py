@@ -2879,3 +2879,47 @@ def image_focus_region(
     blend = np.clip((dist - focus_radius) / (1 - focus_radius + 1e-6), 0, 1)
     result = arr * (1 - blend[:, :, np.newaxis]) + barr * blend[:, :, np.newaxis]
     Image.fromarray(result.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_anaglyph(
+    input_path: str,
+    output_path: str,
+    *,
+    shift: int = 6,
+) -> None:
+    """Create red-cyan anaglyph 3D effect by horizontally shifting channels."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    out = np.zeros_like(arr)
+    # Red channel shifted left
+    out[:, :w-shift, 0] = arr[:, shift:, 0]
+    # Cyan (G+B) channels shifted right
+    out[:, shift:, 1] = arr[:, :w-shift, 1]
+    out[:, shift:, 2] = arr[:, :w-shift, 2]
+    Image.fromarray(out, "RGB").save(output_path)
+
+
+def image_pixelate_mosaic(
+    input_path: str,
+    output_path: str,
+    *,
+    block_size: int = 16,
+) -> None:
+    """Mosaic pixelate: average color within each block."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    h, w = arr.shape[:2]
+    out = arr.copy()
+    for y in range(0, h, block_size):
+        for x in range(0, w, block_size):
+            block = arr[y:y+block_size, x:x+block_size]
+            mean = block.mean(axis=(0, 1))
+            out[y:y+block_size, x:x+block_size] = mean
+    Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").save(output_path)

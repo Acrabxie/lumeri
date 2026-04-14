@@ -58,6 +58,7 @@ from gemia.audio.effects import (
     audio_trim_to_beats,
     audio_stereo_panning,
     audio_cut_silence,
+    audio_pitch_formant_shift,
 )
 
 __all__ = [
@@ -122,4 +123,5 @@ __all__ = [
     "audio_trim_to_beats",
     "audio_stereo_panning",
     "audio_cut_silence",
+    "audio_pitch_formant_shift",
 ]
