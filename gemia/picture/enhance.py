@@ -2141,3 +2141,63 @@ def image_stitch_horizontal(
         canvas.paste(im, (x, y))
         x += im.width
     canvas.save(output_path)
+
+
+def image_stitch_vertical(
+    image_paths: list[str],
+    output_path: str,
+    *,
+    align: str = "left",
+) -> None:
+    """Stitch images vertically (top to bottom).
+
+    Args:
+        align: Horizontal alignment: 'left', 'center', or 'right'. Default 'left'.
+    """
+    from PIL import Image
+
+    imgs = [Image.open(p).convert("RGB") for p in image_paths]
+    max_w = max(im.width for im in imgs)
+    total_h = sum(im.height for im in imgs)
+    canvas = Image.new("RGB", (max_w, total_h), (0, 0, 0))
+    y = 0
+    for im in imgs:
+        if align == "center":
+            x = (max_w - im.width) // 2
+        elif align == "right":
+            x = max_w - im.width
+        else:
+            x = 0
+        canvas.paste(im, (x, y))
+        y += im.height
+    canvas.save(output_path)
+
+
+def image_radial_gradient(
+    output_path: str,
+    *,
+    width: int = 256,
+    height: int = 256,
+    center_color: tuple[int, int, int] = (255, 255, 255),
+    edge_color: tuple[int, int, int] = (0, 0, 0),
+) -> None:
+    """Generate a radial gradient image.
+
+    Args:
+        width: Output width. Default 256.
+        height: Output height. Default 256.
+        center_color: RGB color at center. Default white.
+        edge_color: RGB color at edges. Default black.
+    """
+    from PIL import Image
+    import numpy as np
+
+    ys, xs = np.mgrid[0:height, 0:width]
+    cx, cy = width / 2, height / 2
+    dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+    max_dist = np.sqrt(cx ** 2 + cy ** 2)
+    t = (dist / max_dist).clip(0, 1)[..., np.newaxis]
+    c = np.array(center_color, dtype=np.float32)
+    e = np.array(edge_color, dtype=np.float32)
+    result = (c * (1 - t) + e * t).clip(0, 255).astype(np.uint8)
+    Image.fromarray(result).save(output_path)

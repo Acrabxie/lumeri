@@ -47,6 +47,7 @@ from gemia.audio.effects import (
     audio_measure_rms,
     audio_duration,
     audio_mix_with_volume,
+    audio_fade_both,
 )
 
 __all__ = [
@@ -100,4 +101,5 @@ __all__ = [
     "audio_measure_rms",
     "audio_duration",
     "audio_mix_with_volume",
+    "audio_fade_both",
 ]
