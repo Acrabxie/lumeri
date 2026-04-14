@@ -4639,3 +4639,49 @@ def video_split_to_frames(
     _run(cmd)
     return len(_glob.glob(_os.path.join(output_dir, "*.png")) +
                 _glob.glob(_os.path.join(output_dir, "*.jpg")))
+
+
+def video_frames_to_video(
+    frames_dir: str,
+    output_path: str,
+    *,
+    fps: float = 25.0,
+    pattern: str = "frame_%06d.png",
+) -> None:
+    """Assemble a video from image frames.
+
+    Args:
+        frames_dir: Directory containing frame images.
+        fps: Frame rate for output video. Default 25.0.
+        pattern: ffmpeg filename pattern (e.g. 'frame_%06d.png'). Default 'frame_%06d.png'.
+    """
+    import os as _os
+
+    _run([
+        "ffmpeg", "-y",
+        "-framerate", str(fps),
+        "-i", _os.path.join(frames_dir, pattern),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+
+
+def video_denoise_hqdn3d(
+    input_path: str,
+    output_path: str,
+    *,
+    luma_spatial: float = 4.0,
+    luma_temporal: float = 6.0,
+) -> None:
+    """Denoise video using hqdn3d (high-quality denoise 3D) filter.
+
+    Args:
+        luma_spatial: Spatial luma denoise strength. Default 4.0.
+        luma_temporal: Temporal luma denoise strength. Default 6.0.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"hqdn3d={luma_spatial}:{luma_spatial*0.75:.2f}:{luma_temporal}:{luma_temporal*0.75:.2f}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
