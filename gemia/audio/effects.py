@@ -3123,3 +3123,38 @@ def audio_cut_silence(
          "-c", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_pitch_formant_shift(
+    input_path: str,
+    output_path: str,
+    *,
+    semitones: float = 4.0,
+) -> None:
+    """Shift pitch while attempting to preserve formants via asetrate+atempo chain."""
+    import math
+    ratio = 2 ** (semitones / 12.0)
+    orig_rate_proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=sample_rate",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        orig_sr = int(orig_rate_proc.stdout.strip().split("\n")[0])
+    except ValueError:
+        orig_sr = 44100
+    new_sr = int(orig_sr * ratio)
+    # Chain atempo filters if ratio outside 0.5–2.0
+    speed = 1.0 / ratio
+    atempo_chain = []
+    s = speed
+    while s < 0.5:
+        atempo_chain.append("atempo=0.5"); s /= 0.5
+    while s > 2.0:
+        atempo_chain.append("atempo=2.0"); s /= 2.0
+    atempo_chain.append(f"atempo={s:.6f}")
+    af = f"asetrate={new_sr}," + ",".join(atempo_chain) + f",aresample={orig_sr}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        check=True, capture_output=True,
+    )
