@@ -4849,3 +4849,40 @@ def video_motion_blur(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_color_lut_apply(
+    input_path: str,
+    lut_path: str,
+    output_path: str,
+) -> None:
+    """Apply a .cube LUT file to a video using ffmpeg lut3d filter."""
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"lut3d=file={lut_path}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def video_reverse_audio(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Reverse only the audio stream of a video, keeping video intact."""
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "copy",
+        "-af", "areverse",
+        "-c:v", "copy", output_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        # Fallback: copy video, reverse audio without -vf copy
+        cmd2 = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-af", "areverse",
+            "-c:v", "copy", output_path,
+        ]
+        subprocess.run(cmd2, check=True, capture_output=True)

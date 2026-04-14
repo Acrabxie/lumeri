@@ -2565,3 +2565,125 @@ def image_laplacian(
     img = Image.open(input_path).convert("L")
     edges = img.filter(ImageFilter.FIND_EDGES)
     edges.convert("RGB").save(output_path)
+
+
+def image_canny(
+    input_path: str,
+    output_path: str,
+    *,
+    low_threshold: float = 50.0,
+    high_threshold: float = 150.0,
+) -> None:
+    """Canny edge detection (numpy-based, no OpenCV required)."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32)
+
+    # Gaussian blur (simple 5x5)
+    def gaussian_blur(a, sigma=1.4):
+        k = np.array([[2,4,5,4,2],[4,9,12,9,4],[5,12,15,12,5],[4,9,12,9,4],[2,4,5,4,2]], dtype=np.float32)
+        k /= k.sum()
+        h, w = a.shape
+        p = np.pad(a, 2, mode="edge")
+        out = np.zeros_like(a)
+        for dy in range(5):
+            for dx in range(5):
+                out += k[dy, dx] * p[dy:dy+h, dx:dx+w]
+        return out
+
+    blurred = gaussian_blur(arr)
+
+    # Sobel gradients
+    kx = np.array([[-1,0,1],[-2,0,2],[-1,0,1]], dtype=np.float32)
+    ky = kx.T
+    h, w = blurred.shape
+    p = np.pad(blurred, 1, mode="edge")
+    gx = np.zeros_like(blurred); gy = np.zeros_like(blurred)
+    for dy in range(3):
+        for dx in range(3):
+            gx += kx[dy,dx]*p[dy:dy+h,dx:dx+w]
+            gy += ky[dy,dx]*p[dy:dy+h,dx:dx+w]
+    mag = np.hypot(gx, gy)
+    angle = np.degrees(np.arctan2(gy, gx)) % 180
+
+    # Non-maximum suppression
+    nms = np.zeros_like(mag)
+    for y in range(1, h-1):
+        for x in range(1, w-1):
+            a = angle[y, x]
+            m = mag[y, x]
+            if a < 22.5 or a >= 157.5:
+                q, r = mag[y, x-1], mag[y, x+1]
+            elif a < 67.5:
+                q, r = mag[y-1, x+1], mag[y+1, x-1]
+            elif a < 112.5:
+                q, r = mag[y-1, x], mag[y+1, x]
+            else:
+                q, r = mag[y-1, x-1], mag[y+1, x+1]
+            if m >= q and m >= r:
+                nms[y, x] = m
+
+    # Double threshold
+    strong = nms >= high_threshold
+    weak = (nms >= low_threshold) & ~strong
+
+    # Hysteresis (simple BFS)
+    from collections import deque
+    out = np.zeros((h, w), dtype=np.uint8)
+    out[strong] = 255
+    queue = deque(zip(*np.where(strong)))
+    while queue:
+        y, x = queue.popleft()
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                ny, nx = y+dy, x+dx
+                if 0 <= ny < h and 0 <= nx < w and weak[ny, nx] and out[ny, nx] == 0:
+                    out[ny, nx] = 255
+                    queue.append((ny, nx))
+
+    Image.fromarray(out, "L").convert("RGB").save(output_path)
+
+
+def image_bilateral_blur(
+    input_path: str,
+    output_path: str,
+    *,
+    radius: int = 5,
+    sigma_color: float = 40.0,
+) -> None:
+    """Edge-preserving bilateral-style blur using numpy."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    h, w, c = arr.shape
+    pad = radius
+    p = np.pad(arr, ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+
+    # Spatial Gaussian kernel
+    ys, xs = np.mgrid[-pad:pad+1, -pad:pad+1]
+    spatial = np.exp(-(xs**2 + ys**2) / (2 * (radius/2)**2))
+
+    out = np.zeros_like(arr)
+    for dy in range(2*radius+1):
+        for dx in range(2*radius+1):
+            neighbor = p[dy:dy+h, dx:dx+w]
+            # Color Gaussian weight per pixel
+            diff = np.sum((neighbor - arr)**2, axis=2)
+            color_w = np.exp(-diff / (2 * sigma_color**2))
+            w_2d = spatial[dy, dx] * color_w
+            out += w_2d[:, :, np.newaxis] * neighbor
+
+    # Normalise
+    norm = np.zeros((h, w), dtype=np.float32)
+    for dy in range(2*radius+1):
+        for dx in range(2*radius+1):
+            neighbor = p[dy:dy+h, dx:dx+w]
+            diff = np.sum((neighbor - arr)**2, axis=2)
+            color_w = np.exp(-diff / (2 * sigma_color**2))
+            norm += spatial[dy, dx] * color_w
+    out /= norm[:, :, np.newaxis]
+    Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
