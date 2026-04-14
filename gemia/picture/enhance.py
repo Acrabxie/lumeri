@@ -2292,3 +2292,79 @@ def image_detect_faces(
         if w >= min_size and h >= min_size:
             boxes.append((x0, int(y0), w, h))
     return boxes
+
+
+def image_grid_overlay(
+    input_path: str,
+    output_path: str,
+    *,
+    cols: int = 3,
+    rows: int = 3,
+    color: tuple[int, int, int] = (200, 200, 200),
+    line_width: int = 1,
+) -> None:
+    """Draw a grid of lines over an image.
+
+    Args:
+        cols: Number of column divisions. Default 3 (rule-of-thirds).
+        rows: Number of row divisions. Default 3.
+        color: RGB line color. Default light gray.
+        line_width: Line thickness. Default 1.
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+    for i in range(1, cols):
+        x = w * i // cols
+        draw.rectangle([x, 0, x + line_width - 1, h], fill=color)
+    for i in range(1, rows):
+        y = h * i // rows
+        draw.rectangle([0, y, w, y + line_width - 1], fill=color)
+    img.save(output_path)
+
+
+def image_color_map(
+    input_path: str,
+    output_path: str,
+    *,
+    colormap: str = "viridis",
+) -> None:
+    """Apply a colormap to a grayscale image.
+
+    Args:
+        colormap: Colormap name ('viridis', 'plasma', 'hot', 'cool', 'jet'). Default 'viridis'.
+    """
+    from PIL import Image
+    import numpy as np
+
+    # Built-in colormaps (no matplotlib dependency)
+    _MAPS = {
+        "hot": lambda t: np.stack([
+            np.clip(t * 3, 0, 1),
+            np.clip(t * 3 - 1, 0, 1),
+            np.clip(t * 3 - 2, 0, 1),
+        ], axis=-1),
+        "cool": lambda t: np.stack([t, 1 - t, np.ones_like(t)], axis=-1),
+        "viridis": lambda t: np.stack([
+            np.interp(t, [0, 0.5, 1], [0.267, 0.128, 0.993]),
+            np.interp(t, [0, 0.5, 1], [0.005, 0.566, 0.906]),
+            np.interp(t, [0, 0.5, 1], [0.329, 0.551, 0.143]),
+        ], axis=-1),
+        "plasma": lambda t: np.stack([
+            np.interp(t, [0, 0.5, 1], [0.050, 0.900, 0.940]),
+            np.interp(t, [0, 0.5, 1], [0.030, 0.200, 0.975]),
+            np.interp(t, [0, 0.5, 1], [0.527, 0.420, 0.131]),
+        ], axis=-1),
+        "jet": lambda t: np.stack([
+            np.clip(1.5 - np.abs(4 * t - 3), 0, 1),
+            np.clip(1.5 - np.abs(4 * t - 2), 0, 1),
+            np.clip(1.5 - np.abs(4 * t - 1), 0, 1),
+        ], axis=-1),
+    }
+    img = Image.open(input_path).convert("L")
+    t = np.array(img, dtype=np.float32) / 255.0
+    fn = _MAPS.get(colormap, _MAPS["viridis"])
+    rgb = (fn(t) * 255).clip(0, 255).astype(np.uint8)
+    Image.fromarray(rgb).save(output_path)

@@ -63,6 +63,7 @@ from gemia.video.effects import (
     video_normalize, video_speed_audio_sync,
     video_slow_zoom, video_color_boost,
     video_adjust_brightness, video_adjust_contrast,
+    video_adjust_gamma, video_split_to_frames,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -140,4 +141,5 @@ __all__ = [
     "video_normalize", "video_speed_audio_sync",
     "video_slow_zoom", "video_color_boost",
     "video_adjust_brightness", "video_adjust_contrast",
+    "video_adjust_gamma", "video_split_to_frames",
 ]
