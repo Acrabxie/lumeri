@@ -50,6 +50,7 @@ from gemia.audio.effects import (
     audio_fade_both,
     audio_split_at,
     audio_loop,
+    audio_info,
 )
 
 __all__ = [
@@ -106,4 +107,5 @@ __all__ = [
     "audio_fade_both",
     "audio_split_at",
     "audio_loop",
+    "audio_info",
 ]
