@@ -2519,3 +2519,49 @@ def image_make_transparent(
     mask = dist <= tolerance
     arr[mask, 3] = 0
     Image.fromarray(arr.astype(np.uint8), "RGBA").save(output_path)
+
+
+def image_sobel(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Apply Sobel edge detection to produce a gradient magnitude image."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32)
+
+    # Sobel kernels
+    kx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
+    ky = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+
+    from scipy.ndimage import convolve  # type: ignore
+    try:
+        gx = convolve(arr, kx)
+        gy = convolve(arr, ky)
+    except ImportError:
+        # Manual convolution fallback
+        h, w = arr.shape
+        gx = np.zeros_like(arr)
+        gy = np.zeros_like(arr)
+        p = np.pad(arr, 1, mode="edge")
+        for dy in range(3):
+            for dx in range(3):
+                gx += kx[dy, dx] * p[dy:dy+h, dx:dx+w]
+                gy += ky[dy, dx] * p[dy:dy+h, dx:dx+w]
+    mag = np.sqrt(gx**2 + gy**2)
+    mx = mag.max(); mag = (mag / mx * 255 if mx > 0 else mag).clip(0, 255).astype(np.uint8)
+    Image.fromarray(mag, "L").convert("RGB").save(output_path)
+
+
+def image_laplacian(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Apply Laplacian edge detection filter."""
+    from PIL import Image, ImageFilter
+
+    img = Image.open(input_path).convert("L")
+    edges = img.filter(ImageFilter.FIND_EDGES)
+    edges.convert("RGB").save(output_path)
