@@ -2026,3 +2026,62 @@ def image_mosaic(
         for c in range(cols):
             canvas.paste(tile, (c * tile_width, r * tile_height))
     canvas.save(output_path)
+
+
+def image_perspective_warp(
+    input_path: str,
+    output_path: str,
+    src_points: list[tuple[float, float]],
+    dst_points: list[tuple[float, float]],
+) -> None:
+    """Apply perspective warp from 4 source corners to 4 destination corners.
+
+    Args:
+        src_points: 4 (x, y) source corner points.
+        dst_points: 4 (x, y) destination corner points.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+
+    # Compute perspective transform coefficients
+    def _find_coeffs(source, target):
+        matrix = []
+        for s, t in zip(source, target):
+            matrix.append([t[0], t[1], 1, 0, 0, 0, -s[0]*t[0], -s[0]*t[1]])
+            matrix.append([0, 0, 0, t[0], t[1], 1, -s[1]*t[0], -s[1]*t[1]])
+        A = np.array(matrix, dtype=np.float64)
+        B = np.array(src_points, dtype=np.float64).ravel()
+        res = np.linalg.lstsq(A, B, rcond=None)[0]
+        return tuple(res)
+
+    coeffs = _find_coeffs(src_points, dst_points)
+    result = img.transform((w, h), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
+    result.save(output_path)
+
+
+def image_normalize_brightness(
+    input_path: str,
+    output_path: str,
+    *,
+    target: float = 0.5,
+) -> None:
+    """Normalize image so mean brightness equals target.
+
+    Args:
+        target: Target mean brightness 0–1. Default 0.5.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    mean = arr.mean()
+    if mean < 1e-6:
+        Image.fromarray((arr * 255).astype(np.uint8)).save(output_path)
+        return
+    scale = target / mean
+    result = (arr * scale).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)

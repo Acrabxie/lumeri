@@ -4406,3 +4406,34 @@ def video_segment_export(
         ])
         out_paths.append(out)
     return out_paths
+
+
+def video_grayscale(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Convert video to grayscale by zeroing saturation."""
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "hue=s=0",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_sepia(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Apply a sepia tone to video using colorchannelmixer."""
+    # Sepia matrix: R=0.393r+0.769g+0.189b, G=0.349r+0.686g+0.168b, B=0.272r+0.534g+0.131b
+    vf = ("colorchannelmixer="
+          "rr=0.393:rg=0.769:rb=0.189:"
+          "gr=0.349:gg=0.686:gb=0.168:"
+          "br=0.272:bg=0.534:bb=0.131")
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
