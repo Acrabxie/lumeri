@@ -2773,3 +2773,58 @@ def image_threshold(
 
     binary = ((arr >= threshold) * 255).astype(np.uint8)
     Image.fromarray(binary, "L").convert("RGB").save(output_path)
+
+
+def image_warp_fisheye(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 0.5,
+) -> None:
+    """Apply barrel/fisheye lens distortion. strength > 0 = barrel, < 0 = pincushion."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+    max_r = np.sqrt(cx**2 + cy**2)
+
+    xs = np.arange(w, dtype=np.float32)
+    ys = np.arange(h, dtype=np.float32)
+    xg, yg = np.meshgrid(xs, ys)
+    dx = (xg - cx) / max_r
+    dy = (yg - cy) / max_r
+    r = np.sqrt(dx**2 + dy**2)
+    r_src = r * (1 + strength * r**2)
+    xsrc = (r_src * dx / np.where(r == 0, 1, r) * max_r + cx).clip(0, w - 1)
+    ysrc = (r_src * dy / np.where(r == 0, 1, r) * max_r + cy).clip(0, h - 1)
+
+    xi = xsrc.astype(np.int32)
+    yi = ysrc.astype(np.int32)
+    out = arr[yi, xi]
+    Image.fromarray(out, "RGB").save(output_path)
+
+
+def image_vignette(
+    input_path: str,
+    output_path: str,
+    *,
+    strength: float = 0.5,
+    radius: float = 0.8,
+) -> None:
+    """Apply radial vignette darkening effect. strength in [0,1], radius in [0,1]."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    h, w = arr.shape[:2]
+    xs = np.linspace(-1, 1, w)
+    ys = np.linspace(-1, 1, h)
+    xg, yg = np.meshgrid(xs, ys)
+    dist = np.sqrt(xg**2 + yg**2)
+    mask = 1 - strength * np.clip((dist - radius) / (1 - radius + 1e-6), 0, 1)
+    arr *= mask[:, :, np.newaxis]
+    Image.fromarray(arr.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
