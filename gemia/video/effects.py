@@ -4742,3 +4742,53 @@ def video_hstack(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         output_path,
     ])
+
+
+def video_vstack(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+) -> None:
+    """Stack two videos vertically using vstack filter.
+
+    Both videos must have the same width and frame rate.
+    """
+    _run([
+        "ffmpeg", "-y",
+        "-i", input_a, "-i", input_b,
+        "-filter_complex", "[0:v][1:v]vstack=inputs=2[v]",
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ])
+
+
+def video_draw_box(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int = 10,
+    y: int = 10,
+    width: int = 100,
+    height: int = 80,
+    color: str = "red",
+    thickness: int = 2,
+) -> None:
+    """Draw a colored rectangle box onto video.
+
+    Args:
+        x: X offset. Default 10.
+        y: Y offset. Default 10.
+        width: Box width. Default 100.
+        height: Box height. Default 80.
+        color: Box color. Default 'red'.
+        thickness: Border thickness in pixels. Default 2.
+    """
+    vf = (f"drawbox=x={x}:y={y}:w={width}:h={height}"
+          f":color={color}:t={thickness}")
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])

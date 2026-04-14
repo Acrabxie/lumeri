@@ -2906,3 +2906,42 @@ def audio_merge_channels(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_trim_to_duration(
+    input_path: str,
+    output_path: str,
+    *,
+    target_duration: float,
+) -> None:
+    """Trim or pad audio to exactly a target duration.
+
+    If input is longer it is trimmed; if shorter, silence is appended.
+
+    Args:
+        target_duration: Target duration in seconds.
+    """
+    # Get input duration
+    dur_proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        src_dur = float(dur_proc.stdout.strip())
+    except ValueError:
+        src_dur = 0.0
+
+    if src_dur >= target_duration:
+        # Trim
+        cmd = ["ffmpeg", "-y", "-i", input_path,
+               "-t", str(target_duration), output_path]
+    else:
+        # Pad with silence using apad filter
+        pad = target_duration - src_dur
+        af = f"apad=pad_dur={pad}"
+        cmd = ["ffmpeg", "-y", "-i", input_path,
+               "-af", af, "-t", str(target_duration), output_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr[-1000:])

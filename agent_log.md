@@ -179,3 +179,4 @@
 2026-04-13 20:39 Wave 61 complete — image_linear_gradient, image_detect_faces, audio_split_at, video_adjust_brightness, video_adjust_contrast (2×PASS each)
 2026-04-13 20:41 Wave 62 complete — image_grid_overlay, image_color_map, audio_loop, video_adjust_gamma, video_split_to_frames (2×PASS each)
 2026-04-13 20:43 Wave 63 complete — image_frames_to_gif, image_gif_to_frames, audio_info, video_frames_to_video, video_denoise_hqdn3d (2×PASS each)
+2026-04-13 22:39 Wave 64 complete — image_save_as, image_compare, audio_merge_channels, video_add_timestamp, video_hstack (2×PASS each)
