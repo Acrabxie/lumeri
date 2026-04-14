@@ -56,6 +56,7 @@ from gemia.audio.effects import (
     audio_peak_detect,
     audio_loudness_scan,
     audio_trim_to_beats,
+    audio_stereo_panning,
 )
 
 __all__ = [
@@ -118,4 +119,5 @@ __all__ = [
     "audio_peak_detect",
     "audio_loudness_scan",
     "audio_trim_to_beats",
+    "audio_stereo_panning",
 ]

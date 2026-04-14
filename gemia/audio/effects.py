@@ -3036,3 +3036,19 @@ def audio_trim_to_beats(
          "-t", str(target_duration), "-c", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_stereo_panning(
+    input_path: str,
+    output_path: str,
+    *,
+    pan: float = 0.0,
+) -> None:
+    """Pan audio. pan=-1.0 full left, 0.0 center, +1.0 full right."""
+    l = max(0.0, 1.0 - pan) if pan > 0 else 1.0
+    r = max(0.0, 1.0 + pan) if pan < 0 else 1.0
+    pan_filter = f"pan=stereo|c0={l:.4f}*c0|c1={r:.4f}*c1"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", pan_filter, output_path],
+        check=True, capture_output=True,
+    )
