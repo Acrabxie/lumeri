@@ -2717,3 +2717,20 @@ def audio_measure_rms(input_path: str) -> float:
     if m:
         return float(m.group(1))
     return float("-inf")
+
+
+def audio_duration(input_path: str) -> float:
+    """Return the duration of an audio file in seconds.
+
+    Returns:
+        Duration in seconds (float).
+    """
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(proc.stdout.strip())
+    except ValueError:
+        return 0.0

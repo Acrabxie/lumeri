@@ -59,6 +59,7 @@ from gemia.video.effects import (
     video_add_silent_audio, video_remove_audio,
     video_info, video_concat_list,
     video_replace_audio, video_segment_export,
+    video_grayscale, video_sepia,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -132,4 +133,5 @@ __all__ = [
     "video_add_silent_audio", "video_remove_audio",
     "video_info", "video_concat_list",
     "video_replace_audio", "video_segment_export",
+    "video_grayscale", "video_sepia",
 ]
