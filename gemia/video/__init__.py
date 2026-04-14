@@ -71,6 +71,7 @@ from gemia.video.effects import (
     video_color_lut_apply, video_reverse_audio,
     video_audio_normalize, video_subtitle_burn_style,
     video_extract_i_frames, video_fade_audio,
+    video_concat_crossfade, video_add_chapters,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -156,4 +157,5 @@ __all__ = [
     "video_color_lut_apply", "video_reverse_audio",
     "video_audio_normalize", "video_subtitle_burn_style",
     "video_extract_i_frames", "video_fade_audio",
+    "video_concat_crossfade", "video_add_chapters",
 ]

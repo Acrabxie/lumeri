@@ -4978,3 +4978,77 @@ def video_fade_audio(
          "-af", af, "-c:v", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def video_concat_crossfade(
+    input_paths: list,
+    output_path: str,
+    *,
+    duration: float = 1.0,
+) -> None:
+    """Concatenate video clips with crossfade dissolve between each pair."""
+    if len(input_paths) < 2:
+        if input_paths:
+            subprocess.run(["ffmpeg", "-y", "-i", input_paths[0], "-c", "copy", output_path],
+                           check=True, capture_output=True)
+        return
+
+    import tempfile, os
+
+    # Build xfade chain: process pairwise, accumulating
+    tmpdir = tempfile.mkdtemp()
+    current = input_paths[0]
+    for i, nxt in enumerate(input_paths[1:]):
+        out = os.path.join(tmpdir, f"xf_{i:04d}.mp4") if i < len(input_paths)-2 else output_path
+        # Get duration of current
+        proc = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", current],
+            capture_output=True, text=True,
+        )
+        try:
+            cur_dur = float(proc.stdout.strip())
+        except ValueError:
+            cur_dur = 5.0
+        offset = max(0.0, cur_dur - duration)
+        fc = (f"[0:v][1:v]xfade=transition=fade:duration={duration}:offset={offset:.3f}[v];"
+              f"[0:a][1:a]acrossfade=d={duration}[a]")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", current, "-i", nxt,
+             "-filter_complex", fc,
+             "-map", "[v]", "-map", "[a]",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", out],
+            check=True, capture_output=True,
+        )
+        current = out
+
+
+def video_add_chapters(
+    input_path: str,
+    output_path: str,
+    chapters: list,
+) -> None:
+    """Add chapter metadata to a video.
+
+    chapters: list of (start_seconds, title) tuples.
+    """
+    import tempfile, os
+
+    # Build ffmetadata file
+    tmpdir = tempfile.mkdtemp()
+    meta_file = os.path.join(tmpdir, "chapters.txt")
+    with open(meta_file, "w") as f:
+        f.write(";FFMETADATA1\n")
+        for i, (start, title) in enumerate(chapters):
+            start_ms = int(start * 1000)
+            if i + 1 < len(chapters):
+                end_ms = int(chapters[i+1][0] * 1000) - 1
+            else:
+                end_ms = start_ms + 10_000_000  # large number
+            f.write(f"\n[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_ms}\nEND={end_ms}\ntitle={title}\n")
+
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-i", meta_file,
+         "-map_metadata", "1", "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
