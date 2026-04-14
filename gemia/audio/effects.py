@@ -2799,3 +2799,33 @@ def audio_fade_both(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr[-1000:])
+
+
+def audio_split_at(
+    input_path: str,
+    output_a: str,
+    output_b: str,
+    *,
+    split_time: float,
+) -> None:
+    """Split an audio file at a given timestamp into two files.
+
+    Args:
+        output_a: Path for the first part (0 to split_time).
+        output_b: Path for the second part (split_time to end).
+        split_time: Split point in seconds.
+    """
+    # Part A
+    proc_a = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-t", str(split_time), output_a],
+        capture_output=True, text=True,
+    )
+    if proc_a.returncode != 0:
+        raise RuntimeError(proc_a.stderr[-1000:])
+    # Part B
+    proc_b = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-ss", str(split_time), output_b],
+        capture_output=True, text=True,
+    )
+    if proc_b.returncode != 0:
+        raise RuntimeError(proc_b.stderr[-1000:])

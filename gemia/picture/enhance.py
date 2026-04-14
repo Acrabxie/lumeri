@@ -2201,3 +2201,94 @@ def image_radial_gradient(
     e = np.array(edge_color, dtype=np.float32)
     result = (c * (1 - t) + e * t).clip(0, 255).astype(np.uint8)
     Image.fromarray(result).save(output_path)
+
+
+def image_linear_gradient(
+    output_path: str,
+    *,
+    width: int = 256,
+    height: int = 256,
+    start_color: tuple[int, int, int] = (0, 0, 0),
+    end_color: tuple[int, int, int] = (255, 255, 255),
+    direction: str = "horizontal",
+) -> None:
+    """Generate a linear gradient image.
+
+    Args:
+        width: Output width. Default 256.
+        height: Output height. Default 256.
+        start_color: RGB color at start. Default black.
+        end_color: RGB color at end. Default white.
+        direction: 'horizontal' (left→right) or 'vertical' (top→bottom). Default 'horizontal'.
+    """
+    from PIL import Image
+    import numpy as np
+
+    s = np.array(start_color, dtype=np.float32)
+    e = np.array(end_color, dtype=np.float32)
+    if direction == "vertical":
+        t = np.linspace(0, 1, height)[:, np.newaxis, np.newaxis]
+        arr = (s * (1 - t) + e * t).clip(0, 255).astype(np.uint8)
+        arr = np.broadcast_to(arr, (height, width, 3)).copy()
+    else:
+        t = np.linspace(0, 1, width)[np.newaxis, :, np.newaxis]
+        arr = (s * (1 - t) + e * t).clip(0, 255).astype(np.uint8)
+        arr = np.broadcast_to(arr, (height, width, 3)).copy()
+    Image.fromarray(arr).save(output_path)
+
+
+def image_detect_faces(
+    input_path: str,
+    *,
+    min_size: int = 20,
+) -> list[tuple[int, int, int, int]]:
+    """Detect face-like regions using a simple skin-tone heuristic.
+
+    Returns a list of (x, y, width, height) bounding boxes.
+    Note: This is a heuristic approach — use OpenCV for production.
+
+    Args:
+        min_size: Minimum region size in pixels. Default 20.
+    """
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+
+    # Skin-tone mask: R > 95, G > 40, B > 20, R > G, R > B, |R-G| > 15
+    mask = (
+        (r > 95) & (g > 40) & (b > 20) &
+        (r > g) & (r > b) &
+        (np.abs(r - g) > 15)
+    ).astype(np.uint8)
+
+    # Find connected bounding box using row/col projections (simple approach)
+    boxes = []
+    rows_with_skin = np.where(mask.sum(axis=1) > min_size)[0]
+    if len(rows_with_skin) == 0:
+        return boxes
+
+    # Group contiguous row spans
+    spans = []
+    start = rows_with_skin[0]
+    prev = rows_with_skin[0]
+    for row in rows_with_skin[1:]:
+        if row - prev > 10:
+            spans.append((start, prev))
+            start = row
+        prev = row
+    spans.append((start, prev))
+
+    for y0, y1 in spans:
+        region_mask = mask[y0:y1 + 1]
+        cols_with_skin = np.where(region_mask.sum(axis=0) > min_size)[0]
+        if len(cols_with_skin) == 0:
+            continue
+        x0, x1 = int(cols_with_skin[0]), int(cols_with_skin[-1])
+        w = x1 - x0
+        h = int(y1 - y0)
+        if w >= min_size and h >= min_size:
+            boxes.append((x0, int(y0), w, h))
+    return boxes
