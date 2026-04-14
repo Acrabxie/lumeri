@@ -4591,3 +4591,51 @@ def video_adjust_contrast(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_adjust_gamma(
+    input_path: str,
+    output_path: str,
+    *,
+    gamma: float = 1.5,
+) -> None:
+    """Adjust video gamma.
+
+    Args:
+        gamma: Gamma value. >1 brightens shadows, <1 darkens. Default 1.5.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"eq=gamma={gamma}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_split_to_frames(
+    input_path: str,
+    output_dir: str,
+    *,
+    fmt: str = "frame_%06d.png",
+    fps: float | None = None,
+) -> int:
+    """Export video frames as image files.
+
+    Args:
+        output_dir: Directory to write frame images to.
+        fmt: Output filename pattern. Default 'frame_%06d.png'.
+        fps: Extract at this frame rate. None = original fps.
+
+    Returns:
+        Number of frames extracted.
+    """
+    import os as _os, glob as _glob
+
+    _os.makedirs(output_dir, exist_ok=True)
+    cmd = ["ffmpeg", "-y", "-i", input_path]
+    if fps is not None:
+        cmd += ["-vf", f"fps={fps}"]
+    cmd += [_os.path.join(output_dir, fmt)]
+    _run(cmd)
+    return len(_glob.glob(_os.path.join(output_dir, "*.png")) +
+                _glob.glob(_os.path.join(output_dir, "*.jpg")))
