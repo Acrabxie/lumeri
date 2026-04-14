@@ -2425,3 +2425,54 @@ def image_gif_to_frames(
         gif.convert("RGB").save(out)
         paths.append(out)
     return paths
+
+
+def image_save_as(
+    input_path: str,
+    output_path: str,
+    *,
+    quality: int = 85,
+) -> None:
+    """Re-save an image in a different format with quality control.
+
+    Format is inferred from output_path extension (jpg, png, webp, etc.).
+
+    Args:
+        quality: JPEG/WEBP quality 1–95. Ignored for lossless formats. Default 85.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    ext = output_path.rsplit(".", 1)[-1].lower()
+    if ext in ("jpg", "jpeg"):
+        img.save(output_path, "JPEG", quality=quality)
+    elif ext == "webp":
+        img.save(output_path, "WEBP", quality=quality)
+    elif ext == "png":
+        img.save(output_path, "PNG")
+    else:
+        img.save(output_path)
+
+
+def image_compare(
+    path_a: str,
+    path_b: str,
+) -> dict:
+    """Compare two images and return PSNR and MSE metrics.
+
+    Returns:
+        Dict with keys: mse, psnr (dB). psnr=inf means identical.
+    """
+    from PIL import Image
+    import numpy as np
+
+    a = np.array(Image.open(path_a).convert("RGB"), dtype=np.float64)
+    b = np.array(Image.open(path_b).convert("RGB").resize(
+        (Image.open(path_a).width, Image.open(path_a).height), Image.LANCZOS
+    ), dtype=np.float64)
+    mse = float(np.mean((a - b) ** 2))
+    if mse == 0:
+        psnr = float("inf")
+    else:
+        psnr = float(10 * np.log10(255.0 ** 2 / mse))
+    return {"mse": mse, "psnr": psnr}
