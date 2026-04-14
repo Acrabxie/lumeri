@@ -4553,3 +4553,41 @@ def video_color_boost(
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "copy", output_path,
     ])
+
+
+def video_adjust_brightness(
+    input_path: str,
+    output_path: str,
+    *,
+    brightness: float = 0.1,
+) -> None:
+    """Adjust video brightness.
+
+    Args:
+        brightness: Brightness offset -1.0 to 1.0. Default 0.1 (slight boost).
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"eq=brightness={brightness}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
+
+
+def video_adjust_contrast(
+    input_path: str,
+    output_path: str,
+    *,
+    contrast: float = 1.2,
+) -> None:
+    """Adjust video contrast.
+
+    Args:
+        contrast: Contrast multiplier. 1.0 = no change, >1 increases contrast. Default 1.2.
+    """
+    _run([
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", f"eq=contrast={contrast}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", output_path,
+    ])
