@@ -4346,3 +4346,63 @@ def video_concat_list(
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
             "-i", list_file, "-c", "copy", output_path,
         ])
+
+
+def video_replace_audio(
+    video_path: str,
+    audio_path: str,
+    output_path: str,
+    *,
+    shortest: bool = True,
+) -> None:
+    """Replace the audio track of a video with a given audio file.
+
+    Args:
+        shortest: If True, output duration is the shorter of video/audio. Default True.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+    ]
+    if shortest:
+        cmd.append("-shortest")
+    cmd.append(output_path)
+    _run(cmd)
+
+
+def video_segment_export(
+    input_path: str,
+    output_dir: str,
+    segments: list[tuple[float, float]],
+) -> list[str]:
+    """Export multiple time segments from a video.
+
+    Args:
+        segments: List of (start_sec, end_sec) tuples.
+        output_dir: Directory for output files.
+
+    Returns:
+        List of output file paths.
+    """
+    import os as _os
+
+    _os.makedirs(output_dir, exist_ok=True)
+    out_paths = []
+    for i, (start, end) in enumerate(segments):
+        out = _os.path.join(output_dir, f"segment_{i:04d}.mp4")
+        _run([
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-t", str(end - start),
+            "-i", input_path,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            out,
+        ])
+        out_paths.append(out)
+    return out_paths

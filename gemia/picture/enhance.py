@@ -1975,3 +1975,54 @@ def image_draw_rect(
     else:
         draw.rectangle(bbox, outline=color, width=line_width)
     img.save(output_path)
+
+
+def image_histogram_equalize(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """Apply global histogram equalization per channel for contrast enhancement."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+
+    def _equalize(ch):
+        hist, _ = np.histogram(ch.ravel(), 256, [0, 256])
+        cdf = hist.cumsum()
+        cdf_min = cdf[cdf > 0][0]
+        total = ch.size
+        lut = np.clip(np.round((cdf - cdf_min) / (total - cdf_min) * 255), 0, 255).astype(np.uint8)
+        return lut[ch]
+
+    result = np.stack([_equalize(arr[..., i]) for i in range(3)], axis=-1)
+    Image.fromarray(result).save(output_path)
+
+
+def image_mosaic(
+    input_path: str,
+    output_path: str,
+    *,
+    tile_width: int = 50,
+    tile_height: int = 50,
+    cols: int = 5,
+    rows: int = 5,
+) -> None:
+    """Create a mosaic by tiling a thumbnail of the image across a grid.
+
+    Args:
+        tile_width: Width of each tile. Default 50.
+        tile_height: Height of each tile. Default 50.
+        cols: Number of columns. Default 5.
+        rows: Number of rows. Default 5.
+    """
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    tile = img.resize((tile_width, tile_height), Image.LANCZOS)
+    canvas = Image.new("RGB", (cols * tile_width, rows * tile_height))
+    for r in range(rows):
+        for c in range(cols):
+            canvas.paste(tile, (c * tile_width, r * tile_height))
+    canvas.save(output_path)
