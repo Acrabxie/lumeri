@@ -76,6 +76,7 @@ from gemia.video.effects import (
     video_zoom_crop_safe, video_time_remap,
     video_aspect_letterbox, video_gif_export,
     video_stabilize_crop, video_multi_speed,
+    video_luma_key, video_audio_waveform_overlay,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -166,4 +167,5 @@ __all__ = [
     "video_zoom_crop_safe", "video_time_remap",
     "video_aspect_letterbox", "video_gif_export",
     "video_stabilize_crop", "video_multi_speed",
+    "video_luma_key", "video_audio_waveform_overlay",
 ]
