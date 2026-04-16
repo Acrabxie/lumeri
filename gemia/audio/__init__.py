@@ -63,6 +63,7 @@ from gemia.audio.effects import (
     audio_haas_effect,
     audio_spectral_gate,
     audio_pitch_wobble,
+    audio_room_tone,
 )
 
 __all__ = [
@@ -132,4 +133,5 @@ __all__ = [
     "audio_haas_effect",
     "audio_spectral_gate",
     "audio_pitch_wobble",
+    "audio_room_tone",
 ]

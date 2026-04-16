@@ -5435,3 +5435,55 @@ def video_audio_waveform_overlay(
              "-c:a", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_highlight_region(
+    input_path: str,
+    output_path: str,
+    *,
+    x: int = 100,
+    y: int = 100,
+    w: int = 200,
+    h: int = 150,
+    dim: float = 0.5,
+) -> None:
+    """Darken everything outside a rectangular region to highlight it."""
+    # Use geq to apply brightness reduction outside the box
+    vf = (
+        f"geq="
+        f"r='if(between(X,{x},{x+w})*between(Y,{y},{y+h}),r(X,Y),r(X,Y)*{dim})':"
+        f"g='if(between(X,{x},{x+w})*between(Y,{y},{y+h}),g(X,Y),g(X,Y)*{dim})':"
+        f"b='if(between(X,{x},{x+w})*between(Y,{y},{y+h}),b(X,Y),b(X,Y)*{dim})'"
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_frame_interpolate(
+    input_path: str,
+    output_path: str,
+    *,
+    target_fps: int = 60,
+) -> None:
+    """Increase frame rate via frame interpolation using minterpolate filter."""
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"minterpolate=fps={target_fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback: simple fps change without interpolation
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"fps={target_fps}",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True,
+        )
