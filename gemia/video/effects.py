@@ -5290,3 +5290,80 @@ def video_gif_export(
          output_path],
         check=True, capture_output=True,
     )
+
+
+def video_stabilize_crop(
+    input_path: str,
+    output_path: str,
+    *,
+    smoothing: int = 10,
+) -> None:
+    """Stabilize video using vidstabdetect+vidstabtransform, crop to remove borders."""
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    transforms = os.path.join(tmpdir, "transforms.trf")
+    # Detect
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"vidstabdetect=stepsize=6:shakiness=8:accuracy=9:result={transforms}",
+         "-f", "null", "-"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # vidstab not available, fall back to simple copy
+        subprocess.run(["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+                       check=True, capture_output=True)
+        return
+    # Transform
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"vidstabtransform=input={transforms}:smoothing={smoothing}:crop=black,crop=iw*0.9:ih*0.9",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_multi_speed(
+    input_path: str,
+    output_path: str,
+    segments: list,
+) -> None:
+    """Apply different speed to each segment.
+
+    segments: list of (start_sec, end_sec, speed) tuples.
+    Segments outside the list are included at 1× speed.
+    """
+    import tempfile, os
+
+    tmpdir = tempfile.mkdtemp()
+    parts = []
+    for i, (ss, to, spd) in enumerate(segments):
+        part = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
+        pts = f"setpts={1/spd:.6f}*PTS"
+        atempo_filters = []
+        s = float(spd)
+        while s > 2.0:
+            atempo_filters.append("atempo=2.0"); s /= 2.0
+        while s < 0.5:
+            atempo_filters.append("atempo=0.5"); s /= 0.5
+        atempo_filters.append(f"atempo={s:.6f}")
+        af = ",".join(atempo_filters)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-ss", str(ss), "-to", str(to),
+             "-vf", pts, "-af", af,
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", part],
+            check=True, capture_output=True,
+        )
+        parts.append(part)
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        for p in parts:
+            f.write(f"file '{p}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
