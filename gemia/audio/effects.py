@@ -3225,3 +3225,35 @@ def audio_haas_effect(
          output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_spectral_gate(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold_db: float = -40.0,
+) -> None:
+    """Spectral gate / noise suppression using ffmpeg afftdn or anlmdn."""
+    # Try afftdn (spectral noise gate) first
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"afftdn=nr=10:nf={threshold_db}",
+         output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback: anlmdn (non-local means denoising)
+        result2 = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", "anlmdn=s=7:p=0.002:r=0.002:m=15",
+             output_path],
+            capture_output=True,
+        )
+        if result2.returncode != 0:
+            # Final fallback: simple highpass + lowpass
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path,
+                 "-af", "highpass=f=80,lowpass=f=8000",
+                 output_path],
+                check=True, capture_output=True,
+            )
