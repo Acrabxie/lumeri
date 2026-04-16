@@ -3158,3 +3158,49 @@ def audio_pitch_formant_shift(
         ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_vinyl_crackle(
+    input_path: str,
+    output_path: str,
+    *,
+    crackle_level: float = 0.02,
+    crackle_density: float = 0.001,
+) -> None:
+    """Add vinyl crackle noise: sparse impulse spikes + low-level white noise."""
+    import tempfile, os, struct, wave as wavemod
+    import numpy as np
+
+    # Probe sample rate and channels
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=sample_rate,channels",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    lines = proc.stdout.strip().split("\n")
+    try:
+        sr = int(lines[0]); ch = int(lines[1])
+    except (ValueError, IndexError):
+        sr = 44100; ch = 2
+
+    # Export to raw PCM float32
+    tmpdir = tempfile.mkdtemp()
+    raw_in = os.path.join(tmpdir, "in.raw")
+    raw_out = os.path.join(tmpdir, "out.raw")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-f", "f32le", "-ar", str(sr), "-ac", str(ch), raw_in],
+        check=True, capture_output=True,
+    )
+    data = np.frombuffer(open(raw_in, "rb").read(), dtype=np.float32)
+    # Add crackle: random sparse impulses
+    rng = np.random.default_rng(42)
+    impulses = rng.random(len(data)) < crackle_density
+    crackle = impulses.astype(np.float32) * rng.choice([-1, 1], len(data)) * crackle_level
+    noise = rng.standard_normal(len(data)).astype(np.float32) * (crackle_level * 0.1)
+    result = np.clip(data + crackle + noise, -1.0, 1.0)
+    result.tofile(raw_out)
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "f32le", "-ar", str(sr), "-ac", str(ch), "-i", raw_out,
+         output_path],
+        check=True, capture_output=True,
+    )

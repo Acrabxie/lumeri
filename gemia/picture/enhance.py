@@ -2923,3 +2923,56 @@ def image_pixelate_mosaic(
             mean = block.mean(axis=(0, 1))
             out[y:y+block_size, x:x+block_size] = mean
     Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_pencil_sketch(
+    input_path: str,
+    output_path: str,
+    *,
+    blur_radius: int = 21,
+    intensity: float = 1.5,
+) -> None:
+    """Pencil sketch effect via invert+blur dodge blend."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32)
+    inv = 255.0 - arr
+    inv_img = Image.fromarray(inv.clip(0, 255).astype(np.uint8))
+    blurred_inv = np.array(inv_img.filter(ImageFilter.GaussianBlur(radius=blur_radius)), dtype=np.float32)
+    # Dodge blend: result = base / (1 - blend/255) clamped
+    denom = np.clip(255.0 - blurred_inv, 1, 255)
+    dodge = np.clip(arr * 255.0 / denom * intensity, 0, 255)
+    Image.fromarray(dodge.astype(np.uint8), "L").convert("RGB").save(output_path)
+
+
+def image_watercolor(
+    input_path: str,
+    output_path: str,
+    *,
+    smoothing_passes: int = 3,
+    edge_strength: float = 0.4,
+) -> None:
+    """Watercolor painting effect: smooth + edge overlay."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    img = Image.open(input_path).convert("RGB")
+    # Multiple passes of median-like smoothing
+    smooth = img
+    for _ in range(smoothing_passes):
+        smooth = smooth.filter(ImageFilter.MedianFilter(size=5))
+    # Edge mask from original
+    gray = img.convert("L")
+    edges = np.array(gray.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    edges = (edges / (edges.max() + 1e-6) * 255).astype(np.uint8)
+    edge_mask = 255 - edges  # dark edges
+    arr_smooth = np.array(smooth, dtype=np.float32)
+    # Slightly desaturate
+    from PIL import ImageEnhance
+    smooth_desat = ImageEnhance.Color(smooth).enhance(0.8)
+    arr_sd = np.array(smooth_desat, dtype=np.float32)
+    edge_f = edge_mask.astype(np.float32)[:, :, np.newaxis] / 255.0
+    result = arr_sd * (1 - edge_strength * (1 - edge_f))
+    Image.fromarray(result.clip(0, 255).astype(np.uint8), "RGB").save(output_path)

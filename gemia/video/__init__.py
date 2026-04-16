@@ -73,6 +73,7 @@ from gemia.video.effects import (
     video_extract_i_frames, video_fade_audio,
     video_concat_crossfade, video_add_chapters,
     video_boomerang, video_color_splash,
+    video_zoom_crop_safe, video_time_remap,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -160,4 +161,5 @@ __all__ = [
     "video_extract_i_frames", "video_fade_audio",
     "video_concat_crossfade", "video_add_chapters",
     "video_boomerang", "video_color_splash",
+    "video_zoom_crop_safe", "video_time_remap",
 ]
