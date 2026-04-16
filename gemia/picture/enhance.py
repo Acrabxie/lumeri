@@ -2976,3 +2976,87 @@ def image_watercolor(
     edge_f = edge_mask.astype(np.float32)[:, :, np.newaxis] / 255.0
     result = arr_sd * (1 - edge_strength * (1 - edge_f))
     Image.fromarray(result.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_stained_glass(
+    input_path: str,
+    output_path: str,
+    *,
+    num_cells: int = 200,
+    edge_width: int = 2,
+) -> None:
+    """Stained glass effect using random Voronoi segmentation."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    rng = np.random.default_rng(42)
+    # Random seed points
+    seeds_y = rng.integers(0, h, num_cells)
+    seeds_x = rng.integers(0, w, num_cells)
+    # Assign each pixel to nearest seed (vectorized)
+    ys = np.arange(h)[:, np.newaxis]
+    xs = np.arange(w)[np.newaxis, :]
+    out = np.zeros_like(arr)
+    # Process in chunks to avoid large memory
+    # Build label map
+    label = np.zeros((h, w), dtype=np.int32)
+    dist_min = np.full((h, w), np.inf)
+    for i, (sy, sx) in enumerate(zip(seeds_y, seeds_x)):
+        d = (ys - sy)**2 + (xs - sx)**2
+        mask = d < dist_min
+        dist_min[mask] = d[mask]
+        label[mask] = i
+    # Fill each cell with mean color
+    for i in range(num_cells):
+        m = label == i
+        if m.any():
+            mean_color = arr[m].mean(axis=0).astype(np.uint8)
+            out[m] = mean_color
+    # Draw edges: where label differs from neighbors
+    edge = np.zeros((h, w), dtype=bool)
+    edge[:-1, :] |= (label[:-1, :] != label[1:, :])
+    edge[:, :-1] |= (label[:, :-1] != label[:, 1:])
+    if edge_width > 1:
+        from PIL import ImageFilter
+        edge_img = Image.fromarray(edge.astype(np.uint8) * 255)
+        edge_img = edge_img.filter(ImageFilter.MaxFilter(edge_width * 2 + 1))
+        edge = np.array(edge_img) > 0
+    out[edge] = 0
+    Image.fromarray(out, "RGB").save(output_path)
+
+
+def image_ascii_art(
+    input_path: str,
+    output_path: str,
+    *,
+    cols: int = 80,
+    font_size: int = 10,
+) -> None:
+    """Convert image to ASCII art rendered back as an image."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+
+    chars = "@#S%?*+;:,. "
+    img = Image.open(input_path).convert("L")
+    # Resize to cols x rows
+    aspect = img.height / img.width
+    rows = max(1, int(cols * aspect * 0.5))  # chars are ~2x tall
+    small = img.resize((cols, rows), Image.LANCZOS)
+    arr = np.array(small)
+    # Map brightness to chars
+    indices = (arr / 255 * (len(chars) - 1)).astype(int)
+    lines = ["".join(chars[indices[r, c]] for c in range(cols)) for r in range(rows)]
+    # Render to image
+    char_w, char_h = font_size, font_size * 2
+    out_img = Image.new("RGB", (cols * char_w, rows * char_h), (255, 255, 255))
+    draw = ImageDraw.Draw(out_img)
+    try:
+        font = ImageFont.load_default(size=font_size)
+    except TypeError:
+        font = ImageFont.load_default()
+    for r, line in enumerate(lines):
+        draw.text((0, r * char_h), line, fill=(0, 0, 0), font=font)
+    out_img.save(output_path)
