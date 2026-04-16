@@ -3257,3 +3257,25 @@ def audio_spectral_gate(
                  output_path],
                 check=True, capture_output=True,
             )
+
+
+def audio_pitch_wobble(
+    input_path: str,
+    output_path: str,
+    *,
+    frequency: float = 5.0,
+    depth: float = 0.5,
+) -> None:
+    """LFO pitch wobble (vibrato) using ffmpeg vibrato filter.
+
+    frequency: LFO rate in Hz (0.1–20)
+    depth: modulation depth 0–1
+    """
+    depth = max(0.0, min(1.0, depth))
+    frequency = max(0.1, min(20.0, frequency))
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"vibrato=f={frequency:.2f}:d={depth:.2f}",
+         output_path],
+        check=True, capture_output=True,
+    )
