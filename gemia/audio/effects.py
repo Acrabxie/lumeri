@@ -3279,3 +3279,20 @@ def audio_pitch_wobble(
          output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_room_tone(
+    output_path: str,
+    *,
+    duration: float = 5.0,
+    sample_rate: int = 44100,
+    level_db: float = -40.0,
+) -> None:
+    """Generate synthetic room tone (ambient white noise) of specified duration."""
+    subprocess.run(
+        ["ffmpeg", "-y",
+         "-f", "lavfi",
+         "-i", f"anoisesrc=d={duration}:c=white:r={sample_rate}:a={10**(level_db/20):.6f}",
+         output_path],
+        check=True, capture_output=True,
+    )

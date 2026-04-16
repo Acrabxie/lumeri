@@ -3206,3 +3206,39 @@ def image_color_burn(
     # Apply opacity
     out = base * (1 - opacity) + result * opacity
     Image.fromarray((out * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_dodge(
+    input_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Color dodge blend: lighten base using blend layer."""
+    import numpy as np
+    from PIL import Image
+
+    base = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32) / 255.0
+    blend_img = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    blend = np.array(blend_img, dtype=np.float32) / 255.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = base / np.where(1.0 - blend < 1e-6, 1e-6, 1.0 - blend)
+    result = np.clip(result, 0, 1)
+    out = base * (1 - opacity) + result * opacity
+    Image.fromarray((out * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_map_to_palette(
+    input_path: str,
+    output_path: str,
+    *,
+    num_colors: int = 16,
+) -> None:
+    """Quantize image to N colors using PIL's built-in quantize."""
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    quantized = img.quantize(colors=num_colors, method=Image.Quantize.MEDIANCUT)
+    quantized.convert("RGB").save(output_path)
