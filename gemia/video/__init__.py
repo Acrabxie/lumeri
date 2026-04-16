@@ -78,6 +78,7 @@ from gemia.video.effects import (
     video_stabilize_crop, video_multi_speed,
     video_luma_key, video_audio_waveform_overlay,
     video_highlight_region, video_frame_interpolate,
+    video_rolling_shutter, video_color_correct,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -170,4 +171,5 @@ __all__ = [
     "video_stabilize_crop", "video_multi_speed",
     "video_luma_key", "video_audio_waveform_overlay",
     "video_highlight_region", "video_frame_interpolate",
+    "video_rolling_shutter", "video_color_correct",
 ]

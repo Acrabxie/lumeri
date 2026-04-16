@@ -5487,3 +5487,62 @@ def video_frame_interpolate(
              "-c:a", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_rolling_shutter(
+    input_path: str,
+    output_path: str,
+    *,
+    amplitude: float = 10.0,
+    frequency: float = 2.0,
+) -> None:
+    """Simulate rolling shutter by horizontally shifting rows with a sine wave."""
+    vf = (
+        f"geq="
+        f"r='r(X+{amplitude}*sin(2*PI*{frequency}*Y/H),Y)':"
+        f"g='g(X+{amplitude}*sin(2*PI*{frequency}*Y/H),Y)':"
+        f"b='b(X+{amplitude}*sin(2*PI*{frequency}*Y/H),Y)'"
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_color_correct(
+    input_path: str,
+    output_path: str,
+    *,
+    r_in_min: float = 0.0,
+    r_in_max: float = 1.0,
+    g_in_min: float = 0.0,
+    g_in_max: float = 1.0,
+    b_in_min: float = 0.0,
+    b_in_max: float = 1.0,
+    r_out_min: float = 0.0,
+    r_out_max: float = 1.0,
+    g_out_min: float = 0.0,
+    g_out_max: float = 1.0,
+    b_out_min: float = 0.0,
+    b_out_max: float = 1.0,
+) -> None:
+    """Color correct via colorlevels filter: set input/output levels per channel."""
+    vf = (
+        f"colorlevels="
+        f"rimin={r_in_min}:rimax={r_in_max}:"
+        f"gimin={g_in_min}:gimax={g_in_max}:"
+        f"bimin={b_in_min}:bimax={b_in_max}:"
+        f"romin={r_out_min}:romax={r_out_max}:"
+        f"gomin={g_out_min}:gomax={g_out_max}:"
+        f"bomin={b_out_min}:bomax={b_out_max}"
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
