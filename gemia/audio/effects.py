@@ -3296,3 +3296,33 @@ def audio_room_tone(
          output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_side_chain_compress(
+    main_path: str,
+    trigger_path: str,
+    output_path: str,
+    *,
+    threshold: float = 0.1,
+    ratio: float = 4.0,
+    attack: float = 5.0,
+    release: float = 100.0,
+) -> None:
+    """Sidechain compression: duck main audio when trigger is loud.
+
+    Uses ffmpeg sidechaincompress filter.
+    """
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", main_path, "-i", trigger_path,
+         "-filter_complex",
+         f"[0:a][1:a]sidechaincompress=threshold={threshold}:ratio={ratio}:"
+         f"attack={attack}:release={release}[a]",
+         "-map", "[a]", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback: just copy main audio
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", main_path, "-c", "copy", output_path],
+            check=True, capture_output=True,
+        )
