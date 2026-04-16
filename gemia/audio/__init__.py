@@ -61,6 +61,7 @@ from gemia.audio.effects import (
     audio_pitch_formant_shift,
     audio_vinyl_crackle,
     audio_haas_effect,
+    audio_spectral_gate,
 )
 
 __all__ = [
@@ -128,4 +129,5 @@ __all__ = [
     "audio_pitch_formant_shift",
     "audio_vinyl_crackle",
     "audio_haas_effect",
+    "audio_spectral_gate",
 ]

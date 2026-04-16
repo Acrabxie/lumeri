@@ -3060,3 +3060,100 @@ def image_ascii_art(
     for r, line in enumerate(lines):
         draw.text((0, r * char_h), line, fill=(0, 0, 0), font=font)
     out_img.save(output_path)
+
+
+def image_noise_reduction(
+    input_path: str,
+    output_path: str,
+    *,
+    patch_size: int = 5,
+    search_size: int = 11,
+    h: float = 10.0,
+) -> None:
+    """Non-local means-inspired denoising (simplified patch averaging)."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    ih, iw = arr.shape[:2]
+    half_p = patch_size // 2
+    half_s = search_size // 2
+    padded = np.pad(arr, ((half_s + half_p, half_s + half_p),
+                          (half_s + half_p, half_s + half_p), (0, 0)), mode="reflect")
+    out = np.zeros_like(arr)
+    weight_sum = np.zeros((ih, iw), dtype=np.float32)
+
+    for dy in range(-half_s, half_s + 1):
+        for dx in range(-half_s, half_s + 1):
+            # Shift
+            shifted = padded[half_s + dy:half_s + dy + ih + 2*half_p,
+                             half_s + dx:half_s + dx + iw + 2*half_p]
+            # Original padded region
+            orig = padded[half_s:half_s + ih + 2*half_p,
+                          half_s:half_s + iw + 2*half_p]
+            # Patch distance (box filter approximation)
+            diff = ((orig - shifted) ** 2).sum(axis=2)
+            # Average over patch window
+            from PIL import ImageFilter
+            diff_img = Image.fromarray(diff.astype(np.float32))
+            # Box blur via numpy
+            ky = np.ones((patch_size, 1), dtype=np.float32) / patch_size
+            kx = np.ones((1, patch_size), dtype=np.float32) / patch_size
+            diff_b = diff.copy()
+            for _ in range(1):
+                ph, pw = diff_b.shape
+                pp = np.pad(diff_b, half_p, mode="reflect")
+                d2 = np.zeros_like(diff_b)
+                for yy in range(patch_size):
+                    for xx in range(patch_size):
+                        d2 += pp[yy:yy+ph, xx:xx+pw] / (patch_size * patch_size)
+                diff_b = d2
+            patch_dist = diff_b[half_p:half_p+ih, half_p:half_p+iw]
+            w = np.exp(-patch_dist / (h ** 2))
+            weight_sum += w
+            s_crop = shifted[half_p:half_p+ih, half_p:half_p+iw]
+            out += w[:, :, np.newaxis] * s_crop
+
+    out /= np.maximum(weight_sum[:, :, np.newaxis], 1e-6)
+    Image.fromarray(out.clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_hue_shift(
+    input_path: str,
+    output_path: str,
+    *,
+    degrees: float = 90.0,
+) -> None:
+    """Shift image hue by degrees in HSV space."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    # RGB to HSV
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    cmax = np.maximum(np.maximum(r, g), b)
+    cmin = np.minimum(np.minimum(r, g), b)
+    delta = cmax - cmin
+    # Hue
+    h = np.zeros_like(r)
+    m = delta > 0
+    mr = m & (cmax == r); mg = m & (cmax == g); mb = m & (cmax == b)
+    h[mr] = ((g[mr] - b[mr]) / delta[mr]) % 6
+    h[mg] = (b[mg] - r[mg]) / delta[mg] + 2
+    h[mb] = (r[mb] - g[mb]) / delta[mb] + 4
+    h = h / 6.0  # [0,1]
+    s = np.where(cmax > 0, delta / cmax, 0)
+    v = cmax
+    # Shift hue
+    h = (h + degrees / 360.0) % 1.0
+    # HSV to RGB
+    hi = (h * 6).astype(int) % 6
+    f = h * 6 - np.floor(h * 6)
+    p = v * (1 - s); q = v * (1 - f * s); t = v * (1 - (1 - f) * s)
+    out = np.zeros_like(arr)
+    for i, (rr, gg, bb) in enumerate([(v,t,p),(q,v,p),(p,v,t),(p,q,v),(t,p,v),(v,p,q)]):
+        m2 = hi == i
+        out[:, :, 0][m2] = rr[m2]; out[:, :, 1][m2] = gg[m2]; out[:, :, 2][m2] = bb[m2]
+    Image.fromarray((out * 255).clip(0, 255).astype(np.uint8), "RGB").save(output_path)
