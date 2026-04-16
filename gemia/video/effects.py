@@ -5225,3 +5225,68 @@ def video_time_remap(
          "-c", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def video_aspect_letterbox(
+    input_path: str,
+    output_path: str,
+    *,
+    target_ratio: str = "16:9",
+) -> None:
+    """Letterbox or pillarbox video to a target aspect ratio with black bars."""
+    a, b = (int(x) for x in target_ratio.split(":"))
+    # Probe source dimensions
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=width,height",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    lines = proc.stdout.strip().split("\n")
+    try:
+        w, h = int(lines[0]), int(lines[1])
+    except (ValueError, IndexError):
+        w, h = 1920, 1080
+    # Compute output dimensions: scale to fit within target ratio box
+    if w * b > h * a:
+        # wider than target → letterbox (black top/bottom)
+        out_w = w; out_h = int(w * b / a)
+        out_h += out_h % 2
+    else:
+        # taller than target → pillarbox (black left/right)
+        out_h = h; out_w = int(h * a / b)
+        out_w += out_w % 2
+    vf = f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_gif_export(
+    input_path: str,
+    output_path: str,
+    *,
+    fps: int = 15,
+    width: int = 320,
+) -> None:
+    """Export video clip as optimized GIF using palettegen+paletteuse."""
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    palette = os.path.join(tmpdir, "palette.png")
+    # Generate palette
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"fps={fps},scale={width}:-1:flags=lanczos,palettegen",
+         palette],
+        check=True, capture_output=True,
+    )
+    # Apply palette
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-i", palette,
+         "-filter_complex", f"fps={fps},scale={width}:-1:flags=lanczos[x];[x][1:v]paletteuse",
+         output_path],
+        check=True, capture_output=True,
+    )

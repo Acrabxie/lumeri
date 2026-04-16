@@ -3204,3 +3204,24 @@ def audio_vinyl_crackle(
          output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_haas_effect(
+    input_path: str,
+    output_path: str,
+    *,
+    delay_ms: float = 20.0,
+    channel: str = "right",
+) -> None:
+    """Haas stereo widening: delay one channel by delay_ms milliseconds."""
+    delay_samples = int(delay_ms)
+    if channel == "right":
+        adelay = f"0|{delay_samples}"
+    else:
+        adelay = f"{delay_samples}|0"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"adelay={adelay}:all=0",
+         output_path],
+        check=True, capture_output=True,
+    )
