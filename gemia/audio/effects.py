@@ -3326,3 +3326,35 @@ def audio_side_chain_compress(
             ["ffmpeg", "-y", "-i", main_path, "-c", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def audio_beat_sync_cut(
+    input_path: str,
+    output_path: str,
+    *,
+    start_beat: int = 0,
+    num_beats: int = 8,
+) -> None:
+    """Extract a musically-aligned segment at beat boundaries.
+
+    start_beat: which beat to start on (0-indexed)
+    num_beats: how many beats to include
+    """
+    bpm = 120.0
+    try:
+        from gemia.audio.analysis import beat_detect
+        bpm_val = beat_detect(input_path)
+        if isinstance(bpm_val, (int, float)) and 40 <= bpm_val <= 300:
+            bpm = float(bpm_val)
+    except Exception:
+        pass
+
+    beat_dur = 60.0 / bpm
+    ss = start_beat * beat_dur
+    dur = num_beats * beat_dur
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-ss", str(ss), "-t", str(dur),
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
