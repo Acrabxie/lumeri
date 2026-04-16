@@ -3242,3 +3242,65 @@ def image_map_to_palette(
     img = Image.open(input_path).convert("RGB")
     quantized = img.quantize(colors=num_colors, method=Image.Quantize.MEDIANCUT)
     quantized.convert("RGB").save(output_path)
+
+
+def image_lens_flare(
+    input_path: str,
+    output_path: str,
+    *,
+    cx: int = None,
+    cy: int = None,
+    intensity: float = 0.8,
+    num_streaks: int = 8,
+) -> None:
+    """Simulate lens flare: bright halo + streaks from a light source point."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+    h, w = arr.shape[:2]
+    if cx is None: cx = w // 2
+    if cy is None: cy = h // 4
+
+    flare = np.zeros((h, w), dtype=np.float32)
+    ys, xs = np.mgrid[0:h, 0:w]
+    # Central halo
+    dist = np.sqrt((xs - cx)**2 + (ys - cy)**2)
+    halo_r = min(w, h) * 0.12
+    flare += intensity * np.exp(-dist**2 / (2 * halo_r**2))
+    # Streaks
+    for i in range(num_streaks):
+        angle = i * np.pi / num_streaks
+        dx = np.cos(angle); dy = np.sin(angle)
+        proj = (xs - cx) * dx + (ys - cy) * dy
+        perp = abs((xs - cx) * (-dy) + (ys - cy) * dx)
+        streak_len = min(w, h) * 0.4
+        streak_w = 2.0
+        streak = (np.exp(-perp**2 / (2 * streak_w**2)) *
+                  np.exp(-proj**2 / (2 * (streak_len * 0.3)**2)) * intensity * 0.4)
+        flare += streak
+
+    flare = np.clip(flare, 0, 1)[:, :, np.newaxis]
+    result = arr / 255.0 + flare * np.array([1.0, 0.9, 0.7])
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_duotone(
+    input_path: str,
+    output_path: str,
+    *,
+    shadow_color: tuple = (20, 10, 80),
+    highlight_color: tuple = (255, 230, 100),
+) -> None:
+    """Duotone: map grayscale linearly between two colors."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32) / 255.0  # [0,1]
+    sc = np.array(shadow_color, dtype=np.float32) / 255.0
+    hc = np.array(highlight_color, dtype=np.float32) / 255.0
+    # Interpolate per pixel
+    result = sc[np.newaxis, np.newaxis, :] * (1 - arr[:, :, np.newaxis]) + hc[np.newaxis, np.newaxis, :] * arr[:, :, np.newaxis]
+    Image.fromarray((result * 255).clip(0, 255).astype(np.uint8), "RGB").save(output_path)

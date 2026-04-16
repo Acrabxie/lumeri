@@ -64,6 +64,7 @@ from gemia.audio.effects import (
     audio_spectral_gate,
     audio_pitch_wobble,
     audio_room_tone,
+    audio_side_chain_compress,
 )
 
 __all__ = [
@@ -134,4 +135,5 @@ __all__ = [
     "audio_spectral_gate",
     "audio_pitch_wobble",
     "audio_room_tone",
+    "audio_side_chain_compress",
 ]
