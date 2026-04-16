@@ -59,6 +59,7 @@ from gemia.audio.effects import (
     audio_stereo_panning,
     audio_cut_silence,
     audio_pitch_formant_shift,
+    audio_vinyl_crackle,
 )
 
 __all__ = [
@@ -124,4 +125,5 @@ __all__ = [
     "audio_stereo_panning",
     "audio_cut_silence",
     "audio_pitch_formant_shift",
+    "audio_vinyl_crackle",
 ]

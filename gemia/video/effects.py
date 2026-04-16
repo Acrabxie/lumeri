@@ -5136,3 +5136,92 @@ def video_color_splash(
              "-c:a", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_zoom_crop_safe(
+    input_path: str,
+    output_path: str,
+    *,
+    zoom: float = 1.2,
+) -> None:
+    """Zoom in by zoom factor and crop center back to original dimensions."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=width,height",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    lines = proc.stdout.strip().split("\n")
+    try:
+        w, h = int(lines[0]), int(lines[1])
+    except (ValueError, IndexError):
+        w, h = 1920, 1080
+    # Scale up then crop center
+    sw = int(w * zoom)
+    sh = int(h * zoom)
+    # Ensure even dimensions
+    sw += sw % 2; sh += sh % 2
+    cx = (sw - w) // 2
+    cy = (sh - h) // 2
+    vf = f"scale={sw}:{sh},crop={w}:{h}:{cx}:{cy}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_time_remap(
+    input_path: str,
+    output_path: str,
+    *,
+    mode: str = "slow_fast_slow",
+) -> None:
+    """Non-linear time remap: slow-fast-slow or fast-slow-fast.
+
+    Implemented as three concatenated speed segments.
+    """
+    import tempfile, os
+
+    # Probe duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        dur = float(proc.stdout.strip())
+    except ValueError:
+        dur = 5.0
+
+    t1, t2 = dur / 3, 2 * dur / 3
+    if mode == "slow_fast_slow":
+        speeds = [0.5, 2.0, 0.5]
+    else:
+        speeds = [2.0, 0.5, 2.0]
+
+    tmpdir = tempfile.mkdtemp()
+    parts = []
+    boundaries = [(0, t1), (t1, t2), (t2, dur)]
+    for i, ((ss, to), spd) in enumerate(zip(boundaries, speeds)):
+        part = os.path.join(tmpdir, f"seg_{i}.mp4")
+        pts = f"setpts={1/spd:.4f}*PTS"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-ss", str(ss), "-to", str(to),
+             "-vf", pts,
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", part],
+            check=True, capture_output=True,
+        )
+        parts.append(part)
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        for p in parts:
+            f.write(f"file '{p}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
