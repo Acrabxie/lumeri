@@ -3304,3 +3304,59 @@ def image_duotone(
     # Interpolate per pixel
     result = sc[np.newaxis, np.newaxis, :] * (1 - arr[:, :, np.newaxis]) + hc[np.newaxis, np.newaxis, :] * arr[:, :, np.newaxis]
     Image.fromarray((result * 255).clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_pixelate_faces(
+    input_path: str,
+    output_path: str,
+    *,
+    block_size: int = 12,
+) -> None:
+    """Detect skin-tone face regions and pixelate them for privacy."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+    h, w = arr.shape[:2]
+    r, g, b = arr[:,:,0].astype(float), arr[:,:,1].astype(float), arr[:,:,2].astype(float)
+    # Skin tone mask (simple heuristic)
+    skin = (r > 90) & (g > 40) & (b > 20) & (r > g) & (r > b) & ((r - g) > 10)
+    out = arr.copy()
+    # Find bounding box of skin region
+    rows = np.any(skin, axis=1); cols = np.any(skin, axis=0)
+    if rows.any() and cols.any():
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+        # Pixelate the bounding box
+        for y in range(rmin, rmax + 1, block_size):
+            for x in range(cmin, cmax + 1, block_size):
+                patch = arr[y:y+block_size, x:x+block_size]
+                out[y:y+block_size, x:x+block_size] = patch.mean(axis=(0,1)).astype(np.uint8)
+    Image.fromarray(out, "RGB").save(output_path)
+
+
+def image_simulate_print(
+    input_path: str,
+    output_path: str,
+    *,
+    dot_size: int = 4,
+    angle: float = 45.0,
+) -> None:
+    """Simulate print halftone dots using periodic pattern overlay."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    h, w = arr.shape
+    ys, xs = np.mgrid[0:h, 0:w]
+    # Rotate coordinates for angled screen
+    rad = np.radians(angle)
+    xr = xs * np.cos(rad) + ys * np.sin(rad)
+    yr = -xs * np.sin(rad) + ys * np.cos(rad)
+    # Dot pattern: sine wave grid
+    dot = (np.cos(2 * np.pi * xr / dot_size) * np.cos(2 * np.pi * yr / dot_size) + 1) / 2
+    # Threshold: pixel is black if luminance < dot pattern
+    result = (arr > dot).astype(np.uint8) * 255
+    Image.fromarray(result, "L").convert("RGB").save(output_path)

@@ -5546,3 +5546,115 @@ def video_color_correct(
          "-c:a", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def video_text_caption(
+    input_path: str,
+    output_path: str,
+    text: str,
+    *,
+    start_time: float = 0.0,
+    end_time: float = 3.0,
+    x: str = "(w-text_w)/2",
+    y: str = "h-th-40",
+    font_size: int = 32,
+    font_color: str = "white",
+    box_color: str = "black@0.5",
+) -> None:
+    """Add a styled text caption at a specific time range using drawtext or PIL fallback."""
+    # Try drawtext first
+    import glob as _glob
+    enable = f"between(t,{start_time},{end_time})"
+    font_candidates = (
+        _glob.glob("/System/Library/Fonts/**/*.ttf", recursive=True) +
+        _glob.glob("/usr/share/fonts/**/*.ttf", recursive=True) +
+        _glob.glob("/Library/Fonts/*.ttf")
+    )
+    font_opt = f":fontfile='{font_candidates[0]}'" if font_candidates else ""
+    vf = (
+        f"drawtext=text='{text}':x={x}:y={y}:fontsize={font_size}"
+        f"{font_opt}:fontcolor={font_color}:box=1:boxcolor={box_color}:enable='{enable}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        return
+    # PIL fallback: extract frames, draw text on those in range, re-encode
+    import tempfile as _tmp, os as _os
+    from PIL import Image, ImageDraw, ImageFont
+    tmpdir = _tmp.mkdtemp()
+    frames_dir = _os.path.join(tmpdir, "frames")
+    _os.makedirs(frames_dir)
+    # Extract all frames
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         _os.path.join(frames_dir, "frame_%06d.png")],
+        check=True, capture_output=True,
+    )
+    # Get fps
+    fps_proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=r_frame_rate",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        num, den = fps_proc.stdout.strip().split("/")
+        fps = float(num) / float(den)
+    except Exception:
+        fps = 25.0
+    try:
+        font = ImageFont.load_default(size=font_size)
+    except TypeError:
+        font = ImageFont.load_default()
+    frame_files = sorted(_os.listdir(frames_dir))
+    for i, fname in enumerate(frame_files):
+        t = i / fps
+        if start_time <= t <= end_time:
+            fp = _os.path.join(frames_dir, fname)
+            img = Image.open(fp).convert("RGB")
+            draw = ImageDraw.Draw(img)
+            iw, ih = img.size
+            tw, th = font_size * len(text) // 2, font_size
+            tx, ty = (iw - tw) // 2, ih - th - 40
+            draw.rectangle([tx-4, ty-4, tx+tw+4, ty+th+4], fill=(0,0,0,128))
+            draw.text((tx, ty), text, fill=(255,255,255), font=font)
+            img.save(fp)
+    # Re-encode
+    subprocess.run(
+        ["ffmpeg", "-y", "-framerate", str(fps),
+         "-i", _os.path.join(frames_dir, "frame_%06d.png"),
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_posterize(
+    input_path: str,
+    output_path: str,
+    *,
+    levels: int = 4,
+) -> None:
+    """Posterize video to N levels."""
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"posterize={levels}",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback using quantize via eq filter approximation
+        step = 255 // levels
+        vf = f"geq=r='round(r(X,Y)/{step})*{step}':g='round(g(X,Y)/{step})*{step}':b='round(b(X,Y)/{step})*{step}'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", vf,
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True,
+        )
