@@ -5367,3 +5367,71 @@ def video_multi_speed(
          "-c", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def video_luma_key(
+    input_path: str,
+    output_path: str,
+    *,
+    threshold: float = 0.1,
+    tolerance: float = 0.1,
+    mode: str = "dark",
+) -> None:
+    """Luma key: make dark or bright pixels transparent using lumakey filter."""
+    if mode == "dark":
+        vf = f"lumakey=threshold={threshold}:tolerance={tolerance}:softness=0.1"
+    else:
+        inv_thresh = 1.0 - threshold
+        vf = f"lumakey=threshold={inv_thresh}:tolerance={tolerance}:softness=0.1,negate,lumakey=threshold=0:tolerance={tolerance},negate"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # lumakey not available, use colorkey as fallback on black/white
+        color = "black" if mode == "dark" else "white"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"colorkey=color={color}:similarity={threshold}:blend=0.1",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True,
+        )
+
+
+def video_audio_waveform_overlay(
+    input_path: str,
+    output_path: str,
+    *,
+    color: str = "white",
+    height: int = 80,
+    mode: str = "line",
+) -> None:
+    """Overlay audio waveform visualization on the video."""
+    fc = (
+        f"[0:a]showwaves=s=iw x{height}:mode={mode}:colors={color}[wave];"
+        f"[0:v][wave]overlay=0:H-{height}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", fc,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Simpler fallback
+        fc2 = (
+            f"[0:a]showwaves=s=320x{height}:mode={mode}:colors={color}[wave];"
+            f"[0:v][wave]overlay=0:H-{height}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-filter_complex", fc2,
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True,
+        )

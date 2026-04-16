@@ -3157,3 +3157,52 @@ def image_hue_shift(
         m2 = hi == i
         out[:, :, 0][m2] = rr[m2]; out[:, :, 1][m2] = gg[m2]; out[:, :, 2][m2] = bb[m2]
     Image.fromarray((out * 255).clip(0, 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_split_tone(
+    input_path: str,
+    output_path: str,
+    *,
+    shadow_color: tuple = (0, 0, 255),
+    highlight_color: tuple = (255, 200, 0),
+    intensity: float = 0.3,
+) -> None:
+    """Split toning: tint shadows and highlights with different colors."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    luminance = 0.299 * arr[:,:,0] + 0.587 * arr[:,:,1] + 0.114 * arr[:,:,2]
+    # Shadow mask: dark areas
+    shadow_mask = (1.0 - luminance)[:, :, np.newaxis]
+    # Highlight mask: bright areas
+    highlight_mask = luminance[:, :, np.newaxis]
+    sc = np.array(shadow_color, dtype=np.float32) / 255.0
+    hc = np.array(highlight_color, dtype=np.float32) / 255.0
+    tinted = arr + intensity * (shadow_mask * sc + highlight_mask * hc - arr * intensity * 0.5)
+    Image.fromarray((tinted.clip(0, 1) * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_color_burn(
+    input_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Color burn blend: darken base using blend layer."""
+    import numpy as np
+    from PIL import Image
+
+    base = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32) / 255.0
+    blend_img = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    blend = np.array(blend_img, dtype=np.float32) / 255.0
+    # Color burn: 1 - (1 - base) / blend
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = 1.0 - (1.0 - base) / np.where(blend == 0, 1e-6, blend)
+    result = np.clip(result, 0, 1)
+    # Apply opacity
+    out = base * (1 - opacity) + result * opacity
+    Image.fromarray((out * 255).astype(np.uint8), "RGB").save(output_path)
