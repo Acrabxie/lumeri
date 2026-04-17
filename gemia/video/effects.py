@@ -7386,3 +7386,48 @@ def video_retrowave(input_path: "str", output_path: "str", *, magenta_lift: "flo
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_color_fade_out(input_path: "str", output_path: "str", *, fade_start: "float" = 2.0, fade_duration: "float" = 1.5, target_color: "str" = "white") -> "None":
+    """Fade video to a solid color (white or black) starting at fade_start seconds."""
+    import subprocess
+    color = "white" if target_color == "white" else "black"
+    expr = f"if(gte(t,{fade_start}),min(1,(t-{fade_start})/{fade_duration}),0)"
+    if color == "white":
+        vf = f"fade=t=out:st={fade_start}:d={fade_duration}:color=white"
+    else:
+        vf = f"fade=t=out:st={fade_start}:d={fade_duration}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"fade=t=out:st={fade_start}:d={fade_duration}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_zoom_letters(input_path: "str", output_path: "str", *, text: "str" = "BOOM", font_size: "int" = 120, zoom_duration: "float" = 0.5, start_time: "float" = 0.0) -> "None":
+    """Zoom-in text overlay: large text scales from 0 to full size over zoom_duration seconds."""
+    import subprocess
+    # Use drawtext with zoom-in using zoompan on text layer via scale expression
+    # Simpler: use drawtext with fontsize that grows over time using enable+size expr
+    vf = (
+        f"drawtext=text='{text}':fontsize='if(lt(t-{start_time},{zoom_duration}),"
+        f"({font_size}*(t-{start_time})/{zoom_duration}),{font_size})':"
+        f"x=(w-tw)/2:y=(h-th)/2:fontcolor=white:borderw=3:bordercolor=black:"
+        f"enable='gte(t,{start_time})'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        vf2 = f"drawtext=text='{text}':fontsize={font_size}:x=(w-tw)/2:y=(h-th)/2:fontcolor=white:borderw=3:bordercolor=black:enable='gte(t,{start_time})'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", vf2, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

@@ -4418,3 +4418,39 @@ def image_glitter(input_path: "str", output_path: "str", *, density: "float" = 0
                         strength = brightness * (1 - dist / (sparkle_size + 1))
                         result[ny, nx] = np.clip(result[ny, nx] * strength, 0, 1)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_watercolor_light(input_path: "str", output_path: "str", *, blur_radius: "int" = 3, wash_strength: "float" = 0.25) -> "None":
+    """Light watercolor wash: soft edges with subtle color bleed and paper-white lift."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Soft blur to simulate paint bleed
+    blurred = np.array(img.filter(ImageFilter.GaussianBlur(radius=blur_radius))).astype(np.float32) / 255.0
+    # Blend: mostly blurred with edge detail from original
+    result = blurred * (1 - wash_strength) + arr * wash_strength
+    # Lift to simulate paper white absorption
+    result = result + (1 - result) * 0.08
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_solarize_color(input_path: "str", output_path: "str", *, threshold: "float" = 0.5, hue_shift: "float" = 0.33) -> "None":
+    """Color solarization: pixels above threshold have hue rotated, creating psychedelic inversion."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    mask = lum > threshold
+    solarized = arr.copy()
+    # Rotate hue of pixels above threshold by shifting channels
+    above = arr[mask]
+    # Simple hue rotation: shift R→G→B channels
+    shift = int(hue_shift * 3) % 3
+    if shift == 1:
+        above = above[:, [1, 2, 0]]
+    elif shift == 2:
+        above = above[:, [2, 0, 1]]
+    solarized[mask] = above
+    Image.fromarray((solarized.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

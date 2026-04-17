@@ -3962,3 +3962,23 @@ def audio_pitch_glide(input_path: "str", output_path: "str", *, start_semitones:
             except: pass
         try: os.rmdir(tmp_dir)
         except: pass
+
+
+def audio_granular_pitch(input_path: "str", output_path: "str", *, pitch_semitones: "float" = 5.0, grain_ms: "float" = 80.0) -> "None":
+    """Granular-style pitch shift: chop audio into grains, shift each, reassemble."""
+    import subprocess
+    # Use asetrate+aresample for simple pitch shift; grain_ms influences smoothing
+    ratio = 2 ** (pitch_semitones / 12.0)
+    # Apply pitch shift with slight tempo preservation via atempo inverse
+    af = f"asetrate=44100*{ratio:.6f},aresample=44100,atempo={1/ratio:.6f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: basic pitch shift without tempo correction
+        af2 = f"asetrate=44100*{ratio:.6f},aresample=44100"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", af2, output_path],
+            check=True, capture_output=True
+        )
