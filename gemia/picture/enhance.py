@@ -3545,3 +3545,43 @@ def image_bokeh_blur(input_path: "str", output_path: "str", *, radius: "int" = 1
     for _ in range(3):
         img = img.filter(ImageFilter.BoxBlur(radius // 2))
     img.save(output_path)
+
+
+def image_fog_effect(input_path: "str", output_path: "str", *, intensity: "float" = 0.4) -> "None":
+    """Blend white radial gradient over image to simulate fog/haze."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Radial gradient: stronger fog at edges (or centre — use centre fade)
+    xs = np.linspace(-1, 1, w)
+    ys = np.linspace(-1, 1, h)
+    xx, yy = np.meshgrid(xs, ys)
+    dist = np.clip(np.sqrt(xx**2 + yy**2), 0, 1)[:, :, np.newaxis]
+    fog_alpha = dist * intensity
+    fog_alpha = np.clip(fog_alpha, 0, 1)
+    result = arr * (1.0 - fog_alpha) + fog_alpha  # blend with white
+    result = (result.clip(0, 1) * 255).astype(np.uint8)
+    Image.fromarray(result).save(output_path)
+
+
+def image_infrared(input_path: "str", output_path: "str", *, boost: "float" = 1.3) -> "None":
+    """Simulate infrared photography: swap R/G channels, desaturate, boost contrast."""
+    from PIL import Image, ImageEnhance
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32)
+    # Swap red and green channels
+    r, g, b = arr[:, :, 0].copy(), arr[:, :, 1].copy(), arr[:, :, 2].copy()
+    arr[:, :, 0] = g
+    arr[:, :, 1] = r
+    arr[:, :, 2] = b * 0.5  # reduce blue
+    arr = np.clip(arr, 0, 255).astype(np.uint8)
+    result = Image.fromarray(arr)
+    # Convert to grayscale then back for desaturated look
+    gray = result.convert("L")
+    result = Image.merge("RGB", [gray, gray, gray])
+    # Boost contrast
+    result = ImageEnhance.Contrast(result).enhance(boost)
+    result.save(output_path)
