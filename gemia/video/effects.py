@@ -6457,3 +6457,93 @@ def video_strobe(input_path: "str", output_path: "str", *, strobe_rate: "int" = 
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_pixelate_faces(input_path: "str", output_path: "str", *, block_size: "int" = 20) -> "None":
+    """Pixelate face-like regions for anonymisation (uses center-region heuristic)."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,width,height",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image
+        import numpy as np
+        # Heuristic: pixelate upper-centre region (typical face area in portraits)
+        fx = w // 4
+        fy = h // 8
+        fw = w // 2
+        fh = h // 3
+        for fname in sorted(os.listdir(frames_dir)):
+            fpath = os.path.join(frames_dir, fname)
+            img = Image.open(fpath).convert("RGB")
+            arr = np.array(img)
+            region = arr[fy:fy+fh, fx:fx+fw]
+            # Pixelate region
+            for y in range(0, fh, block_size):
+                for x in range(0, fw, block_size):
+                    block = region[y:y+block_size, x:x+block_size]
+                    if block.size > 0:
+                        avg = block.mean(axis=(0, 1)).astype(np.uint8)
+                        arr[fy+y:fy+y+block_size, fx+x:fx+x+block_size] = avg
+            Image.fromarray(arr).save(fpath)
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_speed_echo(input_path: "str", output_path: "str", *, delay_frames: "int" = 5, ghost_opacity: "float" = 0.4) -> "None":
+    """Blend current frame with a delayed ghost frame for motion echo/trail effect."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        fps_str = probe.stdout.strip()
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image
+        import numpy as np
+        fnames = sorted(os.listdir(frames_dir))
+        frames = [np.array(Image.open(os.path.join(frames_dir, f))).astype(np.float32) for f in fnames]
+        for idx in range(len(frames)):
+            ghost_idx = max(0, idx - delay_frames)
+            blended = frames[idx] * (1.0 - ghost_opacity) + frames[ghost_idx] * ghost_opacity
+            Image.fromarray(blended.clip(0, 255).astype(np.uint8)).save(
+                os.path.join(frames_dir, fnames[idx]))
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

@@ -3813,3 +3813,53 @@ def image_color_halftone(input_path: "str", output_path: "str", *, dot_size: "in
                         # Use multiply-like blend: draw dot with transparency via fill
                         draw.ellipse(bbox, fill=color)
     out.save(output_path)
+
+
+def image_relief(input_path: "str", output_path: "str", *, angle: "float" = 135.0, depth: "float" = 2.0) -> "None":
+    """Emboss-style relief with directional lighting."""
+    from PIL import Image, ImageFilter
+    import numpy as np, math
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img).astype(np.float32)
+    rad = math.radians(angle)
+    kx = math.cos(rad) * depth
+    ky = math.sin(rad) * depth
+    kernel = [
+        -ky - kx, -ky,      -ky + kx,
+        -kx,       1.0,      kx,
+         ky - kx,  ky,       ky + kx,
+    ]
+    # Normalize kernel
+    k = np.array(kernel, dtype=np.float32).reshape(3, 3)
+    from scipy.ndimage import convolve
+    try:
+        embossed = convolve(arr, k) + 128
+    except ImportError:
+        # Manual convolution via PIL ImageFilter
+        img2 = img.filter(ImageFilter.Kernel(size=3, kernel=[int(v*10) for v in kernel], scale=10, offset=128))
+        img2.convert("RGB").save(output_path)
+        return
+    embossed = np.clip(embossed, 0, 255).astype(np.uint8)
+    Image.fromarray(embossed).convert("RGB").save(output_path)
+
+
+def image_rainbow_gradient(input_path: "str", output_path: "str", *, opacity: "float" = 0.4) -> "None":
+    """Overlay a horizontal rainbow gradient with screen blend."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Build rainbow via HSV: hue sweeps 0→1 across width
+    xs = np.linspace(0.0, 1.0, w)
+    import colorsys
+    rainbow = np.zeros((h, w, 3), dtype=np.float32)
+    for i, hue in enumerate(xs):
+        r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        rainbow[:, i, 0] = r
+        rainbow[:, i, 1] = g
+        rainbow[:, i, 2] = b
+    # Screen blend
+    screen = 1.0 - (1.0 - arr) * (1.0 - rainbow)
+    result = arr * (1.0 - opacity) + screen * opacity
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
