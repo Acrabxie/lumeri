@@ -98,6 +98,7 @@ from gemia.video.effects import (
     video_mirror_vertical, video_chromatic_shift,
     video_zoom_pulse, video_color_grade_lut,
     video_split_quad, video_text_lower_third,
+    video_burn_in_timecode, video_slow_in_fast_out,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -210,4 +211,5 @@ __all__ = [
     "video_mirror_vertical", "video_chromatic_shift",
     "video_zoom_pulse", "video_color_grade_lut",
     "video_split_quad", "video_text_lower_third",
+    "video_burn_in_timecode", "video_slow_in_fast_out",
 ]
