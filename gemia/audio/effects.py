@@ -3650,3 +3650,23 @@ def audio_reverb_room(input_path: "str", output_path: "str", *, room_size: "floa
         ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
         check=True, capture_output=True
     )
+
+
+def audio_distortion(input_path: "str", output_path: "str", *, drive: "float" = 0.7, output_gain: "float" = 0.5) -> "None":
+    """Hard-clip overdrive distortion effect."""
+    import subprocess
+    threshold = 1.0 - drive * 0.9
+    # acrusher or volume + compand for clipping
+    af = f"volume={1.0/threshold:.2f},acompressor=threshold={threshold:.3f}:ratio=100:attack=0.1:release=1,volume={output_gain:.2f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: acrusher
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"acrusher=level_in=4:level_out={output_gain:.2f}:bits=8:mode=log:aa=1",
+             output_path],
+            check=True, capture_output=True
+        )
