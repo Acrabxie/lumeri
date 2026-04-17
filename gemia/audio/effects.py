@@ -3716,3 +3716,24 @@ def audio_wah_effect(input_path: "str", output_path: "str", *, rate_hz: "float" 
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_pitch_vibrato(input_path: "str", output_path: "str", *, rate_hz: "float" = 5.0, depth_semitones: "float" = 0.5) -> "None":
+    """Vibrato via sinusoidal pitch modulation."""
+    import subprocess
+    # vibrato filter: rate and depth (0-1 where 1 = full semitone range)
+    depth = min(1.0, depth_semitones / 12.0 * 2)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"vibrato=f={rate_hz:.2f}:d={depth:.3f}",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: tremolo as approximation
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"tremolo=f={rate_hz:.2f}:d={depth:.3f}",
+             output_path],
+            check=True, capture_output=True
+        )

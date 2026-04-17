@@ -95,6 +95,7 @@ from gemia.video.effects import (
     video_vhs_glitch, video_letterbox_blur,
     video_split_tone, video_zoom_out_center,
     video_push_transition, video_fade_to_white,
+    video_mirror_vertical, video_chromatic_shift,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -204,4 +205,5 @@ __all__ = [
     "video_vhs_glitch", "video_letterbox_blur",
     "video_split_tone", "video_zoom_out_center",
     "video_push_transition", "video_fade_to_white",
+    "video_mirror_vertical", "video_chromatic_shift",
 ]
