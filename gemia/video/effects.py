@@ -7005,3 +7005,100 @@ def video_text_lower_third(input_path: "str", output_path: "str", *, text: "str"
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_burn_in_timecode(input_path: "str", output_path: "str", *, font_size: "int" = 24, position: "str" = "top_left", start_offset: "float" = 0.0) -> "None":
+    """Burn current timecode (HH:MM:SS:FF) as text overlay using PIL."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,width,height",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image, ImageDraw, ImageFont
+        positions_map = {
+            "top_left": (10, 10),
+            "top_right": (w - font_size * 10, 10),
+            "bottom_left": (10, h - font_size - 10),
+            "bottom_right": (w - font_size * 10, h - font_size - 10),
+        }
+        pos = positions_map.get(position, (10, 10))
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Courier New.ttf", font_size)
+        except Exception:
+            font = ImageFont.load_default()
+        fnames = sorted(os.listdir(frames_dir))
+        for idx, fname in enumerate(fnames):
+            fpath = os.path.join(frames_dir, fname)
+            t = start_offset + idx / fps
+            hh = int(t // 3600)
+            mm = int((t % 3600) // 60)
+            ss = int(t % 60)
+            ff = int((t % 1) * fps)
+            tc = f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
+            img = Image.open(fpath).convert("RGB")
+            draw = ImageDraw.Draw(img)
+            # Shadow
+            draw.text((pos[0] + 1, pos[1] + 1), tc, fill=(0, 0, 0), font=font)
+            draw.text(pos, tc, fill=(255, 255, 0), font=font)
+            img.save(fpath)
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_slow_in_fast_out(input_path: "str", output_path: "str", *, slow_factor: "float" = 0.3, transition_point: "float" = 0.4) -> "None":
+    """Speed ramp: slow at start → accelerate to normal speed at transition_point."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        dur_probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", input_path], capture_output=True, text=True)
+        dur = float(dur_probe.stdout.strip() or "5")
+        slow_end = dur * transition_point
+        # Segment 1: slow (pts multiplied = slower playback)
+        seg1 = os.path.join(tmp, "seg1.mp4")
+        seg2 = os.path.join(tmp, "seg2.mp4")
+        concat_list = os.path.join(tmp, "list.txt")
+        pts_slow = 1.0 / slow_factor  # e.g. 0.3 → pts * 3.33 = slower
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-t", str(slow_end),
+             "-vf", f"setpts={pts_slow:.4f}*PTS",
+             "-af", f"atempo={slow_factor:.4f}",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", seg1],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(slow_end), "-i", input_path,
+             "-c", "copy", seg2],
+            check=True, capture_output=True
+        )
+        with open(concat_list, "w") as f:
+            f.write(f"file '{seg1}'\nfile '{seg2}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", concat_list, "-c", "copy", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
