@@ -4185,3 +4185,41 @@ def image_sketch_color(input_path: "str", output_path: "str", *, edge_threshold:
     # Whiten background, keep color on edges
     result = arr * edge_mask + (arr * (1 - whitening) + white * whitening) * (1 - edge_mask)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_neon_outline(input_path: "str", output_path: "str", *, glow_radius: "int" = 4, brightness: "float" = 3.0) -> "None":
+    """Thick glowing neon outlines on black background."""
+    from PIL import Image, ImageFilter, ImageEnhance
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    edges = img.filter(ImageFilter.FIND_EDGES)
+    # Dilate edges by blurring then thresholding
+    thick = edges.filter(ImageFilter.GaussianBlur(radius=glow_radius))
+    bright = ImageEnhance.Brightness(thick).enhance(brightness)
+    # Colorize with original hue
+    arr_orig = np.array(img).astype(np.float32) / 255.0
+    arr_glow = np.array(bright).astype(np.float32) / 255.0
+    lum_glow = 0.299 * arr_glow[:, :, 0] + 0.587 * arr_glow[:, :, 1] + 0.114 * arr_glow[:, :, 2]
+    result = arr_orig * lum_glow[:, :, np.newaxis]
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_texture_overlay(input_path: "str", texture_path: "str", output_path: "str", *, opacity: "float" = 0.5, blend_mode: "str" = "multiply") -> "None":
+    """Blend a texture image onto base using specified blend mode."""
+    from PIL import Image
+    import numpy as np
+    base = Image.open(input_path).convert("RGB")
+    w, h = base.size
+    tex = Image.open(texture_path).convert("RGB").resize((w, h), Image.LANCZOS)
+    arr = np.array(base).astype(np.float32) / 255.0
+    tex_arr = np.array(tex).astype(np.float32) / 255.0
+    if blend_mode == "multiply":
+        blended = arr * tex_arr
+    elif blend_mode == "screen":
+        blended = 1.0 - (1.0 - arr) * (1.0 - tex_arr)
+    elif blend_mode == "overlay":
+        blended = np.where(arr < 0.5, 2 * arr * tex_arr, 1 - 2 * (1 - arr) * (1 - tex_arr))
+    else:
+        blended = tex_arr
+    result = arr * (1.0 - opacity) + blended * opacity
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

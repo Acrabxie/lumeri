@@ -7102,3 +7102,59 @@ def video_slow_in_fast_out(input_path: "str", output_path: "str", *, slow_factor
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_color_crush(input_path: "str", output_path: "str", *, bits: "int" = 4) -> "None":
+    """Reduce color depth to N bits per channel for retro/posterize look."""
+    import subprocess
+    levels = (2 ** bits) - 1
+    # Use posterize via eq or lutyuv
+    vf = f"lutyuv=y=floor(val/{256//levels})*{256//levels}:u=floor(val/{256//levels})*{256//levels}:v=floor(val/{256//levels})*{256//levels}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        steps = 256 // levels
+        vf2 = f"lutrgb=r=floor(val/{steps})*{steps}:g=floor(val/{steps})*{steps}:b=floor(val/{steps})*{steps}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", vf2, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_fast_in_slow_out(input_path: "str", output_path: "str", *, fast_factor: "float" = 3.0, transition_point: "float" = 0.4) -> "None":
+    """Speed ramp: fast at start → decelerate to normal speed after transition_point."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        dur_probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", input_path], capture_output=True, text=True)
+        dur = float(dur_probe.stdout.strip() or "5")
+        fast_end_src = dur * transition_point / fast_factor  # source time at transition
+        seg1 = os.path.join(tmp, "seg1.mp4")
+        seg2 = os.path.join(tmp, "seg2.mp4")
+        concat_list = os.path.join(tmp, "list.txt")
+        pts_fast = 1.0 / fast_factor
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-t", str(fast_end_src),
+             "-vf", f"setpts={pts_fast:.4f}*PTS",
+             "-af", f"atempo={min(2.0, fast_factor):.4f}",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", seg1],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(fast_end_src), "-i", input_path,
+             "-c", "copy", seg2],
+            check=True, capture_output=True
+        )
+        with open(concat_list, "w") as f:
+            f.write(f"file '{seg1}'\nfile '{seg2}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", concat_list, "-c", "copy", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

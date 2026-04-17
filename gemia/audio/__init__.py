@@ -85,6 +85,7 @@ from gemia.audio.effects import (
     audio_tape_saturation,
     audio_vinyl_pop,
     audio_flanger_jet,
+    audio_binaural_pan,
 )
 
 __all__ = [
@@ -176,4 +177,5 @@ __all__ = [
     "audio_tape_saturation",
     "audio_vinyl_pop",
     "audio_flanger_jet",
+    "audio_binaural_pan",
 ]
