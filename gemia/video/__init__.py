@@ -102,6 +102,7 @@ from gemia.video.effects import (
     video_color_crush, video_fast_in_slow_out,
     video_dreamy_blur, video_rgb_parade,
     video_cinematic_bars, video_epic_slowmo,
+    video_freeze_zoom, video_duotone,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -218,4 +219,5 @@ __all__ = [
     "video_color_crush", "video_fast_in_slow_out",
     "video_dreamy_blur", "video_rgb_parade",
     "video_cinematic_bars", "video_epic_slowmo",
+    "video_freeze_zoom", "video_duotone",
 ]
