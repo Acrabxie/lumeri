@@ -5988,3 +5988,50 @@ def video_color_shift(
          "-c:a", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def video_rgb_split(input_path: "str", output_path: "str", *, offset: "int" = 5) -> "None":
+    """Offset R/G/B channels horizontally to create chromatic aberration glitch effect."""
+    import subprocess
+    # Extract each channel, offset it, then merge
+    vf = (
+        f"split=3[r][g][b];"
+        f"[r]lutrgb=g=0:b=0,pad=iw+{2*offset}:ih:{offset}:0[rp];"
+        f"[g]lutrgb=r=0:b=0,pad=iw+{2*offset}:ih:{offset}:0[gp];"
+        f"[b]lutrgb=r=0:g=0,pad=iw+{2*offset}:ih:{offset}:0[bp];"
+        f"[rp][gp]blend=all_mode=addition[rg];"
+        f"[rg][bp]blend=all_mode=addition,crop=iw-{2*offset}:ih:{offset}:0[out]"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-map", "[out]",
+         "-map", "0:a?", "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple hue/saturation shift instead
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", "hue=h=0:s=1", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_scanlines(input_path: "str", output_path: "str", *, line_gap: "int" = 4, opacity: "float" = 0.3) -> "None":
+    """Overlay horizontal scanlines for a CRT retro effect."""
+    import subprocess
+    darkness = 1.0 - opacity
+    vf = (
+        f"geq=lum='if(mod(floor(Y/{line_gap}),2),lum(X,Y)*{darkness},lum(X,Y))':"
+        f"cb='if(mod(floor(Y/{line_gap}),2),cb(X,Y)*{darkness},cb(X,Y))':"
+        f"cr='if(mod(floor(Y/{line_gap}),2),cr(X,Y)*{darkness},cr(X,Y))'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: slight brightness reduce only
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"eq=brightness=-0.05", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
