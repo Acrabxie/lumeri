@@ -3622,3 +3622,16 @@ def audio_pitch_octave_down(input_path: "str", output_path: "str") -> "None":
          output_path],
         check=True, capture_output=True
     )
+
+
+def audio_granular_freeze(input_path: "str", output_path: "str", *, grain_start: "float" = 1.0, grain_duration: "float" = 0.1, output_duration: "float" = 3.0) -> "None":
+    """Loop a short audio grain to create a frozen/sustained texture."""
+    import subprocess
+    # Extract grain then loop it
+    subprocess.run(
+        ["ffmpeg", "-y", "-ss", str(grain_start), "-t", str(grain_duration),
+         "-i", input_path, "-af",
+         f"aloop=loop={int(output_duration / grain_duration) + 1}:size={int(grain_duration * 44100)}",
+         "-t", str(output_duration), output_path],
+        check=True, capture_output=True
+    )

@@ -76,6 +76,7 @@ from gemia.audio.effects import (
     audio_radio_effect,
     audio_crowd_ambience,
     audio_pitch_octave_down,
+    audio_granular_freeze,
 )
 
 __all__ = [
@@ -158,4 +159,5 @@ __all__ = [
     "audio_radio_effect",
     "audio_crowd_ambience",
     "audio_pitch_octave_down",
+    "audio_granular_freeze",
 ]
