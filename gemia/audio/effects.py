@@ -3440,3 +3440,33 @@ def audio_stutter(
         ["ffmpeg","-y","-f","concat","-safe","0","-i",list_file,"-c","copy",output_path],
         check=True,capture_output=True,
     )
+
+
+def audio_auto_duck(
+    music_path: str,
+    voice_path: str,
+    output_path: str,
+    *,
+    duck_level_db: float = -12.0,
+    attack_ms: float = 50.0,
+    release_ms: float = 500.0,
+) -> None:
+    """Auto-duck music under voiceover using ffmpeg sidechaincompress."""
+    # Mix: music ducked when voice is present
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", music_path, "-i", voice_path,
+         "-filter_complex",
+         f"[0:a][1:a]sidechaincompress=threshold=0.05:ratio=8:"
+         f"attack={attack_ms}:release={release_ms}:makeup={10**(duck_level_db/-20):.4f}[a]",
+         "-map", "[a]", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback: simple volume reduction
+        duck_ratio = 10 ** (duck_level_db / 20)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", music_path,
+             "-af", f"volume={duck_ratio:.4f}",
+             output_path],
+            check=True, capture_output=True,
+        )

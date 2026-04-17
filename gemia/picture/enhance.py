@@ -3466,3 +3466,57 @@ def image_color_quantize_dither(
     # PIL's quantize with dithering
     quantized = img.quantize(colors=num_colors, dither=Image.Dither.FLOYDSTEINBERG)
     quantized.convert("RGB").save(output_path)
+
+
+def image_cross_hatch(
+    input_path: str,
+    output_path: str,
+    *,
+    line_spacing: int = 6,
+    num_directions: int = 2,
+) -> None:
+    """Cross-hatch effect: diagonal lines with density from luminance."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("L")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    h, w = arr.shape
+    canvas = np.ones((h, w), dtype=np.float32)
+
+    angles = [45, 135, 90, 0][:num_directions]
+    for angle in angles:
+        rad = np.radians(angle)
+        ys, xs = np.mgrid[0:h, 0:w]
+        proj = xs * np.cos(rad) + ys * np.sin(rad)
+        # Line pattern
+        line = (proj % line_spacing) < 1.0
+        # Only draw lines where image is dark enough
+        threshold = 1.0 - (1.0 / num_directions)
+        mask = (arr < threshold) & line
+        canvas[mask] = 0.0
+
+    result = (canvas * 255).astype(np.uint8)
+    Image.fromarray(result, "L").convert("RGB").save(output_path)
+
+
+def image_soft_light(
+    input_path: str,
+    blend_path: str,
+    output_path: str,
+    *,
+    opacity: float = 1.0,
+) -> None:
+    """Soft light blend mode: subtle brightening/darkening."""
+    import numpy as np
+    from PIL import Image
+
+    base = np.array(Image.open(input_path).convert("RGB"), dtype=np.float32) / 255.0
+    blend_img = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    blend = np.array(blend_img, dtype=np.float32) / 255.0
+    # Pegtop soft light formula
+    result = (1 - 2*blend) * base**2 + 2*blend*base
+    result = np.clip(result, 0, 1)
+    out = base * (1 - opacity) + result * opacity
+    Image.fromarray((out * 255).astype(np.uint8), "RGB").save(output_path)
