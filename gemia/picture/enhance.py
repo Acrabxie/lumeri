@@ -3679,3 +3679,38 @@ def image_sunbeams(input_path: "str", output_path: "str", *, cx: "float" = 0.5, 
         current = canvas
     result = (accumulated / total_weight).clip(0, 1)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pencil_color(input_path: "str", output_path: "str", *, sketch_blend: "float" = 0.5) -> "None":
+    """Color pencil sketch: blend grayscale sketch layer with original color."""
+    from PIL import Image, ImageFilter, ImageChops
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    gray = img.convert("L")
+    # Pencil sketch: invert, blur, divide
+    inv = gray.point(lambda p: 255 - p)
+    blurred = inv.filter(ImageFilter.GaussianBlur(radius=10))
+    # Dodge: gray / (1 - blurred/255)
+    gray_arr = np.array(gray).astype(np.float32) / 255.0
+    blur_arr = np.array(blurred).astype(np.float32) / 255.0
+    denom = np.clip(1.0 - blur_arr, 1e-6, 1.0)
+    sketch = np.clip(gray_arr / denom, 0, 1)
+    sketch_img = Image.fromarray((sketch * 255).astype(np.uint8)).convert("RGB")
+    # Blend sketch with original color
+    result = Image.blend(sketch_img, img, alpha=sketch_blend)
+    result.save(output_path)
+
+
+def image_selective_blur(input_path: "str", output_path: "str", *, threshold: "float" = 0.5, blur_radius: "int" = 5) -> "None":
+    """Blur only shadow/dark areas, keep highlights sharp."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    arr = np.array(img).astype(np.float32) / 255.0
+    blur_arr = np.array(blurred).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    # Blend weight: 1 = full blur (dark), 0 = sharp (bright)
+    weight = np.clip(1.0 - lum / threshold, 0, 1)[:, :, np.newaxis]
+    result = arr * (1.0 - weight) + blur_arr * weight
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

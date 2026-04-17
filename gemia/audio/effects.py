@@ -3555,3 +3555,30 @@ def audio_telephone_filter(input_path: "str", output_path: "str", *, low_hz: "fl
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_radio_effect(input_path: "str", output_path: "str", *, center_hz: "float" = 1000.0, bandwidth: "float" = 4000.0, noise_level: "float" = 0.02) -> "None":
+    """Simulate AM radio: narrow bandpass + added white noise + slight distortion."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        low = max(100, center_hz - bandwidth / 2)
+        high = center_hz + bandwidth / 2
+        # Generate noise and mix
+        noise_file = os.path.join(tmp, "noise.wav")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi",
+             "-i", f"anoisesrc=d=3600:c=white:a={noise_level}",
+             "-t", "3600", noise_file],
+            check=True, capture_output=True
+        )
+        # Mix input + noise, apply bandpass
+        vf = f"highpass=f={low:.0f},lowpass=f={high:.0f},volume=2.0"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-i", noise_file,
+             "-filter_complex", f"[0:a][1:a]amix=inputs=2:normalize=0[mixed];[mixed]{vf}[out]",
+             "-map", "[out]", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

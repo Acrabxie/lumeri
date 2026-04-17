@@ -87,6 +87,7 @@ from gemia.video.effects import (
     video_night_vision, video_old_film,
     video_tilt_shift, video_mirror_flip,
     video_ken_burns_auto, video_color_pop,
+    video_shake_cam, video_color_temperature,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -188,4 +189,5 @@ __all__ = [
     "video_night_vision", "video_old_film",
     "video_tilt_shift", "video_mirror_flip",
     "video_ken_burns_auto", "video_color_pop",
+    "video_shake_cam", "video_color_temperature",
 ]
