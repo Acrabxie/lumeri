@@ -3582,3 +3582,25 @@ def audio_radio_effect(input_path: "str", output_path: "str", *, center_hz: "flo
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def audio_crowd_ambience(input_path: "str", output_path: "str", *, ambience_level: "float" = 0.1) -> "None":
+    """Mix input audio with pink noise to simulate crowd/room ambience."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        noise_file = os.path.join(tmp, "pink.wav")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi",
+             "-i", f"anoisesrc=d=3600:c=pink:a={ambience_level}",
+             "-t", "3600", noise_file],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-i", noise_file,
+             "-filter_complex", "[0:a][1:a]amix=inputs=2:normalize=0[out]",
+             "-map", "[out]", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
