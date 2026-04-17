@@ -3805,3 +3805,22 @@ def audio_vinyl_pop(input_path: "str", output_path: "str", *, pop_rate: "float" 
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def audio_flanger_jet(input_path: "str", output_path: "str", *, speed: "float" = 0.5, depth: "float" = 0.7) -> "None":
+    """Jet-engine flanger with slow LFO modulation."""
+    import subprocess
+    delay = int(5 + depth * 20)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"flanger=delay={delay}:depth={int(depth*10)}:speed={speed:.2f}:shape=sinusoidal",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"chorus=0.7:0.9:55:{depth:.2f}:{speed:.2f}:s",
+             output_path],
+            check=True, capture_output=True
+        )

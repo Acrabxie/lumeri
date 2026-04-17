@@ -4144,3 +4144,44 @@ def image_color_overlay(input_path: "str", output_path: "str", *, color: "tuple"
         blended = ov * np.ones_like(arr)
     result = arr * (1.0 - opacity) + blended * opacity
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_warp_swirl(input_path: "str", output_path: "str", *, angle: "float" = 60.0, radius: "float" = 0.5) -> "None":
+    """Swirl distortion: rotate pixels around center by angle proportional to distance."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.uint8)
+    h, w = arr.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+    max_r = min(w, h) * radius
+    result = np.zeros_like(arr)
+    ys, xs = np.mgrid[0:h, 0:w]
+    dx = xs - cx
+    dy = ys - cy
+    dist = np.sqrt(dx**2 + dy**2)
+    # Swirl angle decreases with distance
+    swirl_angle = np.radians(angle) * np.clip(1.0 - dist / max_r, 0, 1)
+    cos_a = np.cos(swirl_angle)
+    sin_a = np.sin(swirl_angle)
+    src_x = (cos_a * dx - sin_a * dy + cx).astype(np.float32)
+    src_y = (sin_a * dx + cos_a * dy + cy).astype(np.float32)
+    src_xi = np.clip(src_x.astype(int), 0, w - 1)
+    src_yi = np.clip(src_y.astype(int), 0, h - 1)
+    result = arr[src_yi, src_xi]
+    Image.fromarray(result).save(output_path)
+
+
+def image_sketch_color(input_path: "str", output_path: "str", *, edge_threshold: "int" = 30, whitening: "float" = 0.8) -> "None":
+    """Colored sketch: detect edges, keep original color on edges, whiten elsewhere."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    gray = img.convert("L")
+    edges = np.array(gray.filter(ImageFilter.FIND_EDGES)).astype(np.float32)
+    edge_mask = np.clip(edges / edge_threshold, 0, 1)[:, :, np.newaxis]
+    white = np.ones_like(arr)
+    # Whiten background, keep color on edges
+    result = arr * edge_mask + (arr * (1 - whitening) + white * whitening) * (1 - edge_mask)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
