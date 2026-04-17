@@ -4223,3 +4223,43 @@ def image_texture_overlay(input_path: "str", texture_path: "str", output_path: "
         blended = tex_arr
     result = arr * (1.0 - opacity) + blended * opacity
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_color_shift_channels(input_path: "str", output_path: "str", *, r_shift: "tuple" = (5, 0), g_shift: "tuple" = (0, 0), b_shift: "tuple" = (-5, 0)) -> "None":
+    """Shift R/G/B channels independently by (dx, dy) pixel offsets."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.uint8)
+    h, w = arr.shape[:2]
+    result = np.zeros_like(arr)
+    for ch_idx, (dx, dy) in enumerate([r_shift, g_shift, b_shift]):
+        ch = arr[:, :, ch_idx]
+        # Roll with fill (clip coordinates)
+        shifted = np.zeros_like(ch)
+        src_y_start = max(0, -dy)
+        src_y_end = min(h, h - dy)
+        dst_y_start = max(0, dy)
+        dst_y_end = min(h, h + dy)
+        src_x_start = max(0, -dx)
+        src_x_end = min(w, w - dx)
+        dst_x_start = max(0, dx)
+        dst_x_end = min(w, w + dx)
+        shifted[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = ch[src_y_start:src_y_end, src_x_start:src_x_end]
+        result[:, :, ch_idx] = shifted
+    Image.fromarray(result).save(output_path)
+
+
+def image_glamour_glow(input_path: "str", output_path: "str", *, blur_radius: "int" = 12, glow_strength: "float" = 0.4, warmth: "float" = 0.1) -> "None":
+    """Soft glamour glow: blend blurred image back + warm color boost."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blurred = np.array(img.filter(ImageFilter.GaussianBlur(radius=blur_radius))).astype(np.float32) / 255.0
+    # Screen blend glow
+    glow = 1.0 - (1.0 - arr) * (1.0 - blurred * glow_strength)
+    # Warm tint: boost red/reduce blue slightly
+    glow[:, :, 0] = np.clip(glow[:, :, 0] + warmth * 0.1, 0, 1)
+    glow[:, :, 2] = np.clip(glow[:, :, 2] - warmth * 0.05, 0, 1)
+    Image.fromarray((glow.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

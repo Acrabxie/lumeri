@@ -3844,3 +3844,30 @@ def audio_binaural_pan(input_path: "str", output_path: "str", *, rate_hz: "float
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_sidechain_pump(input_path: "str", output_path: "str", *, bpm: "float" = 120.0, duck_db: "float" = -12.0, attack_ms: "float" = 5.0, release_ms: "float" = 200.0) -> "None":
+    """Duck volume rhythmically at BPM rate to simulate sidechain compression pumping."""
+    import subprocess, math
+    beat_sec = 60.0 / bpm
+    # Use volume filter with LFO: dip every beat
+    # volume='1-(-db/20)*abs(sin(PI*t/beat_sec))'... simplified approach with acompressor sidechain
+    # Use volume LFO approach:
+    duck_linear = 10 ** (duck_db / 20.0)
+    depth = 1.0 - duck_linear
+    # volume=expr with periodic dip
+    expr = f"1-{depth:.4f}*max(0,1-t/{release_ms*0.001:.4f}*{beat_sec:.4f})*pow(max(0,sin(PI*t/{beat_sec:.4f})),2)"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"volume='{expr}':eval=frame",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: tremolo at beat frequency
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"tremolo=f={1/beat_sec:.3f}:d={depth:.3f}",
+             output_path],
+            check=True, capture_output=True
+        )

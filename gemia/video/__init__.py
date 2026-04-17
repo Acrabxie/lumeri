@@ -100,6 +100,7 @@ from gemia.video.effects import (
     video_split_quad, video_text_lower_third,
     video_burn_in_timecode, video_slow_in_fast_out,
     video_color_crush, video_fast_in_slow_out,
+    video_dreamy_blur, video_rgb_parade,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -214,4 +215,5 @@ __all__ = [
     "video_split_quad", "video_text_lower_third",
     "video_burn_in_timecode", "video_slow_in_fast_out",
     "video_color_crush", "video_fast_in_slow_out",
+    "video_dreamy_blur", "video_rgb_parade",
 ]
