@@ -4108,3 +4108,39 @@ def image_orton_effect(input_path: "str", output_path: "str", *, blur_radius: "i
     # Blend with original
     result = arr * (1.0 - strength) + multiplied * strength
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_scanline_art(input_path: "str", output_path: "str", *, line_height: "int" = 4, gap: "int" = 2) -> "None":
+    """Draw horizontal scanlines with color sampled from image rows for retro CRT look."""
+    from PIL import Image, ImageDraw
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img)
+    canvas = Image.new("RGB", (w, h), (0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    y = 0
+    while y < h:
+        # Sample average color of this row band
+        band = arr[y:min(y + line_height, h)]
+        avg_color = tuple(band.mean(axis=(0, 1)).astype(int))
+        draw.rectangle([0, y, w, y + line_height - 1], fill=avg_color)
+        y += line_height + gap
+    canvas.save(output_path)
+
+
+def image_color_overlay(input_path: "str", output_path: "str", *, color: "tuple" = (255, 0, 128), opacity: "float" = 0.3, blend_mode: "str" = "normal") -> "None":
+    """Overlay a solid color on the image with given blend mode and opacity."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    ov = np.array(color, dtype=np.float32) / 255.0
+    if blend_mode == "screen":
+        blended = 1.0 - (1.0 - arr) * (1.0 - ov)
+    elif blend_mode == "multiply":
+        blended = arr * ov
+    else:  # normal
+        blended = ov * np.ones_like(arr)
+    result = arr * (1.0 - opacity) + blended * opacity
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
