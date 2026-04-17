@@ -4454,3 +4454,54 @@ def image_solarize_color(input_path: "str", output_path: "str", *, threshold: "f
         above = above[:, [2, 0, 1]]
     solarized[mask] = above
     Image.fromarray((solarized.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pixel_wave(input_path: "str", output_path: "str", *, amplitude: "int" = 10, wavelength: "float" = 40.0, direction: "str" = "horizontal") -> "None":
+    """Sinusoidal pixel displacement wave distortion."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32)
+    h, w = arr.shape[:2]
+    result = np.zeros_like(arr)
+    if direction == "horizontal":
+        for y in range(h):
+            shift = int(amplitude * np.sin(2 * np.pi * y / wavelength))
+            result[y] = np.roll(arr[y], shift, axis=0)
+    else:
+        for x in range(w):
+            shift = int(amplitude * np.sin(2 * np.pi * x / wavelength))
+            result[:, x] = np.roll(arr[:, x], shift, axis=0)
+    Image.fromarray(result.clip(0, 255).astype(np.uint8)).save(output_path)
+
+
+def image_crystallize(input_path: "str", output_path: "str", *, n_cells: "int" = 200, seed: "int" = 0) -> "None":
+    """Crystallize/Voronoi mosaic: each pixel takes the color of its nearest random seed point."""
+    from PIL import Image
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img)
+    h, w = arr.shape[:2]
+    # Random seed points
+    sy = rng.integers(0, h, size=n_cells)
+    sx = rng.integers(0, w, size=n_cells)
+    # Build voronoi by nearest neighbor via broadcasting (small n_cells)
+    ys = np.arange(h)[:, np.newaxis]
+    xs = np.arange(w)[np.newaxis, :]
+    result = np.zeros_like(arr)
+    # Process in chunks to manage memory
+    chunk = 50
+    label = np.full((h, w), -1, dtype=np.int32)
+    min_dist = np.full((h, w), np.inf)
+    for i in range(0, n_cells, chunk):
+        sy_c = sy[i:i+chunk]
+        sx_c = sx[i:i+chunk]
+        for j, (py, px) in enumerate(zip(sy_c, sx_c)):
+            dist = (ys - py) ** 2 + (xs - px) ** 2
+            mask = dist < min_dist
+            min_dist[mask] = dist[mask]
+            label[mask] = i + j
+    for i, (py, px) in enumerate(zip(sy, sx)):
+        result[label == i] = arr[py, px]
+    Image.fromarray(result.astype(np.uint8)).save(output_path)
