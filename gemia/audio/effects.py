@@ -3824,3 +3824,23 @@ def audio_flanger_jet(input_path: "str", output_path: "str", *, speed: "float" =
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_binaural_pan(input_path: "str", output_path: "str", *, rate_hz: "float" = 0.3, width: "float" = 1.0) -> "None":
+    """Pan audio left↔right with sinusoidal LFO for spatial binaural effect."""
+    import subprocess
+    # Use apulsator for stereo panning LFO
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"apulsator=hz={rate_hz:.3f}:width={width:.2f}:mode=sine",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple stereotools widening
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"stereotools=mlev={width:.2f}",
+             output_path],
+            check=True, capture_output=True
+        )
