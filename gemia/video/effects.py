@@ -7206,3 +7206,53 @@ def video_rgb_parade(input_path: "str", output_path: "str") -> "None":
                 ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
                 check=True, capture_output=True
             )
+
+
+def video_cinematic_bars(input_path: "str", output_path: "str", *, ratio: "float" = 2.39, fade_duration: "float" = 0.0) -> "None":
+    """Add cinematic black bars to achieve target aspect ratio."""
+    import subprocess
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    current_ratio = w / h
+    if current_ratio >= ratio:
+        # Already wider — add top/bottom bars
+        new_h = int(w / ratio)
+        pad_y = (new_h - h) // 2
+        vf = f"pad={w}:{new_h}:0:{pad_y}:black"
+    else:
+        # Taller — add left/right bars
+        new_w = int(h * ratio)
+        pad_x = (new_w - w) // 2
+        vf = f"pad={new_w}:{h}:{pad_x}:0:black"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        check=True, capture_output=True
+    )
+
+
+def video_epic_slowmo(input_path: "str", output_path: "str", *, speed: "float" = 0.1) -> "None":
+    """Extreme slow motion using minterpolate frame interpolation."""
+    import subprocess
+    pts_mult = 1.0 / speed
+    # Try minterpolate for smooth interpolation
+    vf = f"minterpolate=fps=120:mi_mode=mci,setpts={pts_mult:.4f}*PTS"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+         "-af", f"atempo={speed:.4f}",
+         "-c:a", "aac", "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple setpts without interpolation
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"setpts={pts_mult:.4f}*PTS",
+             "-af", f"atempo={max(0.5, speed):.4f}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
