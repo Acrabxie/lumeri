@@ -6261,3 +6261,78 @@ def video_color_pop(input_path: "str", output_path: "str", *, hue_center: "float
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_shake_cam(input_path: "str", output_path: "str", *, intensity: "int" = 10, frequency: "float" = 8.0) -> "None":
+    """Apply random frame translation to simulate handheld camera shake."""
+    import subprocess, tempfile, os, shutil, random
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,width,height",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        if "/" in fps_str:
+            n, d = fps_str.split("/")
+            fps = float(n) / float(d)
+        else:
+            fps = float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image
+        import math
+        fnames = sorted(os.listdir(frames_dir))
+        for idx, fname in enumerate(fnames):
+            fpath = os.path.join(frames_dir, fname)
+            t = idx / fps
+            # Pseudo-random shake with sine variation
+            dx = int(intensity * math.sin(2 * math.pi * frequency * t + 0.3) +
+                     intensity * 0.5 * math.sin(2 * math.pi * frequency * 1.7 * t))
+            dy = int(intensity * math.cos(2 * math.pi * frequency * t * 0.8) +
+                     intensity * 0.4 * math.sin(2 * math.pi * frequency * 2.1 * t))
+            img = Image.open(fpath)
+            canvas = Image.new("RGB", (w, h), (0, 0, 0))
+            canvas.paste(img, (dx, dy))
+            canvas.save(fpath)
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_color_temperature(input_path: "str", output_path: "str", *, temperature: "float" = 0.0) -> "None":
+    """Shift color temperature: positive = warmer (more red/yellow), negative = cooler (more blue).
+    temperature range: -1.0 to 1.0
+    """
+    import subprocess
+    t = max(-1.0, min(1.0, temperature))
+    # Warm: boost R, reduce B. Cool: boost B, reduce R.
+    r_gain = 1.0 + t * 0.3
+    b_gain = 1.0 - t * 0.3
+    g_gain = 1.0 + abs(t) * 0.05  # slight green for warmth
+    vf = f"colorchannelmixer=rr={r_gain:.3f}:gg={g_gain:.3f}:bb={b_gain:.3f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"hue=s={1.0+t*0.2:.3f}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
