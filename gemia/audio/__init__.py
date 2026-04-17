@@ -80,6 +80,7 @@ from gemia.audio.effects import (
     audio_reverb_room,
     audio_distortion,
     audio_chorus_stereo,
+    audio_wah_effect,
 )
 
 __all__ = [
@@ -166,4 +167,5 @@ __all__ = [
     "audio_reverb_room",
     "audio_distortion",
     "audio_chorus_stereo",
+    "audio_wah_effect",
 ]

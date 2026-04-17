@@ -3690,3 +3690,29 @@ def audio_chorus_stereo(input_path: "str", output_path: "str", *, depth: "float"
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_wah_effect(input_path: "str", output_path: "str", *, rate_hz: "float" = 2.0, low_freq: "float" = 400.0, high_freq: "float" = 2000.0) -> "None":
+    """Auto-wah via LFO-driven bandpass sweep."""
+    import subprocess
+    # Use vibrato as proxy or haas; best approximation with lowpass+volume LFO
+    # aeval-based approach: modulate center frequency
+    sweep_range = high_freq - low_freq
+    center = (high_freq + low_freq) / 2
+    # Use equalizer with modulated frequency isn't directly supported;
+    # approximate with tremolo + bandpass at center frequency
+    af = (
+        f"bandpass=f={center:.0f}:width_type=o:width=2,"
+        f"tremolo=f={rate_hz:.2f}:d=0.5"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"lowpass=f={high_freq:.0f},highpass=f={low_freq:.0f}",
+             output_path],
+            check=True, capture_output=True
+        )

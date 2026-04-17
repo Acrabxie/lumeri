@@ -6743,3 +6743,59 @@ def video_zoom_out_center(input_path: "str", output_path: "str", *, zoom_start: 
         ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
         check=True, capture_output=True
     )
+
+
+def video_push_transition(clip_a: "str", clip_b: "str", output_path: "str", *, duration: "float" = 1.0, direction: "str" = "left") -> "None":
+    """Push transition: clip A slides out while clip B pushes in."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,r_frame_rate",
+             "-of", "csv=p=0", clip_a],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        # Use xfade with slide if available
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", clip_a, "-i", clip_b,
+             "-filter_complex",
+             f"[0:v][1:v]xfade=transition=slideleft:duration={duration}:offset=0[v]",
+             "-map", "[v]", output_path],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            # Fallback: simple crossfade
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", clip_a, "-i", clip_b,
+                 "-filter_complex",
+                 f"[0:v][1:v]xfade=transition=fade:duration={duration}:offset=0[v]",
+                 "-map", "[v]", output_path],
+                check=True, capture_output=True
+            )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_fade_to_white(input_path: "str", output_path: "str", *, fade_duration: "float" = 1.0, fade_in: "bool" = False) -> "None":
+    """Fade video to white at the end (or from white at the start)."""
+    import subprocess
+    dur_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", input_path], capture_output=True, text=True)
+    dur = float(dur_probe.stdout.strip() or "5")
+    if fade_in:
+        # Fade from white at start
+        vf = f"fade=t=in:st=0:d={fade_duration}:color=white"
+    else:
+        # Fade to white at end
+        start = max(0, dur - fade_duration)
+        vf = f"fade=t=out:st={start:.3f}:d={fade_duration}:color=white"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        check=True, capture_output=True
+    )

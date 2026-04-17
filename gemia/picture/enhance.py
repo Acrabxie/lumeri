@@ -3981,3 +3981,45 @@ def image_gradient_map(input_path: "str", output_path: "str", *, shadow_color: "
     hc = np.array(highlight_color, dtype=np.float32) / 255.0
     result = sc * (1.0 - lum) + hc * lum
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_cross_process(input_path: "str", output_path: "str") -> "None":
+    """Cross-process film look via channel-specific S-curve adjustments."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    # R: pushed highlights
+    r = arr[:, :, 0]
+    r = np.where(r < 0.5, r * 1.1, 0.55 + (r - 0.5) * 0.9)
+    # G: slight S-curve
+    g = arr[:, :, 1]
+    g = np.where(g < 0.5, g * 0.85, 0.425 + (g - 0.5) * 1.15)
+    # B: lifted shadows, compressed highlights
+    b = arr[:, :, 2]
+    b = np.where(b < 0.5, 0.05 + b * 1.0, 0.55 + (b - 0.5) * 0.85)
+    result = np.stack([r, g, b], axis=2)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_lomo(input_path: "str", output_path: "str", *, saturation_boost: "float" = 1.5, vignette_strength: "float" = 0.7) -> "None":
+    """Lomo camera look: boosted saturation + strong vignette + blue shadow lift."""
+    from PIL import Image, ImageEnhance
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    # Boost saturation
+    img = ImageEnhance.Color(img).enhance(saturation_boost)
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Lift blue in shadows
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    shadow_mask = np.clip(1.0 - lum * 2, 0, 1)[:, :, np.newaxis]
+    arr[:, :, 2] = np.clip(arr[:, :, 2] + shadow_mask[:, :, 0] * 0.15, 0, 1)
+    # Strong vignette
+    h, w = arr.shape[:2]
+    xs = np.linspace(-1, 1, w)
+    ys = np.linspace(-1, 1, h)
+    xx, yy = np.meshgrid(xs, ys)
+    dist = np.sqrt(xx**2 + yy**2)
+    vignette = np.clip(1.0 - dist * vignette_strength, 0, 1)[:, :, np.newaxis]
+    result = arr * vignette
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
