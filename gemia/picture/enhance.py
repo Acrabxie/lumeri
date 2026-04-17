@@ -4023,3 +4023,48 @@ def image_lomo(input_path: "str", output_path: "str", *, saturation_boost: "floa
     vignette = np.clip(1.0 - dist * vignette_strength, 0, 1)[:, :, np.newaxis]
     result = arr * vignette
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pixel_sort(input_path: "str", output_path: "str", *, threshold_lo: "float" = 0.2, threshold_hi: "float" = 0.8) -> "None":
+    """Sort pixels in each row by brightness within a threshold band — glitch art effect."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).copy()
+    h, w = arr.shape[:2]
+    lum = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]) / 255.0
+    for y in range(h):
+        row_lum = lum[y]
+        mask = (row_lum >= threshold_lo) & (row_lum <= threshold_hi)
+        # Find contiguous spans in mask
+        in_span = False
+        start = 0
+        for x in range(w + 1):
+            if x < w and mask[x]:
+                if not in_span:
+                    start = x
+                    in_span = True
+            else:
+                if in_span:
+                    # Sort span by brightness
+                    span = arr[y, start:x]
+                    span_lum = row_lum[start:x]
+                    order = np.argsort(span_lum)
+                    arr[y, start:x] = span[order]
+                    in_span = False
+    Image.fromarray(arr).save(output_path)
+
+
+def image_mosaic_portrait(input_path: "str", output_path: "str", *, block_size: "int" = 24) -> "None":
+    """Pixelate into large averaged-color square blocks."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).copy()
+    for y in range(0, h, block_size):
+        for x in range(0, w, block_size):
+            block = arr[y:y+block_size, x:x+block_size]
+            avg = block.mean(axis=(0, 1)).astype(np.uint8)
+            arr[y:y+block_size, x:x+block_size] = avg
+    Image.fromarray(arr).save(output_path)

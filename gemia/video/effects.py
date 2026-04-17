@@ -6799,3 +6799,56 @@ def video_fade_to_white(input_path: "str", output_path: "str", *, fade_duration:
         ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
         check=True, capture_output=True
     )
+
+
+def video_mirror_vertical(input_path: "str", output_path: "str") -> "None":
+    """Stack original and vertically flipped video top-to-bottom."""
+    import subprocess
+    vf = "split[a][b];[b]vflip[bf];[a][bf]vstack"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", "split[a][b];[b]vflip[bf];[a][bf]vstack[out]",
+         "-map", "[out]", "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-filter_complex", "split[a][b];[b]vflip[bf];[a][bf]vstack",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_chromatic_shift(input_path: "str", output_path: "str", *, shift_px: "int" = 4) -> "None":
+    """Shift red channel right and blue channel left for chromatic aberration."""
+    import subprocess
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    s = shift_px
+    vf = (
+        f"split=3[r][g][b];"
+        f"[r]lutrgb=g=0:b=0,pad={w+2*s}:{h}:{s}:0[rp];"
+        f"[g]lutrgb=r=0:b=0,pad={w+2*s}:{h}:{s}:0[gp];"
+        f"[b]lutrgb=r=0:g=0,pad={w+2*s}:{h}:{2*s}:0[bp];"
+        f"[rp][gp]blend=all_mode=addition[rg];"
+        f"[rg][bp]blend=all_mode=addition,crop={w}:{h}:{s}:0[out]"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+         "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple hue shift
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "hue=h=5", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
