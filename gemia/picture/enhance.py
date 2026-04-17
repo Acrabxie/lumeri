@@ -4366,3 +4366,55 @@ def image_morning_haze(input_path: "str", output_path: "str", *, intensity: "flo
     result[:, :, 0] = np.clip(result[:, :, 0] + warmth * 0.08, 0, 1)
     result[:, :, 2] = np.clip(result[:, :, 2] - warmth * 0.04, 0, 1)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_color_relief(input_path: "str", output_path: "str", *, azimuth: "float" = 315.0, elevation: "float" = 45.0, depth: "float" = 2.0) -> "None":
+    """Color relief shading: directional light source creates 3-D emboss preserving hue."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Compute luminance for surface normal estimation
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    # Gradient of luminance
+    dy = np.gradient(lum, axis=0) * depth
+    dx = np.gradient(lum, axis=1) * depth
+    # Light direction vector
+    az = np.radians(azimuth)
+    el = np.radians(elevation)
+    lx = np.cos(el) * np.cos(az)
+    ly = np.cos(el) * np.sin(az)
+    lz = np.sin(el)
+    # Normal dot light
+    norm = np.sqrt(dx**2 + dy**2 + 1.0)
+    shade = (-dx * lx - dy * ly + lz) / norm
+    shade = np.clip((shade + 1.0) / 2.0, 0, 1)[:, :, np.newaxis]
+    result = arr * shade
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_glitter(input_path: "str", output_path: "str", *, density: "float" = 0.04, sparkle_size: "int" = 2, brightness: "float" = 1.5) -> "None":
+    """Add random sparkle/glitter points that bloom on bright highlights."""
+    from PIL import Image
+    import numpy as np
+    rng = np.random.default_rng(42)
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    h, w = lum.shape
+    result = arr.copy()
+    # Only sparkle on pixels above mean brightness
+    threshold = lum.mean() + 0.15
+    candidates = np.argwhere(lum > threshold)
+    n_sparkles = int(len(candidates) * density)
+    if n_sparkles > 0 and len(candidates) > 0:
+        chosen = candidates[rng.integers(0, len(candidates), size=min(n_sparkles, len(candidates)))]
+        for y, x in chosen:
+            for dy in range(-sparkle_size, sparkle_size + 1):
+                for dx in range(-sparkle_size, sparkle_size + 1):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w:
+                        dist = max(abs(dy), abs(dx))
+                        strength = brightness * (1 - dist / (sparkle_size + 1))
+                        result[ny, nx] = np.clip(result[ny, nx] * strength, 0, 1)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

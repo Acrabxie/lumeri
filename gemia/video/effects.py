@@ -7337,3 +7337,52 @@ def video_duotone(input_path: "str", output_path: "str", *, shadow_color: "tuple
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_infrared(input_path: "str", output_path: "str", *, foliage_boost: "float" = 1.3, sky_darken: "float" = 0.6) -> "None":
+    """Simulate infrared photography: bright foliage, dark skies, high contrast."""
+    import subprocess
+    # Swap red/green channels and boost contrast
+    vf = (
+        "colorchannelmixer=rr=0:rg=1:rb=0:gr=1:gg=0:gb=0:br=0:bg=0:bb=1,"
+        f"curves=r='0/0 0.5/{0.5*foliage_boost:.2f} 1/1':"
+        f"b='0/0 0.5/{0.5*sky_darken:.2f} 1/{sky_darken:.2f}',"
+        "hue=s=0.3"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "hue=s=0,curves=all='0/0 0.5/0.6 1/1'",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_retrowave(input_path: "str", output_path: "str", *, magenta_lift: "float" = 0.12, cyan_shadow: "float" = 0.1, glow: "float" = 0.3) -> "None":
+    """Retrowave/synthwave color grade: magenta highlights, cyan shadows, bloom glow."""
+    import subprocess
+    # Lift shadows to cyan, push highlights to magenta, add dreamy glow
+    vf = (
+        f"curves="
+        f"r='0/{cyan_shadow:.2f} 0.5/0.5 1/{1-magenta_lift*0.5:.2f}':"
+        f"g='0/0 0.5/0.45 1/{1-magenta_lift:.2f}':"
+        f"b='0/{cyan_shadow*1.5:.2f} 0.5/0.55 1/{1-magenta_lift*0.3:.2f}',"
+        f"split[a][b];"
+        f"[b]gblur=sigma=12,scale=iw*0.5:ih*0.5,scale=iw*2:ih*2[blur];"
+        f"[a][blur]blend=all_mode=screen:all_opacity={glow:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "curves=r='0/0.1 1/0.9':g='0/0 1/0.85':b='0/0.15 1/0.95'",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
