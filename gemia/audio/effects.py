@@ -3604,3 +3604,21 @@ def audio_crowd_ambience(input_path: "str", output_path: "str", *, ambience_leve
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def audio_pitch_octave_down(input_path: "str", output_path: "str") -> "None":
+    """Shift pitch down one octave (-12 semitones) without changing duration."""
+    import subprocess
+    sr_result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=sample_rate", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    sr = int(sr_result.stdout.strip() or "44100")
+    new_sr = sr // 2  # halve sample rate = one octave down
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"asetrate={new_sr},aresample={sr}",
+         output_path],
+        check=True, capture_output=True
+    )

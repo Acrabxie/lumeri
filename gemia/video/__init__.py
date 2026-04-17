@@ -89,6 +89,7 @@ from gemia.video.effects import (
     video_ken_burns_auto, video_color_pop,
     video_shake_cam, video_color_temperature,
     video_zoom_blur, video_flash_cut,
+    video_invert_colors, video_strobe,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -192,4 +193,5 @@ __all__ = [
     "video_ken_burns_auto", "video_color_pop",
     "video_shake_cam", "video_color_temperature",
     "video_zoom_blur", "video_flash_cut",
+    "video_invert_colors", "video_strobe",
 ]
