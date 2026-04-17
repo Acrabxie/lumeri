@@ -71,6 +71,7 @@ from gemia.audio.effects import (
     audio_auto_duck,
     audio_pitch_harmonize,
     audio_tremolo_lfo,
+    audio_vinyl_warmth,
 )
 
 __all__ = [
@@ -148,4 +149,5 @@ __all__ = [
     "audio_auto_duck",
     "audio_pitch_harmonize",
     "audio_tremolo_lfo",
+    "audio_vinyl_warmth",
 ]

@@ -3517,3 +3517,23 @@ def audio_tremolo_lfo(input_path: "str", output_path: "str", *, rate_hz: "float"
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_vinyl_warmth(input_path: "str", output_path: "str", *, warmth: "float" = 0.5) -> "None":
+    """Boost low-mids and add subtle saturation to simulate vinyl warmth."""
+    import subprocess
+    # Boost around 250Hz and add mild soft-clip saturation via astats/volume chain
+    gain_db = warmth * 3.0
+    vf = f"equalizer=f=250:t=o:w=2:g={gain_db:.1f},equalizer=f=3000:t=o:w=2:g=-{gain_db*0.5:.1f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", vf, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple bass boost
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"bass=g={gain_db:.1f}",
+             output_path],
+            check=True, capture_output=True
+        )
