@@ -7158,3 +7158,51 @@ def video_fast_in_slow_out(input_path: "str", output_path: "str", *, fast_factor
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_dreamy_blur(input_path: "str", output_path: "str", *, blur_sigma: "int" = 5, brightness: "float" = 1.15, blend: "float" = 0.4) -> "None":
+    """Combine gblur + brightness for dreamy soft-focus look."""
+    import subprocess
+    vf = (
+        f"[0:v]split[sharp][forblur];"
+        f"[forblur]gblur=sigma={blur_sigma},eq=brightness={brightness-1:.3f}[blurred];"
+        f"[sharp][blurred]blend=all_expr='A*(1-{blend:.3f})+B*{blend:.3f}'[out]"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+         "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"gblur=sigma={blur_sigma},eq=brightness={brightness-1:.3f}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_rgb_parade(input_path: "str", output_path: "str") -> "None":
+    """Draw RGB waveform parade overlay on video for color analysis."""
+    import subprocess
+    # Use waveform filter with RGB parade mode
+    vf = "waveform=mode=column:display=parade:components=7:envelope=instant:filter=lowpass"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: simple waveform
+        result2 = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "waveform=mode=column:display=parade",
+             "-c:a", "copy", output_path],
+            capture_output=True
+        )
+        if result2.returncode != 0:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+                check=True, capture_output=True
+            )

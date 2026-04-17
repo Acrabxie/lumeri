@@ -86,6 +86,7 @@ from gemia.audio.effects import (
     audio_vinyl_pop,
     audio_flanger_jet,
     audio_binaural_pan,
+    audio_sidechain_pump,
 )
 
 __all__ = [
@@ -178,4 +179,5 @@ __all__ = [
     "audio_vinyl_pop",
     "audio_flanger_jet",
     "audio_binaural_pan",
+    "audio_sidechain_pump",
 ]
