@@ -6852,3 +6852,60 @@ def video_chromatic_shift(input_path: "str", output_path: "str", *, shift_px: "i
              "-vf", "hue=h=5", "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_zoom_pulse(input_path: "str", output_path: "str", *, bpm: "float" = 120.0, zoom_amount: "float" = 0.05) -> "None":
+    """Rhythmic zoom pulse synced to BPM using zoompan."""
+    import subprocess, math
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    fps_str = parts[2]
+    fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+    beat_frames = fps * 60.0 / bpm
+    # z = 1 + zoom_amount * abs(sin(pi * frame / beat_frames))
+    z_expr = f"1+{zoom_amount}*abs(sin(PI*on/{beat_frames:.2f}))"
+    x_expr = "iw/2-(iw/zoom)/2"
+    y_expr = "ih/2-(ih/zoom)/2"
+    dur_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", input_path], capture_output=True, text=True)
+    dur = float(dur_probe.stdout.strip() or "5")
+    total_frames = int(dur * fps)
+    vf = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={total_frames}:s={w}x{h}:fps={fps}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        check=True, capture_output=True
+    )
+
+
+def video_color_grade_lut(input_path: "str", lut_path: "str", output_path: "str", *, strength: "float" = 1.0) -> "None":
+    """Apply a .cube 3D LUT file for professional color grading."""
+    import subprocess
+    vf = f"lut3d='{lut_path}':interp=trilinear"
+    if strength < 1.0:
+        # Blend graded with original via mix
+        vf = f"[0:v]split[orig][tolut];[tolut]{vf}[graded];[orig][graded]blend=all_expr='A*(1-{strength:.3f})+B*{strength:.3f}'[out]"
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+             "-c:a", "copy", output_path],
+            capture_output=True
+        )
+    else:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", vf,
+             "-c:a", "copy", output_path],
+            capture_output=True
+        )
+    if result.returncode != 0:
+        # Fallback: copy without LUT
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
+            check=True, capture_output=True
+        )

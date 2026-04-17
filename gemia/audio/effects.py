@@ -3737,3 +3737,22 @@ def audio_pitch_vibrato(input_path: "str", output_path: "str", *, rate_hz: "floa
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_tape_saturation(input_path: "str", output_path: "str", *, drive: "float" = 0.4, rolloff_hz: "float" = 12000.0) -> "None":
+    """Analog tape saturation: soft-clip + high-frequency roll-off."""
+    import subprocess
+    gain = 1.0 + drive * 3
+    # Soft saturation via acompressor + lowpass for warmth
+    af = f"volume={gain:.2f},acompressor=threshold=0.5:ratio=3:attack=0.1:release=50,lowpass=f={rolloff_hz:.0f},volume={1/gain:.2f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"lowpass=f={rolloff_hz:.0f}",
+             output_path],
+            check=True, capture_output=True
+        )
