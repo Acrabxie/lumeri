@@ -3585,3 +3585,38 @@ def image_infrared(input_path: "str", output_path: "str", *, boost: "float" = 1.
     # Boost contrast
     result = ImageEnhance.Contrast(result).enhance(boost)
     result.save(output_path)
+
+
+def image_neon_glow(input_path: "str", output_path: "str", *, blur_radius: "int" = 3, brightness: "float" = 2.0) -> "None":
+    """Detect edges and render as bright neon on dark background."""
+    from PIL import Image, ImageFilter, ImageEnhance
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    # Find edges
+    edges = img.filter(ImageFilter.FIND_EDGES)
+    # Blur slightly for glow
+    glow = edges.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    # Boost brightness
+    glow = ImageEnhance.Brightness(glow).enhance(brightness)
+    # Compose on black background
+    bg = Image.new("RGB", img.size, (0, 0, 0))
+    bg.paste(glow, mask=glow.convert("L"))
+    bg.save(output_path)
+
+
+def image_mirror_quad(input_path: "str", output_path: "str") -> "None":
+    """Mirror top-left quadrant into all four quadrants."""
+    from PIL import Image
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    hw, hh = w // 2, h // 2
+    tl = img.crop((0, 0, hw, hh))
+    tr = tl.transpose(Image.FLIP_LEFT_RIGHT)
+    bl = tl.transpose(Image.FLIP_TOP_BOTTOM)
+    br = tl.transpose(Image.ROTATE_180)
+    result = Image.new("RGB", (w, h))
+    result.paste(tl, (0, 0))
+    result.paste(tr, (hw, 0))
+    result.paste(bl, (0, hh))
+    result.paste(br, (hw, hh))
+    result.save(output_path)
