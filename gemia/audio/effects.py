@@ -3358,3 +3358,39 @@ def audio_beat_sync_cut(
          "-c", "copy", output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_binaural_beat(
+    output_path: str,
+    *,
+    base_freq: float = 200.0,
+    beat_freq: float = 10.0,
+    duration: float = 5.0,
+    sample_rate: int = 44100,
+) -> None:
+    """Generate binaural beat: L channel at base_freq, R at base_freq+beat_freq."""
+    left_freq = base_freq
+    right_freq = base_freq + beat_freq
+    # Generate two mono tracks then merge to stereo
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    left = os.path.join(tmpdir, "left.wav")
+    right = os.path.join(tmpdir, "right.wav")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi",
+         "-i", f"sine=frequency={left_freq}:duration={duration}:sample_rate={sample_rate}",
+         left],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi",
+         "-i", f"sine=frequency={right_freq}:duration={duration}:sample_rate={sample_rate}",
+         right],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", left, "-i", right,
+         "-filter_complex", "amerge=inputs=2",
+         "-ac", "2", output_path],
+        check=True, capture_output=True,
+    )
