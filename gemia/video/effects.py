@@ -6402,3 +6402,58 @@ def video_flash_cut(input_path: "str", output_path: "str", *, flash_times: "list
             ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_invert_colors(input_path: "str", output_path: "str") -> "None":
+    """Invert all pixel colors (photographic negative)."""
+    import subprocess
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", "negate", "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "lutrgb=r=negval:g=negval:b=negval",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_strobe(input_path: "str", output_path: "str", *, strobe_rate: "int" = 3) -> "None":
+    """Replace every Nth frame with black to create strobe effect."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        fps_str = probe.stdout.strip()
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image
+        fnames = sorted(os.listdir(frames_dir))
+        black = None
+        for idx, fname in enumerate(fnames):
+            if (idx % strobe_rate) == 0:
+                fpath = os.path.join(frames_dir, fname)
+                if black is None:
+                    img = Image.open(fpath)
+                    black = Image.new("RGB", img.size, (0, 0, 0))
+                black.save(fpath)
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

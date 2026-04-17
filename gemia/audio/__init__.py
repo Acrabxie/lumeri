@@ -75,6 +75,7 @@ from gemia.audio.effects import (
     audio_telephone_filter,
     audio_radio_effect,
     audio_crowd_ambience,
+    audio_pitch_octave_down,
 )
 
 __all__ = [
@@ -156,4 +157,5 @@ __all__ = [
     "audio_telephone_filter",
     "audio_radio_effect",
     "audio_crowd_ambience",
+    "audio_pitch_octave_down",
 ]
