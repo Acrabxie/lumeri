@@ -5658,3 +5658,130 @@ def video_posterize(
              "-c:a", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_speed_ramp_ease(
+    input_path: str,
+    output_path: str,
+    *,
+    start_speed: float = 0.3,
+    end_speed: float = 1.0,
+    ramp_duration: float = 2.0,
+) -> None:
+    """Speed ramp ease-in: slow at start, accelerating to normal speed.
+
+    Implemented as segment-based approach: ramp divided into steps.
+    """
+    import tempfile, os
+
+    # Probe duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(proc.stdout.strip())
+    except ValueError:
+        total = 10.0
+
+    tmpdir = tempfile.mkdtemp()
+    steps = 6
+    ramp_end = min(ramp_duration, total)
+    rest_start = ramp_end
+
+    parts = []
+    # Ramp segment split into steps
+    step_dur = ramp_end / steps
+    for i in range(steps):
+        t = i / (steps - 1) if steps > 1 else 1.0
+        speed = start_speed + (end_speed - start_speed) * t
+        ss = i * step_dur
+        to = ss + step_dur
+        pts = f"setpts={1/speed:.6f}*PTS"
+        atempo = []
+        s = speed
+        while s < 0.5: atempo.append("atempo=0.5"); s /= 0.5
+        while s > 2.0: atempo.append("atempo=2.0"); s /= 2.0
+        atempo.append(f"atempo={s:.6f}")
+        part = os.path.join(tmpdir, f"ramp_{i:04d}.mp4")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ss", str(ss), "-to", str(to),
+             "-vf", pts, "-af", ",".join(atempo),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", part],
+            check=True, capture_output=True,
+        )
+        parts.append(part)
+
+    # Rest of video at end_speed
+    if rest_start < total:
+        pts = f"setpts={1/end_speed:.6f}*PTS"
+        atempo = []
+        s = end_speed
+        while s < 0.5: atempo.append("atempo=0.5"); s /= 0.5
+        while s > 2.0: atempo.append("atempo=2.0"); s /= 2.0
+        atempo.append(f"atempo={s:.6f}")
+        rest = os.path.join(tmpdir, "rest.mp4")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ss", str(rest_start),
+             "-vf", pts, "-af", ",".join(atempo),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", rest],
+            check=True, capture_output=True,
+        )
+        parts.append(rest)
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        for p in parts:
+            f.write(f"file '{p}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_split_screen(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+    *,
+    divider_width: int = 4,
+    divider_color: str = "white",
+) -> None:
+    """Side-by-side split screen of two videos with optional divider."""
+    # Stack horizontally with hstack, then overlay divider line
+    fc = f"[0:v][1:v]hstack=inputs=2[v]"
+    if divider_width > 0:
+        # Get width of first video to know where divider goes
+        proc = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "stream=width",
+             "-of", "default=noprint_wrappers=1:nokey=1", input_a],
+            capture_output=True, text=True,
+        )
+        try:
+            w = int(proc.stdout.strip())
+        except ValueError:
+            w = 960
+        fc = (
+            f"[0:v][1:v]hstack=inputs=2[stacked];"
+            f"[stacked]drawbox=x={w - divider_width//2}:y=0:w={divider_width}:h=ih:color={divider_color}:t=fill[v]"
+        )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_a, "-i", input_b,
+         "-filter_complex", fc,
+         "-map", "[v]", "-map", "0:a?",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # drawbox not available, try without divider
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_a, "-i", input_b,
+             "-filter_complex", "[0:v][1:v]hstack=inputs=2[v]",
+             "-map", "[v]", "-map", "0:a?",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True,
+        )

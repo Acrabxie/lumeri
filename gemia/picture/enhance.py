@@ -3360,3 +3360,61 @@ def image_simulate_print(
     # Threshold: pixel is black if luminance < dot pattern
     result = (arr > dot).astype(np.uint8) * 255
     Image.fromarray(result, "L").convert("RGB").save(output_path)
+
+
+def image_glitch_datamosh(
+    input_path: str,
+    output_path: str,
+    *,
+    intensity: float = 0.05,
+    seed: int = 42,
+) -> None:
+    """Data-mosh glitch: randomly corrupt pixel row blocks."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8).copy()
+    h, w = arr.shape[:2]
+    rng = np.random.default_rng(seed)
+    num_glitches = max(1, int(h * intensity))
+    for _ in range(num_glitches):
+        # Pick a source row and destination row, shift a band
+        src = rng.integers(0, h)
+        dst = rng.integers(0, h)
+        blen = rng.integers(1, max(2, h // 10))
+        shift = rng.integers(-w // 4, w // 4)
+        for dy in range(blen):
+            sr, dr = (src + dy) % h, (dst + dy) % h
+            row = arr[sr].copy()
+            if shift > 0:
+                arr[dr, shift:] = row[:w - shift]
+                arr[dr, :shift] = row[w - shift:]
+            elif shift < 0:
+                s = -shift
+                arr[dr, :w - s] = row[s:]
+                arr[dr, w - s:] = row[:s]
+    Image.fromarray(arr, "RGB").save(output_path)
+
+
+def image_cartoon_cel(
+    input_path: str,
+    output_path: str,
+    *,
+    num_colors: int = 6,
+    edge_threshold: float = 30.0,
+) -> None:
+    """Cel-shading cartoon: quantize colors + bold black edge overlay."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    img = Image.open(input_path).convert("RGB")
+    # Quantize to few colors
+    quantized = img.quantize(colors=num_colors).convert("RGB")
+    # Edge detection on grayscale
+    gray = img.convert("L")
+    edges = np.array(gray.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    edge_mask = edges > edge_threshold
+    arr = np.array(quantized, dtype=np.uint8)
+    arr[edge_mask] = 0  # black edges
+    Image.fromarray(arr, "RGB").save(output_path)

@@ -80,6 +80,7 @@ from gemia.video.effects import (
     video_highlight_region, video_frame_interpolate,
     video_rolling_shutter, video_color_correct,
     video_text_caption, video_posterize,
+    video_speed_ramp_ease, video_split_screen,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -174,4 +175,5 @@ __all__ = [
     "video_highlight_region", "video_frame_interpolate",
     "video_rolling_shutter", "video_color_correct",
     "video_text_caption", "video_posterize",
+    "video_speed_ramp_ease", "video_split_screen",
 ]
