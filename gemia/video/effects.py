@@ -6631,3 +6631,59 @@ def video_frame_hold(input_path: "str", output_path: "str", *, hold_time: "float
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_vhs_glitch(input_path: "str", output_path: "str", *, noise: "int" = 15, hue_shift: "float" = 10.0) -> "None":
+    """VHS-style glitch: scanlines + color bleeding + noise."""
+    import subprocess
+    vf = (
+        f"noise=alls={noise}:allf=t,"
+        f"hue=h={hue_shift},"
+        f"geq=lum='if(mod(floor(Y/2),2),lum(X,Y)*0.85,lum(X,Y))':"
+        f"cb='if(mod(floor(Y/2),2),cb(X,Y)*0.85,cb(X,Y))':"
+        f"cr='if(mod(floor(Y/2),2),cr(X,Y)*0.85,cr(X,Y))'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"noise=alls={noise}:allf=t,hue=h={hue_shift}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_letterbox_blur(input_path: "str", output_path: "str", *, bar_height: "float" = 0.1) -> "None":
+    """Letterbox bars filled with blurred video rather than black."""
+    import subprocess
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    bar_h = int(h * bar_height)
+    # Scale up blurred version to fill full frame, overlay sharp centre
+    vf = (
+        f"[0:v]split[sharp][forblur];"
+        f"[forblur]scale={w}:{h+bar_h*2},gblur=sigma=20[blurbg];"
+        f"[blurbg][sharp]overlay=0:{bar_h}[out]"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+         "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: black bars
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"pad={w}:{h+bar_h*2}:0:{bar_h}:black",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

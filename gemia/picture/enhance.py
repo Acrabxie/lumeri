@@ -3906,3 +3906,37 @@ def image_diffuse_glow(input_path: "str", output_path: "str", *, blur_radius: "i
     # Screen blend glow onto original
     result = 1.0 - (1.0 - arr) * (1.0 - hl_blur * glow_strength)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_stipple(input_path: "str", output_path: "str", *, dot_density: "int" = 1000, max_radius: "int" = 8) -> "None":
+    """Pointillist stipple: random dots sized by local darkness."""
+    from PIL import Image, ImageDraw
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img)
+    canvas = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    rng = np.random.default_rng(42)
+    xs = rng.integers(0, w, dot_density)
+    ys = rng.integers(0, h, dot_density)
+    for x, y in zip(xs, ys):
+        lum = (0.299 * arr[y, x, 0] + 0.587 * arr[y, x, 1] + 0.114 * arr[y, x, 2]) / 255.0
+        r = max(1, int((1.0 - lum) * max_radius))
+        color = tuple(arr[y, x])
+        draw.ellipse([x - r, y - r, x + r, y + r], fill=color)
+    canvas.save(output_path)
+
+
+def image_color_burn_blend(input_path: "str", blend_path: "str", output_path: "str", *, opacity: "float" = 1.0) -> "None":
+    """Color burn blend mode: darkens base by increasing contrast toward blend color."""
+    from PIL import Image
+    import numpy as np
+    base = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+    ov_img = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    ov = np.array(ov_img).astype(np.float32) / 255.0
+    denom = np.clip(ov, 1e-6, 1.0)
+    burn = np.clip(1.0 - (1.0 - base) / denom, 0.0, 1.0)
+    result = base * (1.0 - opacity) + burn * opacity
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

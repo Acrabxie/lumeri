@@ -78,6 +78,7 @@ from gemia.audio.effects import (
     audio_pitch_octave_down,
     audio_granular_freeze,
     audio_reverb_room,
+    audio_distortion,
 )
 
 __all__ = [
@@ -162,4 +163,5 @@ __all__ = [
     "audio_pitch_octave_down",
     "audio_granular_freeze",
     "audio_reverb_room",
+    "audio_distortion",
 ]
