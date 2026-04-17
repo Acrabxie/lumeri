@@ -3620,3 +3620,62 @@ def image_mirror_quad(input_path: "str", output_path: "str") -> "None":
     result.paste(bl, (0, hh))
     result.paste(br, (hw, hh))
     result.save(output_path)
+
+
+def image_color_dodge(input_path: "str", blend_path: "str", output_path: "str", *, opacity: "float" = 1.0) -> "None":
+    """Blend two images with color dodge mode: base / (1 - overlay)."""
+    from PIL import Image
+    import numpy as np
+    base = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+    ov_img = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    ov = np.array(ov_img).astype(np.float32) / 255.0
+    denom = np.clip(1.0 - ov, 1e-6, 1.0)
+    dodge = np.clip(base / denom, 0.0, 1.0)
+    result = base * (1.0 - opacity) + dodge * opacity
+    (result.clip(0, 1) * 255).astype(np.uint8)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_sunbeams(input_path: "str", output_path: "str", *, cx: "float" = 0.5, cy: "float" = 0.3, num_steps: "int" = 20, decay: "float" = 0.95) -> "None":
+    """Simulate sun rays by iteratively shifting and adding image toward a focal point."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    h, w = arr.shape[:2]
+    cx_px = cx * w
+    cy_px = cy * h
+    accumulated = arr.copy()
+    current = arr.copy()
+    weight = 1.0
+    total_weight = 1.0
+    step_scale = 0.02
+    for i in range(1, num_steps + 1):
+        scale = 1.0 - i * step_scale
+        if scale <= 0:
+            break
+        # Compute translation toward focal point
+        tx = int((cx_px - w / 2) * step_scale)
+        ty = int((cy_px - h / 2) * step_scale)
+        # Scale and shift using numpy roll (approximate)
+        from PIL import Image as PILImage
+        scaled = PILImage.fromarray((current * 255).astype(np.uint8))
+        nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+        scaled = scaled.resize((nw, nh), PILImage.BILINEAR)
+        canvas = np.zeros_like(arr)
+        x0 = max(0, (w - nw) // 2 + tx)
+        y0 = max(0, (h - nh) // 2 + ty)
+        x1 = min(w, x0 + nw)
+        y1 = min(h, y0 + nh)
+        sw = x1 - x0
+        sh = y1 - y0
+        if sw > 0 and sh > 0:
+            patch = np.array(scaled.crop((0, 0, sw, sh))).astype(np.float32) / 255.0
+            canvas[y0:y0+sh, x0:x0+sw] = patch
+        weight *= decay
+        total_weight += weight
+        accumulated += canvas * weight
+        current = canvas
+    result = (accumulated / total_weight).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)

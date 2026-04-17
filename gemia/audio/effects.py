@@ -3537,3 +3537,21 @@ def audio_vinyl_warmth(input_path: "str", output_path: "str", *, warmth: "float"
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_telephone_filter(input_path: "str", output_path: "str", *, low_hz: "float" = 300.0, high_hz: "float" = 3400.0, distortion: "float" = 0.1) -> "None":
+    """Bandpass 300-3400 Hz + slight saturation to simulate telephone audio quality."""
+    import subprocess
+    gain = 1.0 + distortion * 4
+    vf = f"highpass=f={low_hz},lowpass=f={high_hz},volume={gain:.2f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", vf, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"highpass=f={low_hz},lowpass=f={high_hz}",
+             output_path],
+            check=True, capture_output=True
+        )

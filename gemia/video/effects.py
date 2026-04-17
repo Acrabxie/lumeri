@@ -6142,3 +6142,122 @@ def video_mirror_flip(input_path: "str", output_path: "str") -> "None":
              "-map", "[out]", "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_ken_burns_auto(input_path: "str", output_path: "str", *, zoom_start: "float" = 1.0, zoom_end: "float" = 1.3, direction: "str" = "right") -> "None":
+    """Auto Ken Burns pan+zoom effect across video duration."""
+    import subprocess
+    # Get duration and dimensions via ffprobe
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,nb_frames,r_frame_rate",
+         "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    # zoompan: zoom from zoom_start to zoom_end, pan based on direction
+    dur_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    dur = float(dur_probe.stdout.strip() or "5")
+    fps_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    fps_str = fps_probe.stdout.strip()
+    if "/" in fps_str:
+        num, den = fps_str.split("/")
+        fps = float(num) / float(den)
+    else:
+        fps = float(fps_str or "25")
+    total_frames = int(dur * fps)
+    z_expr = f"{zoom_start}+({zoom_end}-{zoom_start})*on/{total_frames}"
+    if direction == "right":
+        x_expr = f"(iw-iw/zoom)/2+on/{total_frames}*(iw*{zoom_end-1:.4f}/2)"
+        y_expr = "(ih-ih/zoom)/2"
+    elif direction == "left":
+        x_expr = f"(iw-iw/zoom)/2-on/{total_frames}*(iw*{zoom_end-1:.4f}/2)"
+        y_expr = "(ih-ih/zoom)/2"
+    elif direction == "down":
+        x_expr = "(iw-iw/zoom)/2"
+        y_expr = f"(ih-ih/zoom)/2+on/{total_frames}*(ih*{zoom_end-1:.4f}/2)"
+    else:  # up
+        x_expr = "(iw-iw/zoom)/2"
+        y_expr = f"(ih-ih/zoom)/2-on/{total_frames}*(ih*{zoom_end-1:.4f}/2)"
+    vf = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={total_frames}:s={w}x{h}:fps={fps}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        check=True, capture_output=True
+    )
+
+
+def video_color_pop(input_path: "str", output_path: "str", *, hue_center: "float" = 0.0, hue_range: "float" = 30.0, saturation: "float" = 0.0) -> "None":
+    """Desaturate all colors except a hue range to make one color pop."""
+    import subprocess, tempfile, os, shutil
+    # Extract frames, process with PIL, re-encode
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        fps_str = probe.stdout.strip()
+        if "/" in fps_str:
+            num, den = fps_str.split("/")
+            fps = float(num) / float(den)
+        else:
+            fps = float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image
+        import numpy as np
+        import colorsys
+        lo = (hue_center - hue_range) % 360
+        hi = (hue_center + hue_range) % 360
+        for fname in sorted(os.listdir(frames_dir)):
+            fpath = os.path.join(frames_dir, fname)
+            img = Image.open(fpath).convert("RGB")
+            arr = np.array(img).astype(np.float32) / 255.0
+            h_arr, w_arr = arr.shape[:2]
+            out = arr.copy()
+            # vectorized HSV check
+            r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+            mx = np.maximum(np.maximum(r, g), b)
+            mn = np.minimum(np.minimum(r, g), b)
+            delta = mx - mn + 1e-9
+            # hue in [0, 360]
+            hue = np.zeros((h_arr, w_arr))
+            mask_r = (mx == r)
+            mask_g = (mx == g) & ~mask_r
+            mask_b = ~mask_r & ~mask_g
+            hue[mask_r] = (60 * ((g[mask_r] - b[mask_r]) / delta[mask_r])) % 360
+            hue[mask_g] = (60 * ((b[mask_g] - r[mask_g]) / delta[mask_g]) + 120) % 360
+            hue[mask_b] = (60 * ((r[mask_b] - g[mask_b]) / delta[mask_b]) + 240) % 360
+            if lo <= hi:
+                in_range = (hue >= lo) & (hue <= hi)
+            else:
+                in_range = (hue >= lo) | (hue <= hi)
+            # Desaturate pixels not in range
+            gray = 0.299 * r + 0.587 * g + 0.114 * b
+            for c in range(3):
+                out[:, :, c] = np.where(in_range, arr[:, :, c], gray)
+            Image.fromarray((out.clip(0, 1) * 255).astype(np.uint8)).save(fpath)
+        # Re-encode
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
