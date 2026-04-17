@@ -3982,3 +3982,37 @@ def audio_granular_pitch(input_path: "str", output_path: "str", *, pitch_semiton
             ["ffmpeg", "-y", "-i", input_path, "-af", af2, output_path],
             check=True, capture_output=True
         )
+
+
+def audio_vinyl_hiss(input_path: "str", output_path: "str", *, hiss_level: "float" = 0.015, highpass_hz: "float" = 4000.0) -> "None":
+    """Add continuous vinyl surface hiss: high-frequency white noise under the signal."""
+    import subprocess
+    import tempfile, os
+    tmp = tempfile.mktemp(suffix=".wav")
+    try:
+        # Get duration
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+            capture_output=True, text=True
+        )
+        duration = float(probe.stdout.strip()) if probe.returncode == 0 else 10.0
+        # Generate hiss: white noise high-passed
+        hiss_af = f"highpass=f={highpass_hz:.0f},volume={hiss_level:.4f}"
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", f"anoisesrc=d={duration:.3f}:c=white:r=44100",
+             "-af", hiss_af, tmp],
+            capture_output=True
+        )
+        if r.returncode == 0:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path, "-i", tmp,
+                 "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first[outa]",
+                 "-map", "[outa]", output_path],
+                check=True, capture_output=True
+            )
+        else:
+            subprocess.run(["ffmpeg", "-y", "-i", input_path, output_path], check=True, capture_output=True)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
