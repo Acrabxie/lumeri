@@ -4068,3 +4068,43 @@ def image_mosaic_portrait(input_path: "str", output_path: "str", *, block_size: 
             avg = block.mean(axis=(0, 1)).astype(np.uint8)
             arr[y:y+block_size, x:x+block_size] = avg
     Image.fromarray(arr).save(output_path)
+
+
+def image_watermark_logo(input_path: "str", logo_path: "str", output_path: "str", *, corner: "str" = "bottom_right", opacity: "float" = 0.6, scale: "float" = 0.2) -> "None":
+    """Composite a logo as watermark at a corner with opacity control."""
+    from PIL import Image
+    import numpy as np
+    base = Image.open(input_path).convert("RGBA")
+    bw, bh = base.size
+    logo = Image.open(logo_path).convert("RGBA")
+    lw = int(bw * scale)
+    lh = int(logo.height * lw / logo.width)
+    logo = logo.resize((lw, lh), Image.LANCZOS)
+    # Adjust opacity
+    logo_arr = np.array(logo).astype(np.float32)
+    logo_arr[:, :, 3] *= opacity
+    logo = Image.fromarray(logo_arr.astype(np.uint8))
+    margin = int(bw * 0.02)
+    positions = {
+        "bottom_right": (bw - lw - margin, bh - lh - margin),
+        "bottom_left": (margin, bh - lh - margin),
+        "top_right": (bw - lw - margin, margin),
+        "top_left": (margin, margin),
+    }
+    pos = positions.get(corner, positions["bottom_right"])
+    base.paste(logo, pos, logo)
+    base.convert("RGB").save(output_path)
+
+
+def image_orton_effect(input_path: "str", output_path: "str", *, blur_radius: "int" = 10, strength: "float" = 0.7) -> "None":
+    """Orton effect: multiply sharp image with blurred copy for dreamy glow."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blurred = np.array(img.filter(ImageFilter.GaussianBlur(radius=blur_radius))).astype(np.float32) / 255.0
+    # Multiply blend
+    multiplied = arr * blurred
+    # Blend with original
+    result = arr * (1.0 - strength) + multiplied * strength
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
