@@ -6909,3 +6909,99 @@ def video_color_grade_lut(input_path: "str", lut_path: "str", output_path: "str"
             ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_split_quad(input_path: "str", output_path: "str", *, offsets: "list" = None) -> "None":
+    """Show 2×2 grid of the same clip at different time offsets."""
+    import subprocess
+    if offsets is None:
+        offsets = [0.0, 0.5, 1.0, 1.5]
+    dur_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", input_path], capture_output=True, text=True)
+    dur = float(dur_probe.stdout.strip() or "10")
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+        capture_output=True, text=True)
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]) // 2, int(parts[1]) // 2
+    # Build filter: 4 delayed inputs from same file
+    vf = (
+        f"[0:v]split=4[a][b][c][d];"
+        f"[a]scale={w}:{h},setpts=PTS-STARTPTS[q0];"
+        f"[b]scale={w}:{h},setpts=PTS-STARTPTS+{offsets[1] if len(offsets)>1 else 0.5}/TB[q1];"
+        f"[c]scale={w}:{h},setpts=PTS-STARTPTS+{offsets[2] if len(offsets)>2 else 1.0}/TB[q2];"
+        f"[d]scale={w}:{h},setpts=PTS-STARTPTS+{offsets[3] if len(offsets)>3 else 1.5}/TB[q3];"
+        f"[q0][q1]hstack[top];[q2][q3]hstack[bot];[top][bot]vstack[out]"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+         "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: 2x2 same frame, no offset
+        vf2 = (
+            f"[0:v]split=4[a][b][c][d];"
+            f"[a]scale={w}:{h}[q0];[b]scale={w}:{h}[q1];"
+            f"[c]scale={w}:{h}[q2];[d]scale={w}:{h}[q3];"
+            f"[q0][q1]hstack[top];[q2][q3]hstack[bot];[top][bot]vstack[out]"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-filter_complex", vf2, "-map", "[out]", "-map", "0:a?",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_text_lower_third(input_path: "str", output_path: "str", *, text: "str" = "Lower Third", font_size: "int" = 36, text_color: "tuple" = (255, 255, 255), bg_color: "tuple" = (0, 0, 0), bg_opacity: "float" = 0.6) -> "None":
+    """Draw a lower-third text bar using PIL frame-by-frame."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        frames_dir = os.path.join(tmp, "frames")
+        os.makedirs(frames_dir)
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,width,height",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, os.path.join(frames_dir, "f%06d.png")],
+            check=True, capture_output=True
+        )
+        from PIL import Image, ImageDraw, ImageFont
+        bar_h = int(font_size * 2.5)
+        bar_y = h - bar_h - int(h * 0.05)
+        for fname in sorted(os.listdir(frames_dir)):
+            fpath = os.path.join(frames_dir, fname)
+            img = Image.open(fpath).convert("RGB")
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            bg = (*bg_color, int(bg_opacity * 255))
+            draw.rectangle([0, bar_y, w, bar_y + bar_h], fill=bg)
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+            except Exception:
+                font = ImageFont.load_default()
+            draw.text((int(w * 0.05), bar_y + (bar_h - font_size) // 2), text, fill=(*text_color, 255), font=font)
+            img = img.convert("RGBA")
+            img.alpha_composite(overlay)
+            img.convert("RGB").save(fpath)
+        subprocess.run(
+            ["ffmpeg", "-y", "-framerate", str(fps),
+             "-i", os.path.join(frames_dir, "f%06d.png"),
+             "-i", input_path, "-map", "0:v", "-map", "1:a?",
+             "-c:v", "libx264", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
