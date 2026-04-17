@@ -6082,3 +6082,63 @@ def video_old_film(input_path: "str", output_path: "str", *, scratch_intensity: 
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_tilt_shift(input_path: "str", output_path: "str", *, focus_y: "float" = 0.5, blur_radius: "int" = 10, band_height: "float" = 0.2) -> "None":
+    """Blur top/bottom bands to simulate tilt-shift miniature effect."""
+    import subprocess, tempfile, os, shutil
+    # Use boxblur on top/bottom via split + overlay approach
+    # Simpler: blur entire frame, then overlay sharp centre strip
+    tmp = tempfile.mkdtemp()
+    try:
+        blurred = os.path.join(tmp, "blurred.mp4")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"boxblur={blur_radius}:{blur_radius}",
+             "-c:a", "copy", blurred],
+            check=True, capture_output=True
+        )
+        # Overlay centre band (sharp) on blurred
+        # Crop centre band from original, overlay on blurred
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        dims = probe.stdout.strip().split(",")
+        w, h = int(dims[0]), int(dims[1])
+        band_h = int(h * band_height)
+        y_start = int(h * focus_y - band_h // 2)
+        y_start = max(0, min(y_start, h - band_h))
+        vf = (
+            f"[0:v]crop={w}:{band_h}:0:{y_start}[sharp];"
+            f"[1:v][sharp]overlay=0:{y_start}[out]"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-i", blurred,
+             "-filter_complex", vf, "-map", "[out]", "-map", "0:a?",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_mirror_flip(input_path: "str", output_path: "str") -> "None":
+    """Stack original and horizontally mirrored video side by side."""
+    import subprocess
+    vf = "split[a][b];[b]hflip[bf];[a][bf]hstack"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-filter_complex", vf, "-map", "[out]",
+         "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Retry with correct map
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-filter_complex", "split[a][b];[b]hflip[bf];[a][bf]hstack[out]",
+             "-map", "[out]", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

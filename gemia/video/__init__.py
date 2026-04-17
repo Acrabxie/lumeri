@@ -85,6 +85,7 @@ from gemia.video.effects import (
     video_zoom_punch, video_color_shift,
     video_rgb_split, video_scanlines,
     video_night_vision, video_old_film,
+    video_tilt_shift, video_mirror_flip,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -184,4 +185,5 @@ __all__ = [
     "video_zoom_punch", "video_color_shift",
     "video_rgb_split", "video_scanlines",
     "video_night_vision", "video_old_film",
+    "video_tilt_shift", "video_mirror_flip",
 ]
