@@ -89,6 +89,7 @@ from gemia.audio.effects import (
     audio_sidechain_pump,
     audio_stereo_imager,
     audio_spatial_reverb,
+    audio_pitch_glide,
 )
 
 __all__ = [
@@ -184,4 +185,5 @@ __all__ = [
     "audio_sidechain_pump",
     "audio_stereo_imager",
     "audio_spatial_reverb",
+    "audio_pitch_glide",
 ]
