@@ -3714,3 +3714,55 @@ def image_selective_blur(input_path: "str", output_path: "str", *, threshold: "f
     weight = np.clip(1.0 - lum / threshold, 0, 1)[:, :, np.newaxis]
     result = arr * (1.0 - weight) + blur_arr * weight
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_light_leak(input_path: "str", output_path: "str", *, corner: "str" = "top_right", intensity: "float" = 0.6) -> "None":
+    """Overlay warm radial gradient at a corner to simulate film light leak."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    xs = np.linspace(0, 1, w)
+    ys = np.linspace(0, 1, h)
+    xx, yy = np.meshgrid(xs, ys)
+    corners = {
+        "top_right": (1.0, 0.0),
+        "top_left": (0.0, 0.0),
+        "bottom_right": (1.0, 1.0),
+        "bottom_left": (0.0, 1.0),
+    }
+    cx, cy = corners.get(corner, (1.0, 0.0))
+    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    # Leak is strongest at corner, fades with distance
+    leak_alpha = np.clip(1.0 - dist / 0.8, 0, 1) ** 1.5 * intensity
+    leak_alpha = leak_alpha[:, :, np.newaxis]
+    # Warm orange color
+    leak_color = np.array([1.0, 0.55, 0.1], dtype=np.float32)
+    # Screen blend with leak
+    result = 1.0 - (1.0 - arr) * (1.0 - leak_color * leak_alpha)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pixelate_grid(input_path: "str", output_path: "str", *, block_size: "int" = 16, grid_color: "tuple" = (0, 0, 0)) -> "None":
+    """Pixelate image with visible grid lines between blocks."""
+    from PIL import Image, ImageDraw
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img)
+    result = arr.copy()
+    # Average each block
+    for y in range(0, h, block_size):
+        for x in range(0, w, block_size):
+            block = arr[y:y+block_size, x:x+block_size]
+            avg = block.mean(axis=(0, 1)).astype(np.uint8)
+            result[y:y+block_size, x:x+block_size] = avg
+    out_img = Image.fromarray(result)
+    draw = ImageDraw.Draw(out_img)
+    gc = grid_color
+    for x in range(0, w, block_size):
+        draw.line([(x, 0), (x, h)], fill=gc, width=1)
+    for y in range(0, h, block_size):
+        draw.line([(0, y), (w, y)], fill=gc, width=1)
+    out_img.save(output_path)

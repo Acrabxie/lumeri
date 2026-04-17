@@ -88,6 +88,7 @@ from gemia.video.effects import (
     video_tilt_shift, video_mirror_flip,
     video_ken_burns_auto, video_color_pop,
     video_shake_cam, video_color_temperature,
+    video_zoom_blur, video_flash_cut,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -190,4 +191,5 @@ __all__ = [
     "video_tilt_shift", "video_mirror_flip",
     "video_ken_burns_auto", "video_color_pop",
     "video_shake_cam", "video_color_temperature",
+    "video_zoom_blur", "video_flash_cut",
 ]
