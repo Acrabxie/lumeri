@@ -3871,3 +3871,23 @@ def audio_sidechain_pump(input_path: "str", output_path: "str", *, bpm: "float" 
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_stereo_imager(input_path: "str", output_path: "str", *, width: "float" = 1.5) -> "None":
+    """Widen stereo field using mid-side processing."""
+    import subprocess
+    # M = (L+R)/2, S = (L-R)/2 * width, then L = M+S, R = M-S
+    # Use stereotools or extrastereo
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"extrastereo=m={width:.3f}",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"stereotools=slev={width:.3f}",
+             output_path],
+            check=True, capture_output=True
+        )

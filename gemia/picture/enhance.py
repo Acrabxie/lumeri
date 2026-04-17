@@ -4263,3 +4263,68 @@ def image_glamour_glow(input_path: "str", output_path: "str", *, blur_radius: "i
     glow[:, :, 0] = np.clip(glow[:, :, 0] + warmth * 0.1, 0, 1)
     glow[:, :, 2] = np.clip(glow[:, :, 2] - warmth * 0.05, 0, 1)
     Image.fromarray((glow.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_kaleidoscope(input_path: "str", output_path: "str", *, segments: "int" = 8) -> "None":
+    """Create kaleidoscope by mirroring a wedge slice repeatedly around center."""
+    from PIL import Image
+    import numpy as np, math
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    size = min(w, h)
+    # Crop to square centered
+    left = (w - size) // 2
+    top = (h - size) // 2
+    img = img.crop((left, top, left + size, top + size)).resize((size, size), Image.LANCZOS)
+    arr = np.array(img).astype(np.uint8)
+    result = np.zeros((size, size, 3), dtype=np.uint8)
+    cx, cy = size / 2.0, size / 2.0
+    angle_step = 2 * math.pi / segments
+    ys, xs = np.mgrid[0:size, 0:size]
+    dx = xs - cx
+    dy = ys - cy
+    angles = np.arctan2(dy, dx)
+    radii = np.sqrt(dx**2 + dy**2)
+    # Map angle to first wedge
+    wedge_angle = angles % angle_step
+    # Mirror every other wedge
+    wedge_idx = (angles // angle_step).astype(int) % 2
+    mapped_angle = np.where(wedge_idx == 0, wedge_angle, angle_step - wedge_angle)
+    src_x = np.clip((cx + radii * np.cos(mapped_angle)).astype(int), 0, size - 1)
+    src_y = np.clip((cy + radii * np.sin(mapped_angle)).astype(int), 0, size - 1)
+    result = arr[src_y, src_x]
+    Image.fromarray(result).save(output_path)
+
+
+def image_vintage_photo(input_path: "str", output_path: "str", *, scratch_count: "int" = 20) -> "None":
+    """Vintage photo: sepia + vignette + dust scratches + slight blur."""
+    from PIL import Image, ImageFilter, ImageDraw
+    import numpy as np, random
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Sepia
+    r = arr[:, :, 0] * 0.393 + arr[:, :, 1] * 0.769 + arr[:, :, 2] * 0.189
+    g = arr[:, :, 0] * 0.349 + arr[:, :, 1] * 0.686 + arr[:, :, 2] * 0.168
+    b = arr[:, :, 0] * 0.272 + arr[:, :, 1] * 0.534 + arr[:, :, 2] * 0.131
+    arr = np.stack([r, g, b], axis=2).clip(0, 1)
+    # Slight blur
+    sepia_img = Image.fromarray((arr * 255).astype(np.uint8))
+    sepia_img = sepia_img.filter(ImageFilter.GaussianBlur(radius=0.5))
+    arr = np.array(sepia_img).astype(np.float32) / 255.0
+    # Vignette
+    xs = np.linspace(-1, 1, w)
+    ys = np.linspace(-1, 1, h)
+    xx, yy = np.meshgrid(xs, ys)
+    vignette = np.clip(1.0 - (xx**2 + yy**2) * 0.6, 0, 1)[:, :, np.newaxis]
+    arr = arr * vignette
+    result_img = Image.fromarray((arr.clip(0, 1) * 255).astype(np.uint8))
+    # Dust scratches
+    draw = ImageDraw.Draw(result_img)
+    rng = random.Random(42)
+    for _ in range(scratch_count):
+        x = rng.randint(0, w)
+        y1, y2 = rng.randint(0, h // 2), rng.randint(h // 2, h)
+        brightness = rng.randint(180, 255)
+        draw.line([(x, y1), (x, y2)], fill=(brightness, brightness, brightness - 20), width=1)
+    result_img.save(output_path)
