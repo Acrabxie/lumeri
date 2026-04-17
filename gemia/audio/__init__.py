@@ -82,6 +82,7 @@ from gemia.audio.effects import (
     audio_chorus_stereo,
     audio_wah_effect,
     audio_pitch_vibrato,
+    audio_tape_saturation,
 )
 
 __all__ = [
@@ -170,4 +171,5 @@ __all__ = [
     "audio_chorus_stereo",
     "audio_wah_effect",
     "audio_pitch_vibrato",
+    "audio_tape_saturation",
 ]
