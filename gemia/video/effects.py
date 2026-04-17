@@ -7519,3 +7519,77 @@ def video_color_shift_time(input_path: "str", output_path: "str", *, speed: "flo
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_bleach_bypass(input_path: "str", output_path: "str", *, contrast: "float" = 1.35, desat: "float" = 0.45) -> "None":
+    """Bleach bypass look with higher contrast and partial desaturation."""
+    import subprocess
+
+    sat = max(0.0, 1.0 - desat)
+    vf = f"eq=contrast={contrast:.2f}:saturation={sat:.2f}:brightness=0.02"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", f"hue=s={sat:.2f}", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_frame_trails(input_path: "str", output_path: "str", *, strength: "float" = 0.55) -> "None":
+    """Motion trail effect by blending the current frame with previous frames."""
+    import subprocess
+
+    trail = max(0.05, min(0.95, strength))
+    vf = f"tmix=frames=4:weights='1 {trail:.2f} {trail*0.65:.2f} {trail*0.35:.2f}'"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", "tblend=all_mode=average", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_heatwave(input_path: "str", output_path: "str", *, amplitude: "float" = 6.0, speed: "float" = 2.0) -> "None":
+    """Heatwave distortion with animated horizontal shimmer."""
+    import subprocess
+
+    vf = f"wave=t=sine:frequency={speed:.2f}:amplitude={amplitude:.2f}"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"crop=w=iw-2:h=ih-2:x='1+sin(t*{speed:.2f})':y='1+cos(t*{speed:.2f})',scale=iw:ih"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_shadow_highlight(input_path: "str", output_path: "str", *, shadow_lift: "float" = 0.08, highlight_rolloff: "float" = 0.92) -> "None":
+    """Lift shadows while gently compressing highlights."""
+    import subprocess
+
+    shadow_lift = max(0.0, min(0.25, shadow_lift))
+    highlight_rolloff = max(0.7, min(1.0, highlight_rolloff))
+    vf = (
+        "curves="
+        f"r='0/{shadow_lift:.2f} 0.5/0.55 1/{highlight_rolloff:.2f}':"
+        f"g='0/{shadow_lift:.2f} 0.5/0.55 1/{highlight_rolloff:.2f}':"
+        f"b='0/{shadow_lift:.2f} 0.5/0.55 1/{highlight_rolloff:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", f"eq=brightness={shadow_lift:.2f}:contrast=0.95", "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

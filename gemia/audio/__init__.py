@@ -93,6 +93,8 @@ from gemia.audio.effects import (
     audio_granular_pitch,
     audio_vinyl_hiss,
     audio_cb_radio,
+    audio_underwater_muffle,
+    audio_cassette_wobble,
 )
 
 __all__ = [
@@ -192,4 +194,6 @@ __all__ = [
     "audio_granular_pitch",
     "audio_vinyl_hiss",
     "audio_cb_radio",
+    "audio_underwater_muffle",
+    "audio_cassette_wobble",
 ]

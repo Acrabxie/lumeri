@@ -4037,3 +4037,44 @@ def audio_cb_radio(input_path: "str", output_path: "str", *, bandwidth_hz: "floa
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_underwater_muffle(input_path: "str", output_path: "str", *, cutoff_hz: "float" = 700.0, wobble_hz: "float" = 0.6) -> "None":
+    """Underwater muffle with low-pass filtering and gentle pitch wobble."""
+    import subprocess
+
+    af = (
+        f"lowpass=f={cutoff_hz:.0f},"
+        f"chorus=0.5:0.7:18:0.35:{wobble_hz:.2f}:0.25,"
+        f"volume=0.9"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", f"lowpass=f={cutoff_hz:.0f},volume=0.92", output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_cassette_wobble(input_path: "str", output_path: "str", *, wobble_hz: "float" = 0.8, depth: "float" = 0.003) -> "None":
+    """Cassette wobble with slow wow/flutter style pitch drift."""
+    import subprocess
+
+    delay_ms = max(8.0, depth * 1000.0)
+    af = (
+        f"asetrate=44100*0.997,aresample=44100,"
+        f"chorus=0.6:0.8:{delay_ms:.2f}:0.20:{wobble_hz:.2f}:0.35,"
+        f"highpass=f=60,lowpass=f=9000"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", "asetrate=44100*0.998,aresample=44100", output_path],
+            check=True, capture_output=True
+        )
