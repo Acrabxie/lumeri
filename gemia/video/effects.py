@@ -5896,3 +5896,95 @@ def video_wipe_transition(
              "-c", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_zoom_punch(
+    input_path: str,
+    output_path: str,
+    *,
+    punch_time: float = 1.0,
+    punch_duration: float = 0.3,
+    zoom_factor: float = 1.3,
+) -> None:
+    """Rapid zoom-in punch effect at a specific timestamp."""
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    before = os.path.join(tmpdir, "before.mp4")
+    punch = os.path.join(tmpdir, "punch.mp4")
+    after = os.path.join(tmpdir, "after.mp4")
+
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=width,height",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    lines = proc.stdout.strip().split("\n")
+    try:
+        w, h = int(lines[0]), int(lines[1])
+    except Exception:
+        w, h = 1920, 1080
+
+    proc2 = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(proc2.stdout.strip())
+    except ValueError:
+        total = 10.0
+
+    # Before
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-t", str(punch_time),
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", before],
+        check=True, capture_output=True,
+    )
+    # Punch: zoomed-in crop
+    sw = int(w * zoom_factor); sh = int(h * zoom_factor)
+    sw += sw % 2; sh += sh % 2
+    cx = (sw - w) // 2; cy = (sh - h) // 2
+    vf = f"scale={sw}:{sh},crop={w}:{h}:{cx}:{cy}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-ss", str(punch_time), "-t", str(punch_duration),
+         "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", punch],
+        check=True, capture_output=True,
+    )
+    # After
+    after_start = punch_time + punch_duration
+    if after_start < total:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ss", str(after_start),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", after],
+            check=True, capture_output=True,
+        )
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        f.write(f"file '{before}'\n")
+        f.write(f"file '{punch}'\n")
+        if after_start < total:
+            f.write(f"file '{after}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_color_shift(
+    input_path: str,
+    output_path: str,
+    *,
+    hue_degrees: float = 90.0,
+    saturation: float = 1.0,
+) -> None:
+    """Shift hue of video by N degrees using ffmpeg hue filter."""
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-vf", f"hue=h={hue_degrees}:s={saturation}",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-c:a", "copy", output_path],
+        check=True, capture_output=True,
+    )
