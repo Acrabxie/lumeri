@@ -3766,3 +3766,50 @@ def image_pixelate_grid(input_path: "str", output_path: "str", *, block_size: "i
     for y in range(0, h, block_size):
         draw.line([(0, y), (w, y)], fill=gc, width=1)
     out_img.save(output_path)
+
+
+def image_frost(input_path: "str", output_path: "str", *, blur_radius: "int" = 8, noise_amount: "float" = 0.05) -> "None":
+    """Simulate frosted glass: blur + noise overlay."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    arr = np.array(blurred).astype(np.float32) / 255.0
+    noise = np.random.uniform(-noise_amount, noise_amount, arr.shape).astype(np.float32)
+    result = np.clip(arr + noise, 0, 1)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_color_halftone(input_path: "str", output_path: "str", *, dot_size: "int" = 8) -> "None":
+    """CMYK-style color halftone with offset dot grids per channel."""
+    from PIL import Image, ImageDraw
+    import numpy as np, math
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Convert RGB to CMY
+    c = 1.0 - arr[:, :, 0]
+    m = 1.0 - arr[:, :, 1]
+    y_ch = 1.0 - arr[:, :, 2]
+    out = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(out)
+    angles = [15, 75, 0]  # C, M, Y screen angles
+    channels = [(c, (0, 255, 255)), (m, (255, 0, 255)), (y_ch, (255, 255, 0))]
+    for ch_arr, color in zip([c, m, y_ch], [(0, 255, 255), (255, 0, 255), (255, 255, 0)]):
+        angle_deg = angles[channels.index((ch_arr, color)) if (ch_arr, color) in channels else 0]
+        rad = math.radians(angle_deg)
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        step = dot_size
+        for gy in range(-step, h + step, step):
+            for gx in range(-step, w + step, step):
+                # Rotate grid point
+                rx = int(gx * cos_a - gy * sin_a)
+                ry = int(gx * sin_a + gy * cos_a)
+                if 0 <= rx < w and 0 <= ry < h:
+                    val = ch_arr[ry, rx]
+                    r = val * dot_size * 0.7
+                    if r > 0.5:
+                        bbox = [rx - r, ry - r, rx + r, ry + r]
+                        # Use multiply-like blend: draw dot with transparency via fill
+                        draw.ellipse(bbox, fill=color)
+    out.save(output_path)
