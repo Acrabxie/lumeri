@@ -107,6 +107,8 @@ from gemia.video.effects import (
     video_color_fade_out, video_zoom_letters,
     video_glitch_rgb, video_vignette_focus,
     video_mirror_time, video_color_shift_time,
+    video_bleach_bypass, video_frame_trails,
+    video_heatwave, video_shadow_highlight,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -228,4 +230,6 @@ __all__ = [
     "video_color_fade_out", "video_zoom_letters",
     "video_glitch_rgb", "video_vignette_focus",
     "video_mirror_time", "video_color_shift_time",
+    "video_bleach_bypass", "video_frame_trails",
+    "video_heatwave", "video_shadow_highlight",
 ]

@@ -4550,3 +4550,97 @@ def image_thermal(input_path: "str", output_path: "str", *, colormap: "str" = "j
     b = np.clip(1.5 - np.abs(t * 4 - 1), 0, 1)
     result = np.stack([r, g, b], axis=-1)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_pastel_wash(input_path: "str", output_path: "str", *, softness: "float" = 0.35, brightness: "float" = 0.08) -> "None":
+    """Pastel wash effect with softened contrast and milky color lift."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blur = arr.copy()
+    for _ in range(2):
+        blur = (
+            blur
+            + np.roll(blur, 1, axis=0)
+            + np.roll(blur, -1, axis=0)
+            + np.roll(blur, 1, axis=1)
+            + np.roll(blur, -1, axis=1)
+        ) / 5.0
+
+    base = arr * (1.0 - softness) + blur * softness
+    pastel = np.sqrt(np.clip(base + brightness, 0.0, 1.0))
+    pastel = pastel * 0.88 + 0.12
+    Image.fromarray((pastel.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_prism_burst(input_path: "str", output_path: "str", *, offset: "int" = 10, glow: "float" = 0.3) -> "None":
+    """Prism burst effect using radial RGB offsets and soft additive glow."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    h, w = arr.shape[:2]
+    yy, xx = np.indices((h, w), dtype=np.float32)
+    cx = (w - 1) / 2.0
+    cy = (h - 1) / 2.0
+    dx = xx - cx
+    dy = yy - cy
+    dist = np.sqrt(dx * dx + dy * dy) + 1e-6
+    ux = dx / dist
+    uy = dy / dist
+    shift_x = np.rint(ux * offset).astype(np.int32)
+    shift_y = np.rint(uy * offset).astype(np.int32)
+
+    def _sample(channel_index: int, mult: int) -> np.ndarray:
+        sx = np.clip(np.arange(w)[None, :] + shift_x * mult, 0, w - 1)
+        sy = np.clip(np.arange(h)[:, None] + shift_y * mult, 0, h - 1)
+        return arr[:, :, channel_index][sy, sx]
+
+    prism = np.stack([
+        _sample(0, 1),
+        arr[:, :, 1],
+        _sample(2, -1),
+    ], axis=-1)
+    highlight = np.clip(arr.max(axis=2, keepdims=True) - 0.65, 0.0, 1.0) / 0.35
+    result = prism + highlight * glow
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_blueprint_edges(input_path: "str", output_path: "str", *, line_strength: "float" = 1.4) -> "None":
+    """Blueprint-style white edge lines over a deep blue background."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    gray = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    gx = np.zeros_like(gray)
+    gy = np.zeros_like(gray)
+    gx[:, 1:-1] = gray[:, 2:] - gray[:, :-2]
+    gy[1:-1, :] = gray[2:, :] - gray[:-2, :]
+    edges = np.sqrt(gx * gx + gy * gy) * line_strength
+    edges = np.clip(edges, 0.0, 1.0)
+    base = np.zeros((gray.shape[0], gray.shape[1], 3), dtype=np.float32)
+    base[:, :, 0] = 0.05
+    base[:, :, 1] = 0.22
+    base[:, :, 2] = 0.58
+    result = base + edges[:, :, None] * 0.95
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_paper_cutout(input_path: "str", output_path: "str", *, levels: "int" = 5, shadow_shift: "int" = 6) -> "None":
+    """Paper cutout look with posterized layers and a soft offset shadow."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    levels = max(2, int(levels))
+    quant = np.floor(arr * (levels - 1) + 0.5) / (levels - 1)
+    shadow = np.roll(np.roll(quant.mean(axis=2, keepdims=True), shadow_shift, axis=0), shadow_shift, axis=1)
+    shadow = np.repeat(shadow, 3, axis=2) * np.array([0.55, 0.52, 0.48], dtype=np.float32)
+    result = np.clip(shadow * 0.35 + quant * 0.9 + 0.08, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
