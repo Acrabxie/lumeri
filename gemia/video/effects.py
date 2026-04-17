@@ -5785,3 +5785,114 @@ def video_split_screen(
              "-c:a", "copy", output_path],
             check=True, capture_output=True,
         )
+
+
+def video_freeze_frame_at(
+    input_path: str,
+    output_path: str,
+    *,
+    freeze_time: float = 2.0,
+    freeze_duration: float = 2.0,
+) -> None:
+    """Freeze frame at freeze_time for freeze_duration seconds, then resume."""
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    before = os.path.join(tmpdir, "before.mp4")
+    frozen = os.path.join(tmpdir, "frozen.mp4")
+    after = os.path.join(tmpdir, "after.mp4")
+
+    # Probe duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(proc.stdout.strip())
+    except ValueError:
+        total = 10.0
+
+    # Before freeze
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-t", str(freeze_time),
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", before],
+        check=True, capture_output=True,
+    )
+    # Frozen: single frame looped
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-ss", str(freeze_time), "-vframes", "1", "-q:v", "2",
+         os.path.join(tmpdir, "freeze.jpg")],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-loop", "1", "-i", os.path.join(tmpdir, "freeze.jpg"),
+         "-t", str(freeze_duration),
+         "-vf", "fps=25", "-c:v", "libx264", "-pix_fmt", "yuv420p", frozen],
+        check=True, capture_output=True,
+    )
+    # After freeze
+    if freeze_time < total:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-ss", str(freeze_time),
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", after],
+            check=True, capture_output=True,
+        )
+        parts = [before, frozen, after]
+    else:
+        parts = [before, frozen]
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        for p in parts:
+            f.write(f"file '{p}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+         "-c", "copy", output_path],
+        check=True, capture_output=True,
+    )
+
+
+def video_wipe_transition(
+    input_a: str,
+    input_b: str,
+    output_path: str,
+    *,
+    duration: float = 1.0,
+    offset: float = None,
+) -> None:
+    """Hard wipe (left-to-right) transition between two clips."""
+    # Get duration of input_a
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_a],
+        capture_output=True, text=True,
+    )
+    try:
+        dur_a = float(proc.stdout.strip())
+    except ValueError:
+        dur_a = 5.0
+    if offset is None:
+        offset = max(0.0, dur_a - duration)
+    # Use xfade wipeleft
+    fc = f"[0:v][1:v]xfade=transition=wipeleft:duration={duration}:offset={offset:.3f}[v]"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_a, "-i", input_b,
+         "-filter_complex", fc,
+         "-map", "[v]",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        # Fallback: simple concat
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        list_file = os.path.join(tmpdir, "list.txt")
+        with open(list_file, "w") as f:
+            f.write(f"file '{os.path.abspath(input_a)}'\n")
+            f.write(f"file '{os.path.abspath(input_b)}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+             "-c", "copy", output_path],
+            check=True, capture_output=True,
+        )
