@@ -7256,3 +7256,84 @@ def video_epic_slowmo(input_path: "str", output_path: "str", *, speed: "float" =
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_freeze_zoom(input_path: "str", output_path: "str", *, freeze_time: "float" = 1.0, freeze_duration: "float" = 2.0, zoom_to: "float" = 1.4) -> "None":
+    """Freeze a frame then slowly zoom into it for dramatic pause."""
+    import subprocess, tempfile, os, shutil
+    tmp = tempfile.mkdtemp()
+    try:
+        before = os.path.join(tmp, "before.mp4")
+        frozen_frame = os.path.join(tmp, "frozen.png")
+        frozen_clip = os.path.join(tmp, "frozen.mp4")
+        after = os.path.join(tmp, "after.mp4")
+        concat_list = os.path.join(tmp, "list.txt")
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,r_frame_rate",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        parts = probe.stdout.strip().split(",")
+        w, h = int(parts[0]), int(parts[1])
+        fps_str = parts[2]
+        fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+        total_freeze_frames = int(freeze_duration * fps)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-t", str(freeze_time), "-c", "copy", before],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(freeze_time), "-i", input_path, "-vframes", "1", frozen_frame],
+            check=True, capture_output=True
+        )
+        # Frozen clip: zoom in slowly
+        z_expr = f"1+({zoom_to}-1)*on/{total_freeze_frames}"
+        x_expr = "iw/2-(iw/zoom)/2"
+        y_expr = "ih/2-(ih/zoom)/2"
+        vf = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={total_freeze_frames}:s={w}x{h}:fps={fps}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-loop", "1", "-i", frozen_frame,
+             "-t", str(freeze_duration), "-vf", vf,
+             "-pix_fmt", "yuv420p", "-an", frozen_clip],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(freeze_time), "-i", input_path, "-c", "copy", after],
+            check=True, capture_output=True
+        )
+        with open(concat_list, "w") as f:
+            f.write(f"file '{before}'\nfile '{frozen_clip}'\nfile '{after}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", concat_list, "-c", "copy", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def video_duotone(input_path: "str", output_path: "str", *, shadow_color: "tuple" = (20, 10, 80), highlight_color: "tuple" = (255, 220, 100)) -> "None":
+    """Map video luminance to two colors (shadow→highlight gradient)."""
+    import subprocess
+    sr, sg, sb = shadow_color
+    hr, hg, hb = highlight_color
+    # Use curves to map each channel: lum=0 → shadow, lum=255 → highlight
+    r_curve = f"0/{sr} 255/{hr}"
+    g_curve = f"0/{sg} 255/{hg}"
+    b_curve = f"0/{sb} 255/{hb}"
+    vf = (
+        f"hue=s=0,"  # desaturate first
+        f"curves=r='{r_curve}':g='{g_curve}':b='{b_curve}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "hue=s=0",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

@@ -4328,3 +4328,41 @@ def image_vintage_photo(input_path: "str", output_path: "str", *, scratch_count:
         brightness = rng.randint(180, 255)
         draw.line([(x, y1), (x, y2)], fill=(brightness, brightness, brightness - 20), width=1)
     result_img.save(output_path)
+
+
+def image_paint_strokes(input_path: "str", output_path: "str", *, stroke_size: "int" = 8, iterations: "int" = 3) -> "None":
+    """Painterly effect via repeated local averaging in random small ellipses."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32)
+    # Approximate oil paint with multiple passes of median-like smoothing
+    result = arr.copy()
+    for _ in range(iterations):
+        blurred = np.array(
+            Image.fromarray(result.astype(np.uint8)).filter(
+                ImageFilter.MedianFilter(size=stroke_size | 1)
+            )
+        ).astype(np.float32)
+        # Keep edge detail by blending based on local variance
+        result = blurred * 0.85 + arr * 0.15
+    Image.fromarray(result.clip(0, 255).astype(np.uint8)).save(output_path)
+
+
+def image_morning_haze(input_path: "str", output_path: "str", *, intensity: "float" = 0.45, warmth: "float" = 0.15) -> "None":
+    """Atmospheric morning haze: bright warm mist overlay stronger at top."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Gradient: stronger haze at top
+    ys = np.linspace(1.0, 0.0, h)  # 1 at top, 0 at bottom
+    haze_alpha = (ys * intensity)[:, np.newaxis, np.newaxis]
+    # Warm haze color (pale yellow-white)
+    haze_color = np.array([1.0, 0.97, 0.88], dtype=np.float32)
+    result = arr * (1.0 - haze_alpha) + haze_color * haze_alpha
+    # Slight warmth boost overall
+    result[:, :, 0] = np.clip(result[:, :, 0] + warmth * 0.08, 0, 1)
+    result[:, :, 2] = np.clip(result[:, :, 2] - warmth * 0.04, 0, 1)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
