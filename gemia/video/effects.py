@@ -6687,3 +6687,59 @@ def video_letterbox_blur(input_path: "str", output_path: "str", *, bar_height: "
              "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_split_tone(input_path: "str", output_path: "str", *, shadow_hue: "float" = 220.0, highlight_hue: "float" = 40.0, strength: "float" = 0.3) -> "None":
+    """Apply different color tints to shadows vs highlights."""
+    import subprocess, math
+    # Shadow hue → blue-ish tint for darks, highlight hue → warm for brights
+    # Use curves to shift RGB channels differently in shadows vs highlights
+    sh = shadow_hue / 360.0
+    hh = highlight_hue / 360.0
+    import colorsys
+    sr, sg, sb = colorsys.hsv_to_rgb(sh, strength, 1.0)
+    hr, hg, hb = colorsys.hsv_to_rgb(hh, strength, 1.0)
+    # Build curves: R channel boosted in highlights, reduced in shadows (warm highlight)
+    r_curve = f"0/0 64/{int(64*(1-strength*sb*0.5))} 192/{int(192+(63*strength*hr))} 255/255"
+    g_curve = f"0/0 128/128 255/255"
+    b_curve = f"0/{int(strength*sb*60)} 192/{int(192*(1-strength*(1-hb)*0.3))} 255/255"
+    vf = f"curves=r='{r_curve}':b='{b_curve}'"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"hue=s={1.0+strength:.2f}",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_zoom_out_center(input_path: "str", output_path: "str", *, zoom_start: "float" = 1.5, zoom_end: "float" = 1.0) -> "None":
+    """Reverse Ken Burns: zoom out from tight to wide over full video duration."""
+    import subprocess
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "csv=p=0", input_path],
+        capture_output=True, text=True
+    )
+    parts = probe.stdout.strip().split(",")
+    w, h = int(parts[0]), int(parts[1])
+    fps_str = parts[2]
+    fps = float(fps_str.split("/")[0]) / float(fps_str.split("/")[1]) if "/" in fps_str else float(fps_str or "25")
+    dur_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", input_path], capture_output=True, text=True)
+    dur = float(dur_probe.stdout.strip() or "5")
+    total_frames = int(dur * fps)
+    z_expr = f"{zoom_start}+({zoom_end}-{zoom_start})*on/{total_frames}"
+    x_expr = "iw/2-(iw/zoom)/2"
+    y_expr = "ih/2-(ih/zoom)/2"
+    vf = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={total_frames}:s={w}x{h}:fps={fps}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        check=True, capture_output=True
+    )

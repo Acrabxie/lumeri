@@ -3670,3 +3670,23 @@ def audio_distortion(input_path: "str", output_path: "str", *, drive: "float" = 
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_chorus_stereo(input_path: "str", output_path: "str", *, depth: "float" = 0.4, rate: "float" = 1.5) -> "None":
+    """Stereo chorus with different delay/rate per channel for width."""
+    import subprocess
+    af = (
+        f"chorus=0.6:0.9:{int(40+depth*20)}|{int(60+depth*30)}:"
+        f"{depth:.2f}|{depth*0.8:.2f}:{rate:.2f}|{rate*1.3:.2f}:s"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"chorus=0.5:0.9:50:0.4:0.25:s",
+             output_path],
+            check=True, capture_output=True
+        )
