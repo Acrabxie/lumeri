@@ -7477,3 +7477,45 @@ def video_vignette_focus(input_path: "str", output_path: "str", *, strength: "fl
             ["ffmpeg", "-y", "-i", input_path, "-vf", vf2, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_mirror_time(input_path: "str", output_path: "str") -> "None":
+    """Boomerang-style time mirror: play forward then backward seamlessly."""
+    import subprocess, tempfile, os
+    tmp_rev = tempfile.mktemp(suffix=".mp4")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", "reverse", "-af", "areverse", tmp_rev],
+            check=True, capture_output=True
+        )
+        list_file = tempfile.mktemp(suffix=".txt")
+        with open(list_file, "w") as f:
+            f.write(f"file '{os.path.abspath(input_path)}'\n")
+            f.write(f"file '{os.path.abspath(tmp_rev)}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+             "-c", "copy", output_path],
+            check=True, capture_output=True
+        )
+        os.unlink(list_file)
+    finally:
+        if os.path.exists(tmp_rev):
+            os.unlink(tmp_rev)
+
+
+def video_color_shift_time(input_path: "str", output_path: "str", *, speed: "float" = 1.0, hue_range: "float" = 180.0) -> "None":
+    """Animate hue rotation over time: color cycles through hue_range degrees per second."""
+    import subprocess
+    # hue filter with time-varying h expression
+    vf = f"hue=h='mod(t*{speed:.2f}*{hue_range:.1f}/10,360)':s=1.3"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "hue=h=90:s=1.2",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

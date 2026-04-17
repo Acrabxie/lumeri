@@ -92,6 +92,7 @@ from gemia.audio.effects import (
     audio_pitch_glide,
     audio_granular_pitch,
     audio_vinyl_hiss,
+    audio_cb_radio,
 )
 
 __all__ = [
@@ -190,4 +191,5 @@ __all__ = [
     "audio_pitch_glide",
     "audio_granular_pitch",
     "audio_vinyl_hiss",
+    "audio_cb_radio",
 ]

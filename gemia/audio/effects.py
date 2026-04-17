@@ -4016,3 +4016,24 @@ def audio_vinyl_hiss(input_path: "str", output_path: "str", *, hiss_level: "floa
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def audio_cb_radio(input_path: "str", output_path: "str", *, bandwidth_hz: "float" = 3000.0, noise_level: "float" = 0.02, squelch: "float" = 0.3) -> "None":
+    """CB/walkie-talkie radio effect: narrow bandpass, static noise, AM-style compression."""
+    import subprocess
+    af = (
+        f"bandpass=f=1500:width_type=h:width={bandwidth_hz:.0f},"
+        f"acompressor=threshold={squelch:.2f}:ratio=8:attack=1:release=50,"
+        f"volume=2.5"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"highpass=f=300,lowpass=f=3400,volume=2.0",
+             output_path],
+            check=True, capture_output=True
+        )
