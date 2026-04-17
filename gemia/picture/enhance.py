@@ -3520,3 +3520,28 @@ def image_soft_light(
     result = np.clip(result, 0, 1)
     out = base * (1 - opacity) + result * opacity
     Image.fromarray((out * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_double_exposure(input_path: "str", blend_path: "str", output_path: "str", *, opacity: "float" = 0.5) -> "None":
+    """Blend two images with screen mode to simulate double exposure."""
+    from PIL import Image
+    import numpy as np
+    base = np.array(Image.open(input_path).convert("RGB")).astype(np.float32) / 255.0
+    overlay = Image.open(blend_path).convert("RGB").resize(
+        (base.shape[1], base.shape[0]), Image.LANCZOS)
+    ov = np.array(overlay).astype(np.float32) / 255.0
+    # Screen blend: 1 - (1-a)*(1-b)
+    screen = 1.0 - (1.0 - base) * (1.0 - ov)
+    result = base * (1.0 - opacity) + screen * opacity
+    result = (result.clip(0, 1) * 255).astype(np.uint8)
+    Image.fromarray(result).save(output_path)
+
+
+def image_bokeh_blur(input_path: "str", output_path: "str", *, radius: "int" = 15) -> "None":
+    """Simulate bokeh (disk) blur using repeated box blur approximation."""
+    from PIL import Image, ImageFilter
+    img = Image.open(input_path).convert("RGB")
+    # Approximate disk blur with multiple box blurs (central limit theorem)
+    for _ in range(3):
+        img = img.filter(ImageFilter.BoxBlur(radius // 2))
+    img.save(output_path)

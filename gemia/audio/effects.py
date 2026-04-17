@@ -3470,3 +3470,31 @@ def audio_auto_duck(
              output_path],
             check=True, capture_output=True,
         )
+
+
+def audio_pitch_harmonize(input_path: "str", output_path: "str", *, semitones: "float" = 7.0, mix: "float" = 0.5) -> "None":
+    """Mix original audio with a pitch-shifted copy to create a harmony effect."""
+    import subprocess, shutil, tempfile, os
+    tmp = tempfile.mkdtemp()
+    try:
+        shifted = os.path.join(tmp, "shifted.wav")
+        ratio = 2 ** (semitones / 12.0)
+        # Use asetrate + atempo to shift pitch without changing speed
+        sr_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                  "-show_entries", "stream=sample_rate", "-of", "csv=p=0", input_path]
+        sr_result = subprocess.run(sr_cmd, capture_output=True, text=True)
+        sr = int(sr_result.stdout.strip() or "44100")
+        new_sr = int(sr * ratio)
+        shift_filter = f"asetrate={new_sr},aresample={sr}"
+        subprocess.run(["ffmpeg", "-y", "-i", input_path, "-af", shift_filter, shifted],
+                       check=True, capture_output=True)
+        # Mix original and shifted
+        mix_v = mix
+        orig_v = 1.0 - mix
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path, "-i", shifted,
+            "-filter_complex", f"[0:a]volume={orig_v}[a0];[1:a]volume={mix_v}[a1];[a0][a1]amix=inputs=2:normalize=0[out]",
+            "-map", "[out]", output_path
+        ], check=True, capture_output=True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

@@ -69,6 +69,7 @@ from gemia.audio.effects import (
     audio_binaural_beat,
     audio_stutter,
     audio_auto_duck,
+    audio_pitch_harmonize,
 )
 
 __all__ = [
@@ -144,4 +145,5 @@ __all__ = [
     "audio_binaural_beat",
     "audio_stutter",
     "audio_auto_duck",
+    "audio_pitch_harmonize",
 ]
