@@ -4505,3 +4505,48 @@ def image_crystallize(input_path: "str", output_path: "str", *, n_cells: "int" =
     for i, (py, px) in enumerate(zip(sy, sx)):
         result[label == i] = arr[py, px]
     Image.fromarray(result.astype(np.uint8)).save(output_path)
+
+
+def image_comic_dots(input_path: "str", output_path: "str", *, dot_size: "int" = 6, contrast: "float" = 1.2) -> "None":
+    """Comic book Ben-Day dot pattern: halftone dots sized by luminance."""
+    from PIL import Image, ImageDraw
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    h, w = arr.shape[:2]
+    # Create white canvas
+    canvas = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    s = dot_size
+    for y in range(0, h, s):
+        for x in range(0, w, s):
+            block = arr[y:y+s, x:x+s]
+            if block.size == 0:
+                continue
+            avg_color = block.mean(axis=(0, 1))
+            lum = 0.299 * avg_color[0] + 0.587 * avg_color[1] + 0.114 * avg_color[2]
+            # Dot radius proportional to darkness
+            radius = (1.0 - lum) * contrast * (s / 2)
+            radius = np.clip(radius, 0, s / 2)
+            cx, cy = x + s // 2, y + s // 2
+            color = tuple((avg_color * 255).astype(np.uint8))
+            r = int(radius)
+            if r > 0:
+                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+    canvas.save(output_path)
+
+
+def image_thermal(input_path: "str", output_path: "str", *, colormap: "str" = "jet") -> "None":
+    """Thermal camera visualization: map luminance to heat colormap (cool→warm)."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    t = lum  # 0=cold, 1=hot
+    # Jet-like colormap: blue→cyan→green→yellow→red
+    r = np.clip(1.5 - np.abs(t * 4 - 3), 0, 1)
+    g = np.clip(1.5 - np.abs(t * 4 - 2), 0, 1)
+    b = np.clip(1.5 - np.abs(t * 4 - 1), 0, 1)
+    result = np.stack([r, g, b], axis=-1)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
