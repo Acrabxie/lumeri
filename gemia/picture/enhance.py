@@ -3940,3 +3940,44 @@ def image_color_burn_blend(input_path: "str", blend_path: "str", output_path: "s
     burn = np.clip(1.0 - (1.0 - base) / denom, 0.0, 1.0)
     result = base * (1.0 - opacity) + burn * opacity
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_noise_stipple(input_path: "str", output_path: "str", *, threshold_noise: "float" = 0.15) -> "None":
+    """Blue-noise-style ordered dither for artistic stippling effect."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    # Bayer 4x4 ordered dither matrix
+    bayer = np.array([
+        [ 0,  8,  2, 10],
+        [12,  4, 14,  6],
+        [ 3, 11,  1,  9],
+        [15,  7, 13,  5],
+    ], dtype=np.float32) / 16.0
+    # Tile bayer to image size
+    tiles_y = (h // 4) + 2
+    tiles_x = (w // 4) + 2
+    bayer_tiled = np.tile(bayer, (tiles_y, tiles_x))[:h, :w]
+    # Dither: pixel is dark if lum < bayer threshold
+    dithered = (lum < bayer_tiled).astype(np.float32)
+    # Apply: dark pixels use original color, light pixels white
+    result = np.ones_like(arr)
+    mask = dithered[:, :, np.newaxis]
+    result = result * (1.0 - mask) + arr * mask
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_gradient_map(input_path: "str", output_path: "str", *, shadow_color: "tuple" = (20, 10, 60), highlight_color: "tuple" = (255, 230, 180)) -> "None":
+    """Map grayscale luminance to a two-color gradient (shadows→highlights)."""
+    from PIL import Image
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = (0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2])[:, :, np.newaxis]
+    sc = np.array(shadow_color, dtype=np.float32) / 255.0
+    hc = np.array(highlight_color, dtype=np.float32) / 255.0
+    result = sc * (1.0 - lum) + hc * lum
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)

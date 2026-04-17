@@ -93,6 +93,7 @@ from gemia.video.effects import (
     video_pixelate_faces, video_speed_echo,
     video_zoom_in_center, video_frame_hold,
     video_vhs_glitch, video_letterbox_blur,
+    video_split_tone, video_zoom_out_center,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -200,4 +201,5 @@ __all__ = [
     "video_pixelate_faces", "video_speed_echo",
     "video_zoom_in_center", "video_frame_hold",
     "video_vhs_glitch", "video_letterbox_blur",
+    "video_split_tone", "video_zoom_out_center",
 ]
