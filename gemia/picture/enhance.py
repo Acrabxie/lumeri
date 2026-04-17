@@ -3418,3 +3418,51 @@ def image_cartoon_cel(
     arr = np.array(quantized, dtype=np.uint8)
     arr[edge_mask] = 0  # black edges
     Image.fromarray(arr, "RGB").save(output_path)
+
+
+def image_bump_map(
+    input_path: str,
+    output_path: str,
+    *,
+    light_dir: tuple = (1.0, -1.0, 2.0),
+    strength: float = 3.0,
+) -> None:
+    """Apply bump-map lighting: use luminance as height map for directional lighting."""
+    import numpy as np
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32) / 255.0
+    gray = 0.299 * arr[:,:,0] + 0.587 * arr[:,:,1] + 0.114 * arr[:,:,2]
+    h, w = gray.shape
+    # Compute surface normals from height gradients
+    pad = np.pad(gray, 1, mode="edge")
+    dzdx = (pad[1:-1, 2:] - pad[1:-1, :-2]) * strength
+    dzdy = (pad[2:, 1:-1] - pad[:-2, 1:-1]) * strength
+    # Normal vector: (-dzdx, -dzdy, 1), normalized
+    nz = np.ones((h, w))
+    norm = np.sqrt(dzdx**2 + dzdy**2 + nz**2)
+    nx = -dzdx / norm; ny = -dzdy / norm; nz = nz / norm
+    # Normalize light direction
+    lx, ly, lz = light_dir
+    ll = (lx**2 + ly**2 + lz**2) ** 0.5
+    lx, ly, lz = lx/ll, ly/ll, lz/ll
+    # Diffuse lighting
+    diffuse = np.clip(nx * lx + ny * ly + nz * lz, 0, 1)
+    result = (arr * diffuse[:, :, np.newaxis]).clip(0, 1)
+    Image.fromarray((result * 255).astype(np.uint8), "RGB").save(output_path)
+
+
+def image_color_quantize_dither(
+    input_path: str,
+    output_path: str,
+    *,
+    num_colors: int = 8,
+) -> None:
+    """Quantize to N colors with Floyd-Steinberg dithering via PIL."""
+    from PIL import Image
+
+    img = Image.open(input_path).convert("RGB")
+    # PIL's quantize with dithering
+    quantized = img.quantize(colors=num_colors, dither=Image.Dither.FLOYDSTEINBERG)
+    quantized.convert("RGB").save(output_path)
