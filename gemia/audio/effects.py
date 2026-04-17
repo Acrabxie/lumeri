@@ -3756,3 +3756,52 @@ def audio_tape_saturation(input_path: "str", output_path: "str", *, drive: "floa
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_vinyl_pop(input_path: "str", output_path: "str", *, pop_rate: "float" = 2.0, pop_amplitude: "float" = 0.05) -> "None":
+    """Add random short clicks/pops to simulate vinyl record surface noise."""
+    import subprocess, tempfile, os, shutil
+    import numpy as np
+    tmp = tempfile.mkdtemp()
+    try:
+        # Get duration
+        dur_result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        dur = float(dur_result.stdout.strip() or "5")
+        sr_result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=sample_rate", "-of", "csv=p=0", input_path],
+            capture_output=True, text=True
+        )
+        sr = int(sr_result.stdout.strip() or "44100")
+        # Generate click track
+        n_samples = int(dur * sr)
+        clicks = np.zeros(n_samples, dtype=np.float32)
+        n_pops = int(dur * pop_rate)
+        rng = np.random.default_rng(42)
+        positions = rng.integers(0, n_samples, n_pops)
+        click_len = int(sr * 0.001)  # 1ms click
+        for pos in positions:
+            end = min(pos + click_len, n_samples)
+            clicks[pos:end] += rng.uniform(-pop_amplitude, pop_amplitude, end - pos)
+        # Write click track as raw float32
+        click_raw = os.path.join(tmp, "clicks.f32")
+        clicks.tofile(click_raw)
+        click_wav = os.path.join(tmp, "clicks.wav")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "1",
+             "-i", click_raw, click_wav],
+            check=True, capture_output=True
+        )
+        # Mix with input
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-i", click_wav,
+             "-filter_complex", "[0:a][1:a]amix=inputs=2:normalize=0[out]",
+             "-map", "[out]", output_path],
+            check=True, capture_output=True
+        )
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

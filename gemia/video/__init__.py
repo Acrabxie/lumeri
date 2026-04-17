@@ -97,6 +97,7 @@ from gemia.video.effects import (
     video_push_transition, video_fade_to_white,
     video_mirror_vertical, video_chromatic_shift,
     video_zoom_pulse, video_color_grade_lut,
+    video_split_quad, video_text_lower_third,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -208,4 +209,5 @@ __all__ = [
     "video_push_transition", "video_fade_to_white",
     "video_mirror_vertical", "video_chromatic_shift",
     "video_zoom_pulse", "video_color_grade_lut",
+    "video_split_quad", "video_text_lower_third",
 ]
