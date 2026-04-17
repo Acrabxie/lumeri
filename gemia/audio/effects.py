@@ -3891,3 +3891,20 @@ def audio_stereo_imager(input_path: "str", output_path: "str", *, width: "float"
              output_path],
             check=True, capture_output=True
         )
+
+
+def audio_spatial_reverb(input_path: "str", output_path: "str", *, room_size: "float" = 0.9, pre_delay_ms: "float" = 40.0, wet: "float" = 0.4) -> "None":
+    """Large hall reverb with long pre-delay for spacious spatial feel."""
+    import subprocess
+    d1 = int(pre_delay_ms)
+    d2 = int(pre_delay_ms + room_size * 80)
+    d3 = int(pre_delay_ms + room_size * 150)
+    d4 = int(pre_delay_ms + room_size * 250)
+    decay = wet * 0.6
+    af = (f"aecho=0.8:{1-wet:.2f}:"
+          f"{d1}|{d2}|{d3}|{d4}:"
+          f"{decay:.3f}|{decay*0.7:.3f}|{decay*0.5:.3f}|{decay*0.3:.3f}")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        check=True, capture_output=True
+    )
