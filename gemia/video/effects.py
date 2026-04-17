@@ -6035,3 +6035,50 @@ def video_scanlines(input_path: "str", output_path: "str", *, line_gap: "int" = 
              "-vf", f"eq=brightness=-0.05", "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_night_vision(input_path: "str", output_path: "str", *, noise_amount: "float" = 0.05) -> "None":
+    """Apply green tint + noise + vignette to simulate night vision goggles."""
+    import subprocess
+    # Green channel boost via colorchannelmixer, add noise, vignette
+    noise_pct = int(noise_amount * 100)
+    vf = (
+        f"colorchannelmixer=rr=0.1:rg=0.9:rb=0:gr=0:gg=1:gb=0:br=0:bg=0.3:bb=0,"
+        f"noise=alls={noise_pct}:allf=t,"
+        f"vignette=PI/4"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Simpler fallback: just green tint
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "colorchannelmixer=rr=0.2:gg=1:bb=0.2",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_old_film(input_path: "str", output_path: "str", *, scratch_intensity: "float" = 0.3) -> "None":
+    """Combine sepia + grain + vignette + flicker for old film look."""
+    import subprocess
+    noise_pct = int(scratch_intensity * 60)
+    vf = (
+        f"hue=s=0.3,"  # partial desaturate toward sepia
+        f"curves=r='0/20 128/148 255/235':g='0/10 128/128 255/215':b='0/0 128/100 255/180',"
+        f"noise=alls={noise_pct}:allf=t,"
+        f"vignette=PI/3"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", "hue=s=0.3,vignette",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

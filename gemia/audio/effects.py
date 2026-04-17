@@ -3498,3 +3498,22 @@ def audio_pitch_harmonize(input_path: "str", output_path: "str", *, semitones: "
         ], check=True, capture_output=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def audio_tremolo_lfo(input_path: "str", output_path: "str", *, rate_hz: "float" = 5.0, depth: "float" = 0.8) -> "None":
+    """Apply amplitude modulation via sine LFO (tremolo effect)."""
+    import subprocess
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path,
+         "-af", f"tremolo=f={rate_hz}:d={depth}",
+         output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: use volume oscillation via sine expression
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-af", f"volume='1-{depth/2}+{depth/2}*sin(2*PI*{rate_hz}*t)':eval=frame",
+             output_path],
+            check=True, capture_output=True
+        )

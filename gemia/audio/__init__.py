@@ -70,6 +70,7 @@ from gemia.audio.effects import (
     audio_stutter,
     audio_auto_duck,
     audio_pitch_harmonize,
+    audio_tremolo_lfo,
 )
 
 __all__ = [
@@ -146,4 +147,5 @@ __all__ = [
     "audio_stutter",
     "audio_auto_duck",
     "audio_pitch_harmonize",
+    "audio_tremolo_lfo",
 ]
