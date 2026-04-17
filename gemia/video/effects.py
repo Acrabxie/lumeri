@@ -7431,3 +7431,49 @@ def video_zoom_letters(input_path: "str", output_path: "str", *, text: "str" = "
             ["ffmpeg", "-y", "-i", input_path, "-vf", vf2, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_glitch_rgb(input_path: "str", output_path: "str", *, shift_px: "int" = 8, interval_frames: "int" = 15) -> "None":
+    """Periodic RGB channel shift glitch: red channel offset every N frames."""
+    import subprocess
+    # Use split + rgbashift or colorchannelmixer with geq per-frame offset
+    # Simple approximation: use geq to offset red channel horizontally
+    vf = (
+        f"split[orig][shift];"
+        f"[shift]geq=r='r(X-{shift_px},Y)':g='g(X,Y)':b='b(X+{shift_px},Y)'[shifted];"
+        f"[orig][shifted]blend=all_expr='if(mod(floor(T*25),{interval_frames})<3,B,A)'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path,
+             "-vf", f"geq=r='r(X-{shift_px//2},Y)':g='g(X,Y)':b='b(X+{shift_px//2},Y)'",
+             "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_vignette_focus(input_path: "str", output_path: "str", *, strength: "float" = 0.6, radius: "float" = 0.65) -> "None":
+    """Soft vignette darkening toward edges, keeping center bright for focus effect."""
+    import subprocess
+    # vignette filter: angle controls the ellipse
+    angle = np.pi / 4  # import not available; use fixed value
+    vf = f"vignette=angle={3.14159*strength:.4f}:mode=forward"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        # Fallback: geq-based radial darkening
+        vf2 = (
+            f"geq=r='r(X,Y)*max(0,1-{strength:.2f}*((2*X/W-1)^2+(2*Y/H-1)^2)/{radius:.2f})':"
+            f"g='g(X,Y)*max(0,1-{strength:.2f}*((2*X/W-1)^2+(2*Y/H-1)^2)/{radius:.2f})':"
+            f"b='b(X,Y)*max(0,1-{strength:.2f}*((2*X/W-1)^2+(2*Y/H-1)^2)/{radius:.2f})'"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", vf2, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
