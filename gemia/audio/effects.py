@@ -3394,3 +3394,49 @@ def audio_binaural_beat(
          "-ac", "2", output_path],
         check=True, capture_output=True,
     )
+
+
+def audio_stutter(
+    input_path: str,
+    output_path: str,
+    *,
+    stutter_start: float = 1.0,
+    stutter_duration: float = 0.1,
+    repeats: int = 8,
+) -> None:
+    """Stutter: extract a short segment and repeat it rapidly, then continue."""
+    import tempfile, os
+    tmpdir = tempfile.mkdtemp()
+    stutter_clip = os.path.join(tmpdir, "stutter.wav")
+    before = os.path.join(tmpdir, "before.wav")
+    after = os.path.join(tmpdir, "after.wav")
+
+    # Probe total duration
+    proc = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+        capture_output=True, text=True,
+    )
+    try:
+        total = float(proc.stdout.strip())
+    except ValueError:
+        total = 10.0
+
+    # Extract segments
+    subprocess.run(["ffmpeg","-y","-i",input_path,"-t",str(stutter_start),"-c","copy",before],check=True,capture_output=True)
+    subprocess.run(["ffmpeg","-y","-i",input_path,"-ss",str(stutter_start),"-t",str(stutter_duration),"-c","copy",stutter_clip],check=True,capture_output=True)
+    after_start = stutter_start + stutter_duration
+    if after_start < total:
+        subprocess.run(["ffmpeg","-y","-i",input_path,"-ss",str(after_start),"-c","copy",after],check=True,capture_output=True)
+
+    list_file = os.path.join(tmpdir, "list.txt")
+    with open(list_file, "w") as f:
+        f.write(f"file '{before}'\n")
+        for _ in range(repeats):
+            f.write(f"file '{stutter_clip}'\n")
+        if after_start < total:
+            f.write(f"file '{after}'\n")
+    subprocess.run(
+        ["ffmpeg","-y","-f","concat","-safe","0","-i",list_file,"-c","copy",output_path],
+        check=True,capture_output=True,
+    )
