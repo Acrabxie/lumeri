@@ -91,6 +91,7 @@ from gemia.video.effects import (
     video_zoom_blur, video_flash_cut,
     video_invert_colors, video_strobe,
     video_pixelate_faces, video_speed_echo,
+    video_zoom_in_center, video_frame_hold,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -196,4 +197,5 @@ __all__ = [
     "video_zoom_blur", "video_flash_cut",
     "video_invert_colors", "video_strobe",
     "video_pixelate_faces", "video_speed_echo",
+    "video_zoom_in_center", "video_frame_hold",
 ]
