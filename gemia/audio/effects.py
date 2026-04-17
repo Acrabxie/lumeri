@@ -3635,3 +3635,18 @@ def audio_granular_freeze(input_path: "str", output_path: "str", *, grain_start:
          "-t", str(output_duration), output_path],
         check=True, capture_output=True
     )
+
+
+def audio_reverb_room(input_path: "str", output_path: "str", *, room_size: "float" = 0.5, wet: "float" = 0.3) -> "None":
+    """Apply room reverb using aecho with multiple short reflections."""
+    import subprocess
+    # aecho: in_gain out_gain delay1|delay2 decay1|decay2
+    d1 = int(20 + room_size * 30)
+    d2 = int(40 + room_size * 60)
+    d3 = int(60 + room_size * 100)
+    decay = wet * 0.5
+    af = f"aecho=0.8:{1.0-wet:.2f}:{d1}|{d2}|{d3}:{decay:.3f}|{decay*0.6:.3f}|{decay*0.3:.3f}"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        check=True, capture_output=True
+    )

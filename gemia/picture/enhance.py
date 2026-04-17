@@ -3863,3 +3863,46 @@ def image_rainbow_gradient(input_path: "str", output_path: "str", *, opacity: "f
     screen = 1.0 - (1.0 - arr) * (1.0 - rainbow)
     result = arr * (1.0 - opacity) + screen * opacity
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_tilt_shift(input_path: "str", output_path: "str", *, focus_y: "float" = 0.5, band_height: "float" = 0.25, blur_radius: "int" = 12) -> "None":
+    """Blur top/bottom bands to simulate tilt-shift miniature effect on a still image."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    w, h = img.size
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+    arr_sharp = np.array(img).astype(np.float32) / 255.0
+    arr_blur = np.array(blurred).astype(np.float32) / 255.0
+    ys = np.linspace(0, 1, h)
+    focus_lo = focus_y - band_height / 2
+    focus_hi = focus_y + band_height / 2
+    # Weight: 0 = sharp (in band), 1 = blurred (outside band)
+    weight = np.ones(h, dtype=np.float32)
+    for i, y in enumerate(ys):
+        if focus_lo <= y <= focus_hi:
+            # Smooth transition inside band
+            dist = min(abs(y - focus_lo), abs(y - focus_hi)) / (band_height / 2)
+            weight[i] = 1.0 - dist
+        else:
+            dist_from_edge = min(abs(y - focus_lo), abs(y - focus_hi))
+            weight[i] = min(1.0, dist_from_edge / (band_height / 2))
+    weight = weight[:, np.newaxis, np.newaxis]
+    result = arr_sharp * (1.0 - weight) + arr_blur * weight
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_diffuse_glow(input_path: "str", output_path: "str", *, blur_radius: "int" = 15, glow_strength: "float" = 0.5, threshold: "float" = 0.7) -> "None":
+    """Dreamy diffuse glow: blend blurred highlight regions back onto image."""
+    from PIL import Image, ImageFilter
+    import numpy as np
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    # Extract highlights
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    highlights = np.clip((lum - threshold) / (1.0 - threshold + 1e-6), 0, 1)[:, :, np.newaxis] * arr
+    hl_img = Image.fromarray((highlights.clip(0, 1) * 255).astype(np.uint8))
+    hl_blur = np.array(hl_img.filter(ImageFilter.GaussianBlur(radius=blur_radius))).astype(np.float32) / 255.0
+    # Screen blend glow onto original
+    result = 1.0 - (1.0 - arr) * (1.0 - hl_blur * glow_strength)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
