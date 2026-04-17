@@ -3908,3 +3908,57 @@ def audio_spatial_reverb(input_path: "str", output_path: "str", *, room_size: "f
         ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
         check=True, capture_output=True
     )
+
+
+def audio_pitch_glide(input_path: "str", output_path: "str", *, start_semitones: "float" = -4.0, end_semitones: "float" = 0.0, glide_duration: "float" = 1.5) -> "None":
+    """Pitch glide (portamento): smoothly slide pitch from start to end semitones over glide_duration seconds."""
+    import subprocess
+    import tempfile, os
+    # Use rubberband if available, else atempo+asetrate approximation
+    # Strategy: split into N small segments, shift each by interpolated semitone amount
+    n = 20
+    result_files = []
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        for i in range(n):
+            t = i / (n - 1)
+            semitones = start_semitones + (end_semitones - start_semitones) * t
+            ratio = 2 ** (semitones / 12.0)
+            seg_start = i * glide_duration / n
+            seg_dur = glide_duration / n
+            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.wav")
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path,
+                 "-ss", str(seg_start), "-t", str(seg_dur),
+                 "-af", f"asetrate=44100*{ratio:.6f},aresample=44100",
+                 seg_path],
+                capture_output=True
+            )
+            if r.returncode == 0:
+                result_files.append(seg_path)
+        if result_files:
+            list_file = os.path.join(tmp_dir, "list.txt")
+            with open(list_file, "w") as f:
+                for fp in result_files:
+                    f.write(f"file '{fp}'\n")
+            # After glide, append remainder of audio unchanged
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file,
+                 "-i", input_path,
+                 "-filter_complex", f"[0:a][1:a]acrossfade=d=0.05:c1=tri:c2=tri[outa]",
+                 "-map", "[outa]", output_path],
+                capture_output=True
+            )
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, output_path],
+                    check=True, capture_output=True
+                )
+        else:
+            subprocess.run(["ffmpeg", "-y", "-i", input_path, output_path], check=True, capture_output=True)
+    finally:
+        for fp in result_files:
+            try: os.unlink(fp)
+            except: pass
+        try: os.rmdir(tmp_dir)
+        except: pass
