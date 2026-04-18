@@ -97,6 +97,8 @@ from gemia.audio.effects import (
     audio_cassette_wobble,
     audio_megaphone_drive,
     audio_phaser_sweep,
+    audio_hologram_echo,
+    audio_laser_tremor,
 )
 
 __all__ = [
@@ -200,4 +202,6 @@ __all__ = [
     "audio_cassette_wobble",
     "audio_megaphone_drive",
     "audio_phaser_sweep",
+    "audio_hologram_echo",
+    "audio_laser_tremor",
 ]

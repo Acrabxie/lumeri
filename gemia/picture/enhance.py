@@ -4737,3 +4737,96 @@ def image_risograph_dual(input_path: "str", output_path: "str", *, tint_strength
     light_mix = np.sqrt(tone)[:, :, None] * highlight_ink * 0.7
     result = np.clip(paper * (1.0 - tint_strength) + (shadow_mix + light_mix) * tint_strength, 0.0, 1.0)
     Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_metallic_sheen(input_path: "str", output_path: "str", *, sheen: "float" = 0.55, coolness: "float" = 0.2) -> "None":
+    """Metallic sheen effect with cool chrome highlights and contrasty reflections."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    highlight = np.clip((lum - 0.45) / 0.55, 0.0, 1.0)
+    reflected = np.power(np.clip(arr, 0.0, 1.0), 0.78)
+    chrome = reflected * (1.0 + sheen * 0.45)
+    chrome[:, :, 2] *= 1.0 + coolness * 0.35
+    chrome[:, :, 1] *= 1.0 + coolness * 0.12
+    chrome[:, :, 0] *= 1.0 - coolness * 0.18
+    specular = highlight[:, :, None] * np.array([0.92, 0.97, 1.0], dtype=np.float32) * sheen
+    result = np.clip(arr * (1.0 - sheen * 0.32) + chrome * 0.62 + specular, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_velvet_shadow(input_path: "str", output_path: "str", *, softness: "float" = 0.35, tint: "float" = 0.18) -> "None":
+    """Velvet-shadow look with plush darks, muted mids, and a soft plum tint."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blur = arr.copy()
+    for _ in range(2):
+        blur = (
+            blur
+            + np.roll(blur, 1, axis=0)
+            + np.roll(blur, -1, axis=0)
+            + np.roll(blur, 1, axis=1)
+            + np.roll(blur, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * blur[:, :, 0] + 0.587 * blur[:, :, 1] + 0.114 * blur[:, :, 2]
+    shadow_mask = np.clip((0.62 - lum) / 0.62, 0.0, 1.0)
+    plush = blur * (1.0 - softness * 0.22) + np.sqrt(np.clip(blur, 0.0, 1.0)) * softness * 0.36
+    tint_color = np.array([0.22, 0.08, 0.24], dtype=np.float32)
+    result = plush * (1.0 - shadow_mask[:, :, None] * tint) + tint_color * shadow_mask[:, :, None] * tint
+    result = np.clip(result * 0.96 + shadow_mask[:, :, None] * 0.04, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_porcelain_glow(input_path: "str", output_path: "str", *, smoothness: "float" = 0.3, blush: "float" = 0.08) -> "None":
+    """Porcelain portrait glow with creamy smoothing and soft rosy highlights."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    smooth = arr.copy()
+    for _ in range(3):
+        smooth = (
+            smooth
+            + np.roll(smooth, 1, axis=0)
+            + np.roll(smooth, -1, axis=0)
+            + np.roll(smooth, 1, axis=1)
+            + np.roll(smooth, -1, axis=1)
+        ) / 5.0
+    lift = np.sqrt(np.clip(smooth + 0.03, 0.0, 1.0))
+    blush_tint = np.array([1.0, 0.92, 0.95], dtype=np.float32)
+    result = arr * (1.0 - smoothness) + lift * smoothness
+    result = np.clip(result * (1.0 - blush * 0.35) + blush_tint * blush, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_ember_bloom(input_path: "str", output_path: "str", *, warmth: "float" = 0.24, glow: "float" = 0.28) -> "None":
+    """Ember bloom treatment with warm highlights and a soft firelit halo."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    halo = arr.copy()
+    for _ in range(2):
+        halo = (
+            halo
+            + np.roll(halo, 1, axis=0)
+            + np.roll(halo, -1, axis=0)
+            + np.roll(halo, 1, axis=1)
+            + np.roll(halo, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * halo[:, :, 0] + 0.587 * halo[:, :, 1] + 0.114 * halo[:, :, 2]
+    flare = np.clip((lum - 0.48) / 0.52, 0.0, 1.0)[:, :, None]
+    ember = halo.copy()
+    ember[:, :, 0] *= 1.0 + warmth * 0.35
+    ember[:, :, 1] *= 1.0 + warmth * 0.12
+    ember[:, :, 2] *= 1.0 - warmth * 0.22
+    result = np.clip(arr * 0.78 + ember * 0.22 + flare * np.array([1.0, 0.48, 0.12], dtype=np.float32) * glow, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
