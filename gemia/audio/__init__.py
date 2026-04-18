@@ -205,3 +205,15 @@ __all__ = [
     "audio_hologram_echo",
     "audio_laser_tremor",
 ]
+
+from gemia.audio.effects import audio_cathedral_shimmer
+
+__all__.extend([
+    "audio_cathedral_shimmer",
+])
+
+from gemia.audio.effects import audio_broadcast_limiter
+
+__all__.extend([
+    "audio_broadcast_limiter",
+])

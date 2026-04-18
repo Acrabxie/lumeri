@@ -4173,3 +4173,56 @@ def audio_laser_tremor(input_path: "str", output_path: "str", *, rate_hz: "float
             ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
             check=True, capture_output=True
         )
+
+
+def audio_cathedral_shimmer(input_path: "str", output_path: "str", *, decay: "float" = 0.72, width: "float" = 0.65) -> "None":
+    """Large cathedral shimmer with airy reverb and a bright reflective tail."""
+    import subprocess
+
+    decay = max(0.1, min(0.95, decay))
+    width = max(0.05, min(0.95, width))
+    af = (
+        f"aecho=0.75:0.62:55|110|220:{decay:.2f}|{decay * 0.62:.2f}|{decay * 0.38:.2f},"
+        f"chorus=0.55:0.78:{18 + width * 14:.1f}:0.28:0.22:0.32,"
+        f"highshelf=f=4200:g={1.5 + width * 3.0:.2f},"
+        f"stereotools=mode=lr>lr:slev={1.0 + width * 0.35:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"aecho=0.7:0.45:70|140:{decay * 0.7:.2f}|{decay * 0.35:.2f},"
+            f"highshelf=f=3800:g={1.0 + width * 2.0:.2f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_broadcast_limiter(input_path: "str", output_path: "str", *, ceiling_db: "float" = -1.2, drive: "float" = 1.6) -> "None":
+    """Broadcast-style loudness clamp with controlled peaks and forward mids."""
+    import subprocess
+
+    ceiling_db = min(-0.1, ceiling_db)
+    drive = max(0.5, min(3.0, drive))
+    af = (
+        f"acompressor=threshold=0.10:ratio={2.5 + drive * 1.2:.2f}:attack=4:release=80:makeup={drive:.2f},"
+        f"alimiter=limit={10 ** (ceiling_db / 20.0):.6f}:level=disabled,"
+        f"equalizer=f=2400:width_type=h:width=1800:g={drive * 1.2:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"acompressor=threshold=0.12:ratio={2.0 + drive:.2f}:attack=6:release=90:makeup={max(1.0, drive * 0.8):.2f},"
+            f"volume={max(1.0, drive * 0.9):.2f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )

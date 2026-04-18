@@ -4830,3 +4830,86 @@ def image_ember_bloom(input_path: "str", output_path: "str", *, warmth: "float" 
     ember[:, :, 2] *= 1.0 - warmth * 0.22
     result = np.clip(arr * 0.78 + ember * 0.22 + flare * np.array([1.0, 0.48, 0.12], dtype=np.float32) * glow, 0.0, 1.0)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_opaline_glow(input_path: "str", output_path: "str", *, glow: "float" = 0.24, pearl: "float" = 0.14) -> "None":
+    """Pearlescent glow with lifted highlights and a cool opal tint."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blur = arr.copy()
+    for _ in range(3):
+        blur = (
+            blur
+            + np.roll(blur, 1, axis=0)
+            + np.roll(blur, -1, axis=0)
+            + np.roll(blur, 1, axis=1)
+            + np.roll(blur, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    highlight = np.clip((lum - 0.42) / 0.58, 0.0, 1.0)[:, :, None]
+    pearl_tint = np.array([0.95, 0.99, 1.0], dtype=np.float32)
+    bloom = np.sqrt(np.clip(blur, 0.0, 1.0)) * glow
+    result = np.clip(arr * (1.0 - glow * 0.28) + bloom * 0.55 + highlight * pearl_tint * pearl, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_graphite_tint(input_path: "str", output_path: "str", *, contrast: "float" = 1.28, steel_blue: "float" = 0.12) -> "None":
+    """Graphite-style monochrome with crisp edges and a restrained steel tint."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    gx = np.roll(lum, -1, axis=1) - np.roll(lum, 1, axis=1)
+    gy = np.roll(lum, -1, axis=0) - np.roll(lum, 1, axis=0)
+    edges = np.clip(np.sqrt(gx * gx + gy * gy) * 2.6, 0.0, 1.0)
+    tone = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
+    graphite = np.stack([tone * 0.90, tone * 0.93 + steel_blue * 0.25, tone + steel_blue], axis=-1)
+    result = np.clip(graphite * (1.0 - edges[:, :, None] * 0.22), 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_copper_patina(input_path: "str", output_path: "str", *, patina: "float" = 0.22, oxidation: "float" = 0.16) -> "None":
+    """Copper-patina treatment with warm metal mids and oxidized teal shadows."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    shadow_mask = np.clip((0.58 - lum) / 0.58, 0.0, 1.0)[:, :, None]
+    highlight_mask = np.clip((lum - 0.45) / 0.55, 0.0, 1.0)[:, :, None]
+    copper = arr.copy()
+    copper[:, :, 0] *= 1.0 + patina * 0.32
+    copper[:, :, 1] *= 1.0 + patina * 0.10
+    copper[:, :, 2] *= 1.0 - patina * 0.18
+    teal = np.array([0.20, 0.58, 0.54], dtype=np.float32)
+    result = np.clip(copper * (1.0 - shadow_mask * oxidation) + teal * shadow_mask * oxidation + highlight_mask * np.array([0.92, 0.72, 0.48], dtype=np.float32) * 0.10, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_lucid_dream(input_path: "str", output_path: "str", *, softness: "float" = 0.26, hue_drift: "float" = 0.18) -> "None":
+    """Dreamlike pastel wash with softened contrast and a drifting cool-magenta tint."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    blur = arr.copy()
+    for _ in range(2):
+        blur = (
+            blur
+            + np.roll(blur, 1, axis=0)
+            + np.roll(blur, -1, axis=0)
+            + np.roll(blur, 1, axis=1)
+            + np.roll(blur, -1, axis=1)
+        ) / 5.0
+    pastel = np.sqrt(np.clip(blur + 0.02, 0.0, 1.0))
+    tint = np.array([1.0, 0.90 + hue_drift * 0.18, 1.0 - hue_drift * 0.12], dtype=np.float32)
+    result = np.clip(arr * (1.0 - softness) + pastel * softness, 0.0, 1.0)
+    result = np.clip(result * (1.0 - hue_drift * 0.18) + tint * hue_drift * 0.16, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
