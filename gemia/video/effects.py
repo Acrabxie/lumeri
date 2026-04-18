@@ -7773,3 +7773,106 @@ def video_dusk_fade(input_path: "str", output_path: "str", *, shadow_blue: "floa
             ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_prism_echo(input_path: "str", output_path: "str", *, split_px: "int" = 8, trail: "float" = 0.32) -> "None":
+    """Prismatic RGB echo with light frame trails for a refracted-motion look."""
+    import subprocess
+
+    split_px = max(1, int(split_px))
+    trail = max(0.05, min(0.8, trail))
+    vf = (
+        f"split[base][echo];"
+        f"[echo]geq=r='r(X-{split_px},Y)':g='g(X,Y)':b='b(X+{split_px},Y)',"
+        f"tmix=frames=3:weights='1 {trail:.2f} {trail * 0.45:.2f}'[fx];"
+        f"[base][fx]blend=all_expr='A*(1-{trail:.2f})+B*{trail:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"geq=r='r(X-{max(1, split_px // 2)},Y)':g='g(X,Y)':b='b(X+{max(1, split_px // 2)},Y)'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_midnight_bloom(input_path: "str", output_path: "str", *, coolness: "float" = 0.18, bloom: "float" = 0.24) -> "None":
+    """Night bloom grade with cool shadows and softened city-light highlights."""
+    import subprocess
+
+    coolness = max(0.0, min(0.35, coolness))
+    bloom = max(0.02, min(0.5, bloom))
+    vf = (
+        f"split[base][blur];"
+        f"[blur]gblur=sigma={1.2 + bloom * 6.0:.2f},"
+        f"eq=brightness={bloom * 0.04:.3f}:saturation={1.0 + bloom * 0.35:.2f}[soft];"
+        f"[base][soft]blend=all_expr='A*(1-{bloom:.2f})+B*{bloom:.2f}',"
+        f"colorbalance=rs=-{coolness * 0.55:.2f}:gs=-{coolness * 0.12:.2f}:bs={coolness:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"hue=h=-10:s={max(0.65, 1.0 - coolness * 0.4):.2f},"
+            f"eq=brightness={bloom * 0.02:.3f}:contrast=1.04"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_silver_halation(input_path: "str", output_path: "str", *, bloom: "float" = 0.22, contrast: "float" = 1.06) -> "None":
+    """Silver-halation monochrome with bright highlight wrap and soft film glow."""
+    import subprocess
+
+    bloom = max(0.02, min(0.45, bloom))
+    contrast = max(0.8, min(1.4, contrast))
+    vf = (
+        f"split[base][blur];"
+        f"[blur]gblur=sigma={1.4 + bloom * 7.0:.2f},format=gray,"
+        f"eq=brightness={bloom * 0.05:.3f}:contrast={contrast:.2f}[hal];"
+        f"[base]format=gray[mono];"
+        f"[mono][hal]blend=all_expr='A*(1-{bloom:.2f})+B*{bloom:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"format=gray,eq=contrast={contrast:.2f}:brightness={bloom * 0.02:.3f}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_horizon_glow(input_path: "str", output_path: "str", *, amber: "float" = 0.12, rolloff: "float" = 0.28) -> "None":
+    """Warm horizon glow with lifted lower-frame warmth and gentle highlight rolloff."""
+    import subprocess
+
+    amber = max(0.0, min(0.3, amber))
+    rolloff = max(0.05, min(0.5, rolloff))
+    vf = (
+        "colorbalance="
+        f"rh={amber:.2f}:gh={amber * 0.35:.2f}:bh=-{amber * 0.25:.2f}:"
+        f"rs={amber * 0.18:.2f}:bs=-{amber * 0.22:.2f},"
+        f"curves=r='0/0 0.65/{0.72 - rolloff * 0.15:.2f} 1/0.96':"
+        f"g='0/0 0.65/{0.68 - rolloff * 0.10:.2f} 1/0.94':"
+        f"b='0/0 0.65/{0.64 - rolloff * 0.08:.2f} 1/0.90'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h=8:s=1.06,eq=brightness={amber * 0.03:.3f}:contrast={1.0 - rolloff * 0.08:.2f}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
