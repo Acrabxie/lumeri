@@ -276,3 +276,17 @@ __all__.extend([
     "video_rainbow_streak",
     "video_velvet_fade",
 ])
+
+from gemia.video.effects import video_afterglow_pulse, video_mercury_smear
+
+__all__.extend([
+    "video_afterglow_pulse",
+    "video_mercury_smear",
+])
+
+from gemia.video.effects import video_polar_sheen, video_lantern_drift
+
+__all__.extend([
+    "video_polar_sheen",
+    "video_lantern_drift",
+])
