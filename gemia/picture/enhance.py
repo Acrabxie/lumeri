@@ -4913,3 +4913,112 @@ def image_lucid_dream(input_path: "str", output_path: "str", *, softness: "float
     result = np.clip(arr * (1.0 - softness) + pastel * softness, 0.0, 1.0)
     result = np.clip(result * (1.0 - hue_drift * 0.18) + tint * hue_drift * 0.16, 0.0, 1.0)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_liquid_chrome(input_path: "str", output_path: "str", *, ripple: "float" = 0.18) -> "None":
+    """Reflective liquid-chrome finish with warped highlights and cool metal tint."""
+    from PIL import Image
+    import numpy as np
+
+    ripple = max(0.02, min(0.45, ripple))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    h, w = arr.shape[:2]
+    yy, xx = np.indices((h, w), dtype=np.float32)
+    wave_x = np.sin(yy * 0.055) * ripple * 18.0 + np.cos(yy * 0.023) * ripple * 10.0
+    wave_y = np.cos(xx * 0.047) * ripple * 14.0
+    src_x = np.clip(np.rint(xx + wave_x), 0, w - 1).astype(np.int32)
+    src_y = np.clip(np.rint(yy + wave_y), 0, h - 1).astype(np.int32)
+    warped = arr[src_y, src_x]
+    lum = 0.299 * warped[:, :, 0] + 0.587 * warped[:, :, 1] + 0.114 * warped[:, :, 2]
+    highlight = np.clip((lum - 0.36) / 0.64, 0.0, 1.0)[:, :, None]
+    chrome = np.power(np.clip(warped + 0.02, 0.0, 1.0), 0.78)
+    chrome[:, :, 0] *= 1.05
+    chrome[:, :, 1] *= 1.08
+    chrome[:, :, 2] *= 1.14
+    specular = highlight * np.array([0.90, 0.97, 1.0], dtype=np.float32) * (0.18 + ripple * 0.65)
+    result = np.clip(arr * 0.36 + chrome * 0.58 + specular, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_celestial_haze(input_path: "str", output_path: "str", *, aura: "float" = 0.22) -> "None":
+    """Soft celestial haze with lifted highlights and a faint blue-rose atmosphere."""
+    from PIL import Image
+    import numpy as np
+
+    aura = max(0.03, min(0.4, aura))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    glow = arr.copy()
+    for _ in range(3):
+        glow = (
+            glow
+            + np.roll(glow, 1, axis=0)
+            + np.roll(glow, -1, axis=0)
+            + np.roll(glow, 1, axis=1)
+            + np.roll(glow, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * glow[:, :, 0] + 0.587 * glow[:, :, 1] + 0.114 * glow[:, :, 2]
+    halo = np.clip((lum - 0.30) / 0.70, 0.0, 1.0)[:, :, None]
+    tint = np.array([0.98, 0.93, 1.0], dtype=np.float32)
+    nebula = glow.copy()
+    nebula[:, :, 0] *= 1.0 + aura * 0.10
+    nebula[:, :, 1] *= 1.0 - aura * 0.06
+    nebula[:, :, 2] *= 1.0 + aura * 0.26
+    result = np.clip(arr * (1.0 - aura * 0.28) + nebula * aura * 0.72 + halo * tint * aura * 0.42, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_ink_bleed(input_path: "str", output_path: "str", *, spread: "float" = 0.18) -> "None":
+    """Illustrative ink-bleed wash with softened pigment edges and paper-like pooling."""
+    from PIL import Image
+    import numpy as np
+
+    spread = max(0.04, min(0.35, spread))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    smear = arr.copy()
+    for _ in range(2):
+        smear = (
+            smear * 0.42
+            + np.roll(smear, 1, axis=0) * 0.14
+            + np.roll(smear, -1, axis=0) * 0.14
+            + np.roll(smear, 1, axis=1) * 0.15
+            + np.roll(smear, -1, axis=1) * 0.15
+        )
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    edge_x = np.roll(lum, -1, axis=1) - np.roll(lum, 1, axis=1)
+    edge_y = np.roll(lum, -1, axis=0) - np.roll(lum, 1, axis=0)
+    edges = np.clip(np.sqrt(edge_x * edge_x + edge_y * edge_y) * (1.8 + spread * 2.5), 0.0, 1.0)[:, :, None]
+    ink = np.power(np.clip(smear, 0.0, 1.0), 0.92)
+    paper = np.array([0.96, 0.94, 0.90], dtype=np.float32)
+    result = np.clip(paper * 0.18 + ink * 0.82 - edges * spread * 0.22, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_arctic_glow(input_path: "str", output_path: "str", *, frost: "float" = 0.20) -> "None":
+    """Cold arctic glow with icy highlights, pale cyan mids, and softened contrast."""
+    from PIL import Image
+    import numpy as np
+
+    frost = max(0.03, min(0.38, frost))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    veil = arr.copy()
+    for _ in range(2):
+        veil = (
+            veil
+            + np.roll(veil, 1, axis=0)
+            + np.roll(veil, -1, axis=0)
+            + np.roll(veil, 1, axis=1)
+            + np.roll(veil, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * veil[:, :, 0] + 0.587 * veil[:, :, 1] + 0.114 * veil[:, :, 2]
+    ice_mask = np.clip((lum - 0.28) / 0.72, 0.0, 1.0)[:, :, None]
+    cool = veil.copy()
+    cool[:, :, 0] *= 0.90
+    cool[:, :, 1] *= 1.02
+    cool[:, :, 2] *= 1.18
+    ice = np.array([0.86, 0.96, 1.0], dtype=np.float32)
+    result = np.clip(arr * (1.0 - frost * 0.24) + cool * frost * 0.74 + ice_mask * ice * frost * 0.34, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)

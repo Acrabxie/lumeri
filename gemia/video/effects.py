@@ -7876,3 +7876,96 @@ def video_horizon_glow(input_path: "str", output_path: "str", *, amber: "float" 
             ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_mirage_trail(input_path: "str", output_path: "str", *, echo: "float" = 0.34) -> "None":
+    """Heat-mirage trail with light temporal smearing and soft wavering distortion."""
+    import subprocess
+
+    echo = max(0.05, min(0.8, echo))
+    vf = (
+        f"split[base][fx];"
+        f"[fx]tmix=frames=4:weights='1 {echo:.2f} {echo * 0.55:.2f} {echo * 0.25:.2f}',"
+        f"wave=w={18 + echo * 26:.1f}:h={10 + echo * 18:.1f}:t=sin:rate={0.25 + echo * 0.5:.2f}[trail];"
+        f"[base][trail]blend=all_expr='A*(1-{echo:.2f})+B*{echo:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"tmix=frames=3:weights='1 {echo * 0.7:.2f} {echo * 0.35:.2f}'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_aurora_grade(input_path: "str", output_path: "str", *, intensity: "float" = 0.16) -> "None":
+    """Aurora-inspired grade with teal-violet shadows and luminous highlight tint."""
+    import subprocess
+
+    intensity = max(0.02, min(0.35, intensity))
+    vf = (
+        f"colorbalance=rs=-{intensity * 0.35:.2f}:gs={intensity * 0.20:.2f}:bs={intensity:.2f}:"
+        f"rm={intensity * 0.08:.2f}:gm=-{intensity * 0.10:.2f}:bm={intensity * 0.28:.2f}:"
+        f"rh={intensity * 0.18:.2f}:gh={intensity * 0.10:.2f}:bh={intensity * 0.22:.2f},"
+        f"eq=saturation={1.0 + intensity * 0.55:.2f}:contrast={1.02 + intensity * 0.28:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h={10 + intensity * 55:.2f}:s={1.0 + intensity * 0.4:.2f},eq=contrast={1.01 + intensity * 0.18:.2f}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_rainbow_streak(input_path: "str", output_path: "str", *, spread: "int" = 10) -> "None":
+    """Rainbow streak effect with prismatic channel separation and brightened flare energy."""
+    import subprocess
+
+    spread = max(2, int(spread))
+    vf = (
+        f"split[base][fx];"
+        f"[fx]geq=r='r(X-{spread},Y)':g='g(X,Y)':b='b(X+{spread},Y)',"
+        f"eq=saturation=1.30:brightness=0.02[prism];"
+        f"[base][prism]blend=all_expr='A*0.68+B*0.32'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"geq=r='r(X-{max(1, spread // 2)},Y)':g='g(X,Y)':b='b(X+{max(1, spread // 2)},Y)'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_velvet_fade(input_path: "str", output_path: "str", *, softness: "float" = 0.24) -> "None":
+    """Velvet fade with softened blacks, muted saturation, and plush contrast rolloff."""
+    import subprocess
+
+    softness = max(0.03, min(0.45, softness))
+    vf = (
+        f"curves=r='0/{softness * 0.10:.2f} 0.55/0.58 1/0.97':"
+        f"g='0/{softness * 0.08:.2f} 0.55/0.56 1/0.95':"
+        f"b='0/{softness * 0.12:.2f} 0.55/0.57 1/0.94',"
+        f"eq=saturation={1.0 - softness * 0.45:.2f}:contrast={1.02 - softness * 0.08:.2f},"
+        f"gblur=sigma={0.2 + softness * 1.8:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"eq=saturation={1.0 - softness * 0.35:.2f}:brightness={softness * 0.02:.3f}:contrast={1.0 - softness * 0.06:.2f}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

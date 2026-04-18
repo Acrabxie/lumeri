@@ -262,3 +262,17 @@ __all__.extend([
     "video_silver_halation",
     "video_horizon_glow",
 ])
+
+from gemia.video.effects import video_mirage_trail, video_aurora_grade
+
+__all__.extend([
+    "video_mirage_trail",
+    "video_aurora_grade",
+])
+
+from gemia.video.effects import video_rainbow_streak, video_velvet_fade
+
+__all__.extend([
+    "video_rainbow_streak",
+    "video_velvet_fade",
+])

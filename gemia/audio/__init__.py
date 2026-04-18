@@ -217,3 +217,15 @@ from gemia.audio.effects import audio_broadcast_limiter
 __all__.extend([
     "audio_broadcast_limiter",
 ])
+
+from gemia.audio.effects import audio_neon_resonance
+
+__all__.extend([
+    "audio_neon_resonance",
+])
+
+from gemia.audio.effects import audio_subharmonic_bloom
+
+__all__.extend([
+    "audio_subharmonic_bloom",
+])
