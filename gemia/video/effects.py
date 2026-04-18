@@ -7969,3 +7969,102 @@ def video_velvet_fade(input_path: "str", output_path: "str", *, softness: "float
             ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_afterglow_pulse(input_path: "str", output_path: "str", *, glow: "float" = 0.28, pulse: "float" = 0.42) -> "None":
+    """Afterglow pulse with blooming highlights and light temporal energy."""
+    import subprocess
+
+    glow = max(0.03, min(0.6, glow))
+    pulse = max(0.05, min(0.9, pulse))
+    vf = (
+        f"split[base][fx];"
+        f"[fx]gblur=sigma={1.0 + glow * 5.0:.2f},"
+        f"tmix=frames=3:weights='1 {pulse:.2f} {pulse * 0.45:.2f}'[soft];"
+        f"[base][soft]blend=all_expr='A*{1.0 - glow * 0.36:.2f}+B*{glow * 0.36:.2f}',"
+        f"eq=brightness={glow * 0.03:.3f}:saturation={1.0 + glow * 0.25:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"gblur=sigma={0.8 + glow * 2.0:.2f},eq=brightness={glow * 0.02:.3f}:contrast=1.03"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_mercury_smear(input_path: "str", output_path: "str", *, smear: "float" = 0.24) -> "None":
+    """Mercury smear with reflective channel drag and cold metallic highlights."""
+    import subprocess
+
+    smear = max(0.03, min(0.6, smear))
+    offset = max(1, int(4 + smear * 16))
+    vf = (
+        f"split[base][fx];"
+        f"[fx]geq=r='r(X-{offset},Y)':g='g(X-{max(1, offset // 2)},Y)':b='b(X+{offset},Y)',"
+        f"eq=saturation={1.0 - smear * 0.18:.2f}:brightness={smear * 0.02:.3f}[metal];"
+        f"[base][metal]blend=all_expr='A*{1.0 - smear * 0.34:.2f}+B*{smear * 0.34:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"geq=r='r(X-{max(1, offset // 2)},Y)':g='g(X,Y)':b='b(X+{max(1, offset // 2)},Y)'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_polar_sheen(input_path: "str", output_path: "str", *, cool: "float" = 0.16, shimmer: "float" = 0.20) -> "None":
+    """Polar sheen with cool cyan highlights and a slick, softened halation."""
+    import subprocess
+
+    cool = max(0.02, min(0.35, cool))
+    shimmer = max(0.02, min(0.4, shimmer))
+    vf = (
+        f"split[base][blur];"
+        f"[blur]gblur=sigma={0.8 + shimmer * 5.5:.2f}[soft];"
+        f"[base][soft]blend=all_expr='A*{1.0 - shimmer * 0.28:.2f}+B*{shimmer * 0.28:.2f}',"
+        f"colorbalance=rs=-{cool * 0.24:.2f}:gs={cool * 0.10:.2f}:bs={cool:.2f}:"
+        f"rh={cool * 0.10:.2f}:gh={cool * 0.05:.2f}:bh={cool * 0.18:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h=-6:s={1.0 - cool * 0.12:.2f},eq=brightness={shimmer * 0.02:.3f}:contrast=1.03"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_lantern_drift(input_path: "str", output_path: "str", *, warmth: "float" = 0.14, drift: "float" = 0.26) -> "None":
+    """Lantern drift grade with amber warmth and light temporal softening."""
+    import subprocess
+
+    warmth = max(0.02, min(0.3, warmth))
+    drift = max(0.03, min(0.6, drift))
+    vf = (
+        f"split[base][fx];"
+        f"[fx]tmix=frames=3:weights='1 {drift:.2f} {drift * 0.40:.2f}',"
+        f"eq=brightness={warmth * 0.03:.3f}:saturation={1.0 + warmth * 0.32:.2f}[trail];"
+        f"[base][trail]blend=all_expr='A*{1.0 - drift * 0.22:.2f}+B*{drift * 0.22:.2f}',"
+        f"colorbalance=rh={warmth:.2f}:gh={warmth * 0.32:.2f}:bh=-{warmth * 0.18:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h=8:s={1.0 + warmth * 0.20:.2f},tmix=frames=2:weights='1 {drift * 0.4:.2f}'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

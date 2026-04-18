@@ -4279,3 +4279,56 @@ def audio_subharmonic_bloom(input_path: "str", output_path: "str", *, weight: "f
             ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
             check=True, capture_output=True
         )
+
+
+def audio_cosmic_rotor(input_path: "str", output_path: "str", *, swirl: "float" = 0.44, speed: "float" = 0.38) -> "None":
+    """Cosmic rotor effect with rotating comb motion and luminous stereo drift."""
+    import subprocess
+
+    swirl = max(0.05, min(0.95, swirl))
+    speed = max(0.05, min(1.5, speed))
+    af = (
+        f"apulsator=mode=sine:hz={speed:.2f}:amount={0.35 + swirl * 0.45:.2f},"
+        f"aphaser=in_gain=0.65:out_gain=0.88:delay={1.6 + swirl * 2.2:.2f}:decay=0.34:speed={0.22 + speed * 0.55:.2f},"
+        f"highshelf=f=3200:g={1.2 + swirl * 2.6:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"chorus=0.55:0.72:{14 + swirl * 10:.1f}:0.22:{0.18 + speed * 0.18:.2f}:0.28,"
+            f"aecho=0.68:0.28:{26 + swirl * 34:.1f}:{0.10 + swirl * 0.14:.2f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_titanium_chorus(input_path: "str", output_path: "str", *, width: "float" = 0.40, shine: "float" = 0.32) -> "None":
+    """Titanium chorus with metallic doubling, widened image, and crisp upper mids."""
+    import subprocess
+
+    width = max(0.05, min(0.95, width))
+    shine = max(0.05, min(0.95, shine))
+    af = (
+        f"chorus=0.60:0.82:{16 + width * 14:.1f}:0.28:{0.20 + width * 0.18:.2f}:0.30,"
+        f"stereotools=mode=lr>lr:slev={1.0 + width * 0.38:.2f},"
+        f"highshelf=f=4200:g={1.2 + shine * 3.4:.2f},"
+        f"equalizer=f=1800:width_type=h:width=1400:g={0.8 + shine * 2.2:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"chorus=0.55:0.76:{14 + width * 10:.1f}:0.20:{0.18 + width * 0.14:.2f}:0.26,"
+            f"highshelf=f=3600:g={0.8 + shine * 2.2:.2f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )

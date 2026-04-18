@@ -5022,3 +5022,96 @@ def image_arctic_glow(input_path: "str", output_path: "str", *, frost: "float" =
     ice = np.array([0.86, 0.96, 1.0], dtype=np.float32)
     result = np.clip(arr * (1.0 - frost * 0.24) + cool * frost * 0.74 + ice_mask * ice * frost * 0.34, 0.0, 1.0)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_saffron_bloom(input_path: "str", output_path: "str", *, warmth: "float" = 0.18) -> "None":
+    """Saffron bloom with warm highlights and gently lifted golden mids."""
+    from PIL import Image
+    import numpy as np
+
+    warmth = max(0.03, min(0.35, warmth))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    glow = arr.copy()
+    for _ in range(2):
+        glow = (
+            glow
+            + np.roll(glow, 1, axis=0)
+            + np.roll(glow, -1, axis=0)
+            + np.roll(glow, 1, axis=1)
+            + np.roll(glow, -1, axis=1)
+        ) / 5.0
+    lum = 0.299 * glow[:, :, 0] + 0.587 * glow[:, :, 1] + 0.114 * glow[:, :, 2]
+    highlight = np.clip((lum - 0.34) / 0.66, 0.0, 1.0)[:, :, None]
+    warm = glow.copy()
+    warm[:, :, 0] *= 1.0 + warmth * 0.24
+    warm[:, :, 1] *= 1.0 + warmth * 0.12
+    warm[:, :, 2] *= 1.0 - warmth * 0.16
+    tint = np.array([1.0, 0.82, 0.42], dtype=np.float32)
+    result = np.clip(arr * (1.0 - warmth * 0.20) + warm * warmth * 0.72 + highlight * tint * warmth * 0.32, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_glacier_mist(input_path: "str", output_path: "str", *, haze: "float" = 0.20) -> "None":
+    """Glacial mist with frosted blues and softened contrast in the highlights."""
+    from PIL import Image
+    import numpy as np
+
+    haze = max(0.03, min(0.36, haze))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    veil = arr.copy()
+    for _ in range(3):
+        veil = (
+            veil
+            + np.roll(veil, 1, axis=0)
+            + np.roll(veil, -1, axis=0)
+            + np.roll(veil, 1, axis=1)
+            + np.roll(veil, -1, axis=1)
+        ) / 5.0
+    cool = veil.copy()
+    cool[:, :, 0] *= 0.90
+    cool[:, :, 1] *= 1.00 + haze * 0.10
+    cool[:, :, 2] *= 1.0 + haze * 0.24
+    lum = 0.299 * cool[:, :, 0] + 0.587 * cool[:, :, 1] + 0.114 * cool[:, :, 2]
+    mist = np.clip((lum - 0.25) / 0.75, 0.0, 1.0)[:, :, None]
+    result = np.clip(arr * (1.0 - haze * 0.24) + cool * haze * 0.70 + mist * np.array([0.88, 0.96, 1.0], dtype=np.float32) * haze * 0.28, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_rose_quartz(input_path: "str", output_path: "str", *, blush: "float" = 0.17) -> "None":
+    """Rose-quartz finish with pink mineral warmth and softened luminance rolloff."""
+    from PIL import Image
+    import numpy as np
+
+    blush = max(0.03, min(0.32, blush))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    blush_mask = np.clip((lum - 0.18) / 0.82, 0.0, 1.0)[:, :, None]
+    stone = arr.copy()
+    stone[:, :, 0] *= 1.0 + blush * 0.18
+    stone[:, :, 1] *= 1.0 - blush * 0.03
+    stone[:, :, 2] *= 1.0 + blush * 0.06
+    crystal = np.array([0.98, 0.82, 0.90], dtype=np.float32)
+    result = np.clip(stone * (1.0 - blush * 0.10) + blush_mask * crystal * blush * 0.24, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_shadow_teal(input_path: "str", output_path: "str", *, depth: "float" = 0.19) -> "None":
+    """Shadow-teal grade with cooler blacks and restrained cyan-toned contrast."""
+    from PIL import Image
+    import numpy as np
+
+    depth = max(0.03, min(0.34, depth))
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    shadow_mask = np.clip((0.62 - lum) / 0.62, 0.0, 1.0)[:, :, None]
+    cool = arr.copy()
+    cool[:, :, 0] *= 0.88
+    cool[:, :, 1] *= 1.0 + depth * 0.10
+    cool[:, :, 2] *= 1.0 + depth * 0.26
+    teal = np.array([0.18, 0.54, 0.56], dtype=np.float32)
+    result = np.clip(arr * (1.0 - shadow_mask * depth * 0.20) + cool * depth * 0.34 + teal * shadow_mask * depth * 0.26, 0.0, 1.0)
+    Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
