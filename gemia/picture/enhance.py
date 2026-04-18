@@ -4644,3 +4644,96 @@ def image_paper_cutout(input_path: "str", output_path: "str", *, levels: "int" =
     shadow = np.repeat(shadow, 3, axis=2) * np.array([0.55, 0.52, 0.48], dtype=np.float32)
     result = np.clip(shadow * 0.35 + quant * 0.9 + 0.08, 0.0, 1.0)
     Image.fromarray((result * 255).astype(np.uint8)).save(output_path)
+
+
+def image_charcoal_smudge(input_path: "str", output_path: "str", *, stroke_strength: "float" = 1.35) -> "None":
+    """Charcoal sketch look with dark edges and soft paper smudging."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    gray = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    blur = gray.copy()
+    for _ in range(3):
+        blur = (
+            blur
+            + np.roll(blur, 1, axis=0)
+            + np.roll(blur, -1, axis=0)
+            + np.roll(blur, 1, axis=1)
+            + np.roll(blur, -1, axis=1)
+        ) / 5.0
+    gx = np.zeros_like(blur)
+    gy = np.zeros_like(blur)
+    gx[:, 1:-1] = blur[:, 2:] - blur[:, :-2]
+    gy[1:-1, :] = blur[2:, :] - blur[:-2, :]
+    edges = np.sqrt(gx * gx + gy * gy) * stroke_strength
+    paper = np.clip(0.96 - blur * 0.25, 0.0, 1.0)
+    charcoal = np.clip(paper - edges * 2.4, 0.0, 1.0)
+    result = np.stack([charcoal, charcoal, charcoal], axis=-1)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_cyanotype(input_path: "str", output_path: "str", *, contrast: "float" = 1.25, paper_tint: "float" = 0.12) -> "None":
+    """Cyanotype print effect with cool blue shadows and bright paper highlights."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    tone = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
+    blue = np.zeros((arr.shape[0], arr.shape[1], 3), dtype=np.float32)
+    blue[:, :, 0] = 0.05 + tone * paper_tint
+    blue[:, :, 1] = 0.18 + tone * 0.48
+    blue[:, :, 2] = 0.32 + tone * 0.62
+    wash = np.clip((1.0 - tone)[:, :, None] * np.array([0.03, 0.08, 0.18], dtype=np.float32), 0.0, 1.0)
+    result = np.clip(blue + wash, 0.0, 1.0)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_noir_silhouette(input_path: "str", output_path: "str", *, threshold: "float" = 0.42) -> "None":
+    """High-contrast noir treatment with silhouette shadows and cool highlights."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    shadows = (lum > threshold).astype(np.float32)
+    soft = shadows.copy()
+    for _ in range(2):
+        soft = (
+            soft
+            + np.roll(soft, 1, axis=0)
+            + np.roll(soft, -1, axis=0)
+            + np.roll(soft, 1, axis=1)
+            + np.roll(soft, -1, axis=1)
+        ) / 5.0
+    result = np.zeros((arr.shape[0], arr.shape[1], 3), dtype=np.float32)
+    result[:, :, 0] = soft * 0.85
+    result[:, :, 1] = soft * 0.88
+    result[:, :, 2] = soft * 0.94
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
+
+
+def image_risograph_dual(input_path: "str", output_path: "str", *, tint_strength: "float" = 0.85) -> "None":
+    """Riso-inspired two-ink print using warm shadows and cool highlight ink."""
+    from PIL import Image
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img).astype(np.float32) / 255.0
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    grain = (
+        np.sin(np.arange(arr.shape[1], dtype=np.float32)[None, :] * 0.13)
+        + np.cos(np.arange(arr.shape[0], dtype=np.float32)[:, None] * 0.11)
+    ) * 0.02
+    tone = np.clip(lum + grain, 0.0, 1.0)
+    shadow_ink = np.array([0.95, 0.39, 0.16], dtype=np.float32)
+    highlight_ink = np.array([0.08, 0.56, 0.82], dtype=np.float32)
+    paper = np.array([0.97, 0.94, 0.88], dtype=np.float32)
+    shadow_mix = (1.0 - tone)[:, :, None] * shadow_ink
+    light_mix = np.sqrt(tone)[:, :, None] * highlight_ink * 0.7
+    result = np.clip(paper * (1.0 - tint_strength) + (shadow_mix + light_mix) * tint_strength, 0.0, 1.0)
+    Image.fromarray((result.clip(0, 1) * 255).astype(np.uint8)).save(output_path)
