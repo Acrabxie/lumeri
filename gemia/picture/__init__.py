@@ -126,3 +126,17 @@ __all__.extend([
     "image_ink_bleed",
     "image_arctic_glow",
 ])
+
+from gemia.picture.enhance import image_saffron_bloom, image_glacier_mist
+
+__all__.extend([
+    "image_saffron_bloom",
+    "image_glacier_mist",
+])
+
+from gemia.picture.enhance import image_rose_quartz, image_shadow_teal
+
+__all__.extend([
+    "image_rose_quartz",
+    "image_shadow_teal",
+])

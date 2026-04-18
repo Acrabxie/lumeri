@@ -229,3 +229,15 @@ from gemia.audio.effects import audio_subharmonic_bloom
 __all__.extend([
     "audio_subharmonic_bloom",
 ])
+
+from gemia.audio.effects import audio_cosmic_rotor
+
+__all__.extend([
+    "audio_cosmic_rotor",
+])
+
+from gemia.audio.effects import audio_titanium_chorus
+
+__all__.extend([
+    "audio_titanium_chorus",
+])
