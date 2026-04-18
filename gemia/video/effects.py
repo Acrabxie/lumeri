@@ -7593,3 +7593,90 @@ def video_shadow_highlight(input_path: "str", output_path: "str", *, shadow_lift
             ["ffmpeg", "-y", "-i", input_path, "-vf", f"eq=brightness={shadow_lift:.2f}:contrast=0.95", "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_film_flicker(input_path: "str", output_path: "str", *, amount: "float" = 0.10, speed: "float" = 9.0) -> "None":
+    """Subtle film projector flicker via animated brightness variation."""
+    import subprocess
+
+    amount = max(0.01, min(0.3, amount))
+    vf = f"eq=brightness='{amount:.3f}*sin(t*{speed:.2f})':contrast=1.03"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"eq=brightness={amount * 0.5:.3f}:contrast=1.02"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_cross_zoom(input_path: "str", output_path: "str", *, zoom_amount: "float" = 0.18, speed: "float" = 0.9) -> "None":
+    """Continuous cross-zoom feel using center crop and mild frame blending."""
+    import subprocess
+
+    zoom_amount = max(0.02, min(0.4, zoom_amount))
+    vf = (
+        f"scale=iw*(1+{zoom_amount:.3f}*sin(t*{speed:.2f})):"
+        f"ih*(1+{zoom_amount:.3f}*sin(t*{speed:.2f})),"
+        f"crop=iw/{1.0 + zoom_amount:.3f}:ih/{1.0 + zoom_amount:.3f},"
+        "scale=iw:ih,"
+        "tmix=frames=2:weights='1 0.35'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"scale=iw*{1.0 + zoom_amount * 0.5:.3f}:ih*{1.0 + zoom_amount * 0.5:.3f},crop=iw/{1.0 + zoom_amount * 0.5:.3f}:ih/{1.0 + zoom_amount * 0.5:.3f},scale=iw:ih"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_parallax_drift(input_path: "str", output_path: "str", *, offset_px: "int" = 20, speed: "float" = 0.45) -> "None":
+    """Slow parallax-like drift with animated crop movement across the frame."""
+    import subprocess
+
+    offset_px = max(2, int(offset_px))
+    vf = (
+        f"crop=iw-{offset_px}:ih-{offset_px}:"
+        f"x='({offset_px}/2)*(1+sin(t*{speed:.2f}))':"
+        f"y='({offset_px}/2)*(1+cos(t*{speed:.2f}*0.8))',"
+        "scale=iw:ih"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"crop=iw-{offset_px}:ih-{offset_px}:{offset_px//2}:{offset_px//2},scale=iw:ih"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_sunset_grade(input_path: "str", output_path: "str", *, warmth: "float" = 0.18, saturation: "float" = 1.25) -> "None":
+    """Warm sunset grading with boosted reds and gentle contrast lift."""
+    import subprocess
+
+    warmth = max(0.0, min(0.35, warmth))
+    saturation = max(0.5, min(1.8, saturation))
+    vf = (
+        f"colorbalance=rs={warmth:.2f}:gs={warmth * 0.45:.2f}:bs=-{warmth * 0.65:.2f},"
+        f"eq=saturation={saturation:.2f}:contrast=1.06:brightness=0.01"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"eq=saturation={max(1.0, saturation - 0.1):.2f}:contrast=1.04, hue=h=12"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )

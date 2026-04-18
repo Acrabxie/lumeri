@@ -109,6 +109,8 @@ from gemia.video.effects import (
     video_mirror_time, video_color_shift_time,
     video_bleach_bypass, video_frame_trails,
     video_heatwave, video_shadow_highlight,
+    video_film_flicker, video_cross_zoom,
+    video_parallax_drift, video_sunset_grade,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -232,4 +234,6 @@ __all__ = [
     "video_mirror_time", "video_color_shift_time",
     "video_bleach_bypass", "video_frame_trails",
     "video_heatwave", "video_shadow_highlight",
+    "video_film_flicker", "video_cross_zoom",
+    "video_parallax_drift", "video_sunset_grade",
 ]

@@ -95,6 +95,8 @@ from gemia.audio.effects import (
     audio_cb_radio,
     audio_underwater_muffle,
     audio_cassette_wobble,
+    audio_megaphone_drive,
+    audio_phaser_sweep,
 )
 
 __all__ = [
@@ -196,4 +198,6 @@ __all__ = [
     "audio_cb_radio",
     "audio_underwater_muffle",
     "audio_cassette_wobble",
+    "audio_megaphone_drive",
+    "audio_phaser_sweep",
 ]

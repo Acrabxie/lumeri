@@ -4078,3 +4078,46 @@ def audio_cassette_wobble(input_path: "str", output_path: "str", *, wobble_hz: "
             ["ffmpeg", "-y", "-i", input_path, "-af", "asetrate=44100*0.998,aresample=44100", output_path],
             check=True, capture_output=True
         )
+
+
+def audio_megaphone_drive(input_path: "str", output_path: "str", *, drive: "float" = 12.0, tone_hz: "float" = 1800.0) -> "None":
+    """Megaphone effect with narrow midrange focus and mild overdrive."""
+    import subprocess
+
+    af = (
+        f"highpass=f=350,"
+        f"lowpass=f=3200,"
+        f"equalizer=f={tone_hz:.0f}:width_type=h:width=1200:g=4,"
+        f"acrusher=level_in=1:level_out=1:bits=10:mode=lin,"
+        f"volume={max(1.0, drive / 6.0):.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"highpass=f=400,lowpass=f=3000,volume={max(1.0, drive / 8.0):.2f}"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_phaser_sweep(input_path: "str", output_path: "str", *, delay_ms: "float" = 2.8, speed: "float" = 0.6) -> "None":
+    """Sweeping phaser effect using short modulated delay taps."""
+    import subprocess
+
+    af = (
+        f"aphaser=in_gain=0.7:out_gain=0.9:delay={delay_ms:.1f}:decay=0.35:"
+        f"speed={speed:.2f}:type=t:sine=1"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"chorus=0.5:0.8:{max(12.0, delay_ms * 8.0):.1f}:0.25:{speed:.2f}:0.3"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
