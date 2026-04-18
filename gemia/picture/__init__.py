@@ -112,3 +112,17 @@ __all__.extend([
     "image_copper_patina",
     "image_lucid_dream",
 ])
+
+from gemia.picture.enhance import image_liquid_chrome, image_celestial_haze
+
+__all__.extend([
+    "image_liquid_chrome",
+    "image_celestial_haze",
+])
+
+from gemia.picture.enhance import image_ink_bleed, image_arctic_glow
+
+__all__.extend([
+    "image_ink_bleed",
+    "image_arctic_glow",
+])

@@ -4226,3 +4226,56 @@ def audio_broadcast_limiter(input_path: "str", output_path: "str", *, ceiling_db
             ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
             check=True, capture_output=True
         )
+
+
+def audio_neon_resonance(input_path: "str", output_path: "str", *, shimmer: "float" = 0.42) -> "None":
+    """Synthetic neon resonance with bright echoes and a glossy stereo edge."""
+    import subprocess
+
+    shimmer = max(0.05, min(0.95, shimmer))
+    af = (
+        f"bandpass=f=1400:width_type=h:width={900 + shimmer * 2200:.0f},"
+        f"aecho=0.72:0.48:26|72:{0.18 + shimmer * 0.24:.2f}|{0.10 + shimmer * 0.16:.2f},"
+        f"chorus=0.55:0.72:{18 + shimmer * 12:.1f}:0.22:0.26:0.28,"
+        f"highshelf=f=3600:g={1.2 + shimmer * 3.2:.2f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"aecho=0.68:0.35:38:{0.14 + shimmer * 0.18:.2f},"
+            f"highpass=f=380,lowpass=f={3200 + shimmer * 1800:.0f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_subharmonic_bloom(input_path: "str", output_path: "str", *, weight: "float" = 0.36) -> "None":
+    """Low-end bloom with weighted subharmonic emphasis and restrained air loss."""
+    import subprocess
+
+    weight = max(0.05, min(0.9, weight))
+    af = (
+        f"asplit[dry][sub];"
+        f"[sub]lowpass=f={120 + weight * 90:.0f},"
+        f"acompressor=threshold=0.18:ratio={2.2 + weight * 2.0:.2f}:attack=8:release=120:makeup={1.0 + weight * 1.4:.2f}[low];"
+        f"[dry][low]amix=inputs=2:weights='1 {0.35 + weight * 0.9:.2f}',"
+        f"lowpass=f={14500 - weight * 3500:.0f}"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"bass=g={2.0 + weight * 7.0:.2f}:f={70 + weight * 45:.0f}:w=0.8,"
+            f"lowpass=f={15000 - weight * 2800:.0f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
