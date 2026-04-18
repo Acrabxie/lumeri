@@ -98,3 +98,17 @@ __all__ = [
     "image_metallic_sheen", "image_velvet_shadow",
     "image_porcelain_glow", "image_ember_bloom",
 ]
+
+from gemia.picture.enhance import image_opaline_glow, image_graphite_tint
+
+__all__.extend([
+    "image_opaline_glow",
+    "image_graphite_tint",
+])
+
+from gemia.picture.enhance import image_copper_patina, image_lucid_dream
+
+__all__.extend([
+    "image_copper_patina",
+    "image_lucid_dream",
+])

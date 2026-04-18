@@ -248,3 +248,17 @@ __all__ = [
     "video_iris_pulse", "video_moonlight_grade",
     "video_crystal_shimmer", "video_dusk_fade",
 ]
+
+from gemia.video.effects import video_prism_echo, video_midnight_bloom
+
+__all__.extend([
+    "video_prism_echo",
+    "video_midnight_bloom",
+])
+
+from gemia.video.effects import video_silver_halation, video_horizon_glow
+
+__all__.extend([
+    "video_silver_halation",
+    "video_horizon_glow",
+])
