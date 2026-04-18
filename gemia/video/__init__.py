@@ -111,6 +111,8 @@ from gemia.video.effects import (
     video_heatwave, video_shadow_highlight,
     video_film_flicker, video_cross_zoom,
     video_parallax_drift, video_sunset_grade,
+    video_iris_pulse, video_moonlight_grade,
+    video_crystal_shimmer, video_dusk_fade,
 )
 from gemia.video.subtitles import (
     make_srt, make_vtt,
@@ -119,6 +121,10 @@ from gemia.video.subtitles import (
     auto_subtitle, add_lower_third,
     add_text, add_subtitle_track,
     animated_text,
+)
+from gemia.video.layers import (
+    Layer, LayerStack, execute_layer_plan,
+    make_video_layer, make_image_layer, make_text_layer, make_solid_layer,
 )
 
 __all__ = [
@@ -145,6 +151,9 @@ __all__ = [
     "make_srt", "make_vtt", "transcribe_to_srt", "transcribe_to_vtt",
     "burn_subtitles", "mux_subtitle_track", "extract_subtitle_track",
     "auto_subtitle", "add_lower_third", "add_text", "add_subtitle_track", "animated_text",
+    # layers
+    "Layer", "LayerStack", "execute_layer_plan",
+    "make_video_layer", "make_image_layer", "make_text_layer", "make_solid_layer",
     # export
     "export_preset", "proxy_generate", "batch_export",
     # effects
@@ -236,4 +245,6 @@ __all__ = [
     "video_heatwave", "video_shadow_highlight",
     "video_film_flicker", "video_cross_zoom",
     "video_parallax_drift", "video_sunset_grade",
+    "video_iris_pulse", "video_moonlight_grade",
+    "video_crystal_shimmer", "video_dusk_fade",
 ]

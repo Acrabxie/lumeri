@@ -4121,3 +4121,55 @@ def audio_phaser_sweep(input_path: "str", output_path: "str", *, delay_ms: "floa
             ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
             check=True, capture_output=True
         )
+
+
+def audio_hologram_echo(input_path: "str", output_path: "str", *, depth: "float" = 0.45, delay_ms: "float" = 28.0) -> "None":
+    """Hologram echo with shimmery stereo reflections and a synthetic tail."""
+    import subprocess
+
+    depth = max(0.05, min(0.95, depth))
+    delay_ms = max(8.0, delay_ms)
+    af = (
+        f"aecho=0.75:0.55:{delay_ms:.1f}|{delay_ms * 2.2:.1f}:{depth:.2f}|{depth * 0.55:.2f},"
+        f"aphaser=in_gain=0.6:out_gain=0.85:delay=2.2:decay=0.32:speed=0.55,"
+        "stereotools=mode=lr>lr:phase=0.15"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"chorus=0.55:0.75:{max(12.0, delay_ms * 0.7):.1f}:0.20:0.30:0.22,"
+            f"aecho=0.7:0.4:{delay_ms:.1f}:{depth * 0.6:.2f}"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )
+
+
+def audio_laser_tremor(input_path: "str", output_path: "str", *, rate_hz: "float" = 7.5, resonance: "float" = 0.4) -> "None":
+    """Laser tremor effect with pulsing amplitude and a narrow resonant edge."""
+    import subprocess
+
+    rate_hz = max(0.5, rate_hz)
+    resonance = max(0.05, min(0.95, resonance))
+    af = (
+        f"tremolo=f={rate_hz:.2f}:d={0.35 + resonance * 0.4:.2f},"
+        f"bandpass=f=1800:width_type=h:width={900 + resonance * 2200:.0f},"
+        "acrusher=bits=11:mix=0.15"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-af", af, output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = (
+            f"tremolo=f={rate_hz:.2f}:d={0.30 + resonance * 0.3:.2f},"
+            "highpass=f=500,lowpass=f=4200"
+        )
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-af", fallback, output_path],
+            check=True, capture_output=True
+        )

@@ -7680,3 +7680,96 @@ def video_sunset_grade(input_path: "str", output_path: "str", *, warmth: "float"
             ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
             check=True, capture_output=True
         )
+
+
+def video_iris_pulse(input_path: "str", output_path: "str", *, strength: "float" = 0.18, speed: "float" = 1.8) -> "None":
+    """Animated iris pulse that breathes a vignette in and out around the center."""
+    import subprocess
+
+    strength = max(0.02, min(0.45, strength))
+    speed = max(0.1, speed)
+    vf = (
+        "vignette="
+        f"angle='PI/5+{strength:.3f}*sin(t*{speed:.2f})':"
+        "mode=forward"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"eq=brightness='-{strength * 0.08:.3f}*sin(t*{speed:.2f})':contrast=1.03"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_moonlight_grade(input_path: "str", output_path: "str", *, coolness: "float" = 0.16, contrast: "float" = 1.08) -> "None":
+    """Moonlight grade with cool blue shadows and restrained nocturnal saturation."""
+    import subprocess
+
+    coolness = max(0.0, min(0.35, coolness))
+    contrast = max(0.8, min(1.4, contrast))
+    vf = (
+        f"colorbalance=rs=-{coolness * 0.75:.2f}:gs=-{coolness * 0.20:.2f}:bs={coolness:.2f}:"
+        f"rm=-{coolness * 0.25:.2f}:bm={coolness * 0.40:.2f},"
+        f"eq=saturation={max(0.55, 1.0 - coolness * 0.9):.2f}:contrast={contrast:.2f}:brightness=-0.01"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h=-12:s={max(0.6, 1.0 - coolness * 0.7):.2f},eq=contrast={contrast:.2f}:brightness=-0.01"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_crystal_shimmer(input_path: "str", output_path: "str", *, shift_px: "int" = 6, blend: "float" = 0.35) -> "None":
+    """Crystal shimmer effect with prismatic channel offsets and bright specular flicker."""
+    import subprocess
+
+    shift_px = max(1, int(shift_px))
+    blend = max(0.05, min(0.8, blend))
+    vf = (
+        f"split[base][prism];"
+        f"[prism]geq=r='r(X-{shift_px},Y)':g='g(X,Y)':b='b(X+{shift_px},Y)'[rgb];"
+        f"[rgb]eq=brightness={blend * 0.06:.3f}:saturation={1.0 + blend * 0.6:.2f}[shine];"
+        f"[base][shine]blend=all_expr='A*(1-{blend:.2f})+B*{blend:.2f}'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-filter_complex", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"geq=r='r(X-{max(1, shift_px // 2)},Y)':g='g(X,Y)':b='b(X+{max(1, shift_px // 2)},Y)'"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
+
+
+def video_dusk_fade(input_path: "str", output_path: "str", *, shadow_blue: "float" = 0.12, amber: "float" = 0.08) -> "None":
+    """Dusk fade grade with blue hour shadows and a faint amber horizon glow."""
+    import subprocess
+
+    shadow_blue = max(0.0, min(0.3, shadow_blue))
+    amber = max(0.0, min(0.25, amber))
+    vf = (
+        f"colorbalance=rs={amber:.2f}:gs={amber * 0.35:.2f}:bs={shadow_blue:.2f}:"
+        f"rh={amber * 0.55:.2f}:bh=-{shadow_blue * 0.35:.2f},"
+        "curves=r='0/0.04 0.55/0.58 1/1':g='0/0.03 0.55/0.56 1/0.98':b='0/0.10 0.55/0.60 1/0.95'"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-c:a", "copy", output_path],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        fallback = f"hue=h=14:s=0.92,eq=brightness=-0.01:contrast=1.04"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", input_path, "-vf", fallback, "-c:a", "copy", output_path],
+            check=True, capture_output=True
+        )
