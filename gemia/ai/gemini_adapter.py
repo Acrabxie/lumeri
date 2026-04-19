@@ -26,8 +26,11 @@ def _read_config_key(field: str) -> str:
     return ""
 
 
+_GEMINI_NATIVE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
 class GeminiAdapter:
-    """Minimal OpenRouter-backed Gemini adapter for structured plan generation."""
+    """Gemini adapter — native Gemini API (via proxy) with OpenRouter fallback."""
 
     def __init__(
         self,
@@ -36,20 +39,56 @@ class GeminiAdapter:
         api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         log_dir: str | Path = "logs/gemini",
     ) -> None:
-        self.api_key = (
+        # Native Gemini API key (preferred)
+        self.gemini_api_key = (
             api_key
-            or os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+            or _read_config_key("gemini_api_key")
+        )
+        # OpenRouter fallback
+        self.openrouter_api_key = (
+            os.environ.get("OPENROUTER_API_KEY")
             or _read_config_key("openrouter_api_key")
         )
-        self.model = model or os.environ.get("OPENROUTER_MODEL", "google/gemini-3-flash-preview")
+        # Model: native uses gemini-2.5-flash, OpenRouter needs provider prefix
+        self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model = model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash-preview")
         self.api_url = api_url
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.ssl_verify = os.environ.get("GEMIA_SSL_VERIFY", "1") != "0"
-        if not self.api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is missing")
+        # Proxy for native Gemini (e.g. http://127.0.0.1:7890)
+        self.proxy = (
+            os.environ.get("GEMIA_PROXY")
+            or _read_config_key("proxy")
+            or "http://127.0.0.1:7890"
+        )
+        if not self.gemini_api_key and not self.openrouter_api_key:
+            raise RuntimeError("GEMINI_API_KEY or OPENROUTER_API_KEY is required")
 
     async def generate_plan_json(self, system_prompt: str, user_payload: dict[str, Any], tag: str) -> dict[str, Any]:
+        # Try native Gemini API first, fall back to OpenRouter
+        if self.gemini_api_key:
+            try:
+                body = self._post_gemini_native(system_prompt, user_payload)
+                self._write_log(tag=tag, request_payload={"backend": "gemini_native", "model": self.gemini_model}, response_body=body)
+                content = body.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if content:
+                    plan = self._extract_json(content)
+                    if not plan.get("ask"):
+                        if "steps" not in plan:
+                            raise RuntimeError("AI 生成的计划格式有误，请重试（缺少 steps 字段）")
+                        if "version" not in plan:
+                            raise RuntimeError("AI 生成的计划格式有误，请重试（缺少 version 字段）")
+                    return plan
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                # Native failed, fall through to OpenRouter if available
+                if not self.openrouter_api_key:
+                    raise RuntimeError(f"Gemini native API 请求失败：{exc}") from exc
+
+        # OpenRouter fallback
         payload = {
             "model": self.model,
             "temperature": 0,
@@ -59,13 +98,12 @@ class GeminiAdapter:
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
         }
-        body = self._post_json(payload)
+        body = self._post_openrouter(payload)
         self._write_log(tag=tag, request_payload=payload, response_body=body)
         content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content", "")
         if not content:
             raise RuntimeError(f"Gemini returned empty content: {body}")
         plan = self._extract_json(content)
-        # Validate Plan v2 format (allow Ask responses to pass through)
         if not plan.get("ask"):
             if "steps" not in plan:
                 raise RuntimeError("AI 生成的计划格式有误，请重试（缺少 steps 字段）")
@@ -73,12 +111,48 @@ class GeminiAdapter:
                 raise RuntimeError("AI 生成的计划格式有误，请重试（缺少 version 字段）")
         return plan
 
-    def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_gemini_native(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+        """Call Gemini API directly via proxy."""
+        url = _GEMINI_NATIVE_URL.format(model=self.gemini_model) + f"?key={self.gemini_api_key}"
+        body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"parts": [{"text": json.dumps(user_payload, ensure_ascii=False)}]}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        proxy_handler = urllib.request.ProxyHandler({
+            "https": self.proxy,
+            "http": self.proxy,
+        }) if self.proxy else urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(proxy_handler)
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                with opener.open(req, timeout=90) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="ignore")
+                if 400 <= exc.code < 500:
+                    raise RuntimeError(f"Gemini API HTTP {exc.code}: {error_body}") from exc
+                last_error = RuntimeError(f"Gemini API HTTP {exc.code}: {error_body}")
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                last_error = RuntimeError(f"Gemini native 请求失败（第{attempt + 1}次）：{exc}")
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+        raise last_error  # type: ignore[misc]
+
+    def _post_openrouter(self, payload: dict[str, Any]) -> dict[str, Any]:
         req = urllib.request.Request(
             self.api_url,
             data=json.dumps(payload).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {self.openrouter_api_key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://local-gemia-mvp",
                 "X-Title": "gemia-mvp",
@@ -99,14 +173,13 @@ class GeminiAdapter:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 error_body = exc.read().decode("utf-8", errors="ignore")
-                # 4xx errors are not retryable
                 if 400 <= exc.code < 500:
                     raise RuntimeError(f"OpenRouter HTTP {exc.code}: {error_body}") from exc
                 last_error = RuntimeError(f"OpenRouter HTTP {exc.code}: {error_body}")
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last_error = RuntimeError(f"AI 接口请求失败（第{attempt + 1}次）：{exc}")
             if attempt < 2:
-                time.sleep(2 ** attempt)  # 1s, 2s, then fail
+                time.sleep(2 ** attempt)
         raise last_error  # type: ignore[misc]
 
     def _write_log(self, tag: str, request_payload: dict[str, Any], response_body: dict[str, Any]) -> None:
