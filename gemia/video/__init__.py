@@ -123,9 +123,21 @@ from gemia.video.subtitles import (
     animated_text,
 )
 from gemia.video.layers import (
-    Layer, LayerStack, execute_layer_plan,
+    Layer, LayerStack, execute_layer_plan, render_layer_plan,
     make_video_layer, make_image_layer, make_text_layer, make_solid_layer,
 )
+from gemia.video.layer_validation import (
+    LayerPlanValidationError, validate_layer_plan, validate_layer_stack_preview,
+)
+from gemia.video.compositing_graph import (
+    CompositingEdge, CompositingGraph, CompositingNode,
+    CompiledCompositingPlan, CompiledNodeStep,
+    NeutralGraphBackend, NodeOutputRef,
+    build_compositing_graph, build_compositing_graph_from_layer_plan,
+    build_compositing_graph_from_layer_stack, compile_compositing_graph,
+)
+from gemia.video.preview import ShadowPreviewResult, render_shadow_preview
+from gemia.video.proxy import ProxyAsset, ProxyManager
 
 __all__ = [
     # frames
@@ -152,8 +164,16 @@ __all__ = [
     "burn_subtitles", "mux_subtitle_track", "extract_subtitle_track",
     "auto_subtitle", "add_lower_third", "add_text", "add_subtitle_track", "animated_text",
     # layers
-    "Layer", "LayerStack", "execute_layer_plan",
+    "Layer", "LayerStack", "execute_layer_plan", "render_layer_plan",
     "make_video_layer", "make_image_layer", "make_text_layer", "make_solid_layer",
+    "LayerPlanValidationError", "validate_layer_plan", "validate_layer_stack_preview",
+    "CompositingEdge", "CompositingGraph", "CompositingNode",
+    "CompiledCompositingPlan", "CompiledNodeStep",
+    "NeutralGraphBackend", "NodeOutputRef",
+    "build_compositing_graph", "build_compositing_graph_from_layer_plan",
+    "build_compositing_graph_from_layer_stack", "compile_compositing_graph",
+    "ShadowPreviewResult", "render_shadow_preview",
+    "ProxyAsset", "ProxyManager",
     # export
     "export_preset", "proxy_generate", "batch_export",
     # effects
