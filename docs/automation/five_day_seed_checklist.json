@@ -1,0 +1,761 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-20",
+  "generated_by": "feature_fill_subagent",
+  "repo": "gemia",
+  "purpose": "Machine-readable seed checklist for Gemia's five-day auto-improvement loop.",
+  "constraints": {
+    "runtime_code_modified": false,
+    "planning_artifact_only": true
+  },
+  "sources": [
+    {
+      "path": "GEMIA_PROJECT_RECORD.md",
+      "kind": "project_record",
+      "notes": "Authoritative project overview; last updated 2026-04-17 and currently stale versus agent_log.md."
+    },
+    {
+      "path": "agent_log.md",
+      "kind": "agent_log",
+      "notes": "Most complete shipped-wave history; latest logged completion is Wave 117."
+    },
+    {
+      "path": "scripts/gemia_loop.sh",
+      "kind": "legacy_loop",
+      "notes": "Current cron loop still targets the obsolete 41-function list and is not the five-day controller."
+    },
+    {
+      "path": "gemia/video/layers.py",
+      "kind": "current_codebase",
+      "notes": "Layer stack, plan materialization, keyframes, masks, transforms, and plan rendering."
+    },
+    {
+      "path": "gemia/video/layer_validation.py",
+      "kind": "current_codebase",
+      "notes": "Schema validation and preview smoke checks for layer plans."
+    },
+    {
+      "path": "gemia/video/compositing_graph.py",
+      "kind": "current_codebase",
+      "notes": "Compositing DAG IR and neutral graph compiler."
+    },
+    {
+      "path": "gemia/video/preview.py",
+      "kind": "current_codebase",
+      "notes": "Shadow preview rendering and preview manifest generation."
+    },
+    {
+      "path": "gemia/video/proxy.py",
+      "kind": "current_codebase",
+      "notes": "Proxy generation and same-basename-safe proxy naming."
+    },
+    {
+      "path": "gemia/video/backends/base.py",
+      "kind": "current_codebase",
+      "notes": "Render backend contracts and preview/final render profiles."
+    },
+    {
+      "path": "gemia/video/backends/software.py",
+      "kind": "current_codebase",
+      "notes": "Software backend for layer plans and compositing graphs."
+    },
+    {
+      "path": "gemia/registry.py",
+      "kind": "current_codebase",
+      "notes": "AI catalog exclusions show that render/graph helpers are still infrastructure, not planner-exposed primitives."
+    },
+    {
+      "path": "tests/test_video/test_layer_render.py",
+      "kind": "verification",
+      "notes": "Layer-plan render coverage."
+    },
+    {
+      "path": "tests/test_video/test_layer_validation.py",
+      "kind": "verification",
+      "notes": "Layer-plan validation coverage."
+    },
+    {
+      "path": "tests/test_video/test_compositing_graph.py",
+      "kind": "verification",
+      "notes": "Compositing DAG coverage."
+    },
+    {
+      "path": "tests/test_video/test_preview.py",
+      "kind": "verification",
+      "notes": "Shadow preview and inferred metadata coverage."
+    },
+    {
+      "path": "tests/test_video/test_proxy.py",
+      "kind": "verification",
+      "notes": "Proxy basename collision coverage."
+    },
+    {
+      "path": "tests/test_video/test_render_backends.py",
+      "kind": "verification",
+      "notes": "Software render backend coverage."
+    },
+    {
+      "path": "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+      "kind": "shared_loop_context",
+      "notes": "Five-day loop contract, architecture lane note, and pending controller/media requirements."
+    },
+    {
+      "path": "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-19.md",
+      "kind": "shared_loop_context",
+      "notes": "Records compositing DAG IR, review findings, and real-video verification follow-up."
+    },
+    {
+      "path": "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md",
+      "kind": "shared_loop_context",
+      "notes": "Records five-day controller, Gemini-native media path, two-hour heartbeat, five-hour rollover, and external-storage requirements."
+    }
+  ],
+  "baseline": {
+    "project_record_last_updated": "2026-04-17",
+    "project_record_latest_wave": 105,
+    "agent_log_latest_wave": 117,
+    "wave_gap_vs_project_record": 12,
+    "legacy_seed_function_list_completed": 41,
+    "wave_100_milestone_completed": true,
+    "minimum_primitives_from_logged_wave_math": {
+      "value": 585,
+      "notes": "Wave 100 logged 500 functions shipped; Waves 101-117 add 17 more waves at 5 features each."
+    },
+    "current_public_function_surface": {
+      "method": "static_ast_scan",
+      "notes": "Counts public top-level functions in gemia/picture, gemia/audio, and gemia/video. Includes infrastructure/helpers in addition to user-facing primitives.",
+      "picture": 228,
+      "audio": 160,
+      "video": 321,
+      "total": 709
+    },
+    "current_completed_product_milestones": [
+      "Primitive API",
+      "Registry auto-discovery",
+      "PlanEngine v2",
+      "Ask mechanism",
+      "Skills system v2",
+      "CLI run/save/list/run-skill flows",
+      "Gemini image generation primitives",
+      "Veo video generation primitives",
+      "GitHub repo publication",
+      "Tauri macOS DMG",
+      "Wave 100 primitive milestone",
+      "Layer-first compositing surface",
+      "Compositing DAG IR",
+      "Shadow preview lane",
+      "Software render backend seam"
+    ]
+  },
+  "completed_waves_and_primitives": {
+    "wave_status": {
+      "latest_logged_wave": 117,
+      "status": "completed",
+      "notes": "agent_log.md extends beyond GEMIA_PROJECT_RECORD.md and should seed the loop baseline."
+    },
+    "completed_batches": [
+      {
+        "id": "initial_41_function_loop",
+        "status": "completed",
+        "evidence": "agent_log.md marks all 41 original tasks complete and the project record treats the primitive expansion engine as established."
+      },
+      {
+        "id": "wave_100",
+        "status": "completed",
+        "evidence": "agent_log.md records the 500-function milestone at Wave 100."
+      },
+      {
+        "id": "waves_101_to_117",
+        "status": "completed",
+        "evidence": "agent_log.md records Wave 117 as the latest completion after Wave 100."
+      }
+    ],
+    "current_layer_dag_surface": [
+      {
+        "id": "layer_stack_rendering",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/layers.py",
+          "tests/test_video/test_layer_render.py"
+        ],
+        "capabilities": [
+          "video/image/text/solid layers",
+          "plan materialization with inferred width/height/fps/total_frames",
+          "position",
+          "opacity",
+          "scale",
+          "rotation_deg",
+          "mask_source",
+          "keyframes",
+          "picture primitive chains",
+          "render_layer_plan"
+        ]
+      },
+      {
+        "id": "layer_plan_validation",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/layer_validation.py",
+          "tests/test_video/test_layer_validation.py"
+        ],
+        "capabilities": [
+          "schema checks",
+          "timing checks",
+          "duplicate layer id checks",
+          "primitive-chain validation",
+          "preview smoke validation"
+        ]
+      },
+      {
+        "id": "compositing_dag_ir",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/compositing_graph.py",
+          "tests/test_video/test_compositing_graph.py"
+        ],
+        "capabilities": [
+          "build_compositing_graph_from_layer_plan",
+          "build_compositing_graph_from_layer_stack",
+          "compile_compositing_graph",
+          "neutral backend compilation",
+          "track/source/transform/automation/composite nodes"
+        ]
+      },
+      {
+        "id": "shadow_preview_lane",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/preview.py",
+          "tests/test_video/test_preview.py"
+        ],
+        "capabilities": [
+          "render_shadow_preview",
+          "preview manifest output",
+          "proxy map emission",
+          "scaled preview plan generation",
+          "compiled metadata parity checks"
+        ]
+      },
+      {
+        "id": "proxy_management",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/proxy.py",
+          "tests/test_video/test_proxy.py"
+        ],
+        "capabilities": [
+          "proxy caching",
+          "same-basename-safe proxy naming",
+          "attach_to_plan"
+        ]
+      },
+      {
+        "id": "software_render_backend",
+        "status": "completed",
+        "artifacts": [
+          "gemia/video/backends/base.py",
+          "gemia/video/backends/software.py",
+          "tests/test_video/test_render_backends.py"
+        ],
+        "capabilities": [
+          "RenderProfile.preview",
+          "RenderProfile.final",
+          "render layer plans",
+          "render compositing graphs",
+          "render compiled compositing plans"
+        ]
+      }
+    ],
+    "completed_review_fixes": [
+      {
+        "id": "proxy_filename_collision_fix",
+        "status": "completed",
+        "evidence": "ProxyManager now hashes the resolved source path and test_proxy covers same-basename sources."
+      },
+      {
+        "id": "shadow_preview_metadata_drift_fix",
+        "status": "completed",
+        "evidence": "test_preview and test_compositing_graph cover inferred canvas metrics plus start_frame+duration timing."
+      }
+    ]
+  },
+  "rules": {
+    "reproduction_twice_rule": {
+      "required": true,
+      "status": "active",
+      "source": [
+        "GEMIA_PROJECT_RECORD.md",
+        "scripts/gemia_loop.sh",
+        "agent_log.md"
+      ],
+      "rule": "A feature or fix only counts as complete after two successful reproductions/passes.",
+      "evidence": [
+        "The project record states 2x PASS verification as part of every Wave.",
+        "The legacy auto-loop prompt says 'Verify it passes twice.'",
+        "agent_log.md repeatedly records 2x PASS completions."
+      ],
+      "automation_expectations": [
+        "Do not mark checklist items complete on a single green run.",
+        "Persist both pass attempts or equivalent evidence in the loop log.",
+        "Treat missing second-pass evidence as incomplete."
+      ]
+    },
+    "failure_breaker": {
+      "required": true,
+      "status": "active",
+      "threshold": 3,
+      "breaker_file": "HUMAN_NEEDED.md",
+      "source": [
+        "task_requirement",
+        "scripts/gemia_loop.sh"
+      ],
+      "rule": "After three failures on the same item or failure class, stop autonomous advancement for that lane and write HUMAN_NEEDED.md.",
+      "automation_expectations": [
+        "Increment a per-item or per-failure-class counter.",
+        "Reset the counter only after a verified fix reproduces twice.",
+        "Do not keep retrying indefinitely once the breaker trips."
+      ]
+    },
+    "five_day_controller_contract": {
+      "required": true,
+      "status": "active",
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md"
+      ],
+      "horizon_days": 5,
+      "heartbeat_interval_hours": 2,
+      "session_rollover_hours": 5,
+      "lanes": [
+        "architecture",
+        "feature",
+        "review"
+      ],
+      "notes": [
+        "The five-day controller replaces the old 41-function cron loop.",
+        "The loop must wake itself every two hours and roll sessions every five hours.",
+        "Media generation must prefer Gemini-native paths for stock asset creation."
+      ]
+    }
+  },
+  "milestones": [
+    {
+      "id": "feature_batch_5",
+      "threshold": 5,
+      "status": "completed",
+      "source": [
+        "GEMIA_PROJECT_RECORD.md",
+        "task_requirement"
+      ],
+      "why": "Existing Wave discipline is built around 5-feature batches.",
+      "required_actions": [
+        "complete two-pass verification for the batch",
+        "checkpoint or commit the batch",
+        "append the batch result to agent_log-equivalent loop history"
+      ],
+      "completed_at": "2026-04-26 03:07 CST",
+      "evidence": "Current five-day loop batch completed five checklist items with two-pass verification: native stock fallback, heartbeat/rollover persistence, stock manifest/external-storage guard, legacy loop replacement, and graph metric-source metadata."
+    },
+    {
+      "id": "feature_batch_10",
+      "threshold": 10,
+      "status": "required",
+      "source": [
+        "agent_log.md",
+        "task_requirement"
+      ],
+      "why": "agent_log.md repeatedly schedules a full debug pass every 10 functions.",
+      "required_actions": [
+        "run a regression/debug sweep",
+        "review for stale failures or drift",
+        "do not advance the milestone without refreshed verification"
+      ]
+    },
+    {
+      "id": "feature_batch_30",
+      "threshold": 30,
+      "status": "required",
+      "source": [
+        "task_requirement",
+        "agent_log.md"
+      ],
+      "why": "Requested seed milestone for the five-day controller; the current logs already use larger integration checkpoints, so 30 features should force a heavier integration/review gate.",
+      "required_actions": [
+        "run a real-media integration pass",
+        "run the review lane on current outputs",
+        "checkpoint the stock-media catalog state and open blockers if quality regresses"
+      ]
+    }
+  ],
+  "pending_loop_fixes": [
+    {
+      "id": "replace_legacy_41_function_loop",
+      "status": "completed",
+      "priority": "P0",
+      "lane": "feature",
+      "blocker": true,
+      "source": [
+        "scripts/gemia_loop.sh",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md"
+      ],
+      "why": "The current auto-loop still reads agent_log.md for the old 41-function flow and cannot coordinate a five-day controller.",
+      "done_when": [
+        "the controller no longer asks for the next pending task in the 41-function list",
+        "the loop persists five-day state and lane status",
+        "the loop uses the new five-day contract rather than the cron-era prompt"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 02:02 CST",
+          "evidence": "Focused automation pytest confirms scripts/gemia_loop.sh delegates to _run_gemia_controller.sh tick-once and no longer references agent_log.md or the legacy 41-function flow."
+        },
+        {
+          "at": "2026-04-26 02:03 CST",
+          "evidence": "Two isolated HOME CLI reproductions ran scripts/gemia_loop.sh successfully; each returned five-day controller tick-once output with stock_fill and rollover state instead of selecting legacy tasks."
+        }
+      ]
+    },
+    {
+      "id": "add_gemini_native_stock_media_path",
+      "status": "completed",
+      "priority": "P0",
+      "lane": "feature",
+      "blocker": true,
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md",
+        "GEMIA_PROJECT_RECORD.md"
+      ],
+      "why": "The five-day loop explicitly requires Gemini-native media generation, but the recorded baseline still centers planning/images/videos around OpenRouter paths.",
+      "done_when": [
+        "stock-media generation can use a native Gemini image/video path",
+        "fallback behavior is explicit",
+        "generated assets are cataloged for editing tests"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-25 22:44 CST",
+          "evidence": "Generated video-0001 via local_real_video while Gemini native media was paused by gemini_location_unsupported; focused automation tests passed."
+        },
+        {
+          "at": "2026-04-25 23:15 CST",
+          "evidence": "Generated video-0002 and image-0002 via local real-media fallback after migrating away from an unwritable stock root; focused automation tests passed."
+        }
+      ]
+    },
+  {
+    "id": "persist_two_hour_heartbeats_and_five_hour_rollovers",
+    "status": "completed",
+    "priority": "P0",
+    "lane": "feature",
+    "blocker": true,
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md",
+        "scripts/gemia_loop.sh"
+      ],
+      "why": "The new loop contract requires wake heartbeats every two hours and session rollover every five hours; the old cron script cannot do that.",
+    "done_when": [
+      "heartbeat state is persisted",
+      "five-hour rollovers are explicit and observable",
+      "the controller survives unattended multi-day execution"
+    ],
+    "verified_reproductions": [
+      {
+        "at": "2026-04-26 00:06 CST",
+        "evidence": "GEMIA_ROLLOVER_OFFLINE_ONLY=1 scripts/_run_gemia_controller.sh rollover-once --force queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000618-62763e01.json and mirrored it to the Claude Code bridge inbox."
+      },
+      {
+        "at": "2026-04-26 00:06 CST",
+        "evidence": "Second offline rollover reproduction queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000630-a3bd6449.json; heartbeat then reported pending rollovers in /Users/xiehaibo/.gemia/automation/heartbeat_state.json."
+      }
+    ]
+  },
+    {
+      "id": "catalog_stock_media_and_prefer_external_storage",
+      "status": "completed",
+      "priority": "P1",
+      "lane": "feature",
+      "blocker": false,
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md"
+      ],
+      "why": "The five-day loop is expected to generate and catalog large stock media sets and move bulk output to external volumes when available.",
+      "done_when": [
+        "generated stock assets have a manifest/catalog",
+        "preferred storage roots are explicit",
+        "large media output avoids filling the primary workspace disk"
+      ],
+      "progress": {
+        "videos_done": 4,
+        "videos_target": 150,
+        "images_done": 16,
+        "images_target": 1500,
+        "current_stock_root": "/Users/xiehaibo/Code/gemia/temp/gemia-stock",
+        "manifest": "/Users/xiehaibo/.gemia/automation/stock_manifest.json",
+        "note": "Controller now writes a stock manifest, prefers external or explicit stock roots, and caps local workspace fallback at 3 videos plus 12 images so bulk fill cannot consume the primary workspace disk."
+      },
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 01:07 CST",
+          "evidence": "scripts/gemia_stock_fill.sh --image-limit 1 --video-limit 1 generated video-0003 and image-0003 from real local video sources; focused automation tests passed."
+        },
+        {
+          "at": "2026-04-26 01:07 CST",
+          "evidence": "A second stock-fill run generated video-0004 and image-0004 from real local video sources; a follow-up run paused with external_storage_needed after the local fallback cap was reached."
+        }
+      ]
+    }
+  ],
+  "pending_layer_dag_review_fixes": [
+    {
+      "id": "preserve_explicit_vs_inferred_graph_metrics",
+      "status": "completed",
+      "priority": "P1",
+      "lane": "architecture",
+      "blocker": false,
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-19.md",
+        "gemia/video/compositing_graph.py"
+      ],
+      "why": "The architecture lane notes that graph metadata still cannot distinguish omitted default canvas metrics from explicitly provided ones.",
+      "done_when": [
+        "compiled graph metadata records whether width/height/fps/total_frames were explicit or inferred",
+        "review lane no longer has to guess whether defaults were intentional"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 03:06 CST",
+          "evidence": "Compiled graph test with explicit width/height/fps/total_frames records all four metric_sources as explicit."
+        },
+        {
+          "at": "2026-04-26 03:07 CST",
+          "evidence": "Compiled graph test using a real ffmpeg-generated H.264 sample video records width/height/fps/total_frames as inferred; shadow preview manifest preserves authored_metric_sources."
+        }
+      ]
+    },
+    {
+      "id": "choose_and_wire_next_backend_target",
+      "status": "pending",
+      "priority": "P1",
+      "lane": "architecture",
+      "blocker": false,
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-19.md",
+        "gemia/video/backends/software.py"
+      ],
+      "why": "The current backend seam is isolated and software-only; the next slice still has to decide between graph-native orchestrator execution and a non-software backend target.",
+      "done_when": [
+        "a target backend strategy is chosen",
+        "the chosen backend is wired into real execution paths rather than existing as an isolated seam"
+      ]
+    },
+    {
+      "id": "expose_layer_first_flow_to_planner_or_controller",
+      "status": "pending",
+      "priority": "P1",
+      "lane": "feature",
+      "blocker": false,
+      "source": [
+        "gemia/registry.py",
+        "gemia/__main__.py"
+      ],
+      "why": "Layer/DAG helpers exist, but render/graph helpers are still excluded from the AI catalog and mainly reachable through manual CLI commands.",
+      "done_when": [
+        "the planner or controller can intentionally author and run layer-first workflows",
+        "the loop no longer treats layer/DAG work as manual-only infrastructure"
+      ]
+    },
+    {
+      "id": "complete_real_media_review_pass",
+      "status": "pending",
+      "priority": "P1",
+      "lane": "review",
+      "blocker": false,
+      "source": [
+        "agent_log.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-19.md"
+      ],
+      "why": "Recent notes still say to verify against real video material instead of synthetic fixtures and to run the review lane on real outputs.",
+      "done_when": [
+        "review artifacts are produced from real footage",
+        "the review lane records quality findings against real media, not only tests"
+      ]
+    },
+    {
+      "id": "expand_layer_blend_modes_or_lock_scope",
+      "status": "pending",
+      "priority": "P2",
+      "lane": "feature",
+      "blocker": false,
+      "source": [
+        "gemia/video/layers.py",
+        "gemia/video/layer_validation.py"
+      ],
+      "why": "The layer renderer currently only validates or implements normal and multiply blend modes; screen and overlay remain reserved but not implemented.",
+      "done_when": [
+        "screen and overlay are implemented and tested, or",
+        "the five-day controller explicitly treats richer blend modes as out of scope"
+      ]
+    }
+  ],
+  "real_media_asset_gaps": [
+    {
+      "id": "blended_cinematic_scene_fixture",
+      "status": "needed",
+      "asset_type": "real stock video clip",
+      "source": [
+        "agent_log.md"
+      ],
+      "where_needed": [
+        "blended cinematic editing scene test",
+        "scene_detect -> ai_color_grade -> add_lower_third -> export_preset pipeline"
+      ],
+      "notes": "agent_log.md explicitly asks for a real Pexels nature clip."
+    },
+    {
+      "id": "review_lane_real_video_fixture",
+      "status": "needed",
+      "asset_type": "real video plus review outputs",
+      "source": [
+        "agent_log.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-19.md"
+      ],
+      "where_needed": [
+        "Antigravity review loop",
+        "real-video verification instead of synthetic fixtures"
+      ],
+      "notes": "The review lane still lacks a persistent real-media fixture set."
+    },
+    {
+      "id": "stock_media_catalog_for_five_day_loop",
+      "status": "needed",
+      "asset_type": "large generated or licensed stock image/video corpus",
+      "source": [
+        "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
+        "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md"
+      ],
+      "where_needed": [
+        "editing tests",
+        "proxy generation tests",
+        "shadow preview runs",
+        "multi-day autonomous feature loop"
+      ],
+      "notes": "The five-day loop contract explicitly requires generated and cataloged stock media."
+    },
+    {
+      "id": "nano_banana_real_video_e2e_fixture",
+      "status": "needed",
+      "asset_type": "real video for style-transfer validation",
+      "source": [
+        "GEMIA_PROJECT_RECORD.md"
+      ],
+      "where_needed": [
+        "Nano Banana E2E verification"
+      ],
+      "notes": "The roadmap still lists real style_transfer-on-video validation as unfinished."
+    }
+  ],
+  "davinci_feature_batches": [
+    {
+      "id": "davinci_resolve_21_batch_001",
+      "status": "queued",
+      "searched_at": "2026-04-26 03:07 CST",
+      "source": {
+        "title": "DaVinci Resolve 21 What's New",
+        "url": "https://www.blackmagicdesign.com/products/davinciresolve/whatsnew/"
+      },
+      "features": [
+        {
+          "id": "resolve21_ai_intellisearch",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds AI IntelliSearch for object, dialog keyword, and face-based media search.",
+          "done_when": [
+            "Gemia can index real video review media with searchable semantic labels",
+            "two real-media searches return the expected clips or time ranges"
+          ]
+        },
+        {
+          "id": "resolve21_ai_cinefocus",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds AI CineFocus for click-to-focus, aperture control, and keyframed rack focus.",
+          "done_when": [
+            "Gemia can author a focus/rack-focus plan over real video",
+            "two real-media renders show stable focal emphasis metadata and output artifacts"
+          ]
+        },
+        {
+          "id": "resolve21_ai_motion_deblur",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds AI Motion Deblur for reducing motion streaking and softness.",
+          "done_when": [
+            "Gemia exposes a motion-deblur primitive or controller step",
+            "two real-motion clips produce measurable before/after sharpness metadata"
+          ]
+        },
+        {
+          "id": "resolve21_keyframes_curves_editor_updates",
+          "status": "pending",
+          "lane": "architecture",
+          "why": "Resolve 21 improves keyframes and curves with ease modes, loop/pingpong/relative modes, multi-clip adjustment, and Bezier retiming.",
+          "done_when": [
+            "Gemia keyframe tracks support loop, pingpong, and relative timing modes",
+            "two layer-plan reproductions compile and render with stable curve metadata"
+          ]
+        },
+        {
+          "id": "resolve21_html_graphics_lottie_support",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 supports OGraf HTML graphics and Lottie animations as layered clips with alpha.",
+          "done_when": [
+            "Gemia can represent external graphics/animation overlays as layer-plan sources",
+            "two real-video overlay renders preserve alpha and timing"
+          ]
+        }
+      ],
+      "blended_scene": {
+        "id": "resolve21_blended_search_focus_motion_scene",
+        "status": "pending",
+        "asset_requirement": "real stock video clips from Pexels/Pixabay or approved local phone footage",
+        "workflow": [
+          "search/index footage with AI IntelliSearch-style labels",
+          "select a subject shot and apply CineFocus-style rack focus",
+          "apply motion deblur to a fast movement segment",
+          "animate an HTML/Lottie-style lower-third overlay with keyframe curve modes",
+          "render a short review clip for Antigravity"
+        ],
+        "done_when": [
+          "the scene uses real footage, not synthetic-only fixtures",
+          "two complete scene renders are reviewed by Antigravity"
+        ]
+      }
+    }
+  ],
+  "seed_ready_checks": [
+    {
+      "id": "baseline_is_current",
+      "status": "done",
+      "notes": "Checklist baseline uses agent_log.md Wave 117 instead of the stale Wave 105 project-record headline."
+    },
+    {
+      "id": "legacy_loop_marked_obsolete",
+      "status": "done",
+      "notes": "The checklist explicitly marks scripts/gemia_loop.sh as obsolete for the five-day controller."
+    },
+    {
+      "id": "pending_layer_dag_review_work_captured",
+      "status": "done",
+      "notes": "Pending architecture, feature, and review items are encoded as machine-readable checklist entries."
+    },
+    {
+      "id": "real_media_gaps_captured",
+      "status": "done",
+      "notes": "The checklist includes the known places where real media assets are still required."
+    }
+  ]
+}
