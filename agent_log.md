@@ -272,3 +272,161 @@
 2026-04-18 06:41 Wave 116 complete: image_saffron_bloom, image_glacier_mist, audio_cosmic_rotor, video_afterglow_pulse, video_mercury_smear — 2xPASS committed
 2026-04-18 06:43 Wave 117 complete: image_rose_quartz, image_shadow_teal, audio_titanium_chorus, video_polar_sheen, video_lantern_drift — 2xPASS committed
 2026-04-18 06:50 Wave 116 & 117 complete: image_saffron_bloom, image_glacier_mist, audio_cosmic_rotor, video_afterglow_pulse, video_mercury_smear, image_rose_quartz, image_shadow_teal, audio_titanium_chorus, video_polar_sheen, video_lantern_drift — 2×PASS committed
+2026-04-18 10:00:01 auto-loop triggered
+2026-04-18 12:00:00 auto-loop triggered
+2026-04-18 14:00:00 auto-loop triggered
+2026-04-18 16:00:00 auto-loop triggered
+2026-04-18 18:00:01 auto-loop triggered
+2026-04-18 20:00:00 auto-loop triggered
+2026-04-18 22:00:01 auto-loop triggered
+2026-04-19 00:00:01 auto-loop triggered
+2026-04-19 02:00:01 auto-loop triggered
+2026-04-19 04:00:00 auto-loop triggered
+2026-04-19 22:00:01 auto-loop triggered
+2026-04-20 00:00:00 auto-loop triggered
+2026-04-20 02:00:00 auto-loop triggered
+2026-04-20 04:00:00 auto-loop triggered
+2026-04-20 06:00:00 auto-loop triggered
+2026-04-20 06:38:22 initialized Gemini-native stock catalog: 150 videos + 1500 images at /Users/xiehaibo/.gemia/automation/stock_catalog.json
+2026-04-20 06:38:22 Gemini stock generation failed for video-0001: generate_audio parameter is not supported in Gemini API.
+2026-04-20 06:38:22 Gemini stock generation failed for image-0001: add_watermark parameter is not supported in Gemini API.
+2026-04-20 06:39:10 Gemini stock generation failed for image-0001: enhance_prompt parameter is not supported in Gemini API.
+2026-04-20 06:39:34 Gemini stock generation failed for image-0001: 404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/gemini-2.5-flash-image is not found for API version v1beta, or is not supported for predict. Call ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}
+2026-04-20 06:42:07 Gemini stock generation failed for image-0001: 400 FAILED_PRECONDITION. {'error': {'code': 400, 'message': 'User location is not supported for the API use.', 'status': 'FAILED_PRECONDITION'}}
+2026-04-20 06:42:59 stock fill paused: Gemini API user location is unsupported from this network path
+2026-04-20 06:42:59 Gemini stock generation failed for image-0001: 400 FAILED_PRECONDITION. {'error': {'code': 400, 'message': 'User location is not supported for the API use.', 'status': 'FAILED_PRECONDITION'}}
+2026-04-20 06:44:02 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 06:44:29 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 06:46:59 started five-day Gemia supervisor loop
+2026-04-20 06:46:59 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260420T064659.log
+2026-04-20 08:47:03 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 10:47:06 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 11:47:08 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260420T114708.log
+2026-04-20 12:47:10 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 14:47:14 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 16:47:18 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 16:47:18 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260420T164718.log
+2026-04-20 18:47:22 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 20:47:25 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-20 21:47:27 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260420T214727.log
+2026-04-20 22:47:29 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 00:47:33 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 02:47:37 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 02:47:37 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260421T024737.log
+2026-04-21 04:47:40 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 06:47:44 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 07:47:46 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260421T074746.log
+2026-04-21 08:47:48 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 10:47:52 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 12:47:55 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 12:47:55 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260421T124755.log
+2026-04-21 14:47:59 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 16:48:03 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 17:48:05 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260421T174805.log
+2026-04-21 18:48:07 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 20:48:11 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 22:48:14 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-21 22:48:14 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260421T224814.log
+2026-04-22 00:48:18 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 02:48:21 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 03:48:22 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260422T034822.log
+2026-04-22 04:48:23 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 06:48:27 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 08:48:30 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 08:48:30 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260422T084830.log
+2026-04-22 10:48:33 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 12:48:36 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 13:48:37 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260422T134837.log
+2026-04-22 14:48:39 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 16:48:42 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 18:48:45 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 18:48:45 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260422T184845.log
+2026-04-22 20:48:47 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 22:48:49 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-22 23:48:50 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260422T234850.log
+2026-04-23 00:48:52 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 02:48:55 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 04:48:57 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 04:48:57 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260423T044857.log
+2026-04-23 06:49:00 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 08:49:04 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 09:49:05 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260423T094905.log
+2026-04-23 10:49:07 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 12:49:09 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 14:49:12 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 14:49:12 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260423T144912.log
+2026-04-23 16:49:15 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 18:49:18 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 19:49:20 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260423T194920.log
+2026-04-23 20:49:21 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-23 22:49:24 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 00:49:27 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 00:49:27 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260424T004927.log
+2026-04-24 02:49:30 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 04:49:33 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 05:49:35 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260424T054935.log
+2026-04-24 06:49:36 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 08:49:39 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 10:49:42 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 10:49:42 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260424T104942.log
+2026-04-24 12:49:45 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 14:49:49 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 15:49:50 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260424T154950.log
+2026-04-24 16:49:52 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 18:49:55 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 20:49:58 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-24 20:49:58 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260424T204958.log
+2026-04-24 22:50:00 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 00:50:03 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 01:50:05 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260425T015005.log
+2026-04-25 02:50:06 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 04:50:09 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 06:50:12 five-day Gemia supervisor loop finished by schedule
+2026-04-25 06:50:14 started five-day Gemia supervisor loop
+2026-04-25 06:50:14 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 06:50:14 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260425T065014.log
+2026-04-25 08:50:16 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 10:50:19 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 11:50:21 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260425T115021.log
+2026-04-25 12:50:23 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 14:50:25 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 16:50:29 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 16:50:29 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260425T165029.log
+2026-04-25 18:50:31 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 19:06:38 Codex automation run patched launchd-safe PATH handling, made bridge heartbeat local/lightweight, verified manual heartbeat succeeds, and verified tick-once skips stock fill while Gemini remains paused for gemini_location_unsupported; active LaunchAgent process could not be restarted from the current sandbox.
+2026-04-25 19:06:38 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 20:03:38 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 20:06:06 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 20:09:45 Codex automation run verified `com.gemia.five-day-loop` is loaded and running under launchd (pid 74785), manual heartbeat and tick-once succeed, `acpx-codex.sh --version` finds Node, and focused automation tests pass via uv offline. Added preferred stock-root free-space selection so future controller starts try larger writable volumes before bulk media generation. Full stock generation remains paused by `gemini_location_unsupported`; sandbox still cannot kickstart the loaded LaunchAgent, so the running process may not load the latest controller patch until a normal user-shell restart or launchd respawn.
+2026-04-25 20:59:59 started five-day Gemia supervisor loop
+2026-04-25 21:58:20 five-hour rollover failed: /Users/xiehaibo/.gemia/automation/logs/rollover-20260425T215500.log
+2026-04-25 22:08:21 controller heartbeat: videos 0/150, images 0/1500, free 7.98 GiB
+2026-04-25 22:41:12 stock fallback generated video-0001 (video) via local_real_video
+2026-04-25 22:42:50 controller heartbeat: videos 1/150, images 0/1500, free 7.97 GiB
+2026-04-25 22:43:23 started five-day Gemia supervisor loop
+2026-04-25 22:44:23 Codex automation run added Pexels/Pixabay API stock sourcing plus local-real-video fallback for Gemini location pauses, verified automation tests, generated stock catalog video-0001 from a real local H.264 clip (1366x768, 2.5s), confirmed heartbeat reports videos 1/150, and successfully kickstarted com.gemia.five-day-loop so launchd now runs patched code under pid 21139. External Pexels/Pixabay sourcing still needs PEXELS_API_KEY or PIXABAY_API_KEY.
+2026-04-25 22:47:41 stock fallback generated image-0001 (image) via local_video_frame
+2026-04-25 22:48:22 controller heartbeat: videos 1/150, images 4/1500, free 7.97 GiB
+2026-04-25 22:50:51 delegated stock_media_fallback patch and generated media artifacts to Antigravity review queue at /Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260425_225051_fb189451.json
+2026-04-25 23:15:18 stock root moved from /Volumes/NO NAME/gemia-stock to /Users/xiehaibo/Code/gemia/temp/gemia-stock for more free disk
+2026-04-25 23:15:18 stock fallback generated video-0002 (video) via local_real_video
+2026-04-25 23:15:18 stock fallback generated image-0002 (image) via local_video_frame
+2026-04-25 23:15:36 controller heartbeat: videos 2/150, images 8/1500, free 10.05 GiB
+2026-04-25 23:16:45 Codex automation run completed stock_media_fallback two-pass reproduction: patched stock root write-probing, 20GiB preferred-root downgrade to writable 3GiB+ fallback, and fallback failure breaker accounting; verified automation tests 12 passed; generated video-0002 and image-0002 from real local media under /Users/xiehaibo/Code/gemia/temp/gemia-stock; heartbeat reports videos 2/150 and images 8/1500; delegated stock_root_permission_fallback review to Antigravity queue.
+2026-04-25 23:17:32 Codex automation run could not kickstart com.gemia.five-day-loop after stock_root_permission_fallback patch; launchctl returned Operation not permitted and pid stayed 21139. Manual stock-fill/heartbeat used patched code, but launchd may keep old imported modules until it is restarted from a normal user shell.
+2026-04-26 00:06:18 five-hour rollover queued locally for Claude Code recovery: /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000618-62763e01.json
+2026-04-26 00:06:30 five-hour rollover queued locally for Claude Code recovery: /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000630-a3bd6449.json
+2026-04-26 00:06:42 controller heartbeat: videos 2/150, images 8/1500, free 10.10 GiB
+2026-04-26 00:10:19 delegated persist_two_hour_heartbeats_and_five_hour_rollovers review to Antigravity queue at /Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_001019_03d40b83.json
+2026-04-26 00:11:20 Codex automation run completed persist_two_hour_heartbeats_and_five_hour_rollovers two-pass reproduction: added local rollover fallback queue plus Claude Code bridge mirroring, heartbeat now reports pending rollovers, focused automation tests passed, and two offline CLI rollover reproductions queued recovery files. launchctl kickstart remained blocked by Operation not permitted, so launchd may need a normal user-shell restart to load this patch.
+2026-04-26 01:07:13 stock fallback generated video-0003 (video) via local_real_video
+2026-04-26 01:07:14 stock fallback generated image-0003 (image) via local_video_frame
+2026-04-26 01:07:19 stock fallback generated video-0004 (video) via local_real_video
+2026-04-26 01:07:20 stock fallback generated image-0004 (image) via local_video_frame
+2026-04-26 01:08:23 Codex automation run completed catalog_stock_media_and_prefer_external_storage two-pass reproduction: added stock_manifest.json, preferred minimum external roots over local fallback when 20GiB roots are unavailable, capped local workspace fallback at 3 videos plus 12 images, generated video-0003/image-0003 and video-0004/image-0004 from real local media, verified ffprobe/file outputs, and confirmed a follow-up fill pauses with external_storage_needed instead of continuing bulk writes to the primary workspace disk.
+2026-04-26 01:07:49 controller heartbeat: videos 4/150, images 16/1500, free 10.17 GiB
+2026-04-26 01:14:07 controller heartbeat: videos 4/150, images 16/1500, free 10.16 GiB
+2026-04-26 02:03:30 stock root moved from /tmp/gemia-loop-repro-1.9UF2dP/stock to /Users/xiehaibo/Code/gemia/temp/gemia-stock for more free disk
+2026-04-26 02:03:37 stock root moved from /tmp/gemia-loop-repro-2.8ZThXB/stock to /Users/xiehaibo/Code/gemia/temp/gemia-stock for more free disk
+2026-04-26 02:03:52 Codex automation run completed replace_legacy_41_function_loop two-pass reproduction: added focused coverage that scripts/gemia_loop.sh delegates to _run_gemia_controller.sh tick-once and no longer references agent_log.md or the legacy 41-function flow; py_compile passed; automation pytest passed with 18 tests; two isolated HOME CLI reproductions ran scripts/gemia_loop.sh and returned five-day controller tick-once output; delegated review to /Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_020352_legacy_loop.json.
+2026-04-26 03:07:39 Codex automation run completed preserve_explicit_vs_inferred_graph_metrics two-pass reproduction: compiled graph metadata now records metric_sources, explicit_metrics, inferred_metrics, and default_metrics for width/height/fps/total_frames; shadow preview manifests preserve authored_metric_sources; py_compile passed; graph/preview pytest passed with 6 tests using cached OpenCV; render backend pytest passed with 3 tests. This completed the current five-item batch, so Codex web-searched Blackmagic Design's DaVinci Resolve 21 What's New page and queued five new Resolve-inspired features plus one blended real-footage scene in docs/automation/five_day_seed_checklist.json.
