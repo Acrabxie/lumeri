@@ -83,6 +83,10 @@ class TestShadowPreview:
 
         manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
         assert manifest["compiled_graph"]["backend"] == "neutral"
+        assert manifest["execution_graph"]["backend"] == "software"
+        assert manifest["render_backend"]["selected"] == "software"
+        assert manifest["render_backend"]["source_kind"] == "compositing_graph"
+        assert result.render_backend == manifest["render_backend"]
         assert manifest["frame_step"] == 2
         assert manifest["max_long_edge"] == 64
         assert list(manifest["proxy_map"].values())[0].endswith(".mp4")

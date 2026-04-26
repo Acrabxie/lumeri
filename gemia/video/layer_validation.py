@@ -12,7 +12,7 @@ import numpy as np
 from gemia.registry import get_info, get_registry
 
 SUPPORTED_LAYER_TYPES = frozenset({"video", "image", "text", "solid"})
-SUPPORTED_BLEND_MODES = frozenset({"normal", "multiply"})
+SUPPORTED_BLEND_MODES = frozenset({"normal", "multiply", "screen", "overlay"})
 SUPPORTED_KEYFRAME_PROPERTIES = frozenset({"opacity", "scale", "rotation_deg"})
 SUPPORTED_EASINGS = frozenset({"linear", "ease_in", "ease_out", "ease_in_out", "bezier"})
 
