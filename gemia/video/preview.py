@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from gemia.video.backends import RenderProfile, choose_render_backend
 from gemia.video.compositing_graph import (
     build_compositing_graph_from_layer_plan,
     compile_compositing_graph,
@@ -22,6 +23,7 @@ class ShadowPreviewResult:
     output_path: str
     manifest_path: str
     proxy_map: dict[str, str]
+    render_backend: dict[str, str] | None = None
 
 
 def _scale_keyframe_track(track_spec: Any, *, scale: float) -> dict[str, Any]:
@@ -101,14 +103,15 @@ def render_shadow_preview(
     plan: dict[str, Any],
     output_path: str | Path,
     *,
+    backend: str | None = None,
     max_long_edge: int = 540,
     frame_step: int = 2,
     proxy_resolution: int = 540,
     proxy_root: str | Path | None = None,
 ) -> ShadowPreviewResult:
     """Render a low-fidelity shadow preview and write a manifest beside it."""
-    validate_layer_plan(plan)
     preview_plan = materialize_layer_plan(plan)
+    validate_layer_plan(preview_plan)
     authored_metric_sources = infer_layer_plan_metric_sources(
         plan,
         materialized_plan=preview_plan,
@@ -129,22 +132,35 @@ def render_shadow_preview(
 
     output_path = Path(output_path).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    preview_stack.render_to_video(output_path, step=max(int(frame_step), 1))
+    execution_graph = build_compositing_graph_from_layer_plan(preview_plan)
+    render_backend, backend_decision = choose_render_backend(
+        execution_graph,
+        requested=backend,
+    )
+    render_result = render_backend.render_preview(
+        execution_graph,
+        output_path,
+        profile=RenderProfile.preview(step=max(int(frame_step), 1)),
+    )
 
     manifest_path = output_path.with_suffix(".preview.json")
     manifest = {
-        "output_path": str(output_path),
+        "output_path": render_result.output_path,
         "frame_step": max(int(frame_step), 1),
         "max_long_edge": int(max_long_edge),
         "proxy_resolution": int(proxy_resolution),
         "proxy_map": proxy_map,
+        "render_backend": backend_decision.to_dict(),
         "compiled_graph": compiled.to_dict(),
     }
+    if render_result.compiled_plan is not None:
+        manifest["execution_graph"] = render_result.compiled_plan.to_dict()
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return ShadowPreviewResult(
-        output_path=str(output_path),
+        output_path=render_result.output_path,
         manifest_path=str(manifest_path),
         proxy_map=proxy_map,
+        render_backend=backend_decision.to_dict(),
     )
 
 

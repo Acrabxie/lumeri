@@ -115,7 +115,7 @@ class TestLayerPlanValidation:
                     "type": "image",
                     "source": str(img_path),
                     "position": [0],
-                    "blend_mode": "screen",
+                    "blend_mode": "soft_light",
                     "opacity": 1.2,
                     "scale": 0,
                     "keyframes": {
@@ -131,11 +131,40 @@ class TestLayerPlanValidation:
         _assert_error_contains(
             exc_info.value,
             "position must be a 2-item (x, y) sequence",
-            "blend_mode must be one of multiply, normal, got 'screen'",
+            "blend_mode must be one of multiply, normal, overlay, screen, got 'soft_light'",
             "opacity must be within [0.0, 1.0], got 1.2",
             "scale must be > 0, got 0.0",
             "keyframes.x_position is unsupported",
         )
+
+    def test_screen_and_overlay_blend_modes_are_valid(self, tmp_path: Path) -> None:
+        img_path = tmp_path / "input.png"
+        _write_rgba_image(img_path, color=(255, 255, 255, 255))
+        plan = {
+            "width": 4,
+            "height": 4,
+            "fps": 30.0,
+            "total_frames": 3,
+            "layers": [
+                {
+                    "id": "screen",
+                    "type": "image",
+                    "source": str(img_path),
+                    "duration": 3,
+                    "blend_mode": "screen",
+                },
+                {
+                    "id": "overlay",
+                    "type": "solid",
+                    "color": [0.2, 0.4, 0.6, 0.5],
+                    "duration": 3,
+                    "blend_mode": "overlay",
+                    "z_index": 1,
+                },
+            ],
+        }
+
+        validate_layer_plan(plan)
 
     def test_missing_mask_and_non_picture_primitives_are_rejected(self, tmp_path: Path) -> None:
         img_path = tmp_path / "input.png"

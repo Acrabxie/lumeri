@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import pytest
 from PIL import Image as PILImage
 
-from gemia.video.backends import RenderProfile, SoftwareRenderBackend
+from gemia.video.backends import (
+    GRAPH_NATIVE_SOFTWARE_STRATEGY,
+    RenderProfile,
+    SoftwareRenderBackend,
+    choose_render_backend,
+)
 from gemia.video.compositing_graph import build_compositing_graph_from_layer_plan
 from gemia.video.compositing_graph import compile_compositing_graph
 
@@ -16,6 +22,48 @@ def _open_video(path: str) -> cv2.VideoCapture:
 
 
 class TestSoftwareRenderBackend:
+    def test_choose_render_backend_selects_graph_native_software_target(self) -> None:
+        plan = {
+            "width": 6,
+            "height": 6,
+            "fps": 12.0,
+            "total_frames": 3,
+            "layers": [
+                {
+                    "id": "bg",
+                    "type": "solid",
+                    "color": [0.1, 0.2, 0.3, 1.0],
+                    "duration": 3,
+                }
+            ],
+        }
+        graph = build_compositing_graph_from_layer_plan(plan)
+
+        backend, decision = choose_render_backend(graph)
+
+        assert backend.name == "software"
+        assert decision.requested == "auto"
+        assert decision.selected == "software"
+        assert decision.source_kind == "compositing_graph"
+        assert decision.strategy == GRAPH_NATIVE_SOFTWARE_STRATEGY
+
+    def test_choose_render_backend_rejects_unwired_targets(self) -> None:
+        plan = {
+            "width": 4,
+            "height": 4,
+            "layers": [
+                {
+                    "id": "bg",
+                    "type": "solid",
+                    "color": [0.0, 0.0, 0.0, 1.0],
+                    "duration": 1,
+                }
+            ],
+        }
+
+        with pytest.raises(ValueError, match="Unsupported render backend"):
+            choose_render_backend(plan, requested="mlt")
+
     def test_render_preview_from_layer_plan_uses_preview_profile(
         self,
         tmp_path,

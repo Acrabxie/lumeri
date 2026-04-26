@@ -359,7 +359,7 @@
     {
       "id": "feature_batch_10",
       "threshold": 10,
-      "status": "required",
+      "status": "delegated",
       "source": [
         "agent_log.md",
         "task_requirement"
@@ -369,7 +369,9 @@
         "run a regression/debug sweep",
         "review for stale failures or drift",
         "do not advance the milestone without refreshed verification"
-      ]
+      ],
+      "delegated_at": "2026-04-26 08:08 CST",
+      "evidence": "The 10th completed feature triggered focused regression coverage and an Antigravity full-debug review gate at /Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json over the current five-day loop patch stack."
     },
     {
       "id": "feature_batch_30",
@@ -443,34 +445,34 @@
         }
       ]
     },
-  {
-    "id": "persist_two_hour_heartbeats_and_five_hour_rollovers",
-    "status": "completed",
-    "priority": "P0",
-    "lane": "feature",
-    "blocker": true,
+    {
+      "id": "persist_two_hour_heartbeats_and_five_hour_rollovers",
+      "status": "completed",
+      "priority": "P0",
+      "lane": "feature",
+      "blocker": true,
       "source": [
         "/Users/xiehaibo/.agents/shared-agent-loop/QUEUE.md",
         "/Users/xiehaibo/.agents/shared-agent-loop/daily/2026-04-20.md",
         "scripts/gemia_loop.sh"
       ],
       "why": "The new loop contract requires wake heartbeats every two hours and session rollover every five hours; the old cron script cannot do that.",
-    "done_when": [
-      "heartbeat state is persisted",
-      "five-hour rollovers are explicit and observable",
-      "the controller survives unattended multi-day execution"
-    ],
-    "verified_reproductions": [
-      {
-        "at": "2026-04-26 00:06 CST",
-        "evidence": "GEMIA_ROLLOVER_OFFLINE_ONLY=1 scripts/_run_gemia_controller.sh rollover-once --force queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000618-62763e01.json and mirrored it to the Claude Code bridge inbox."
-      },
-      {
-        "at": "2026-04-26 00:06 CST",
-        "evidence": "Second offline rollover reproduction queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000630-a3bd6449.json; heartbeat then reported pending rollovers in /Users/xiehaibo/.gemia/automation/heartbeat_state.json."
-      }
-    ]
-  },
+      "done_when": [
+        "heartbeat state is persisted",
+        "five-hour rollovers are explicit and observable",
+        "the controller survives unattended multi-day execution"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 00:06 CST",
+          "evidence": "GEMIA_ROLLOVER_OFFLINE_ONLY=1 scripts/_run_gemia_controller.sh rollover-once --force queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000618-62763e01.json and mirrored it to the Claude Code bridge inbox."
+        },
+        {
+          "at": "2026-04-26 00:06 CST",
+          "evidence": "Second offline rollover reproduction queued /Users/xiehaibo/.gemia/automation/rollovers/pending/rollover-20260426T000630-a3bd6449.json; heartbeat then reported pending rollovers in /Users/xiehaibo/.gemia/automation/heartbeat_state.json."
+        }
+      ]
+    },
     {
       "id": "catalog_stock_media_and_prefer_external_storage",
       "status": "completed",
@@ -537,7 +539,7 @@
     },
     {
       "id": "choose_and_wire_next_backend_target",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "lane": "architecture",
       "blocker": false,
@@ -549,11 +551,27 @@
       "done_when": [
         "a target backend strategy is chosen",
         "the chosen backend is wired into real execution paths rather than existing as an isolated seam"
+      ],
+      "chosen_strategy": "graph_native_software_orchestrator",
+      "wired_paths": [
+        "gemia/video/backends/selection.py",
+        "gemia/video/preview.py",
+        "gemia/__main__.py"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 04:05 CST",
+          "evidence": "CLI render-shadow-preview on real stock video-0003 selected backend auto -> software, wrote execution_graph.backend=software, and ffprobe verified preview-real-1.mp4 at 360x202 with 6 frames."
+        },
+        {
+          "at": "2026-04-26 04:06 CST",
+          "evidence": "CLI render-shadow-preview on real stock video-0004 with --backend software wrote execution_graph.backend=software, and ffprobe verified preview-real-2.mp4 at 360x202 with 5 frames."
+        }
       ]
     },
     {
       "id": "expose_layer_first_flow_to_planner_or_controller",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "lane": "feature",
       "blocker": false,
@@ -565,11 +583,28 @@
       "done_when": [
         "the planner or controller can intentionally author and run layer-first workflows",
         "the loop no longer treats layer/DAG work as manual-only infrastructure"
+      ],
+      "implemented_paths": [
+        "gemia/video/layer_flow.py",
+        "gemia/video/preview.py",
+        "gemia/video/__init__.py",
+        "gemia/ai/gemini_adapter.py",
+        "tests/test_video/test_layer_flow.py"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 05:06 CST",
+          "evidence": "PlanEngine executed gemia.video.layer_flow.render_layer_workflow on real stock video-0003; output real-1-layer-flow.mp4 is 360x202, 21 frames, manifest selected software via graph_native_software_orchestrator and layer_count=3."
+        },
+        {
+          "at": "2026-04-26 05:06 CST",
+          "evidence": "PlanEngine executed the same planner-facing layer workflow on real stock video-0004 with backend=software; output real-2-layer-flow.mp4 is 360x202, 241 frames, manifest selected software and layer_count=3."
+        }
       ]
     },
     {
       "id": "complete_real_media_review_pass",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "lane": "review",
       "blocker": false,
@@ -581,11 +616,32 @@
       "done_when": [
         "review artifacts are produced from real footage",
         "the review lane records quality findings against real media, not only tests"
+      ],
+      "implemented_paths": [
+        "gemia/video/review.py",
+        "gemia/__main__.py",
+        "gemia/video/__init__.py",
+        "gemia/registry.py",
+        "tests/test_video/test_real_media_review.py"
+      ],
+      "review_artifacts": [
+        "/Users/xiehaibo/Code/gemia/temp/real-media-review-pass/real-1-review.json",
+        "/Users/xiehaibo/Code/gemia/temp/real-media-review-pass/real-2-review.json"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 06:10 CST",
+          "evidence": "CLI review-real-media passed on stock video-0003 -> real-1-layer-flow.mp4; report confirmed local_real_video source video-0003 through stock_catalog and recorded output_readable/output_visual_signal/render_backend_recorded/layer_flow_recorded findings."
+        },
+        {
+          "at": "2026-04-26 06:11 CST",
+          "evidence": "CLI review-real-media passed on stock video-0004 -> real-2-layer-flow.mp4; report confirmed local_real_video source video-0004 through stock_catalog and recorded output_readable/output_visual_signal/render_backend_recorded/layer_flow_recorded findings."
+        }
       ]
     },
     {
       "id": "expand_layer_blend_modes_or_lock_scope",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "lane": "feature",
       "blocker": false,
@@ -597,6 +653,26 @@
       "done_when": [
         "screen and overlay are implemented and tested, or",
         "the five-day controller explicitly treats richer blend modes as out of scope"
+      ],
+      "implemented_paths": [
+        "gemia/video/layers.py",
+        "gemia/video/layer_validation.py",
+        "tests/test_video/test_layers.py",
+        "tests/test_video/test_layer_validation.py"
+      ],
+      "review_artifacts": [
+        "/Users/xiehaibo/Code/gemia/temp/layer-blend-mode-repro/screen-layer-flow-real-video-review.json",
+        "/Users/xiehaibo/Code/gemia/temp/layer-blend-mode-repro/overlay-layer-flow-real-video-review.json"
+      ],
+      "verified_reproductions": [
+        {
+          "at": "2026-04-26 07:05 CST",
+          "evidence": "Planner-facing layer workflow rendered stock video-0003 with a screen blend solid overlay; preview manifest recorded warm_screen_wash_composite blend_mode=screen, ffprobe verified 360x202 output with 21 frames, and review-real-media passed with real source confirmed through stock_catalog."
+        },
+        {
+          "at": "2026-04-26 07:05 CST",
+          "evidence": "Planner-facing layer workflow rendered stock video-0004 with an overlay blend solid grade; preview manifest recorded teal_overlay_grade_composite blend_mode=overlay, ffprobe verified 360x202 output with 241 frames, and review-real-media passed with real source confirmed through stock_catalog."
+        }
       ]
     }
   ],
@@ -616,7 +692,7 @@
     },
     {
       "id": "review_lane_real_video_fixture",
-      "status": "needed",
+      "status": "satisfied",
       "asset_type": "real video plus review outputs",
       "source": [
         "agent_log.md",
@@ -626,7 +702,7 @@
         "Antigravity review loop",
         "real-video verification instead of synthetic fixtures"
       ],
-      "notes": "The review lane still lacks a persistent real-media fixture set."
+      "notes": "Satisfied by temp/real-media-review-pass reports over stock videos video-0003 and video-0004, each tied to layer-flow preview/layer-flow manifests and stock_catalog real-footage evidence."
     },
     {
       "id": "stock_media_catalog_for_five_day_loop",
@@ -669,12 +745,34 @@
       "features": [
         {
           "id": "resolve21_ai_intellisearch",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds AI IntelliSearch for object, dialog keyword, and face-based media search.",
           "done_when": [
             "Gemia can index real video review media with searchable semantic labels",
             "two real-media searches return the expected clips or time ranges"
+          ],
+          "implemented_paths": [
+            "gemia/video/intellisearch.py",
+            "gemia/video/intellisearch_features.py",
+            "gemia/video/__init__.py",
+            "gemia/__main__.py",
+            "tests/test_video/test_intellisearch.py"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/Code/gemia/temp/intellisearch-repro/resolve21-index.json",
+            "/Users/xiehaibo/Code/gemia/temp/intellisearch-repro/search-mountain-lake.json",
+            "/Users/xiehaibo/Code/gemia/temp/intellisearch-repro/search-desert-highway.json"
+          ],
+          "verified_reproductions": [
+            {
+              "at": "2026-04-26 08:08 CST",
+              "evidence": "CLI intellisearch indexed real stock videos video-0003 and video-0004 with stock_catalog plus real-media review labels; search for 'mountain lake' returned video-0003 with local_real_video evidence and a semantic_clip time range."
+            },
+            {
+              "at": "2026-04-26 08:08 CST",
+              "evidence": "The same real-media index searched for 'desert highway' returned video-0004 with local_real_video evidence and a semantic_clip time range."
+            }
           ]
         },
         {
