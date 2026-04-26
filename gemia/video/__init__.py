@@ -125,6 +125,7 @@ from gemia.video.subtitles import (
 from gemia.video.layers import (
     Layer, LayerStack, execute_layer_plan, render_layer_plan,
     make_video_layer, make_image_layer, make_text_layer, make_solid_layer,
+    make_html_layer, make_lottie_layer,
 )
 from gemia.video.layer_validation import (
     LayerPlanValidationError, validate_layer_plan, validate_layer_stack_preview,
@@ -139,9 +140,18 @@ from gemia.video.compositing_graph import (
 from gemia.video.preview import ShadowPreviewResult, render_shadow_preview
 from gemia.video.review import RealMediaReviewResult, review_real_media_artifact
 from gemia.video.layer_flow import render_layer_workflow
+from gemia.video.keyframe import (
+    KeyframeTrack, adjust_keyframe_tracks_for_clips, retime_keyframe_track,
+)
 from gemia.video.intellisearch import (
     IntelliSearchIndexResult, IntelliSearchQueryResult,
     index_real_media, search_media_index,
+)
+from gemia.video.cinefocus import CineFocusRenderResult, render_cinefocus_plan
+from gemia.video.motion_deblur import MotionDeblurRenderResult, render_motion_deblur_plan
+from gemia.video.html_graphics import (
+    HtmlGraphicsRenderResult, render_html_graphics_plan,
+    render_html_frame, render_lottie_frame,
 )
 from gemia.video.proxy import ProxyAsset, ProxyManager
 from gemia.video.backends import (
@@ -176,6 +186,7 @@ __all__ = [
     # layers
     "Layer", "LayerStack", "execute_layer_plan", "render_layer_plan",
     "make_video_layer", "make_image_layer", "make_text_layer", "make_solid_layer",
+    "make_html_layer", "make_lottie_layer",
     "LayerPlanValidationError", "validate_layer_plan", "validate_layer_stack_preview",
     "CompositingEdge", "CompositingGraph", "CompositingNode",
     "CompiledCompositingPlan", "CompiledNodeStep",
@@ -184,8 +195,13 @@ __all__ = [
     "build_compositing_graph_from_layer_stack", "compile_compositing_graph",
     "ShadowPreviewResult", "render_shadow_preview", "RealMediaReviewResult",
     "review_real_media_artifact", "render_layer_workflow",
+    "KeyframeTrack", "adjust_keyframe_tracks_for_clips", "retime_keyframe_track",
     "IntelliSearchIndexResult", "IntelliSearchQueryResult",
     "index_real_media", "search_media_index",
+    "CineFocusRenderResult", "render_cinefocus_plan",
+    "MotionDeblurRenderResult", "render_motion_deblur_plan",
+    "HtmlGraphicsRenderResult", "render_html_graphics_plan",
+    "render_html_frame", "render_lottie_frame",
     "ProxyAsset", "ProxyManager",
     "BackendDecision", "RenderBackend", "RenderProfile", "RenderResult",
     "SoftwareGraphBackend", "SoftwareRenderBackend", "choose_render_backend",

@@ -601,6 +601,23 @@ def build_primitive_plan_system_prompt() -> str:
           step input/output references. Do not call render_shadow_preview or
           compositing_graph helpers directly.
 
+        CineFocus rule:
+        - For click-to-focus, aperture simulation, or rack-focus requests, prefer
+          gemia.video.cinefocus.render_cinefocus_plan with normalized 0..1 focus
+          keyframes and use "$input" / "$output" as the step references.
+
+        Motion Deblur rule:
+        - For motion streaks, blurry action footage, or AI Motion Deblur requests,
+          prefer gemia.video.motion_deblur.render_motion_deblur_plan and use
+          "$input" / "$output" as the step references.
+
+        HTML graphics / Lottie rule:
+        - For OGraf-style HTML graphics, lower thirds, badges, data panels, or
+          Lottie animation overlays, prefer
+          gemia.video.html_graphics.render_html_graphics_plan. Provide inline
+          html, html_source, lottie_source, or explicit overlay_layers with
+          type "html" / "lottie"; keep "$input" / "$output" references.
+
         Analyze the user's request. Choose one of two responses:
 
         === CASE A: Request is specific enough to execute ===

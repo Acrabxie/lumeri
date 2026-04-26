@@ -241,6 +241,9 @@ def _collect_manifest_findings(
     preview_manifest: dict[str, Any],
     layer_flow_manifest: dict[str, Any],
 ) -> None:
+    cinefocus_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".cinefocus.json"))
+    motion_deblur_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".motion_deblur.json"))
+    html_graphics_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".html_graphics.json"))
     if preview_manifest:
         manifest_output = str(preview_manifest.get("output_path", ""))
         if manifest_output and Path(manifest_output).expanduser().resolve() != Path(output_path):
@@ -250,12 +253,34 @@ def _collect_manifest_findings(
             _add_finding(findings, "info", "render_backend_recorded", f"Render backend recorded as {backend['selected']}.")
         else:
             _add_finding(findings, "warning", "render_backend_missing", "Preview manifest does not record a selected backend.")
+    elif cinefocus_metadata.get("effect") == "resolve21_ai_cinefocus":
+        _add_finding(findings, "info", "cinefocus_metadata_recorded", "CineFocus metadata sidecar is attached.")
+    elif motion_deblur_metadata.get("effect") == "resolve21_ai_motion_deblur":
+        _add_finding(findings, "info", "motion_deblur_metadata_recorded", "Motion Deblur metadata sidecar is attached.")
+    elif html_graphics_metadata.get("effect") == "resolve21_html_graphics_lottie_support":
+        _add_finding(findings, "info", "html_graphics_metadata_recorded", "HTML graphics metadata sidecar is attached.")
     else:
         _add_finding(findings, "warning", "preview_manifest_missing", "No preview manifest was attached to the review.")
 
     if layer_flow_manifest:
         layer_count = layer_flow_manifest.get("layer_count")
         _add_finding(findings, "info", "layer_flow_recorded", f"Layer-flow manifest records {layer_count} layers.")
+    elif cinefocus_metadata.get("effect") == "resolve21_ai_cinefocus":
+        rendered = cinefocus_metadata.get("rendered_frames")
+        _add_finding(findings, "info", "cinefocus_focus_plan_recorded", f"CineFocus metadata records {rendered} rendered frames.")
+    elif motion_deblur_metadata.get("effect") == "resolve21_ai_motion_deblur":
+        sharpness = motion_deblur_metadata.get("sharpness") or {}
+        delta = sharpness.get("delta")
+        _add_finding(findings, "info", "motion_deblur_sharpness_recorded", f"Motion Deblur sharpness delta is {delta}.")
+    elif html_graphics_metadata.get("effect") == "resolve21_html_graphics_lottie_support":
+        overlay_count = html_graphics_metadata.get("overlay_count")
+        overlay_types = ", ".join(str(item) for item in html_graphics_metadata.get("overlay_types", []))
+        _add_finding(
+            findings,
+            "info",
+            "html_graphics_alpha_recorded",
+            f"HTML graphics metadata records {overlay_count} alpha overlays: {overlay_types}.",
+        )
     else:
         _add_finding(findings, "warning", "layer_flow_manifest_missing", "No layer-flow manifest was attached to the review.")
 

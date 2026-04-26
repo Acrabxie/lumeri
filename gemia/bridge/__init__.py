@@ -7,7 +7,9 @@ from .daemon import (
     BridgeTask,
     ClaudeCodeAdapter,
     ControllerAdapter,
+    FallbackBridgeAdapter,
     MasterBridgeController,
+    OpenClawAgentAdapter,
     QueueBridgeAdapter,
 )
 
@@ -18,6 +20,8 @@ __all__ = [
     "BridgeTask",
     "ClaudeCodeAdapter",
     "ControllerAdapter",
+    "FallbackBridgeAdapter",
     "MasterBridgeController",
+    "OpenClawAgentAdapter",
     "QueueBridgeAdapter",
 ]

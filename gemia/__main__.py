@@ -12,7 +12,9 @@ from .bridge import (
     BridgeTask,
     ClaudeCodeAdapter,
     ControllerAdapter,
+    FallbackBridgeAdapter,
     MasterBridgeController,
+    OpenClawAgentAdapter,
     QueueBridgeAdapter,
 )
 from .video.layers import render_layer_plan
@@ -160,6 +162,34 @@ def main() -> None:
     p_bridge_heartbeat.add_argument("--timeout-sec", type=int, default=600)
     p_bridge_heartbeat.add_argument("--cwd", default=None)
 
+    p_agent_once = sub.add_parser("bridge-agent-run-once", help="Process one file-based agent queue once")
+    p_agent_once.add_argument("--queue-root", default="~/.gemia/bridge/agents/antigravity")
+    p_agent_once.add_argument(
+        "--adapter",
+        choices=["openclaw", "claude", "openclaw-with-claude-fallback"],
+        default="openclaw-with-claude-fallback",
+    )
+    p_agent_once.add_argument("--openclaw-bin", default="openclaw")
+    p_agent_once.add_argument("--openclaw-agent", default="worker")
+    p_agent_once.add_argument("--claude-bin", default="claude")
+    p_agent_once.add_argument("--timeout-sec", type=int, default=600)
+    p_agent_once.add_argument("--cwd", default=None)
+    p_agent_once.add_argument("--task-id", default=None, help="Process only this task id from the agent inbox")
+
+    p_agent_daemon = sub.add_parser("bridge-agent-daemon", help="Run a file-based agent queue daemon")
+    p_agent_daemon.add_argument("--queue-root", default="~/.gemia/bridge/agents/antigravity")
+    p_agent_daemon.add_argument(
+        "--adapter",
+        choices=["openclaw", "claude", "openclaw-with-claude-fallback"],
+        default="openclaw-with-claude-fallback",
+    )
+    p_agent_daemon.add_argument("--openclaw-bin", default="openclaw")
+    p_agent_daemon.add_argument("--openclaw-agent", default="worker")
+    p_agent_daemon.add_argument("--claude-bin", default="claude")
+    p_agent_daemon.add_argument("--timeout-sec", type=int, default=600)
+    p_agent_daemon.add_argument("--poll-interval", type=float, default=1.0)
+    p_agent_daemon.add_argument("--cwd", default=None)
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -212,6 +242,10 @@ def main() -> None:
         _cmd_bridge_daemon(args)
     elif args.command == "bridge-heartbeat-once":
         _cmd_bridge_heartbeat_once(args)
+    elif args.command == "bridge-agent-run-once":
+        _cmd_bridge_agent_run_once(args)
+    elif args.command == "bridge-agent-daemon":
+        _cmd_bridge_agent_daemon(args)
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -510,6 +544,28 @@ def _make_bridge_daemon(args: argparse.Namespace) -> BridgeDaemon:
     )
 
 
+def _make_agent_queue_daemon(args: argparse.Namespace) -> BridgeDaemon:
+    paths = BridgePaths.from_root(args.queue_root)
+    openclaw_adapter = OpenClawAgentAdapter(
+        openclaw_bin=args.openclaw_bin,
+        agent=args.openclaw_agent,
+        timeout_sec=args.timeout_sec,
+        default_cwd=args.cwd,
+    )
+    claude_adapter = ClaudeCodeAdapter(
+        claude_bin=args.claude_bin,
+        timeout_sec=args.timeout_sec,
+        default_cwd=args.cwd,
+    )
+    if args.adapter == "openclaw":
+        adapter = openclaw_adapter
+    elif args.adapter == "claude":
+        adapter = claude_adapter
+    else:
+        adapter = FallbackBridgeAdapter("antigravity_openclaw", openclaw_adapter, claude_adapter)
+    return BridgeDaemon(paths, adapter, auto_heartbeat_interval_sec=0)
+
+
 def _cmd_bridge_init(args: argparse.Namespace) -> None:
     paths = _bridge_paths(args.root)
     paths.ensure()
@@ -595,6 +651,22 @@ def _cmd_bridge_heartbeat_once(args: argparse.Namespace) -> None:
     if not result_path.exists():
         raise SystemExit(f"Heartbeat result missing: {result_path}")
     print(result_path.read_text().strip())
+
+
+def _cmd_bridge_agent_run_once(args: argparse.Namespace) -> None:
+    daemon = _make_agent_queue_daemon(args)
+    processed = daemon.process_task(args.task_id) if args.task_id else daemon.process_once()
+    print(json.dumps({
+        "processed": processed,
+        "queue_root": str(daemon.paths.root),
+        "task_id": args.task_id,
+    }, ensure_ascii=False, indent=2))
+
+
+def _cmd_bridge_agent_daemon(args: argparse.Namespace) -> None:
+    daemon = _make_agent_queue_daemon(args)
+    print(f"Bridge agent daemon watching {daemon.paths.inbox}")
+    daemon.serve_forever(poll_interval=args.poll_interval)
 
 
 if __name__ == "__main__":

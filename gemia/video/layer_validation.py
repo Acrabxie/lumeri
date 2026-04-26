@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from numbers import Real
 from pathlib import Path
@@ -11,10 +12,11 @@ import numpy as np
 
 from gemia.registry import get_info, get_registry
 
-SUPPORTED_LAYER_TYPES = frozenset({"video", "image", "text", "solid"})
+SUPPORTED_LAYER_TYPES = frozenset({"video", "image", "text", "solid", "html", "lottie"})
 SUPPORTED_BLEND_MODES = frozenset({"normal", "multiply", "screen", "overlay"})
 SUPPORTED_KEYFRAME_PROPERTIES = frozenset({"opacity", "scale", "rotation_deg"})
 SUPPORTED_EASINGS = frozenset({"linear", "ease_in", "ease_out", "ease_in_out", "bezier"})
+SUPPORTED_KEYFRAME_MODES = frozenset({"clamp", "loop", "pingpong", "relative"})
 
 
 class LayerPlanValidationError(ValueError):
@@ -102,6 +104,16 @@ def _validate_font_config(value: Any, *, field_path: str, issues: list[str]) -> 
         issues.append(f"{field_path}.path must be a string if provided.")
 
 
+def _validate_size(value: Any, *, field_path: str, issues: list[str]) -> None:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 2:
+        issues.append(f"{field_path} must be a 2-item (width, height) sequence.")
+        return
+    for index, component in enumerate(value):
+        parsed = _parse_int_like(component, field_path=f"{field_path}[{index}]", issues=issues)
+        if parsed is not None and parsed <= 0:
+            issues.append(f"{field_path}[{index}] must be > 0, got {parsed}.")
+
+
 def _validate_source_path(value: Any, *, field_path: str, issues: list[str]) -> str | None:
     if not isinstance(value, str) or not value.strip():
         issues.append(f"{field_path} must be a non-empty path string.")
@@ -176,8 +188,19 @@ def _validate_keyframes(
         if not isinstance(track_spec, Mapping) or not track_spec:
             issues.append(f"{property_path} must be a non-empty frame:value mapping.")
             continue
+        mode = str(track_spec.get("mode", "clamp"))
+        if mode not in SUPPORTED_KEYFRAME_MODES:
+            valid_modes = ", ".join(sorted(SUPPORTED_KEYFRAME_MODES))
+            issues.append(f"{property_path}.mode must be one of {valid_modes}, got {mode!r}.")
+        if "relative_to" in track_spec:
+            _parse_float_like(track_spec["relative_to"], field_path=f"{property_path}.relative_to", issues=issues)
+        relative_to = float(track_spec.get("relative_to", 0.0) or 0.0)
+        track_items = _iter_keyframe_track_items(track_spec)
+        if not track_items:
+            issues.append(f"{property_path} must contain at least one keyframe.")
+            continue
         parsed_frames: list[float] = []
-        for frame_key, frame_value_spec in track_spec.items():
+        for frame_key, frame_value_spec in track_items:
             frame_key_path = f"{property_path}[{frame_key!r}]"
             try:
                 frame_number = float(frame_key)
@@ -190,9 +213,10 @@ def _validate_keyframes(
             if frame_number < 0:
                 issues.append(f"{frame_key_path} must use frame keys >= 0.")
                 continue
-            if frame_number < layer_start:
+            validation_frame = frame_number + relative_to if mode == "relative" else frame_number
+            if validation_frame < layer_start:
                 issues.append(f"{frame_key_path} occurs before the layer start_frame {layer_start}.")
-            if layer_end is not None and frame_number >= layer_end:
+            if layer_end is not None and validation_frame >= layer_end:
                 issues.append(f"{frame_key_path} occurs at or after the layer end_frame {layer_end}.")
             parsed_frames.append(frame_number)
 
@@ -210,11 +234,32 @@ def _validate_keyframes(
                 issues.append(f"{frame_key_path}.value must stay within [0.0, 1.0], got {parsed_value}.")
             if property_name == "scale" and parsed_value <= 0.0:
                 issues.append(f"{frame_key_path}.value must be > 0 for scale, got {parsed_value}.")
-            if easing not in SUPPORTED_EASINGS:
+            if easing not in SUPPORTED_EASINGS and not _is_bezier_easing(easing):
                 valid = ", ".join(sorted(SUPPORTED_EASINGS))
                 issues.append(f"{frame_key_path}.easing must be one of {valid}, got {easing!r}.")
         if parsed_frames != sorted(parsed_frames):
             issues.append(f"{property_path} frame keys must be sorted in ascending order.")
+
+
+def _iter_keyframe_track_items(track_spec: Mapping[str, Any]) -> list[tuple[Any, Any]]:
+    raw_points = track_spec.get("keyframes", track_spec.get("points"))
+    if isinstance(raw_points, Sequence) and not isinstance(raw_points, (str, bytes)):
+        return [
+            (point.get("time", point.get("frame", index)), point)
+            for index, point in enumerate(raw_points)
+            if isinstance(point, Mapping)
+        ]
+    if isinstance(raw_points, Mapping):
+        return list(raw_points.items())
+    ignored = {"mode", "relative_to", "keyframes", "points"}
+    return [(key, value) for key, value in track_spec.items() if key not in ignored]
+
+
+def _is_bezier_easing(easing: str) -> bool:
+    return re.fullmatch(
+        r"bezier\(\s*[-+]?\d*\.?\d+\s*,\s*[-+]?\d*\.?\d+\s*,\s*[-+]?\d*\.?\d+\s*,\s*[-+]?\d*\.?\d+\s*\)",
+        easing,
+    ) is not None
 
 
 def _validate_layer_spec(
@@ -301,6 +346,9 @@ def _validate_layer_spec(
             f"{layer_path}.blend_mode must be one of {supported}, got {layer_spec['blend_mode']!r}."
         )
 
+    if "size" in layer_spec:
+        _validate_size(layer_spec["size"], field_path=f"{layer_path}.size", issues=issues)
+
     if layer_type in {"video", "image"}:
         _validate_source_path(layer_spec.get("source"), field_path=f"{layer_path}.source", issues=issues)
     elif layer_type == "text":
@@ -311,8 +359,17 @@ def _validate_layer_spec(
             _validate_font_config(layer_spec["font_config"], field_path=f"{layer_path}.font_config", issues=issues)
     elif layer_type == "solid":
         _validate_unit_rgba(layer_spec.get("color"), field_path=f"{layer_path}.color", issues=issues)
+    elif layer_type == "html":
+        has_source = bool(layer_spec.get("source"))
+        has_inline = isinstance(layer_spec.get("html"), str) and bool(layer_spec.get("html", "").strip())
+        if has_source:
+            _validate_source_path(layer_spec.get("source"), field_path=f"{layer_path}.source", issues=issues)
+        if not has_source and not has_inline:
+            issues.append(f"{layer_path} needs source or inline html.")
+    elif layer_type == "lottie":
+        _validate_source_path(layer_spec.get("source"), field_path=f"{layer_path}.source", issues=issues)
 
-    if layer_type in {"image", "text", "solid"} and end_frame is None and total_frames is None:
+    if layer_type in {"image", "text", "solid", "html", "lottie"} and end_frame is None and total_frames is None:
         issues.append(
             f"{layer_path} needs duration/end_frame or plan.total_frames so preview length is explicit."
         )

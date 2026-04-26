@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, Sequence
 
 from gemia.video.keyframe import KeyframeTrack
 from gemia.video.layers import Layer, LayerStack, materialize_layer_plan
@@ -805,13 +805,43 @@ def _serialize_keyframes(keyframes: Mapping[str, Any]) -> dict[str, list[dict[st
     serialized: dict[str, list[dict[str, Any]] | Any] = {}
     for name, track in keyframes.items():
         if isinstance(track, KeyframeTrack):
-            serialized[name] = [
-                {"time": float(timestamp), "value": float(value), "easing": easing}
-                for timestamp, value, easing in getattr(track, "_keyframes", [])
-            ]
+            serialized[name] = track.to_curve_metadata()
+        elif isinstance(track, Mapping):
+            serialized[name] = _serialize_keyframe_spec(track)
         else:
             serialized[name] = track
     return serialized
+
+
+def _serialize_keyframe_spec(track_spec: Mapping[str, Any]) -> dict[str, Any]:
+    mode = str(track_spec.get("mode", "clamp"))
+    relative_to = float(track_spec.get("relative_to", 0.0))
+    raw_points = track_spec.get("keyframes", track_spec.get("points", track_spec))
+    if isinstance(raw_points, Sequence) and not isinstance(raw_points, (str, bytes)):
+        items = [
+            (float(item.get("time", item.get("frame", 0.0))), item)
+            for item in raw_points
+            if isinstance(item, Mapping)
+        ]
+    elif isinstance(raw_points, Mapping):
+        ignored = {"mode", "relative_to", "keyframes", "points"}
+        items = [
+            (float(frame_key), value_spec)
+            for frame_key, value_spec in raw_points.items()
+            if frame_key not in ignored
+        ]
+    else:
+        items = []
+    track = KeyframeTrack(mode=mode, relative_to=relative_to)
+    for timestamp, value_spec in sorted(items, key=lambda item: item[0]):
+        if isinstance(value_spec, Mapping):
+            value = float(value_spec.get("value", 0.0))
+            easing = str(value_spec.get("easing", "linear"))
+        else:
+            value = float(value_spec)
+            easing = "linear"
+        track.add_keyframe(timestamp, value, easing=easing)
+    return track.to_curve_metadata()
 
 
 def _optional_int(value: Any) -> int | None:
