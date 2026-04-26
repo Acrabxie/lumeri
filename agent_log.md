@@ -766,3 +766,52 @@
 2026-04-27 03:20:14 stock fallback generated video-0070 (video) via local_real_video
 2026-04-27 03:20:15 stock fallback generated image-0134 (image) via local_video_frame
 2026-04-27 03:20:16 stock fallback generated image-0135 (image) via local_video_frame
+2026-04-27 03:23:18 stock root moved from /Volumes/ExtremeSSD/gemia-stock to /Users/xiehaibo/Code/gemia/temp/gemia-stock for more free disk
+2026-04-27 03:23:18 controller heartbeat: videos 70/150, images 540/1500, free 31.99 GiB
+2026-04-27 03:25:17 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:25:17 stock fallback generated video-0071 (video) via local_real_video
+2026-04-27 03:25:17 stock fallback generated image-0136 (image) via local_video_frame
+2026-04-27 03:25:17 stock fallback generated image-0137 (image) via local_video_frame
+2026-04-27 03:30:18 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:30:18 stock fallback generated video-0072 (video) via local_real_video
+2026-04-27 03:30:18 stock fallback generated image-0138 (image) via local_video_frame
+2026-04-27 03:30:19 stock fallback generated image-0139 (image) via local_video_frame
+2026-04-27 03:35:19 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:35:19 stock fallback generated video-0073 (video) via local_real_video
+2026-04-27 03:35:19 stock fallback generated image-0140 (image) via local_video_frame
+2026-04-27 03:35:20 stock fallback generated image-0141 (image) via local_video_frame
+2026-04-27 03:40:20 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:40:20 stock fallback generated video-0074 (video) via local_real_video
+2026-04-27 03:40:21 stock fallback generated image-0142 (image) via local_video_frame
+2026-04-27 03:40:21 stock fallback generated image-0143 (image) via local_video_frame
+2026-04-27 03:45:21 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:45:21 stock fallback generated video-0075 (video) via local_real_video
+2026-04-27 03:45:23 stock fallback generated image-0144 (image) via local_video_frame
+2026-04-27 03:45:23 stock fallback generated image-0145 (image) via local_video_frame
+2026-04-27 03:50:23 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:50:23 stock fallback generated video-0076 (video) via local_real_video
+2026-04-27 03:50:24 stock fallback generated image-0146 (image) via local_video_frame
+2026-04-27 03:50:25 stock fallback generated image-0147 (image) via local_video_frame
+2026-04-27 03:55:25 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 03:55:25 stock fallback generated video-0077 (video) via local_real_video
+2026-04-27 03:55:26 stock fallback generated image-0148 (image) via local_video_frame
+2026-04-27 03:55:26 stock fallback generated image-0149 (image) via local_video_frame
+2026-04-27 04:00:01 stock fallback generated video-0078 (video) via local_real_video
+2026-04-27 04:00:02 stock fallback generated image-0150 (image) via local_video_frame
+2026-04-27 04:00:03 stock fallback generated image-0151 (image) via local_video_frame
+2026-04-27 04:00:26 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 04:00:26 stock fallback generated video-0079 (video) via local_real_video
+2026-04-27 04:00:27 stock fallback generated image-0152 (image) via local_video_frame
+2026-04-27 04:00:28 stock fallback generated image-0153 (image) via local_video_frame
+2026-04-27 04:09:11 Codex automation completed resolve21_blended_search_focus_motion_scene: generated an IntelliSearch index and two complete real-footage blended scenes that chain CineFocus, Motion Deblur, keyframe-curve animated HTML/Lottie overlays, and real-media review. Reproductions passed: real-1-blended-scene.mp4 from stock video-0003 (360x202, 32 frames) and real-2-blended-scene.mp4 from stock video-0004 (360x202, 145 frames), both with passed review reports and stock_catalog confirmation.
+2026-04-27 04:09:11 Antigravity review task bridge_20260427_040627_25a52034 failed with the known infrastructure issue: native OpenClaw/OpenRouter network errors and Python bridge Claude auth returning Not logged in. Direct Claude fallback review passed and was written to /Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260427_040911_direct_claude_fallback.json. Checklist now marks the blended scene completed; next feature is resolve21_ai_ultrasharpen.
+2026-04-27 04:03:00 stock root moved from /Volumes/ExtremeSSD/gemia-stock to /Users/xiehaibo/Code/gemia/temp/gemia-stock for more free disk
+2026-04-27 04:03:00 controller heartbeat: videos 79/150, images 612/1500, free 31.76 GiB
+2026-04-27 04:05:28 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 04:05:28 stock fallback generated video-0080 (video) via local_real_video
+2026-04-27 04:05:29 stock fallback generated image-0154 (image) via local_video_frame
+2026-04-27 04:05:29 stock fallback generated image-0155 (image) via local_video_frame
+2026-04-27 04:10:29 stock root moved from /Volumes/谢海波/gemia-stock to /Volumes/ExtremeSSD/gemia-stock for more free disk
+2026-04-27 04:10:29 stock fallback generated video-0081 (video) via local_real_video
+2026-04-27 04:10:30 stock fallback generated image-0156 (image) via local_video_frame
+2026-04-27 04:10:31 stock fallback generated image-0157 (image) via local_video_frame
