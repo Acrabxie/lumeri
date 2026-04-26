@@ -20,6 +20,18 @@ Codex implemented `resolve21_ai_motion_deblur` and reproduced it twice on real s
 
 Next action: restore/switch/top up OpenClaw model connectivity or run `claude /login`, then rerun the review before advancing `resolve21_keyframes_curves_editor_updates`.
 
+## 2026-04-27 04:09 CST Antigravity native review still blocked
+
+Codex completed `resolve21_blended_search_focus_motion_scene` with two real-footage reproductions, but native Antigravity review still fails through the same infrastructure path:
+
+- Failed task: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260427_040627_25a52034.json`
+- Native OpenClaw: OpenRouter/gateway model network errors.
+- Python bridge Claude fallback: `Not logged in · Please run /login`.
+
+Direct shell Claude fallback passed and was written to `/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260427_040911_direct_claude_fallback.json`.
+
+Next action: restore/switch/top up OpenClaw model connectivity and fix Claude auth inheritance for Gemia bridge child processes.
+
 ## 2026-04-20 06:39:34 stock:image-0001 failed three times
 404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/gemini-2.5-flash-image is not found for API version v1beta, or is not supported for predict. Call ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}
 
