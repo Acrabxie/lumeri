@@ -252,8 +252,10 @@ def _blend_colors(backdrop: RGBAFrame, source: RGBAFrame, blend_mode: str) -> RG
         blend_rgb = cs
     elif blend_mode == "multiply":
         blend_rgb = cb * cs
-    elif blend_mode in {"screen", "overlay"}:
-        raise NotImplementedError(f"Blend mode '{blend_mode}' is reserved but not implemented yet.")
+    elif blend_mode == "screen":
+        blend_rgb = 1.0 - (1.0 - cb) * (1.0 - cs)
+    elif blend_mode == "overlay":
+        blend_rgb = np.where(cb <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
     else:
         raise ValueError(f"Unsupported blend mode: {blend_mode}")
 

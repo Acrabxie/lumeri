@@ -57,6 +57,54 @@ class TestLayerStack:
         assert np.allclose(frame[0, 0, :3], [0.2, 0.4, 0.6], atol=1e-5)
         assert np.isclose(frame[0, 0, 3], 1.0, atol=1e-6)
 
+    def test_render_frame_screen_blend_mode(self) -> None:
+        stack = LayerStack(width=2, height=2, fps=30.0, total_frames=1)
+        stack.add_layer(
+            Layer(
+                id="base",
+                name="base",
+                content_fn=lambda _i: _solid_frame((0.2, 0.5, 0.8, 1.0), (2, 2)),
+            )
+        )
+        stack.add_layer(
+            Layer(
+                id="top",
+                name="top",
+                z_index=1,
+                blend_mode="screen",
+                content_fn=lambda _i: _solid_frame((0.4, 0.3, 0.1, 1.0), (2, 2)),
+            )
+        )
+
+        frame = stack.render_frame(0)
+
+        assert np.allclose(frame[0, 0, :3], [0.52, 0.65, 0.82], atol=1e-5)
+        assert np.isclose(frame[0, 0, 3], 1.0, atol=1e-6)
+
+    def test_render_frame_overlay_blend_mode(self) -> None:
+        stack = LayerStack(width=2, height=2, fps=30.0, total_frames=1)
+        stack.add_layer(
+            Layer(
+                id="base",
+                name="base",
+                content_fn=lambda _i: _solid_frame((0.2, 0.5, 0.8, 1.0), (2, 2)),
+            )
+        )
+        stack.add_layer(
+            Layer(
+                id="top",
+                name="top",
+                z_index=1,
+                blend_mode="overlay",
+                content_fn=lambda _i: _solid_frame((0.4, 0.3, 0.1, 1.0), (2, 2)),
+            )
+        )
+
+        frame = stack.render_frame(0)
+
+        assert np.allclose(frame[0, 0, :3], [0.16, 0.3, 0.64], atol=1e-5)
+        assert np.isclose(frame[0, 0, 3], 1.0, atol=1e-6)
+
     def test_opacity_keyframe_track_uses_frame_indices(self) -> None:
         plan = {
             "width": 2,

@@ -48,6 +48,14 @@ _EXCLUDED_FROM_CATALOG = {
     "gemia.video.frames.optical_flow_interpolate",
     # keyframe: requires callable + KeyframeTrack objects
     "gemia.video.keyframe.apply_animated_op",
+    # composition / preview helpers: structured plan args, not stable AI primitive calls
+    "gemia.video.layers.render_layer_plan",
+    "gemia.video.preview.render_shadow_preview",
+    "gemia.video.review.review_real_media_artifact",
+    "gemia.video.compositing_graph.build_compositing_graph",
+    "gemia.video.compositing_graph.build_compositing_graph_from_layer_plan",
+    "gemia.video.compositing_graph.build_compositing_graph_from_layer_stack",
+    "gemia.video.compositing_graph.compile_compositing_graph",
     # mixer: require numpy arrays as named args
     "gemia.audio.mixer.create_bus",
     "gemia.audio.mixer.sidechain_compress",
@@ -76,6 +84,8 @@ class PrimitiveInfo:
 
 
 _REGISTRY: dict[str, PrimitiveInfo] = {}
+_DEFERRED_PRIMITIVE_MODULES = {"gemia.video.layer_flow": "video"}
+_DEFERRED_REGISTERING = False
 
 
 def _discover() -> None:
@@ -93,33 +103,63 @@ def _discover() -> None:
                 mod = importlib.import_module(modname)
             except ImportError:
                 continue
-            for name, obj in inspect.getmembers(mod, inspect.isfunction):
-                if name.startswith("_"):
-                    continue
-                # Only register functions defined in this module (skip re-exports)
-                if getattr(obj, "__module__", None) != modname:
-                    continue
-                fqn = f"{modname}.{name}"
-                sig = inspect.signature(obj)
-                params: dict[str, dict] = {}
-                for pname, p in sig.parameters.items():
-                    info: dict[str, Any] = {}
-                    if p.annotation != inspect.Parameter.empty:
-                        info["annotation"] = _format_annotation(p.annotation)
-                    if p.default != inspect.Parameter.empty:
-                        info["default"] = repr(p.default)
-                    if p.kind == inspect.Parameter.KEYWORD_ONLY:
-                        info["keyword_only"] = True
-                    params[pname] = info
-                _REGISTRY[fqn] = PrimitiveInfo(
-                    fqn=fqn,
-                    func=obj,
-                    domain=domain,
-                    module=modname,
-                    name=name,
-                    docstring=inspect.getdoc(obj) or "",
-                    params=params,
-                )
+            _register_module_functions(modname, mod, domain=domain)
+
+    # Layer-flow imports can be skipped during package-level circular discovery.
+    # Register it after the base package walk so planner-facing primitives stay reachable.
+    for modname in ("gemia.video.layer_flow",):
+        try:
+            mod = importlib.import_module(modname)
+        except ImportError:
+            continue
+        _register_module_functions(modname, mod, domain="video")
+
+
+def _register_module_functions(modname: str, mod: Any, *, domain: str) -> None:
+    for name, obj in inspect.getmembers(mod, inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        # Only register functions defined in this module (skip re-exports)
+        if getattr(obj, "__module__", None) != modname:
+            continue
+        fqn = f"{modname}.{name}"
+        sig = inspect.signature(obj)
+        params: dict[str, dict] = {}
+        for pname, p in sig.parameters.items():
+            info: dict[str, Any] = {}
+            if p.annotation != inspect.Parameter.empty:
+                info["annotation"] = _format_annotation(p.annotation)
+            if p.default != inspect.Parameter.empty:
+                info["default"] = repr(p.default)
+            if p.kind == inspect.Parameter.KEYWORD_ONLY:
+                info["keyword_only"] = True
+            params[pname] = info
+        _REGISTRY[fqn] = PrimitiveInfo(
+            fqn=fqn,
+            func=obj,
+            domain=domain,
+            module=modname,
+            name=name,
+            docstring=inspect.getdoc(obj) or "",
+            params=params,
+        )
+
+
+def _register_deferred_modules() -> None:
+    """Register planner primitives that can be skipped during circular package import."""
+    global _DEFERRED_REGISTERING
+    if _DEFERRED_REGISTERING:
+        return
+    _DEFERRED_REGISTERING = True
+    try:
+        for modname, domain in _DEFERRED_PRIMITIVE_MODULES.items():
+            try:
+                mod = importlib.import_module(modname)
+            except ImportError:
+                continue
+            _register_module_functions(modname, mod, domain=domain)
+    finally:
+        _DEFERRED_REGISTERING = False
 
 
 def _format_annotation(ann: Any) -> str:
@@ -133,11 +173,13 @@ def _format_annotation(ann: Any) -> str:
 
 def get_registry() -> dict[str, PrimitiveInfo]:
     """Return the full registry dict."""
+    _register_deferred_modules()
     return _REGISTRY
 
 
 def resolve(fqn: str) -> Callable:
     """Resolve a fully-qualified function name to its callable."""
+    _register_deferred_modules()
     info = _REGISTRY.get(fqn)
     if info is None:
         raise KeyError(f"Unknown primitive: {fqn}")
@@ -146,6 +188,7 @@ def resolve(fqn: str) -> Callable:
 
 def get_info(fqn: str) -> PrimitiveInfo:
     """Return the PrimitiveInfo for a function."""
+    _register_deferred_modules()
     info = _REGISTRY.get(fqn)
     if info is None:
         raise KeyError(f"Unknown primitive: {fqn}")
@@ -158,6 +201,7 @@ def catalog_for_prompt() -> str:
     Each function is one line: ``fqn(params) — first line of docstring``.
     Functions in _EXCLUDED_FROM_CATALOG are omitted.
     """
+    _register_deferred_modules()
     lines: list[str] = []
     for domain_label in ("picture", "audio", "video"):
         domain_fns = sorted(

@@ -137,7 +137,17 @@ from gemia.video.compositing_graph import (
     build_compositing_graph_from_layer_stack, compile_compositing_graph,
 )
 from gemia.video.preview import ShadowPreviewResult, render_shadow_preview
+from gemia.video.review import RealMediaReviewResult, review_real_media_artifact
+from gemia.video.layer_flow import render_layer_workflow
+from gemia.video.intellisearch import (
+    IntelliSearchIndexResult, IntelliSearchQueryResult,
+    index_real_media, search_media_index,
+)
 from gemia.video.proxy import ProxyAsset, ProxyManager
+from gemia.video.backends import (
+    BackendDecision, RenderBackend, RenderProfile, RenderResult,
+    SoftwareGraphBackend, SoftwareRenderBackend, choose_render_backend,
+)
 
 __all__ = [
     # frames
@@ -172,8 +182,13 @@ __all__ = [
     "NeutralGraphBackend", "NodeOutputRef",
     "build_compositing_graph", "build_compositing_graph_from_layer_plan",
     "build_compositing_graph_from_layer_stack", "compile_compositing_graph",
-    "ShadowPreviewResult", "render_shadow_preview",
+    "ShadowPreviewResult", "render_shadow_preview", "RealMediaReviewResult",
+    "review_real_media_artifact", "render_layer_workflow",
+    "IntelliSearchIndexResult", "IntelliSearchQueryResult",
+    "index_real_media", "search_media_index",
     "ProxyAsset", "ProxyManager",
+    "BackendDecision", "RenderBackend", "RenderProfile", "RenderResult",
+    "SoftwareGraphBackend", "SoftwareRenderBackend", "choose_render_backend",
     # export
     "export_preset", "proxy_generate", "batch_export",
     # effects
