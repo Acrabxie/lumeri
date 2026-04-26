@@ -50,6 +50,24 @@ def _read_json_file(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _truncate_text(value: str, *, limit: int = 4000) -> str:
+    if len(value) <= limit:
+        return value
+    omitted = len(value) - limit
+    return f"{value[:limit]}\n...[truncated {omitted} chars]"
+
+
+def _compact_bridge_result(result: BridgeResult) -> dict[str, Any]:
+    return {
+        "task_id": result.task_id,
+        "status": result.status,
+        "adapter": result.adapter,
+        "error": result.error,
+        "output_text": _truncate_text(result.output_text, limit=2000),
+        "artifacts": result.artifacts,
+    }
+
+
 @dataclass
 class BridgePaths:
     root: Path
@@ -282,6 +300,26 @@ class ClaudeCodeAdapter:
                 error=f"Claude timed out after {self.timeout_sec}s",
             )
 
+        if proc.returncode != 0 and _looks_like_claude_auth_failure(proc.stdout, proc.stderr):
+            retry_args = [
+                self.claude_bin,
+                "-p",
+                "--output-format",
+                "json",
+                "--model",
+                "haiku",
+                *self.extra_args,
+                prompt,
+            ]
+            proc = subprocess.run(
+                retry_args,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_sec,
+                cwd=task.cwd or self.default_cwd,
+                check=False,
+            )
+
         output_text, raw = self._parse_stream_json(proc.stdout)
         if not output_text:
             output_text = (proc.stderr or "").strip()
@@ -317,6 +355,231 @@ class ClaudeCodeAdapter:
                 if isinstance(result, str) and result.strip():
                     text_blocks.append(result)
         return "\n".join(part for part in text_blocks if part.strip()).strip(), {"events": raw_events}
+
+
+def _looks_like_claude_auth_failure(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    return "not logged in" in text and "please run /login" in text
+
+
+class OpenClawAgentAdapter:
+    """CLI adapter for OpenClaw/Antigravity agent turns."""
+
+    name = "openclaw_agent"
+
+    def __init__(
+        self,
+        *,
+        openclaw_bin: str = "openclaw",
+        agent: str = "worker",
+        timeout_sec: int = 600,
+        default_cwd: str | None = None,
+    ) -> None:
+        self.openclaw_bin = openclaw_bin
+        self.agent = agent
+        self.timeout_sec = timeout_sec
+        self.default_cwd = default_cwd
+
+    def build_message(self, task: BridgeTask) -> str:
+        sections = [
+            "You are Antigravity/OpenClaw handling a Gemia bridge task.",
+            f"Task ID: {task.task_id}",
+            f"Source: {task.source}",
+            f"Intent: {task.intent}",
+            "",
+            "Task:",
+            task.prompt.strip(),
+        ]
+        if task.assets:
+            sections.extend(["", "Assets:", *[f"- {asset}" for asset in task.assets]])
+        if task.context:
+            sections.extend(["", "Context JSON:", json.dumps(task.context, ensure_ascii=False, indent=2)])
+        if task.permissions:
+            sections.extend(["", "Permissions JSON:", json.dumps(task.permissions, ensure_ascii=False, indent=2)])
+        sections.extend(
+            [
+                "",
+                "Return a concise review result. Start with PASS or BLOCKED, then list findings and exact next action.",
+            ]
+        )
+        return "\n".join(sections)
+
+    def run(self, task: BridgeTask) -> BridgeResult:
+        args = [
+            self.openclaw_bin,
+            "agent",
+            "--agent",
+            self.agent,
+            "--json",
+            "--timeout",
+            str(self.timeout_sec),
+            "--session-id",
+            task.task_id,
+            "--message",
+            self.build_message(task),
+        ]
+        try:
+            proc = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_sec + 30,
+                cwd=task.cwd or self.default_cwd,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            return BridgeResult(
+                task_id=task.task_id,
+                status="failed",
+                output_text="",
+                adapter=self.name,
+                error=f"OpenClaw binary not found: {exc}",
+                raw={"agent": self.agent},
+            )
+        except subprocess.TimeoutExpired as exc:
+            return BridgeResult(
+                task_id=task.task_id,
+                status="failed",
+                output_text=exc.stdout or "",
+                adapter=self.name,
+                error=f"OpenClaw timed out after {self.timeout_sec}s",
+                raw={"agent": self.agent},
+            )
+
+        output_text, raw = self._parse_json_output(proc.stdout)
+        combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part).strip()
+        error_message = self._error_message(raw, combined)
+        if not output_text:
+            output_text = (proc.stderr or "").strip()
+        status = "succeeded" if proc.returncode == 0 and not error_message else "failed"
+        return BridgeResult(
+            task_id=task.task_id,
+            status=status,
+            output_text=output_text.strip(),
+            adapter=self.name,
+            error=error_message if error_message else None,
+            raw={
+                "agent": self.agent,
+                "returncode": proc.returncode,
+                "stdout_excerpt": _truncate_text(proc.stdout),
+                "stderr_excerpt": _truncate_text(proc.stderr),
+                "json": self._summarize_json(raw, output_text),
+            },
+        )
+
+    @staticmethod
+    def _parse_json_output(stdout: str) -> tuple[str, dict[str, Any]]:
+        text = stdout.strip()
+        raw: dict[str, Any] = {}
+        for start in [0, *[index + 1 for index, char in enumerate(text) if char == "\n"]]:
+            candidate = text[start:].strip()
+            if not candidate.startswith("{"):
+                continue
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                raw = parsed
+                break
+        if not raw:
+            return "", {}
+
+        nested_result = raw.get("result")
+        if isinstance(nested_result, dict):
+            output_text, _nested_raw = OpenClawAgentAdapter._parse_payload_dict(nested_result)
+            return output_text, raw
+        return OpenClawAgentAdapter._parse_payload_dict(raw)
+
+    @staticmethod
+    def _parse_payload_dict(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        payloads = raw.get("payloads")
+        if isinstance(payloads, list):
+            parts = []
+            for payload in payloads:
+                if isinstance(payload, dict) and isinstance(payload.get("text"), str):
+                    parts.append(payload["text"])
+            return "\n".join(part for part in parts if part.strip()).strip(), raw
+        for key in ("text", "message", "output"):
+            value = raw.get(key)
+            if isinstance(value, str):
+                return value.strip(), raw
+        return "", raw
+
+    @staticmethod
+    def _summarize_json(raw: dict[str, Any], output_text: str) -> dict[str, Any]:
+        if not raw:
+            return {}
+        summary = {key: raw[key] for key in ("runId", "status", "summary") if key in raw}
+        result = raw.get("result") if isinstance(raw.get("result"), dict) else raw
+        meta = result.get("meta") if isinstance(result, dict) and isinstance(result.get("meta"), dict) else {}
+        if meta:
+            compact_meta = {key: meta[key] for key in ("durationMs", "agentMeta", "error") if key in meta}
+            report = meta.get("systemPromptReport")
+            if isinstance(report, dict):
+                compact_report = {
+                    key: report[key]
+                    for key in ("provider", "model", "workspaceDir", "bootstrapMaxChars", "bootstrapTotalMaxChars")
+                    if key in report
+                }
+                prompt = report.get("systemPrompt")
+                if isinstance(prompt, dict):
+                    compact_report["systemPrompt"] = prompt
+                compact_meta["systemPromptReport"] = compact_report
+            summary["meta"] = compact_meta
+        if output_text:
+            summary["payload_text"] = _truncate_text(output_text, limit=1000)
+        return summary
+
+    @staticmethod
+    def _error_message(raw: dict[str, Any], combined_output: str) -> str | None:
+        meta = raw.get("meta") if isinstance(raw, dict) else None
+        if not isinstance(meta, dict):
+            result = raw.get("result") if isinstance(raw, dict) else None
+            meta = result.get("meta") if isinstance(result, dict) else None
+        if isinstance(meta, dict):
+            error = meta.get("error")
+            if isinstance(error, dict):
+                message = error.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+        lowered = combined_output.lower()
+        for marker in ("all models failed", "billing error", "context overflow", "prompt tokens limit exceeded"):
+            if marker in lowered:
+                return marker
+        return None
+
+
+class FallbackBridgeAdapter:
+    """Run a primary adapter, then a fallback when the primary fails."""
+
+    def __init__(self, name: str, primary: BridgeAdapter, fallback: BridgeAdapter) -> None:
+        self.name = name
+        self.primary = primary
+        self.fallback = fallback
+
+    def run(self, task: BridgeTask) -> BridgeResult:
+        primary_result = self.primary.run(task)
+        if primary_result.status != "failed":
+            return primary_result
+
+        fallback_result = self.fallback.run(task)
+        error = None if fallback_result.status != "failed" else (
+            fallback_result.error or primary_result.error or "primary and fallback failed"
+        )
+        return BridgeResult(
+            task_id=task.task_id,
+            status=fallback_result.status,
+            output_text=fallback_result.output_text,
+            artifacts=fallback_result.artifacts,
+            adapter=self.name,
+            error=error,
+            raw={
+                "fallback_used": True,
+                "primary": _compact_bridge_result(primary_result),
+                "fallback": _compact_bridge_result(fallback_result),
+            },
+        )
 
 
 class MasterBridgeController:
@@ -437,6 +700,18 @@ class BridgeDaemon:
         for task_file in sorted(self.paths.inbox.glob("*.json")):
             self._process_file(task_file)
             processed += 1
+            self._refresh_lease(status="active")
+        self._record_last_check(processed=processed, recovered=len(recovered))
+        return processed
+
+    def process_task(self, task_id: str) -> int:
+        self._refresh_lease(status="active")
+        recovered = self._recover_stale_processing()
+        task_file = self.paths.inbox / f"{task_id}.json"
+        processed = 0
+        if task_file.exists():
+            self._process_file(task_file)
+            processed = 1
             self._refresh_lease(status="active")
         self._record_last_check(processed=processed, recovered=len(recovered))
         return processed

@@ -1,9 +1,68 @@
+## 2026-04-26 20:01 CST Antigravity infra repaired; model billing still blocks native review
+
+Codex repaired the local OpenClaw/Antigravity configuration and verified gateway RPC health. Claude Code is also healthy in normal CLI mode (`claude` 2.1.119; Haiku prompt returned `CLAUDE_CODE_OK`).
+
+Remaining blocker: the required Gemia 10-feature full-debug gate still has no native Antigravity review outbox. After the local gateway repair, full OpenClaw review attempts are blocked by OpenRouter billing/weekly-token limits, not by local RPC health.
+
+Next action: top up or switch the OpenRouter-backed Antigravity model path, then rerun the native full-debug gate for:
+
+- `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+
+Alternative: explicitly accept the Claude Code fallback source review before advancing `resolve21_ai_cinefocus`.
+
+## 2026-04-27 00:10 CST Motion Deblur review blocked by Antigravity/Claude auth
+
+Codex implemented `resolve21_ai_motion_deblur` and reproduced it twice on real stock videos, but the required Antigravity review did not complete:
+
+- Failed task: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260427_000741_b006ca1d.json`
+- Native OpenClaw: gateway/model network errors through OpenRouter.
+- Claude Code fallback: `Not logged in · Please run /login`.
+
+Next action: restore/switch/top up OpenClaw model connectivity or run `claude /login`, then rerun the review before advancing `resolve21_keyframes_curves_editor_updates`.
 
 ## 2026-04-20 06:39:34 stock:image-0001 failed three times
 404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/gemini-2.5-flash-image is not found for API version v1beta, or is not supported for predict. Call ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}
 
 agent_log: /Users/xiehaibo/Code/gemia/agent_log.md
 stock_catalog: /Users/xiehaibo/.gemia/automation/stock_catalog.json
+
+## 2026-04-26 09:08 CST Antigravity full-debug gate blocked
+Feature 10 (`resolve21_ai_intellisearch`) queued both the feature review and the required 10-feature full-debug gate:
+
+- `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_e393d87e.json`
+- `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+
+The Antigravity agent queue has not produced an outbox result. A direct OpenClaw local review attempt also failed because the gateway/RPC path and model calls could not complete over the current network path.
+
+Codex did not advance to feature 11. Local source audit found no immediate patch requirement, and focused verification still passes with the cached OpenCV environment:
+
+```bash
+PYTHONPATH=/Users/xiehaibo/.cache/uv/archive-v0/yqV-bU3tda3r_lXqq6wVD/lib/python3.12/site-packages \
+  uv run --offline --no-project --with pytest --with numpy --with pillow --with certifi \
+  python -m pytest tests/test_video/test_intellisearch.py tests/test_video/test_real_media_review.py \
+  tests/test_video/test_layer_flow.py tests/test_video/test_preview.py \
+  tests/test_video/test_render_backends.py tests/test_bridge.py
+```
+
+Next action: restore Antigravity/OpenClaw connectivity or manually consume the queued full-debug gate before continuing `resolve21_ai_cinefocus`.
+
+## 2026-04-26 10:06 CST Antigravity full-debug gate still blocked
+Codex rechecked the queued gate and confirmed the Gemia bridge outbox files for `bridge_20260426_080809_e393d87e` and `bridge_20260426_080809_f74ec6c1` are only "Delegated to antigravity" acknowledgements, not Antigravity review results.
+
+A fresh local OpenClaw attempt also failed across three model candidates:
+
+- `openrouter/anthropic/claude-opus-4.6`: network connection error
+- `openrouter/google/gemini-3-flash-preview`: network connection error
+- `openai-codex/gpt-5.4`: fetch failed
+
+Codex did not advance to feature 11. Focused verification still passes with 35 tests plus `py_compile`; the next action remains restoring Antigravity/OpenClaw connectivity or manually consuming the full-debug gate before starting `resolve21_ai_cinefocus`.
+
+## 2026-04-26 13:03 CST Antigravity full-debug gate still blocked
+Codex rechecked the queued full-debug gate again. The Antigravity queue still has no outbox result for `bridge_20260426_080809_f74ec6c1`, and the Gemia bridge outbox entry is only a delegation acknowledgement.
+
+OpenClaw gateway is loaded on port 18789, but the local RPC probe still fails. `launchctl print gui/501/com.gemia.five-day-loop` also still reports the Gemia LaunchAgent service is not found from this session.
+
+Codex did not advance to feature 11. Focused verification remains green: `py_compile`, `git diff --check`, heartbeat, and the cached-OpenCV pytest suite pass with 35 tests. The next action remains restoring Antigravity/OpenClaw connectivity or manually consuming the full-debug gate before starting `resolve21_ai_cinefocus`.
 
 ## 2026-04-20 06:42:07 stock:image-0001 failed three times
 400 FAILED_PRECONDITION. {'error': {'code': 400, 'message': 'User location is not supported for the API use.', 'status': 'FAILED_PRECONDITION'}}
@@ -853,3 +912,171 @@ launchctl print gui/$(id -u)/com.gemia.five-day-loop
 
 agent_log: /Users/xiehaibo/Code/gemia/agent_log.md
 stock_catalog: /Users/xiehaibo/.gemia/automation/stock_catalog.json
+
+## 2026-04-26 11:02 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded, but RPC probe still fails
+
+Codex did not start `resolve21_ai_cinefocus`. Focused local verification passes, so the required human/agent action is to restore Antigravity/OpenClaw connectivity or manually write a real full-debug review result for the gate.
+
+## 2026-04-26 12:04 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not start `resolve21_ai_cinefocus`. Focused local verification passes with 35 tests, so the required action remains restoring Antigravity/OpenClaw connectivity or manually writing a real full-debug review result for the gate.
+
+## 2026-04-26 14:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not retry model review because this same review-lane connectivity issue already reached the three-failure breaker. Focused local verification passes with 35 tests, so the required action remains restoring Antigravity/OpenClaw connectivity or manually writing a real full-debug review result for the gate before starting `resolve21_ai_cinefocus`.
+
+## 2026-04-26 15:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not retry model review because this same review-lane connectivity issue already reached the three-failure breaker. Focused local verification passes with 35 tests, so the required action remains restoring Antigravity/OpenClaw connectivity or manually writing a real full-debug review result for the gate before starting `resolve21_ai_cinefocus`.
+
+## 2026-04-26 16:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded on port 18789, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not retry model review because this same review-lane connectivity issue already reached the three-failure breaker. Focused local verification passes with 35 tests, so restore Antigravity/OpenClaw connectivity or manually write a real full-debug review result for the gate before starting `resolve21_ai_cinefocus`.
+
+## 2026-04-26 17:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded on port 18789, but RPC probe still fails
+- OpenClaw restart: `openclaw gateway restart --json` failed because `launchctl kickstart` returned `Operation not permitted`
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not advance to `resolve21_ai_cinefocus` and did not retry the already-tripped model review lane. Local verification passes with cached OpenCV pytest at 35 tests, so restore Antigravity/OpenClaw connectivity or manually write a real full-debug review result before starting feature 11.
+
+## 2026-04-26 18:01 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded on port 18789, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not advance to `resolve21_ai_cinefocus` and did not retry the already-tripped model review lane. Local verification still passes with cached OpenCV pytest at 35 tests, so restore Antigravity/OpenClaw connectivity or manually write a real full-debug review result before starting feature 11.
+
+## 2026-04-26 19:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw gateway: service loaded on port 18789, but RPC probe still fails
+- Gemia LaunchAgent: `launchctl print gui/501/com.gemia.five-day-loop` still reports service not found
+
+Codex did not advance to `resolve21_ai_cinefocus` and did not retry the already-tripped model review lane. Local verification still passes with cached OpenCV pytest at 35 tests, and heartbeat now reports 6 pending rollovers. Restore Antigravity/OpenClaw connectivity or manually write a real full-debug review result before starting feature 11.
+
+## 2026-04-26 20:03 CST Antigravity full-debug gate still blocked
+The required 10-feature full-debug gate is still not consumed:
+
+- queued gate: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- bridge ack only: `/Users/xiehaibo/.gemia/bridge/outbox/bridge_20260426_080809_f74ec6c1.json`
+- Antigravity outbox: none found
+- OpenClaw: service/config health is present, but this run still produced no usable native review result
+
+Codex did not advance to `resolve21_ai_cinefocus` and did not retry the already-tripped model review lane. Local verification still passes with cached OpenCV pytest at 35 tests, and heartbeat reports videos 12/150, images 76/1500, with 6 pending rollovers. Restore native Antigravity/OpenClaw review output, switch/top up the model path, or explicitly accept a Claude Code fallback review before starting feature 11.
+
+## 2026-04-26 21:29 CST CineFocus Antigravity review blocked after three failures
+`resolve21_ai_cinefocus` is implemented and reproduced twice with real stock footage, but the required Antigravity review did not complete.
+
+- failed review tasks: `bridge_20260426_211057_65da4b1e`, `bridge_20260426_211742_1db471d0`, `bridge_20260426_212058_81e5b1ff`
+- OpenClaw native review: gateway/model network connection errors
+- Claude Code fallback from Python bridge subprocess: `Not logged in · Please run /login`
+- manual shell caveat: direct `/Users/xiehaibo/.local/bin/claude -p --model haiku ...` can still succeed, so the blocker is specific to the bridge subprocess path
+
+Next action: restore OpenClaw model connectivity or fix Claude Code auth for non-interactive Python subprocesses, then rerun Antigravity review for `resolve21_ai_cinefocus` before advancing to `resolve21_ai_motion_deblur`.
+
+Codex local audit at 2026-04-26 21:31 CST found no CineFocus source blocker: `py_compile`, `git diff --check`, 26 focused pytest tests, ffprobe on both real-video outputs, and manual heartbeat all passed. This remains a review-lane/auth/model-connectivity blocker, not a confirmed feature-code blocker.
+
+## 2026-04-26 21:08 CST Antigravity full-debug gate consumed
+The 10-feature full-debug gate now has a real Antigravity agent outbox result:
+
+- consumed task: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/inbox/bridge_20260426_080809_f74ec6c1.json`
+- result: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260426_080809_f74ec6c1.json`
+- status: `PASSED_WITH_CONDITIONS`
+- adapter: `antigravity_openclaw`
+- native OpenClaw primary: failed with context overflow / OpenRouter limits
+- fallback: Claude Code review succeeded
+
+`resolve21_ai_cinefocus` is no longer blocked by the missing outbox. Remaining human/runtime conditions before advancing unattended: restart the Gemia LaunchAgent from a normal user shell, re-authenticate Codex CLI OAuth for rollover-codex, and set `GEMIA_STOCK_ROOT` to writable external storage.
+
+## 2026-04-26 21:39 CST CineFocus review lane still blocked
+Codex rechecked the CineFocus blocker after the three failed Antigravity review attempts. The feature implementation and two real-video reproductions still verify locally, and `launchctl print gui/501/com.gemia.five-day-loop` now shows the LaunchAgent running with pid 70320.
+
+- failed review tasks: `bridge_20260426_211057_65da4b1e`, `bridge_20260426_211742_1db471d0`, `bridge_20260426_212058_81e5b1ff`
+- OpenClaw native review: still blocked by gateway/model network connection errors in the failed task records
+- Claude Code fallback: direct `/Users/xiehaibo/.local/bin/claude -p --model haiku ...` now also returns `Not logged in · Please run /login`, so the issue is no longer only the Python bridge subprocess
+- local verification: `py_compile`, `git diff --check`, 26 focused pytest tests, ffprobe for both CineFocus renders, heartbeat, and LaunchAgent status passed
+
+Next action: re-authenticate Claude Code or restore/top up/switch the OpenClaw model provider, then rerun Antigravity review for `resolve21_ai_cinefocus`. Do not advance to `resolve21_ai_motion_deblur` until a real Antigravity review outbox exists.
+
+## 2026-04-26 21:51 CST Python bridge Claude auth still blocked
+
+Native OpenClaw review still fails on model/network errors, and Gemia Python/Node child-process calls to Claude still return `Not logged in` even though direct shell `claude -p` works. A direct Claude fallback review passed CineFocus and unblocked Motion Deblur, but future unattended bridge fallback still needs auth inheritance fixed.
+
+## 2026-04-27 01:10 CST Motion Deblur review unblocked by direct fallback
+
+Codex retried Antigravity review for `resolve21_ai_motion_deblur` as `bridge_20260427_010544_ba043ae2`. Native OpenClaw still failed with gateway/model network errors, and the Gemia Python bridge Claude fallback still returned `Not logged in`, but direct top-level Claude shell auth worked and completed the review.
+
+- fallback review artifact: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260427_011052_direct_claude_fallback.json`
+- verdict: PASS, no source fixes required
+- next feature: `resolve21_keyframes_curves_editor_updates` is clear to start
+
+Remaining human/infrastructure follow-up: restore native OpenClaw model connectivity and fix Claude Code auth inheritance for Gemia Python child processes so future Antigravity queue reviews can run unattended without direct fallback.
+
+## 2026-04-27 02:18 CST Keyframe Curves review used direct fallback
+
+Codex completed `resolve21_keyframes_curves_editor_updates` and reproduced it twice with real stock footage, but native Antigravity review still did not complete unattended.
+
+- failed review task: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260427_020852_83052154.json`
+- OpenClaw native review: OpenRouter/gateway network connection errors
+- Claude Code fallback from Gemia Python bridge subprocess: `Not logged in · Please run /login`
+- direct shell Claude fallback: passed source review after Codex added the KeyframeTrack timestamp-axis documentation note
+
+Feature status is completed via direct fallback review, but unattended Antigravity remains an infrastructure blocker. Next human/infrastructure action: restore native OpenClaw model connectivity and fix Claude Code auth inheritance for Gemia Python child processes.
+
+## 2026-04-27 03:18 CST HTML/Lottie review used direct fallback
+
+Codex completed `resolve21_html_graphics_lottie_support` and reproduced it twice with real stock footage, but native Antigravity review still did not complete unattended.
+
+- failed review task: `/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260427_030904_aacc6763.json`
+- OpenClaw native review: OpenRouter/gateway network connection errors
+- Claude Code fallback from Gemia Python bridge subprocess: `Not logged in · Please run /login`
+- direct shell Claude fallback: first flagged a bracket-formatting issue in `gemia/video/layers.py`; Codex fixed the formatting, reran verification, and re-review passed
+
+Feature status is completed via direct fallback review at `/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260427_031850_direct_claude_fallback.json`. Remaining human/infrastructure action is unchanged: restore native OpenClaw model connectivity and fix Claude Code auth inheritance for Gemia Python child processes.

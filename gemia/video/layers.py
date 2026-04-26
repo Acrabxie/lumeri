@@ -149,9 +149,23 @@ def _apply_primitive_chain(frame: RGBAFrame, primitives_chain: PrimitiveChain | 
 
 
 def _track_from_spec(spec: dict[str, Any]) -> KeyframeTrack:
-    track = KeyframeTrack()
-    for frame_key, value_spec in sorted(spec.items(), key=lambda item: float(item[0])):
-        frame_number = float(frame_key)
+    mode = str(spec.get("mode", "clamp")) if "mode" in spec else "clamp"
+    relative_to = float(spec.get("relative_to", 0.0)) if "relative_to" in spec else 0.0
+    raw_points = spec.get("keyframes", spec.get("points", spec))
+    if isinstance(raw_points, list):
+        items = [
+            (float(item.get("time", item.get("frame", 0.0))), item)
+            for item in raw_points
+        ]
+    else:
+        ignored = {"mode", "relative_to", "keyframes", "points"}
+        items = [
+            (float(frame_key), value_spec)
+            for frame_key, value_spec in raw_points.items()
+            if frame_key not in ignored
+        ]
+    track = KeyframeTrack(mode=mode, relative_to=relative_to)
+    for frame_number, value_spec in sorted(items, key=lambda item: item[0]):
         if isinstance(value_spec, dict):
             value = float(value_spec.get("value", 0.0))
             easing = str(value_spec.get("easing", "linear"))
@@ -498,6 +512,53 @@ def make_solid_layer(
     )
 
 
+def make_html_layer(
+    *,
+    source: str | None = None,
+    html: str | None = None,
+    duration: int,
+    size: tuple[int, int],
+) -> Layer:
+    from gemia.video.html_graphics import render_html_frame
+
+    width, height = max(int(size[0]), 1), max(int(size[1]), 1)
+    frame = render_html_frame(source, html, width=width, height=height)
+
+    def content_fn(_frame_index: int) -> RGBAFrame:
+        return frame.copy()
+
+    return Layer(
+        id=f"html_{abs(hash((source, html, width, height))) % 100000}",
+        name="html_graphic",
+        start_frame=0,
+        end_frame=duration,
+        z_index=0,
+        blend_mode="normal",
+        opacity=1.0,
+        content_fn=content_fn,
+    )
+
+
+def make_lottie_layer(source: str, *, duration: int, size: tuple[int, int]) -> Layer:
+    from gemia.video.html_graphics import render_lottie_frame
+
+    width, height = max(int(size[0]), 1), max(int(size[1]), 1)
+
+    def content_fn(frame_index: int) -> RGBAFrame:
+        return render_lottie_frame(source, width=width, height=height, frame_index=frame_index)
+
+    return Layer(
+        id=Path(source).stem,
+        name=Path(source).name,
+        start_frame=0,
+        end_frame=duration,
+        z_index=0,
+        blend_mode="normal",
+        opacity=1.0,
+        content_fn=content_fn,
+    )
+
+
 def _optional_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -561,6 +622,15 @@ def materialize_layer_plan(plan: dict[str, Any]) -> dict[str, Any]:
             source_width, source_height = image_meta_cache[source_path]
             width = width or source_width
             height = height or source_height
+        elif layer_type == "lottie" and normalized_layer.get("source"):
+            from gemia.video.html_graphics import lottie_metadata
+
+            source_path = str(normalized_layer["source"])
+            meta = lottie_metadata(source_path)
+            width = width or int(meta["width"])
+            height = height or int(meta["height"])
+            fps = fps or float(meta["fps"])
+            natural_frames = int(meta["frames"] or 0) or None
 
         start_frame, end_frame, duration = _resolve_layer_timing(
             normalized_layer,
@@ -623,6 +693,21 @@ def execute_layer_plan(plan: dict[str, Any]) -> LayerStack:
         elif layer_type == "solid":
             duration = int(layer_spec.get("duration", 1) or 1)
             layer = make_solid_layer(tuple(layer_spec["color"]), duration=duration, size=(width, height))
+        elif layer_type == "html":
+            duration = int(layer_spec.get("duration", total_frames) or total_frames)
+            layer = make_html_layer(
+                source=layer_spec.get("source"),
+                html=layer_spec.get("html"),
+                duration=duration,
+                size=tuple(layer_spec.get("size", (width, height))),
+            )
+        elif layer_type == "lottie":
+            duration = int(layer_spec.get("duration", total_frames) or total_frames)
+            layer = make_lottie_layer(
+                str(layer_spec["source"]),
+                duration=duration,
+                size=tuple(layer_spec.get("size", (width, height))),
+            )
         else:
             raise ValueError(f"Unsupported layer type: {layer_type}")
 
@@ -693,4 +778,6 @@ __all__ = [
     "make_mask_layer",
     "make_text_layer",
     "make_solid_layer",
+    "make_html_layer",
+    "make_lottie_layer",
 ]

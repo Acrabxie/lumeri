@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,11 @@ from gemia.bridge import (
     BridgePaths,
     BridgeResult,
     BridgeTask,
+    ClaudeCodeAdapter,
     ControllerAdapter,
+    FallbackBridgeAdapter,
     MasterBridgeController,
+    OpenClawAgentAdapter,
     QueueBridgeAdapter,
 )
 
@@ -45,6 +49,97 @@ class FailingAdapter:
             adapter=self.name,
             error="boom",
         )
+
+
+class TestOpenClawAgentAdapter:
+    def test_parses_payload_text_from_openclaw_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(*_args, **_kwargs):
+            return subprocess.CompletedProcess(
+                args=["openclaw"],
+                returncode=0,
+                stdout='noise\n{"payloads":[{"text":"PASS\\nNo blockers."}],"meta":{}}\n',
+                stderr="",
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        adapter = OpenClawAgentAdapter(timeout_sec=1)
+        task = BridgeTask.new(source="gemia", intent="review", prompt="review")
+
+        result = adapter.run(task)
+
+        assert result.status == "succeeded"
+        assert result.output_text == "PASS\nNo blockers."
+        assert result.raw["returncode"] == 0
+
+    def test_marks_openclaw_meta_error_as_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(*_args, **_kwargs):
+            return subprocess.CompletedProcess(
+                args=["openclaw"],
+                returncode=0,
+                stdout='{"payloads":[{"text":"Context overflow"}],"meta":{"error":{"message":"Prompt tokens limit exceeded"}}}\n',
+                stderr="",
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        adapter = OpenClawAgentAdapter(timeout_sec=1)
+        task = BridgeTask.new(source="gemia", intent="review", prompt="review")
+
+        result = adapter.run(task)
+
+        assert result.status == "failed"
+        assert result.error == "Prompt tokens limit exceeded"
+
+
+class TestClaudeCodeAdapter:
+    def test_retries_without_bypass_permissions_on_auth_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            calls.append(list(args))
+            if "--dangerously-skip-permissions" in args:
+                return subprocess.CompletedProcess(
+                    args=args,
+                    returncode=1,
+                    stdout='{"type":"result","result":"Not logged in · Please run /login"}\n',
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=0,
+                stdout='{"type":"result","result":"PASS\\nNo blockers."}\n',
+                stderr="",
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        adapter = ClaudeCodeAdapter(timeout_sec=1)
+        task = BridgeTask.new(source="gemia", intent="review", prompt="review")
+
+        result = adapter.run(task)
+
+        assert result.status == "succeeded"
+        assert result.output_text == "PASS\nNo blockers."
+        assert "--dangerously-skip-permissions" in calls[0]
+        assert calls[1][:5] == ["claude", "-p", "--output-format", "json", "--model"]
+        assert "--dangerously-skip-permissions" not in calls[1]
+        assert "--print" not in calls[1]
+        assert "haiku" in calls[1]
+
+
+class TestFallbackBridgeAdapter:
+    def test_fallback_result_writes_real_agent_outbox(self, tmp_path: Path) -> None:
+        paths = BridgePaths.from_root(tmp_path / "antigravity")
+        adapter = FallbackBridgeAdapter("antigravity_openclaw", FailingAdapter(), FakeAdapter())
+        daemon = BridgeDaemon(paths, adapter)
+        task = BridgeTask.new(source="gemia", intent="review", prompt="full debug")
+        daemon.submit_task(task)
+
+        assert daemon.process_once() == 1
+        result = json.loads((paths.outbox / f"{task.task_id}.json").read_text())
+        assert result["status"] == "succeeded"
+        assert result["adapter"] == "antigravity_openclaw"
+        assert result["output_text"] == "handled: full debug"
+        assert result["raw"]["fallback_used"] is True
+        assert not (paths.inbox / f"{task.task_id}.json").exists()
 
 
 class TestBridgePaths:
@@ -101,6 +196,21 @@ class TestBridgeDaemon:
     def test_process_once_noop_when_inbox_empty(self, tmp_path: Path) -> None:
         daemon = BridgeDaemon(BridgePaths.from_root(tmp_path / "bridge"), FakeAdapter())
         assert daemon.process_once() == 0
+
+    def test_process_task_only_processes_requested_task(self, tmp_path: Path) -> None:
+        paths = BridgePaths.from_root(tmp_path / "bridge")
+        adapter = FakeAdapter()
+        daemon = BridgeDaemon(paths, adapter)
+        first = BridgeTask.new(source="gemia", intent="review", prompt="first")
+        second = BridgeTask.new(source="gemia", intent="review", prompt="second")
+        daemon.submit_task(first)
+        daemon.submit_task(second)
+
+        assert daemon.process_task(second.task_id) == 1
+
+        assert adapter.seen == [second.task_id]
+        assert (paths.inbox / f"{first.task_id}.json").exists()
+        assert (paths.outbox / f"{second.task_id}.json").exists()
 
     def test_process_heartbeat_task_locally_writes_state(self, tmp_path: Path) -> None:
         paths = BridgePaths.from_root(tmp_path / "bridge")
