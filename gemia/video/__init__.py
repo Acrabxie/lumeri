@@ -148,7 +148,33 @@ from gemia.video.intellisearch import (
     index_real_media, search_media_index,
 )
 from gemia.video.cinefocus import CineFocusRenderResult, render_cinefocus_plan
+from gemia.video.motion import (
+    MotionRenderResult,
+    render_motion_heatmap,
+    render_motion_stabilize,
+    render_motion_trails,
+)
 from gemia.video.motion_deblur import MotionDeblurRenderResult, render_motion_deblur_plan
+from gemia.video.motion_graphics import (
+    MotionGraphicsRenderResult,
+    render_mg_formula_reveal,
+    render_mg_process_diagram,
+    render_mg_title_card,
+)
+from gemia.video.blender_link import (
+    BlenderLinkRenderResult,
+    blender_link_capabilities,
+    blender_link_status,
+    render_blender_link_operation,
+    render_blender_spatial_scene,
+)
+from gemia.video.ultrasharpen import UltraSharpenRenderResult, render_ultrasharpen_plan
+from gemia.video.face_age import FaceAgeRenderResult, render_face_age_plan
+from gemia.video.face_reshaper import FaceReshaperRenderResult, render_face_reshaper_plan
+from gemia.video.blemish import BlemishRemovalRenderResult, render_blemish_removal_plan
+from gemia.video.slate_id import SlateIdRenderResult, render_slate_id_metadata_plan
+from gemia.video.dialogue_matcher import DialogueMatcherResult, render_dialogue_matcher_plan
+from gemia.video.delivery_scene import render_blended_portrait_slate_delivery_scene
 from gemia.video.html_graphics import (
     HtmlGraphicsRenderResult, render_html_graphics_plan,
     render_html_frame, render_lottie_frame,
@@ -158,6 +184,10 @@ from gemia.video.backends import (
     BackendDecision, RenderBackend, RenderProfile, RenderResult,
     SoftwareGraphBackend, SoftwareRenderBackend, choose_render_backend,
 )
+from gemia.video.dialogue_matcher import DialogueMatcherResult, render_dialogue_matcher_plan
+from gemia.video.music_editor import MusicEditorResult, render_ai_music_editor_plan
+from gemia.video.animated_subtitles import AnimatedSubtitlesResult, render_ai_animated_subtitles_plan
+from gemia.video.multicam_smartswitch import MulticamSmartSwitchResult, render_ai_multicam_smartswitch_plan
 
 __all__ = [
     # frames
@@ -199,7 +229,21 @@ __all__ = [
     "IntelliSearchIndexResult", "IntelliSearchQueryResult",
     "index_real_media", "search_media_index",
     "CineFocusRenderResult", "render_cinefocus_plan",
+    "MotionRenderResult", "render_motion_heatmap", "render_motion_stabilize", "render_motion_trails",
     "MotionDeblurRenderResult", "render_motion_deblur_plan",
+    "MotionGraphicsRenderResult", "render_mg_formula_reveal", "render_mg_process_diagram", "render_mg_title_card",
+    "BlenderLinkRenderResult", "blender_link_capabilities", "blender_link_status",
+    "render_blender_link_operation", "render_blender_spatial_scene",
+    "UltraSharpenRenderResult", "render_ultrasharpen_plan",
+    "FaceAgeRenderResult", "render_face_age_plan",
+    "FaceReshaperRenderResult", "render_face_reshaper_plan",
+    "BlemishRemovalRenderResult", "render_blemish_removal_plan",
+    "SlateIdRenderResult", "render_slate_id_metadata_plan",
+    "DialogueMatcherResult", "render_dialogue_matcher_plan",
+    "MusicEditorResult", "render_ai_music_editor_plan",
+    "AnimatedSubtitlesResult", "render_ai_animated_subtitles_plan",
+    "MulticamSmartSwitchResult", "render_ai_multicam_smartswitch_plan",
+    "render_blended_portrait_slate_delivery_scene",
     "HtmlGraphicsRenderResult", "render_html_graphics_plan",
     "render_html_frame", "render_lottie_frame",
     "ProxyAsset", "ProxyManager",
