@@ -1453,7 +1453,7 @@
     },
     {
       "id": "davinci_resolve_21_batch_003",
-      "status": "in_progress",
+      "status": "completed",
       "searched_at": "2026-04-29 07:06 CST",
       "source": {
         "title": "DaVinci Resolve What's New / Resolve 21 coverage",
@@ -1653,7 +1653,7 @@
       ],
       "blended_scene": {
         "id": "resolve21_blended_audio_subtitle_multicam_scene",
-        "status": "pending",
+        "status": "completed",
         "asset_requirement": "real footage with dialogue or speech plus at least one music or subtitle track",
         "workflow": [
           "match dialogue tone or record diagnostic metadata",
@@ -1661,20 +1661,80 @@
           "animate subtitle word timing",
           "apply speaker-aware multicam/switch metadata where multiple angles exist",
           "render two continuity-review clips"
+        ],
+        "completed_at": "2026-05-02 14:08 CST",
+        "implemented_by": "gemini_cli_with_codex_verification",
+        "summary": "fused Resolve-style scene chaining dialogue matching, speaker-aware multicam switching, animated subtitles, and music fitting with complete step sidecars.",
+        "reproduction_artifacts": [
+          "/private/tmp/gemia-blended-repro-1777702039/review_summary.json",
+          "/private/tmp/gemia-blended-repro-1777702039/blended_real_1.mp4",
+          "/private/tmp/gemia-blended-repro-1777702039/blended_real_1.blended_audio_subtitle_multicam.json",
+          "/private/tmp/gemia-blended-repro-1777702039/blended_real_2.mp4",
+          "/private/tmp/gemia-blended-repro-1777702039/blended_real_2.blended_audio_subtitle_multicam.json"
+        ],
+        "verification": [
+          "import smoke passed for gemia.video blended scene exports",
+          "py_compile",
+          "git diff --check",
+          "focused regression pytest 24 passed",
+          "ffprobe/real reproduction evidence with H.264 video and AAC audio"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_1408_gemini_cli_blended_audio_subtitle_multicam_review.json",
+          "verdict": "PASS",
+          "confidence": 1.0,
+          "required_fixes": "none",
+          "next_action": "advance to github_pyannote_audio_speaker_timeline_backend"
+        },
+        "verified_reproductions": [
+          {
+            "at": "2026-05-02 14:08 CST",
+            "inputs": [
+              "inputs/demo.mp4",
+              "inputs/gemia_timeline_demo.mp4"
+            ],
+            "evidence": "H.264/AAC output; dialogue, multicam, animated subtitle, and music sidecars all present."
+          },
+          {
+            "at": "2026-05-02 14:08 CST",
+            "inputs": [
+              "inputs/gemia_timeline_demo.mp4",
+              "inputs/demo.mp4"
+            ],
+            "evidence": "H.264/AAC output; dialogue, multicam, animated subtitle, and music sidecars all present."
+          }
         ]
       },
       "architecture_integration": {
         "id": "github_pyannote_audio_speaker_timeline_backend",
-        "status": "pending",
+        "status": "completed",
         "repo": "pyannote/pyannote-audio",
         "why": "Provide a real diarization boundary for speaker-aware subtitles, dialogue matching, and multicam SmartSwitch.",
-        "integration_boundary": "optional audio diarization adapter that emits speaker segments into Gemia timeline metadata; keep deterministic offline fallback tests."
+        "integration_boundary": "optional audio diarization adapter that emits speaker segments into Gemia timeline metadata; keep deterministic offline fallback tests.",
+        "completed_at": "2026-05-02 17:07 CST",
+        "implemented_by": "gemini_cli_with_codex_verification",
+        "summary": "planner-visible optional pyannote.audio speaker diarization backend with deterministic ffmpeg silence fallback metadata for speaker-aware subtitles, dialogue matching, and multicam switching.",
+        "verification": [
+          "py_compile",
+          "git diff --check",
+          "focused pytest 5 passed",
+          "two local real-video fallback reproductions covered by tests"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_1707_gemini_cli_pyannote_speaker_timeline_review.json",
+          "verdict": "PASS",
+          "confidence": 1.0,
+          "required_fixes": "none",
+          "next_action": "advance to davinci_resolve_21_batch_004 / resolve21_photo_page_batch_raw_grade"
+        }
       },
-      "next_action": "start resolve21_blended_audio_subtitle_multicam_scene"
+      "next_action": "start davinci_resolve_21_batch_004 / resolve21_photo_page_batch_raw_grade"
     },
     {
       "id": "davinci_resolve_21_batch_004",
-      "status": "pending",
+      "status": "in_progress",
       "source": "DaVinci Resolve 21 current feature scan, seeded after batch_003 five-feature completion",
       "features": [
         {
@@ -1746,7 +1806,7 @@
         "why": "Provide a mature image/metadata IO substrate for Photo page batches, frame extraction, color-managed still workflows, and media-ingest metadata.",
         "integration_boundary": "optional still/image-sequence metadata adapter behind Gemia media-library interfaces; keep ffmpeg/PIL fallbacks and deterministic tests"
       },
-      "next_action": "blocked until davinci_resolve_21_batch_003 blended_scene and architecture_integration complete"
+      "next_action": "start resolve21_photo_page_batch_raw_grade"
     }
   ],
   "seed_ready_checks": [

@@ -7,6 +7,7 @@ from gemia.audio.dynamics import normalize, compress, adjust_gain, lufs_normaliz
 from gemia.audio.frequency import eq, highpass, lowpass
 from gemia.audio.time_pitch import time_stretch, pitch_shift, detect_bpm
 from gemia.audio.analysis import silence_detect, beat_detect, music_extend, stem_separate, loudness_meter, audio_visualizer
+from gemia.audio.speaker_timeline import SpeakerTimelineResult, normalize_speaker_segments, render_pyannote_speaker_timeline_backend
 from gemia.audio.effects import (
     voice_convert, auto_mix, ducker, voice_isolate, pitch_correction,
     dynamic_eq_match, level_matcher, spectral_denoise,
@@ -107,6 +108,7 @@ __all__ = [
     "eq", "highpass", "lowpass",
     "time_stretch", "pitch_shift", "detect_bpm",
     "silence_detect",
+    "SpeakerTimelineResult", "normalize_speaker_segments", "render_pyannote_speaker_timeline_backend",
     "beat_detect", "music_extend", "stem_separate", "loudness_meter", "audio_visualizer",
     "voice_convert", "auto_mix", "ducker",
     "lufs_normalize",
