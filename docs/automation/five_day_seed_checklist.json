@@ -1739,53 +1739,179 @@
       "features": [
         {
           "id": "resolve21_photo_page_batch_raw_grade",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds a Photo page for batch editing and grading still images.",
           "done_when": [
             "Gemia can ingest still-image sets as a photo-edit batch",
             "two real image/video-derived frame sets produce reviewable grade manifests"
-          ]
+          ],
+          "completed_at": "2026-05-02 22:05 CST",
+          "implemented_by": "gemini_cli_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Photo-page-style still batch raw grading with graded PNG outputs, contact sheet, manifest metrics, validation, and two real video-derived frame-set reproductions.",
+          "verification": [
+            "py_compile",
+            "git diff --check",
+            "focused pytest 5 passed",
+            "two real media-derived frame reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_2205_gemini_cli_photo_page_review.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_ai_intellisearch_media_index"
+          }
         },
         {
           "id": "resolve21_ai_intellisearch_media_index",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 introduces AI IntelliSearch style semantic media search.",
           "done_when": [
             "Gemia can build local semantic metadata for media bins",
             "two real media libraries can be queried and ranked with explainable matches"
-          ]
+          ],
+          "completed_at": "2026-05-02 22:12 CST",
+          "implemented_by": "existing_intellisearch_substrate_with_codex_verification",
+          "summary": "reused Gemia IntelliSearch media-index substrate for batch_004: local semantic metadata, CLI index/search, explainable ranked matches, and two fresh real media library reproductions.",
+          "verification": [
+            "py_compile",
+            "git diff --check",
+            "focused pytest 3 passed",
+            "two real media library reproductions under /private/tmp/gemia-intellisearch-batch004-repro"
+          ],
+          "review_artifacts": [
+            "/private/tmp/gemia-intellisearch-batch004-repro/library_a/index.json",
+            "/private/tmp/gemia-intellisearch-batch004-repro/library_a/search.json",
+            "/private/tmp/gemia-intellisearch-batch004-repro/library_b/index.json",
+            "/private/tmp/gemia-intellisearch-batch004-repro/library_b/search.json",
+            "/private/tmp/gemia-intellisearch-batch004-repro/summary.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_2212_gemini_cli_intellisearch_media_index_review.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_ai_slate_metadata_reader"
+          }
         },
         {
           "id": "resolve21_ai_slate_metadata_reader",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds AI slate and clip metadata extraction for faster ingest.",
           "done_when": [
             "Gemia can extract slate-like metadata into timeline/bin records",
             "two real clips produce reviewable slate metadata sidecars"
-          ]
+          ],
+          "completed_at": "2026-05-02 22:23 CST",
+          "implemented_by": "gemini_cli_with_codex_verification",
+          "summary": "Slate ID metadata reader now writes reviewable .slate_id.json sidecars for real clips and the real-media review layer recognizes Slate ID sidecars as metadata evidence.",
+          "implemented_paths": [
+            "gemia/video/review.py",
+            "gemia/video/slate_id.py",
+            "tests/test_video/test_slate_id.py"
+          ],
+          "verification": [
+            "py_compile",
+            "git diff --check",
+            "focused pytest 4 passed",
+            "two real clip slate metadata reproductions under /private/tmp/gemia-slate-batch004-repro"
+          ],
+          "review_artifacts": [
+            "/private/tmp/gemia-slate-batch004-repro/real_1_slate_metadata.slate_id.json",
+            "/private/tmp/gemia-slate-batch004-repro/real_1_review.json",
+            "/private/tmp/gemia-slate-batch004-repro/real_2_slate_metadata.slate_id.json",
+            "/private/tmp/gemia-slate-batch004-repro/real_2_review.json",
+            "/private/tmp/gemia-slate-batch004-repro/summary.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_2223_gemini_cli_slate_metadata_reader_review.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_fairlight_folder_tracks"
+          }
         },
         {
           "id": "resolve21_fairlight_folder_tracks",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 improves Fairlight organization with folder-track style workflows.",
           "done_when": [
             "Gemia can group audio/music/dialogue tracks into folder metadata",
             "two real edit timelines produce grouped audio review manifests"
-          ]
+          ],
+          "completed_at": "2026-05-02 22:32 CST",
+          "implemented_by": "gemini_cli_with_codex_verification",
+          "summary": "Fairlight-style folder track manifests now group real audio/video assets into dialogue/music/sfx/ambience folders with ffprobe-backed audio stream, duration, and diagnostics metadata.",
+          "implemented_paths": [
+            "gemia/audio/fairlight_folder_tracks.py",
+            "gemia/audio/__init__.py",
+            "tests/test_audio/test_fairlight_folder_tracks.py"
+          ],
+          "verification": [
+            "py_compile",
+            "git diff --check",
+            "focused pytest 4 passed",
+            "two real edit timeline grouped-audio reproductions under /private/tmp/gemia-fairlight-batch004-repro"
+          ],
+          "review_artifacts": [
+            "/private/tmp/gemia-fairlight-batch004-repro/timeline_a_fairlight_folders.json",
+            "/private/tmp/gemia-fairlight-batch004-repro/timeline_b_fairlight_folders.json",
+            "/private/tmp/gemia-fairlight-batch004-repro/summary.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_2232_gemini_cli_fairlight_folder_tracks_review.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_fusion_krokodove_motion_pack"
+          }
         },
         {
           "id": "resolve21_fusion_krokodove_motion_pack",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 includes Krokodove/Fusion style motion-graphics expansion.",
           "done_when": [
             "Gemia can represent reusable motion-graphics node presets",
             "two real clips render reviewable graphics overlays"
-          ]
+          ],
+          "completed_at": "2026-05-02 22:39 CST",
+          "implemented_by": "gemini_cli_with_codex_verification",
+          "summary": "Krokodove/Fusion-style motion pack now represents reusable node presets, renders overlay graphics on real clips, copies source audio when present, and writes reviewable sidecar metadata.",
+          "implemented_paths": [
+            "gemia/video/krokodove_motion_pack.py",
+            "gemia/video/__init__.py",
+            "tests/test_video/test_krokodove_motion_pack.py"
+          ],
+          "verification": [
+            "py_compile",
+            "git diff --check",
+            "focused pytest 4 passed",
+            "two real clip Krokodove overlay reproductions under /private/tmp/gemia-krokodove-batch004-repro"
+          ],
+          "review_artifacts": [
+            "/private/tmp/gemia-krokodove-batch004-repro/real_1_orbit_grid.mp4",
+            "/private/tmp/gemia-krokodove-batch004-repro/real_1_orbit_grid.krokodove_motion_pack.json",
+            "/private/tmp/gemia-krokodove-batch004-repro/real_2_radial_echo.mp4",
+            "/private/tmp/gemia-krokodove-batch004-repro/real_2_radial_echo.krokodove_motion_pack.json",
+            "/private/tmp/gemia-krokodove-batch004-repro/summary.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260502_2239_gemini_cli_krokodove_motion_pack_review.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_blended_ingest_search_graphics_scene"
+          }
         }
       ],
       "blended_scene": {
@@ -1806,7 +1932,101 @@
         "why": "Provide a mature image/metadata IO substrate for Photo page batches, frame extraction, color-managed still workflows, and media-ingest metadata.",
         "integration_boundary": "optional still/image-sequence metadata adapter behind Gemia media-library interfaces; keep ffmpeg/PIL fallbacks and deterministic tests"
       },
-      "next_action": "start resolve21_photo_page_batch_raw_grade"
+      "next_action": "start resolve21_blended_ingest_search_graphics_scene"
+    },
+    {
+      "id": "davinci_resolve_21_batch_005",
+      "status": "pending",
+      "source": "DaVinci Resolve 21 official/current feature refresh, seeded after batch_004 five-feature completion",
+      "searched_at": "2026-05-02 22:45 CST",
+      "sources": [
+        {
+          "title": "DaVinci Resolve 21 What's New",
+          "url": "https://www.blackmagicdesign.com/products/davinciresolve/whatsnew",
+          "notes": "Official feature source for Photo page, AI search/slate, MultiMaster, layer-list node graphs, Fairlight folders, Krokodove, immersive/VR workflows."
+        },
+        {
+          "title": "DaVinci Resolve 21 New Features Guide",
+          "url": "https://documents.blackmagicdesign.com/SupportNotes/DaVinci_Resolve_21_New_Features_Guide.pdf",
+          "notes": "Official guide source for Photo collaboration, LightBox, albums, tether/capture/live-view, and still-image workflows."
+        }
+      ],
+      "features": [
+        {
+          "id": "resolve21_photo_album_lightbox_tether_ingest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 expands Photo page album management, LightBox overview, and tethered Sony/Canon capture workflows.",
+          "done_when": [
+            "Gemia can create album/lightbox manifests from real stills or video-derived frames",
+            "two real ingest sets produce reviewable album, rating, tag, and tether-session metadata"
+          ]
+        },
+        {
+          "id": "resolve21_multimaster_trim_pass_manager",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds MultiMaster trim passes for multiple HDR/SDR deliverables from one timeline.",
+          "done_when": [
+            "Gemia can represent HDR/SDR trim-pass variants as linked deliverable metadata",
+            "two real timelines produce reviewable multi-master trim manifests"
+          ]
+        },
+        {
+          "id": "resolve21_layer_list_node_graph_versions",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 improves layer-list node graphs and group versions for color and compositing workflows.",
+          "done_when": [
+            "Gemia can serialize layer-list node graph versions with stable asset references",
+            "two real clips produce reviewable node graph/version manifests"
+          ]
+        },
+        {
+          "id": "resolve21_group_versions_color_workflow",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 optimizes group versions for color workflows across multiple clips.",
+          "done_when": [
+            "Gemia can apply and track group-level grade versions across related clips",
+            "two real clip groups produce reviewable group-version grade manifests"
+          ]
+        },
+        {
+          "id": "resolve21_immersive_vr_delivery_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 increases support for immersive and VR deliverable workflows.",
+          "done_when": [
+            "Gemia can emit immersive/VR delivery manifests with stereo/layout metadata",
+            "two real clips produce reviewable immersive delivery proxies or manifests"
+          ]
+        }
+      ],
+      "blended_scene": {
+        "id": "resolve21_blended_album_multimaster_vr_scene",
+        "status": "pending",
+        "workflow": [
+          "ingest real footage and still frames into album/lightbox metadata",
+          "register media through asset identity references",
+          "build layer-list node graph and group grade versions",
+          "create MultiMaster trim pass variants",
+          "emit an immersive/VR delivery review manifest"
+        ]
+      },
+      "architecture_integration": {
+        "id": "github_openassetio_asset_identity_backend",
+        "status": "pending",
+        "repo": "OpenAssetIO/OpenAssetIO",
+        "why": "Provide an optional asset identity/versioning boundary for albums, trim-pass outputs, node graph references, and immersive deliverable variants.",
+        "integration_boundary": "optional asset-identity adapter behind gemia.media_library; default to local SQLite manager and preserve path/fingerprint fallback",
+        "risks": [
+          "identity workflow adds no direct media processing",
+          "manager plugin scope creep",
+          "tests need deterministic fake-manager fixtures rather than external DAM state"
+        ]
+      },
+      "next_action": "wait for batch_004 blended scene and OpenImageIO architecture integration, then start resolve21_photo_album_lightbox_tether_ingest"
     }
   ],
   "seed_ready_checks": [
