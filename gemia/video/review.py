@@ -244,6 +244,7 @@ def _collect_manifest_findings(
     cinefocus_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".cinefocus.json"))
     motion_deblur_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".motion_deblur.json"))
     html_graphics_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".html_graphics.json"))
+    slate_id_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".slate_id.json"))
     if preview_manifest:
         manifest_output = str(preview_manifest.get("output_path", ""))
         if manifest_output and Path(manifest_output).expanduser().resolve() != Path(output_path):
@@ -259,6 +260,8 @@ def _collect_manifest_findings(
         _add_finding(findings, "info", "motion_deblur_metadata_recorded", "Motion Deblur metadata sidecar is attached.")
     elif html_graphics_metadata.get("effect") == "resolve21_html_graphics_lottie_support":
         _add_finding(findings, "info", "html_graphics_metadata_recorded", "HTML graphics metadata sidecar is attached.")
+    elif slate_id_metadata.get("effect") == "resolve21_ai_slate_id_metadata":
+        _add_finding(findings, "info", "slate_id_metadata_recorded", "Slate ID metadata sidecar is attached.")
     else:
         _add_finding(findings, "warning", "preview_manifest_missing", "No preview manifest was attached to the review.")
 
@@ -281,6 +284,12 @@ def _collect_manifest_findings(
             "html_graphics_alpha_recorded",
             f"HTML graphics metadata records {overlay_count} alpha overlays: {overlay_types}.",
         )
+    elif slate_id_metadata.get("effect") == "resolve21_ai_slate_id_metadata":
+        detection = slate_id_metadata.get("slate_detection", {}) if isinstance(slate_id_metadata.get("slate_detection"), dict) else {}
+        if detection.get("frames_with_slate", 0):
+            _add_finding(findings, "info", "slate_id_detected_recorded", "Slate ID metadata records detected slate frames.")
+        else:
+            _add_finding(findings, "info", "slate_id_no_slate_diagnostic_recorded", "Slate ID metadata records a no-slate diagnostic.")
     else:
         _add_finding(findings, "warning", "layer_flow_manifest_missing", "No layer-flow manifest was attached to the review.")
 

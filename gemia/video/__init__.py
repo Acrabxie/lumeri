@@ -155,6 +155,7 @@ from gemia.video.motion import (
     render_motion_trails,
 )
 from gemia.video.motion_deblur import MotionDeblurRenderResult, render_motion_deblur_plan
+from gemia.video.krokodove_motion_pack import KROKODOVE_NODE_PRESETS, KrokodoveMotionPackResult, render_krokodove_motion_pack
 from gemia.video.motion_graphics import (
     MotionGraphicsRenderResult,
     render_mg_formula_reveal,
@@ -179,6 +180,7 @@ from gemia.video.html_graphics import (
     HtmlGraphicsRenderResult, render_html_graphics_plan,
     render_html_frame, render_lottie_frame,
 )
+from gemia.video.photo_page import render_photo_page_batch_raw_grade
 from gemia.video.proxy import ProxyAsset, ProxyManager
 from gemia.video.backends import (
     BackendDecision, RenderBackend, RenderProfile, RenderResult,
@@ -231,6 +233,7 @@ __all__ = [
     "CineFocusRenderResult", "render_cinefocus_plan",
     "MotionRenderResult", "render_motion_heatmap", "render_motion_stabilize", "render_motion_trails",
     "MotionDeblurRenderResult", "render_motion_deblur_plan",
+    "KROKODOVE_NODE_PRESETS", "KrokodoveMotionPackResult", "render_krokodove_motion_pack",
     "MotionGraphicsRenderResult", "render_mg_formula_reveal", "render_mg_process_diagram", "render_mg_title_card",
     "BlenderLinkRenderResult", "blender_link_capabilities", "blender_link_status",
     "render_blender_link_operation", "render_blender_spatial_scene",
@@ -384,4 +387,5 @@ from gemia.video.effects import video_polar_sheen, video_lantern_drift
 __all__.extend([
     "video_polar_sheen",
     "video_lantern_drift",
+    "render_photo_page_batch_raw_grade",
 ])
