@@ -488,3 +488,34 @@ from gemia.video.finaldraft_intelliscript import render_finaldraft_intelliscript
 __all__.extend([
     "render_finaldraft_intelliscript_ingest_manifest",
 ])
+from gemia.video.blended_immersive_delivery_pip_script_scene import render_blended_immersive_delivery_pip_script_scene
+__all__.extend([
+    "render_blended_immersive_delivery_pip_script_scene",
+])
+from gemia.video.magic_mask_cache import render_magic_mask_render_in_place_cache_manifest
+
+__all__.extend([
+    "render_magic_mask_render_in_place_cache_manifest",
+])
+from gemia.video.media_pool_tags import render_media_pool_rating_tagging_columns_manifest
+
+__all__.extend([
+    "render_media_pool_rating_tagging_columns_manifest",
+])
+
+# batch_008 exports
+from gemia.video.social_delivery import render_vertical_social_resolution_delivery_manifest
+
+__all__.extend([
+    "render_vertical_social_resolution_delivery_manifest",
+])
+from gemia.video.social_upload import render_social_media_upload_preset_manifest
+
+__all__.extend([
+    "render_social_media_upload_preset_manifest",
+])
+from gemia.video.atem_mini_import import render_atem_mini_project_import_timeline_manifest
+
+__all__.extend([
+    "render_atem_mini_project_import_timeline_manifest",
+])
