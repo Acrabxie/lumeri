@@ -420,3 +420,34 @@ from gemia.video.immersive_vr import render_immersive_vr_delivery_manifest
 __all__.extend([
     "render_immersive_vr_delivery_manifest",
 ])
+
+from gemia.video.blended_album_multimaster_vr_scene import render_blended_album_multimaster_vr_scene
+
+__all__.extend([
+    "render_blended_album_multimaster_vr_scene",
+])
+from gemia.video.fusion_macro_inspector import render_fusion_macro_editor_inspector_manifest
+
+__all__.extend([
+    "render_fusion_macro_editor_inspector_manifest",
+])
+from gemia.video.audio_driven_fusion import render_audio_driven_fusion_animation
+
+__all__.extend([
+    "render_audio_driven_fusion_animation",
+])
+from gemia.video.fusion_usd_hydra import render_fusion_usd_hydra_toolset_manifest
+
+__all__.extend([
+    "render_fusion_usd_hydra_toolset_manifest",
+])
+from gemia.video.fairlight_clip_eq import render_fairlight_6band_clip_eq
+
+__all__.extend([
+    "render_fairlight_6band_clip_eq",
+])
+from gemia.video.fairlight_chainfx import render_fairlight_eq_level_match_chainfx
+
+__all__.extend([
+    "render_fairlight_eq_level_match_chainfx",
+])

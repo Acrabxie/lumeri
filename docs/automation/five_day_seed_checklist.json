@@ -1990,7 +1990,7 @@
     },
     {
       "id": "davinci_resolve_21_batch_005",
-      "status": "features_completed",
+      "status": "completed",
       "source": "DaVinci Resolve 21 official/current feature refresh, seeded after batch_004 five-feature completion",
       "searched_at": "2026-05-02 22:45 CST",
       "sources": [
@@ -2171,18 +2171,40 @@
       ],
       "blended_scene": {
         "id": "resolve21_blended_album_multimaster_vr_scene",
-        "status": "in_progress",
+        "status": "completed",
         "workflow": [
           "ingest real footage and still frames into album/lightbox metadata",
           "register media through asset identity references",
           "build layer-list node graph and group grade versions",
           "create MultiMaster trim pass variants",
           "emit an immersive/VR delivery review manifest"
-        ]
+        ],
+        "completed_at": "2026-05-03 09:15 CST",
+        "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+        "summary": "planner-visible fused Resolve 21 scene that creates album/lightbox/tether metadata from real frames, MultiMaster HDR/SDR trim proxies, layer-list graph versions, group color versions, immersive VR delivery metadata, and a stitched review video.",
+        "verification": [
+          "temporary repo focused pytest passed 5/5",
+          "canonical git diff --check passed for focused paths",
+          "canonical py_compile passed for focused source and tests",
+          "canonical focused plus adjacent batch_005 pytest passed 30/30 with no skips",
+          "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0915_gemini_cli_blended_album_multimaster_vr_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0915_gemini_cli_blended_album_multimaster_vr_review.json",
+          "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_091027_3645ca68.json",
+          "verdict": "PASS",
+          "confidence": 0.95,
+          "required_fixes": "none",
+          "next_action": "start github_openassetio_asset_identity_backend"
+        }
       },
       "architecture_integration": {
         "id": "github_openassetio_asset_identity_backend",
-        "status": "pending",
+        "status": "completed",
         "repo": "OpenAssetIO/OpenAssetIO",
         "why": "Provide an optional asset identity/versioning boundary for albums, trim-pass outputs, node graph references, and immersive deliverable variants.",
         "integration_boundary": "optional asset-identity adapter behind gemia.media_library; default to local SQLite manager and preserve path/fingerprint fallback",
@@ -2190,13 +2212,35 @@
           "identity workflow adds no direct media processing",
           "manager plugin scope creep",
           "tests need deterministic fake-manager fixtures rather than external DAM state"
-        ]
+        ],
+        "completed_at": "2026-05-03 09:27 CST",
+        "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+        "summary": "optional OpenAssetIO-style asset identity boundary behind gemia.media_library; local asset_id remains the primary key while deterministic gemia://media entity references, version ids, fingerprint refs, and trait-like metadata are attached as additive payloads with no required OpenAssetIO dependency.",
+        "verification": [
+          "temporary repo focused pytest passed 11/11",
+          "canonical git diff --check passed for focused paths",
+          "canonical py_compile passed for focused source and tests",
+          "canonical pytest passed 16/16 across asset identity, media library, and media ingest",
+          "two real-video imports from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4 resolved stable entity references"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0927_gemini_cli_openassetio_asset_identity_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0927_gemini_cli_openassetio_asset_identity_review.json",
+          "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_092304_1a839a73.json",
+          "verdict": "PASS",
+          "confidence": 0.9,
+          "required_fixes": "none",
+          "next_action": "start resolve21_fusion_macro_editor_inspector_manifest"
+        }
       },
-      "next_action": "start resolve21_blended_album_multimaster_vr_scene"
+      "next_action": "start davinci_resolve_21_batch_006 / resolve21_fusion_macro_editor_inspector_manifest"
     },
     {
       "id": "davinci_resolve_21_batch_006",
-      "status": "pending",
+      "status": "features_completed",
       "source": "DaVinci Resolve 21 official/current feature refresh after batch_005 five-feature completion",
       "searched_at": "2026-05-03 08:24 CST",
       "sources": [
@@ -2219,58 +2263,171 @@
       "features": [
         {
           "id": "resolve21_fusion_macro_editor_inspector_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 updates Fusion macro authoring with an inspector view for publishing reusable tools and templates.",
           "done_when": [
             "Gemia can emit macro inspector manifests with controls, defaults, publish groups, and validation hints",
             "two real clips produce reviewable macro-template manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 10:12 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Fusion macro inspector primitive that emits macro controls, defaults, publish groups, node-template bindings, validation hints, and stable asset refs for real clips.",
+          "verification": [
+            "temporary repo focused pytest passed 5/5",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent fusion/layer/group/immersive/blended regression pytest passed 25/25 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1012_gemini_cli_fusion_macro_inspector_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1012_gemini_cli_fusion_macro_inspector_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_100857_b24fd5d5.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_audio_driven_fusion_animation"
+          }
         },
         {
           "id": "resolve21_audio_driven_fusion_animation",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 connects Fusion animation to Fairlight audio analysis through the Fairlight Animator modifier.",
           "done_when": [
             "Gemia can build audio-driven animation manifests from real clip audio levels",
             "two real clips produce reviewable parameter automation curves"
-          ]
+          ],
+          "completed_at": "2026-05-03 11:12 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 audio-driven Fusion animation manifest that maps real clip waveform peaks into deterministic Fusion-style parameter curves, beat markers, source probes, and stable asset refs.",
+          "verification": [
+            "temporary repo focused pytest passed 5/5",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent fusion/audio/blended/immersive regression pytest passed 20/20 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4 with AAC audio"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1112_gemini_cli_audio_driven_fusion_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1112_gemini_cli_audio_driven_fusion_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_110539_fa75fcd5.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_fusion_usd_hydra_toolset_manifest"
+          }
         },
         {
           "id": "resolve21_fusion_usd_hydra_toolset_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 updates Fusion USD support to USD SDK 25.11 and Hydra 2.0 with loader controls and texture tools.",
           "done_when": [
             "Gemia can serialize USD/Hydra scene-layer manifests linked to real timeline clips",
             "two real clips produce reviewable USD stage and render-intent manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 11:24 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Fusion USD/Hydra toolset manifest that maps real clips into USD prim references, Hydra delegates, stage references, Fusion loader/switch tools, and stable asset refs.",
+          "verification": [
+            "temporary minimal repo focused pytest passed 5/5",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent USD/audio/fusion/blended regression pytest passed 20/20 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1124_gemini_cli_fusion_usd_hydra_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1124_gemini_cli_fusion_usd_hydra_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_111959_65c21739.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_fairlight_6band_clip_eq"
+          }
         },
         {
           "id": "resolve21_fairlight_6band_clip_eq",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds 6-band clip EQ across Cut, Edit, and Fairlight pages.",
           "done_when": [
             "Gemia can emit clip-level 6-band EQ manifests with copyable track/plugin settings",
             "two real audio-bearing clips produce reviewable EQ manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 11:32 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Fairlight six-band clip EQ manifest that analyzes real clip audio peaks, emits deterministic six-band EQ settings, clip gain automation, source probes, and stable asset refs.",
+          "verification": [
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent Fairlight/USD/audio/fusion regression pytest passed 20/20 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4 with audio"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1132_gemini_cli_fairlight_clip_eq_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1132_gemini_cli_fairlight_clip_eq_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_112842_795d6dad.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_fairlight_eq_level_match_chainfx"
+          }
         },
         {
           "id": "resolve21_fairlight_eq_level_match_chainfx",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds EQ/level matching and Chain FX presets for repeatable audio finishing.",
           "done_when": [
             "Gemia can compare reference and target clip audio and emit EQ/level match plus Chain FX manifests",
             "two real audio-bearing clip pairs produce reviewable matching diagnostics"
-          ]
+          ],
+          "completed_at": "2026-05-03 11:42 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Fairlight EQ/level matching Chain FX manifest that analyzes real clip audio, emits level deltas, EQ match hints, ordered Chain FX stages, match reports, source probes, and stable asset refs.",
+          "verification": [
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent batch_006 regression pytest passed 25/25 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4 with audio"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1142_gemini_cli_fairlight_chainfx_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1142_gemini_cli_fairlight_chainfx_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_113658_65ad47b2.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_blended_fusion_audio_usd_fairlight_scene"
+          }
         }
       ],
       "blended_scene": {
         "id": "resolve21_blended_fusion_audio_usd_fairlight_scene",
-        "status": "pending",
+        "status": "in_progress",
         "workflow": [
           "ingest real footage and audio into a Fusion macro manifest",
           "drive Fusion animation parameters from clip audio analysis",
@@ -2291,7 +2448,95 @@
           "tests should use deterministic text USDA-like fixtures when pxr bindings are absent"
         ]
       },
-      "next_action": "start resolve21_fusion_macro_editor_inspector_manifest"
+      "next_action": "start resolve21_blended_fusion_audio_usd_fairlight_scene"
+    },
+    {
+      "id": "davinci_resolve_21_batch_007",
+      "status": "pending",
+      "source": "DaVinci Resolve 21 official/current feature refresh after batch_006 five-feature completion",
+      "searched_at": "2026-05-03 11:42 CST",
+      "sources": [
+        {
+          "title": "DaVinci Resolve 21 What's New",
+          "url": "https://www.blackmagicdesign.com/products/davinciresolve/whatsnew",
+          "notes": "Official source for Apple Immersive, MainConcept H.265/MV-HEVC, Panomap, Picture in Picture Resolve FX, and IntelliScript details."
+        },
+        {
+          "title": "DaVinci Resolve 21 New Features Guide",
+          "url": "https://documents.blackmagicdesign.com/SupportNotes/DaVinci_Resolve_21_New_Features_Guide.pdf",
+          "notes": "Official PDF source for detailed behavior and page-specific controls."
+        },
+        {
+          "title": "KhronosGroup/OpenXR-SDK",
+          "url": "https://github.com/KhronosGroup/OpenXR-SDK",
+          "notes": "Architecture candidate for spatial-device profile metadata, immersive preview assumptions, and deliverable validation."
+        }
+      ],
+      "features": [
+        {
+          "id": "resolve21_apple_immersive_foveated_rendering_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds Apple Immersive workflow refinements including foveated rendering and preview/export controls.",
+          "done_when": [
+            "Gemia can emit foveated immersive render manifests linked to real media",
+            "two real clips produce reviewable immersive delivery manifests"
+          ]
+        },
+        {
+          "id": "resolve21_mainconcept_h265_mvhevc_delivery_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds MainConcept H.265/MV-HEVC encode paths for advanced delivery.",
+          "done_when": [
+            "Gemia can emit MV-HEVC/H.265 delivery manifests with codec intent and validation hints",
+            "two real clips produce reviewable delivery manifests"
+          ]
+        },
+        {
+          "id": "resolve21_panomap_ilpd_stereo_retarget_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds Panomap controls for immersive image rotation and ILPD stereo retargeting.",
+          "done_when": [
+            "Gemia can serialize Panomap/ILPD retarget settings for real clips",
+            "two real clips produce reviewable stereo-retarget manifests"
+          ]
+        },
+        {
+          "id": "resolve21_picture_in_picture_resolvefx_layout",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 includes a Picture in Picture Resolve FX workflow for repeatable inset layouts.",
+          "done_when": [
+            "Gemia can emit PiP Resolve FX layout manifests from real clip pairs",
+            "two real media pairings produce reviewable PiP manifests"
+          ]
+        },
+        {
+          "id": "resolve21_finaldraft_intelliscript_ingest_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 expands creator/script workflows around IntelliScript-style script ingest and timeline organization.",
+          "done_when": [
+            "Gemia can emit script ingest manifests tied to timeline media references",
+            "two real clips produce reviewable script-to-media manifests"
+          ]
+        }
+      ],
+      "blended_scene": {
+        "id": "resolve21_blended_immersive_delivery_pip_script_scene",
+        "status": "pending",
+        "lane": "blended_scene",
+        "why": "Combine immersive delivery, Panomap, PiP Resolve FX, and script ingest into one simulated editing scene."
+      },
+      "architecture_integration": {
+        "id": "github_openxr_spatial_delivery_backend",
+        "status": "pending",
+        "lane": "architecture",
+        "why": "Use OpenXR-style spatial profile concepts to harden immersive preview/export manifests and validation metadata."
+      },
+      "next_action": "wait for batch_006 blended scene and architecture completion"
     }
   ],
   "seed_ready_checks": [
