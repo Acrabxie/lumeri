@@ -1,8 +1,10 @@
-# Gemia
+# Lumeri
 
 **AI creative workflow engine** — not an editor, not a plugin. A programmable layer where AI plans and executes video/image/audio operations through composable primitive functions.
 
-Codex brought AI into the programmer's workflow. Gemia does the same for creative work.
+Codex brought AI into the programmer's workflow. Lumeri does the same for creative work.
+
+The public product and GitHub repository name is **Lumeri**. The Python package and some internal paths still use the historical engineering name `gemia`.
 
 ---
 
@@ -22,7 +24,7 @@ Picture functions automatically work on video — the engine extracts frames, ap
 
 ## Nano Banana — AI Image Generation
 
-Gemia integrates Gemini image generation as native primitives. The AI planner can call these the same way it calls any other primitive.
+Lumeri integrates Gemini image generation as native primitives. The AI planner can call these the same way it calls any other primitive.
 
 | Function | Description |
 |----------|-------------|
@@ -89,7 +91,7 @@ Skills now record which models were used and expose adjustable parameters:
 
 ### 3. Orchestrator
 
-Describe what you want in natural language. Gemia sends your prompt + the full function catalog to Gemini. The AI returns a structured plan (not code, not ffmpeg commands). The engine executes it.
+Describe what you want in natural language. Lumeri sends your prompt + the full function catalog to Gemini. The AI returns a structured plan (not code, not ffmpeg commands). The engine executes it.
 
 If the prompt is vague, the AI asks clarifying questions first (Ask mechanism).
 
@@ -98,7 +100,7 @@ If the prompt is vague, the AI asks clarifying questions first (Ask mechanism).
 ## Install
 
 ```bash
-git clone https://github.com/nicekate/gemia.git && cd gemia
+git clone https://github.com/Acrabxie/lumeri.git && cd lumeri
 
 # Python 3.12+, ffmpeg required
 pip install -e .
@@ -267,6 +269,15 @@ User prompt
 - `GEMINI_API_KEY` (required for Nano Banana image generation)
 - `LAOZHANG_API_KEY` (required for Veo video generation)
 - `OPENROUTER_MODEL` (optional, default `google/gemini-2.5-flash`)
+
+## Contributors
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+- Acrabxie
+- Claude
+- chatgpt（codex）
+- Gemini
 
 ## License
 
