@@ -2240,7 +2240,7 @@
     },
     {
       "id": "davinci_resolve_21_batch_006",
-      "status": "features_completed",
+      "status": "completed",
       "source": "DaVinci Resolve 21 official/current feature refresh after batch_005 five-feature completion",
       "searched_at": "2026-05-03 08:24 CST",
       "sources": [
@@ -2427,18 +2427,40 @@
       ],
       "blended_scene": {
         "id": "resolve21_blended_fusion_audio_usd_fairlight_scene",
-        "status": "in_progress",
+        "status": "completed",
         "workflow": [
           "ingest real footage and audio into a Fusion macro manifest",
           "drive Fusion animation parameters from clip audio analysis",
           "register scene context through a USD/Hydra stage manifest",
           "apply Fairlight 6-band EQ and level matching",
           "emit a Chain FX and blended review package"
-        ]
+        ],
+        "completed_at": "2026-05-03 12:17 CST",
+        "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+        "summary": "planner-visible Resolve 21 blended scene that links Fusion macro inspector, audio-driven Fusion automation, USD/Hydra stage metadata, Fairlight 6-band EQ, and Chain FX level matching into one real-media review mp4 plus metadata package.",
+        "verification": [
+          "canonical git diff --check passed for focused paths",
+          "canonical py_compile passed for focused source and tests",
+          "canonical focused pytest passed 4/4 with no skips",
+          "adjacent batch_006 regression pytest passed 29/29 with no skips",
+          "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1217_gemini_cli_blended_fusion_audio_usd_fairlight_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1217_gemini_cli_blended_fusion_audio_usd_fairlight_review.json",
+          "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_121319_0f440863.json",
+          "verdict": "PASS",
+          "confidence": 1.0,
+          "required_fixes": "none",
+          "next_action": "start github_openusd_stage_identity_backend"
+        }
       },
       "architecture_integration": {
         "id": "github_openusd_stage_identity_backend",
-        "status": "pending",
+        "status": "completed",
         "repo": "PixarAnimationStudios/OpenUSD",
         "why": "Provide optional USD stage/layer identity metadata for Fusion USD/Hydra scenes and immersive/fairlight blended review packages.",
         "integration_boundary": "optional JSON/USD-stage adapter behind new Gemia scene metadata helpers; no mandatory OpenUSD runtime dependency for default tests",
@@ -2446,13 +2468,35 @@
           "native OpenUSD build is heavy",
           "USD schema scope can sprawl beyond manifest identity",
           "tests should use deterministic text USDA-like fixtures when pxr bindings are absent"
-        ]
+        ],
+        "completed_at": "2026-05-03 12:29 CST",
+        "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_codex_takeover_review",
+        "summary": "optional OpenUSD-style stage identity backend that derives stable stage, layer, prim, payload, USDA-like, and Gemia entity-reference metadata from Fusion USD/Hydra manifests without requiring pxr/OpenUSD at runtime.",
+        "verification": [
+          "canonical git diff --check passed for focused paths",
+          "canonical py_compile passed for focused source and tests",
+          "canonical focused pytest passed 4/4 with no skips",
+          "adjacent OpenUSD/Fusion/USD/blended/asset identity regression pytest passed 18/18 with no skips",
+          "two real-video reproductions through fusion_usd_hydra manifests from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1229_codex_takeover_openusd_stage_identity_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_codex_takeover_after_antigravity_bridge_failure_and_gemini_cli_instability",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1229_codex_takeover_openusd_stage_identity_review.json",
+          "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_122406_6460b3b8.json",
+          "verdict": "PASS",
+          "confidence": 0.95,
+          "required_fixes": "none",
+          "next_action": "start resolve21_apple_immersive_foveated_rendering_manifest"
+        }
       },
-      "next_action": "start resolve21_blended_fusion_audio_usd_fairlight_scene"
+      "next_action": "start resolve21_apple_immersive_foveated_rendering_manifest"
     },
     {
       "id": "davinci_resolve_21_batch_007",
-      "status": "pending",
+      "status": "in_progress",
       "source": "DaVinci Resolve 21 official/current feature refresh after batch_006 five-feature completion",
       "searched_at": "2026-05-03 11:42 CST",
       "sources": [
@@ -2475,58 +2519,171 @@
       "features": [
         {
           "id": "resolve21_apple_immersive_foveated_rendering_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds Apple Immersive workflow refinements including foveated rendering and preview/export controls.",
           "done_when": [
             "Gemia can emit foveated immersive render manifests linked to real media",
             "two real clips produce reviewable immersive delivery manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 14:06 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_codex_takeover_review",
+          "summary": "planner-visible Apple Immersive foveated rendering manifest helper that validates real input media, derives stable asset refs from probes, and emits preview/export passes with eye-buffer, field-of-view, center/mid/periphery foveation, Resolve control, and validation metadata.",
+          "verification": [
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests with redirected bytecode cache",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent immersive/Fusion/USD regression pytest passed 28/28 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1313_codex_takeover_apple_immersive_foveated_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_codex_takeover_after_antigravity_bridge_failure_and_gemini_cli_instability",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1313_codex_takeover_apple_immersive_foveated_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_131033_d50c2d44.json",
+            "verdict": "PASS",
+            "confidence": 0.94,
+            "required_fixes": "none",
+            "next_action": "start resolve21_mainconcept_h265_mvhevc_delivery_manifest"
+          }
         },
         {
           "id": "resolve21_mainconcept_h265_mvhevc_delivery_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds MainConcept H.265/MV-HEVC encode paths for advanced delivery.",
           "done_when": [
             "Gemia can emit MV-HEVC/H.265 delivery manifests with codec intent and validation hints",
             "two real clips produce reviewable delivery manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 15:16 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_gemini_review",
+          "summary": "planner-visible Resolve 21 MainConcept H.265/MV-HEVC delivery manifest that links real media to stable asset refs, H.265/Main10 and MV-HEVC encode-intent profiles, Resolve Deliver-page controls, bitrate/GOP/audio settings, and validation metadata without requiring a MainConcept runtime.",
+          "verification": [
+            "helper script py_compile passed and stayed under the 400-line cap",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent Apple immersive/immersive VR/Fusion/OpenUSD regression pytest passed 23/23 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1516_gemini_cli_mainconcept_delivery_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1516_gemini_cli_mainconcept_delivery_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_151103_5fb13c02.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_panomap_ilpd_stereo_retarget_manifest"
+          }
         },
         {
           "id": "resolve21_panomap_ilpd_stereo_retarget_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds Panomap controls for immersive image rotation and ILPD stereo retargeting.",
           "done_when": [
             "Gemia can serialize Panomap/ILPD retarget settings for real clips",
             "two real clips produce reviewable stereo-retarget manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 16:05 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_gemini_review",
+          "summary": "planner-visible Resolve 21 Panomap/ILPD stereo retarget manifest that links real media to stable asset refs, serializes yaw/pitch/roll/FOV controls plus ILPD, convergence, parallax, and comfort metadata, and clamps unsafe retarget values without requiring a Panomap runtime.",
+          "verification": [
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent immersive/delivery/Fusion/OpenUSD regression pytest passed 29/29 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1605_gemini_cli_panomap_ilpd_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1605_gemini_cli_panomap_ilpd_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_152101_d815f44c.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_picture_in_picture_resolvefx_layout"
+          }
         },
         {
           "id": "resolve21_picture_in_picture_resolvefx_layout",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 includes a Picture in Picture Resolve FX workflow for repeatable inset layouts.",
           "done_when": [
             "Gemia can emit PiP Resolve FX layout manifests from real clip pairs",
             "two real media pairings produce reviewable PiP manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 16:20 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_gemini_review",
+          "summary": "planner-visible Resolve 21 Picture in Picture Resolve FX layout manifest that links real background/inset media to stable asset refs, serializes anchor, size, border, radius, shadow, track, and sync-duration controls, and clamps unsafe layout values without requiring a Resolve runtime.",
+          "verification": [
+            "helper script py_compile passed and stayed under the 400-line cap",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent batch_007 regression pytest passed 34/34 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4 in both source/inset orders"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1620_gemini_cli_pip_resolvefx_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1620_gemini_cli_pip_resolvefx_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_161114_7f4e2ff3.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_finaldraft_intelliscript_ingest_manifest"
+          }
         },
         {
           "id": "resolve21_finaldraft_intelliscript_ingest_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 expands creator/script workflows around IntelliScript-style script ingest and timeline organization.",
           "done_when": [
             "Gemia can emit script ingest manifests tied to timeline media references",
             "two real clips produce reviewable script-to-media manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 16:26 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification_and_gemini_review",
+          "summary": "planner-visible Resolve 21 Final Draft IntelliScript ingest manifest that links real media to stable asset refs, parses scene headings, maps script beats to timeline bins/markers/clip assignments, and records script fingerprints without requiring an external Final Draft parser.",
+          "verification": [
+            "helper script py_compile passed and stayed under the 400-line cap",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent batch_007 regression pytest passed 39/39 with no skips",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1626_gemini_cli_finaldraft_intelliscript_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_1626_gemini_cli_finaldraft_intelliscript_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_162130_6d02b088.json",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_blended_immersive_delivery_pip_script_scene"
+          }
         }
       ],
       "blended_scene": {
         "id": "resolve21_blended_immersive_delivery_pip_script_scene",
-        "status": "pending",
+        "status": "in_progress",
         "lane": "blended_scene",
         "why": "Combine immersive delivery, Panomap, PiP Resolve FX, and script ingest into one simulated editing scene."
       },
@@ -2536,7 +2693,95 @@
         "lane": "architecture",
         "why": "Use OpenXR-style spatial profile concepts to harden immersive preview/export manifests and validation metadata."
       },
-      "next_action": "wait for batch_006 blended scene and architecture completion"
+      "next_action": "start resolve21_blended_immersive_delivery_pip_script_scene"
+    },
+    {
+      "id": "davinci_resolve_21_batch_008",
+      "status": "pending",
+      "source": "DaVinci Resolve 21 official/current feature refresh after batch_007 five-feature completion",
+      "searched_at": "2026-05-03 16:32 CST",
+      "sources": [
+        {
+          "title": "DaVinci Resolve 21 What's New",
+          "url": "https://www.blackmagicdesign.com/products/davinciresolve/whatsnew",
+          "notes": "Official source for Magic Mask render in place, rating/tagging columns, vertical/social resolutions, social upload, ATEM Mini project import, advanced noise reduction, optical flow, and tracker/follow-object updates."
+        },
+        {
+          "title": "DaVinci Resolve 21 New Features Guide",
+          "url": "https://documents.blackmagicdesign.com/SupportNotes/DaVinci_Resolve_21_New_Features_Guide.pdf",
+          "notes": "Official detailed guide for page-specific Resolve 21 workflow behavior."
+        },
+        {
+          "title": "AcademySoftwareFoundation/OpenTimelineIO",
+          "url": "https://github.com/AcademySoftwareFoundation/OpenTimelineIO",
+          "notes": "Architecture candidate for editorial timeline package metadata, markers, media references, adapters, and Resolve interchange concepts."
+        }
+      ],
+      "features": [
+        {
+          "id": "resolve21_magic_mask_render_in_place_cache_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds Magic Mask render-in-place caching for tracked masks and lighter grading playback.",
+          "done_when": [
+            "Gemia can serialize tracked-mask cache metadata tied to real clips",
+            "two real clips produce reviewable render-in-place mask cache manifests"
+          ]
+        },
+        {
+          "id": "resolve21_media_pool_rating_tagging_columns_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds media pool rating and shot/scene tagging columns for stronger take organization.",
+          "done_when": [
+            "Gemia can emit rating/tagging metadata manifests for real media assets",
+            "two real clips produce reviewable take-selection manifests"
+          ]
+        },
+        {
+          "id": "resolve21_vertical_social_resolution_delivery_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds square and vertical timeline/project resolutions for social delivery workflows.",
+          "done_when": [
+            "Gemia can emit vertical/square delivery layout manifests linked to real clips",
+            "two real clips produce reviewable social-resolution manifests"
+          ]
+        },
+        {
+          "id": "resolve21_social_media_upload_preset_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 includes direct upload workflows with platform-specific compression settings.",
+          "done_when": [
+            "Gemia can serialize safe upload preset metadata without storing account credentials",
+            "two real clips produce reviewable platform-delivery preset manifests"
+          ]
+        },
+        {
+          "id": "resolve21_atem_mini_project_import_timeline_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 can import ATEM Mini ISO live production projects as editable timelines.",
+          "done_when": [
+            "Gemia can emit ATEM ISO project ingest and relink manifests for real media",
+            "two real clips produce reviewable multicam/live-project ingest manifests"
+          ]
+        }
+      ],
+      "blended_scene": {
+        "id": "resolve21_blended_mask_tags_social_atem_scene",
+        "status": "pending",
+        "lane": "blended_scene",
+        "why": "Combine Magic Mask cache, take tagging, vertical delivery, social presets, and ATEM import into one simulated creator/live-event scene."
+      },
+      "architecture_integration": {
+        "id": "github_opentimelineio_timeline_package_backend",
+        "status": "pending",
+        "lane": "architecture",
+        "why": "Use OpenTimelineIO concepts to harden Gemia timeline packages, media references, markers, and interchange metadata for Resolve-style workflows."
+      },
+      "next_action": "start resolve21_magic_mask_render_in_place_cache_manifest"
     }
   ],
   "seed_ready_checks": [

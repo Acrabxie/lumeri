@@ -162,6 +162,15 @@ from gemia.video.motion_graphics import (
     render_mg_process_diagram,
     render_mg_title_card,
 )
+from gemia.video.ad_graphics import (
+    AdGraphicsRenderResult,
+    compose_overlay_on_video,
+    render_ad_title_pack,
+    render_cta_card,
+    render_lower_third,
+    render_product_callout,
+    render_shimmer_sweep,
+)
 from gemia.video.blender_link import (
     BlenderLinkRenderResult,
     blender_link_capabilities,
@@ -236,6 +245,9 @@ __all__ = [
     "MotionDeblurRenderResult", "render_motion_deblur_plan",
     "KROKODOVE_NODE_PRESETS", "KrokodoveMotionPackResult", "render_krokodove_motion_pack",
     "MotionGraphicsRenderResult", "render_mg_formula_reveal", "render_mg_process_diagram", "render_mg_title_card",
+    "AdGraphicsRenderResult", "render_ad_title_pack", "render_lower_third",
+    "render_cta_card", "render_product_callout", "render_shimmer_sweep",
+    "compose_overlay_on_video",
     "BlenderLinkRenderResult", "blender_link_capabilities", "blender_link_status",
     "render_blender_link_operation", "render_blender_spatial_scene",
     "UltraSharpenRenderResult", "render_ultrasharpen_plan",
@@ -450,4 +462,29 @@ from gemia.video.fairlight_chainfx import render_fairlight_eq_level_match_chainf
 
 __all__.extend([
     "render_fairlight_eq_level_match_chainfx",
+])
+from gemia.video.apple_immersive_foveated import render_apple_immersive_foveated_rendering_manifest
+
+__all__.extend([
+    "render_apple_immersive_foveated_rendering_manifest",
+])
+from gemia.video.mainconcept_delivery import render_mainconcept_h265_mvhevc_delivery_manifest
+
+__all__.extend([
+    "render_mainconcept_h265_mvhevc_delivery_manifest",
+])
+from gemia.video.panomap_ilpd import render_panomap_ilpd_stereo_retarget_manifest
+
+__all__.extend([
+    "render_panomap_ilpd_stereo_retarget_manifest",
+])
+from gemia.video.picture_in_picture_resolvefx import render_picture_in_picture_resolvefx_layout
+
+__all__.extend([
+    "render_picture_in_picture_resolvefx_layout",
+])
+from gemia.video.finaldraft_intelliscript import render_finaldraft_intelliscript_ingest_manifest
+
+__all__.extend([
+    "render_finaldraft_intelliscript_ingest_manifest",
 ])
