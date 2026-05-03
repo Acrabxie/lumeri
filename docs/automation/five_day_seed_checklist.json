@@ -1734,7 +1734,7 @@
     },
     {
       "id": "davinci_resolve_21_batch_004",
-      "status": "in_progress",
+      "status": "completed",
       "source": "DaVinci Resolve 21 current feature scan, seeded after batch_003 five-feature completion",
       "features": [
         {
@@ -1916,27 +1916,81 @@
       ],
       "blended_scene": {
         "id": "resolve21_blended_ingest_search_graphics_scene",
-        "status": "pending",
+        "status": "completed",
         "workflow": [
           "ingest real footage and still frames",
           "extract slate/media metadata",
           "query with AI IntelliSearch style ranking",
           "group audio assets as folder tracks",
           "render a Fusion-style graphics review clip"
-        ]
+        ],
+        "completed_at": "2026-05-03 00:11 CST",
+        "implemented_by": "gemini_cli_with_codex_takeover_review",
+        "summary": "Added a blended ingest/search/graphics review scene that reuses Photo Page still grading, Slate ID metadata, IntelliSearch ranking, Fairlight folder-track grouping, and Krokodove/Fusion-style graphics rendering on real footage.",
+        "implemented_paths": [
+          "gemia/video/ingest_search_graphics_scene.py",
+          "gemia/video/__init__.py",
+          "tests/test_video/test_ingest_search_graphics_scene.py"
+        ],
+        "verification": [
+          "py_compile",
+          "git diff --check",
+          "focused pytest 5 passed",
+          "two local real-video reproductions through inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0011_codex_takeover_blended_ingest_search_graphics_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_codex_takeover_review",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0011_codex_takeover_blended_ingest_search_graphics_review.json",
+          "verdict": "PASS",
+          "confidence": 0.88,
+          "required_fixes": "none",
+          "note": "Gemini independent review timed out; Codex source review took over after green verification.",
+          "next_action": "start github_openimageio_media_ingest_backend"
+        }
       },
       "architecture_integration": {
         "id": "github_openimageio_media_ingest_backend",
-        "status": "pending",
+        "status": "completed",
         "repo": "AcademySoftwareFoundation/OpenImageIO",
         "why": "Provide a mature image/metadata IO substrate for Photo page batches, frame extraction, color-managed still workflows, and media-ingest metadata.",
-        "integration_boundary": "optional still/image-sequence metadata adapter behind Gemia media-library interfaces; keep ffmpeg/PIL fallbacks and deterministic tests"
+        "integration_boundary": "optional still/image-sequence metadata adapter behind Gemia media-library interfaces; keep ffmpeg/PIL fallbacks and deterministic tests",
+        "completed_at": "2026-05-03 04:10 CST",
+        "implemented_by": "gemini_cli_with_codex_verification",
+        "summary": "Added an optional OpenImageIO/Pillow/OpenCV still metadata ingest substrate, deterministic image-sequence manifests, media-library image_ingest metadata merge, strict asset-id validation, and cache filename traversal protection.",
+        "implemented_paths": [
+          "gemia/media_ingest.py",
+          "gemia/media_library.py",
+          "tests/test_media_ingest.py",
+          "tests/test_media_library.py"
+        ],
+        "verification": [
+          "git diff --check passed for focused paths",
+          "py_compile passed for focused source and tests",
+          "focused pytest passed 11/11",
+          "two real-video frame import reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+        ],
+        "review_artifacts": [
+          "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0410_gemini_cli_openimageio_media_ingest_review.json"
+        ],
+        "antigravity_review": {
+          "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+          "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0410_gemini_cli_openimageio_media_ingest_review.json",
+          "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_0324_openimageio_media_ingest_review.json",
+          "verdict": "PASS",
+          "confidence": 0.95,
+          "required_fixes": "none",
+          "note": "Antigravity bridge failed from OpenClaw/OpenRouter network error and Claude fallback login state; Gemini independent review passed.",
+          "next_action": "start davinci_resolve_21_batch_005 / resolve21_photo_album_lightbox_tether_ingest"
+        }
       },
-      "next_action": "start resolve21_blended_ingest_search_graphics_scene"
+      "next_action": "start davinci_resolve_21_batch_005 / resolve21_photo_album_lightbox_tether_ingest"
     },
     {
       "id": "davinci_resolve_21_batch_005",
-      "status": "pending",
+      "status": "features_completed",
       "source": "DaVinci Resolve 21 official/current feature refresh, seeded after batch_004 five-feature completion",
       "searched_at": "2026-05-02 22:45 CST",
       "sources": [
@@ -1954,58 +2008,170 @@
       "features": [
         {
           "id": "resolve21_photo_album_lightbox_tether_ingest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 expands Photo page album management, LightBox overview, and tethered Sony/Canon capture workflows.",
           "done_when": [
             "Gemia can create album/lightbox manifests from real stills or video-derived frames",
             "two real ingest sets produce reviewable album, rating, tag, and tether-session metadata"
-          ]
+          ],
+          "completed_at": "2026-05-03 05:18 CST",
+          "implemented_by": "gemini_cli_edit_tools_with_codex_verification",
+          "summary": "planner-visible Resolve 21 Photo album/LightBox/tether ingest primitive that emits album, rating, tag, contact-sheet, sequence, and tether-session metadata from real stills or video-derived frames.",
+          "verification": [
+            "py_compile passed for focused source and tests",
+            "git diff --check passed for focused paths",
+            "focused pytest passed 5/5",
+            "adjacent regression pytest passed 20/20",
+            "two real-video frame reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0518_gemini_cli_photo_album_lightbox_tether_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0518_gemini_cli_photo_album_lightbox_tether_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_0509_photo_album_lightbox_tether_review.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_multimaster_trim_pass_manager"
+          }
         },
         {
           "id": "resolve21_multimaster_trim_pass_manager",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 adds MultiMaster trim passes for multiple HDR/SDR deliverables from one timeline.",
           "done_when": [
             "Gemia can represent HDR/SDR trim-pass variants as linked deliverable metadata",
             "two real timelines produce reviewable multi-master trim manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 07:12 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 MultiMaster trim-pass manager that emits linked HDR/SDR deliverable manifests, review proxies, trim metadata, color delivery targets, sync groups, and source fingerprints from one real timeline.",
+          "verification": [
+            "git diff --check passed for focused paths",
+            "py_compile passed for focused source and tests",
+            "focused pytest passed 5/5",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0712_gemini_cli_multimaster_trim_pass_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0712_gemini_cli_multimaster_trim_pass_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_070801_2a77ce19.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_layer_list_node_graph_versions"
+          }
         },
         {
           "id": "resolve21_layer_list_node_graph_versions",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 improves layer-list node graphs and group versions for color and compositing workflows.",
           "done_when": [
             "Gemia can serialize layer-list node graph versions with stable asset references",
             "two real clips produce reviewable node graph/version manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 07:25 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_takeover_review",
+          "summary": "planner-visible Resolve 21 layer-list node graph version primitive that emits stable layer asset refs, per-version node chains, output node IDs, review hints, and graph identity metadata for real clips.",
+          "verification": [
+            "temporary repo focused pytest passed 5/5",
+            "canonical git diff --check passed for focused paths",
+            "canonical py_compile passed for focused source and tests",
+            "canonical focused pytest passed 5/5",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0725_codex_takeover_layer_graph_versions_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_codex_takeover_after_antigravity_and_gemini_review_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0725_codex_takeover_layer_graph_versions_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_072127_6c09e04a.json",
+            "gemini_review_status": "transport_closed",
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "required_fixes": "none",
+            "next_action": "start resolve21_group_versions_color_workflow"
+          }
         },
         {
           "id": "resolve21_group_versions_color_workflow",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 optimizes group versions for color workflows across multiple clips.",
           "done_when": [
             "Gemia can apply and track group-level grade versions across related clips",
             "two real clip groups produce reviewable group-version grade manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 08:12 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 group-version color workflow primitive that tracks group-level grade versions, node recipes, stable asset refs, and review hints across related real clips.",
+          "verification": [
+            "temporary repo focused pytest passed 5/5",
+            "canonical py_compile passed for focused source and tests",
+            "canonical git diff --check passed for focused paths",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent group/layer/multimaster regression pytest passed 15/15",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0812_gemini_cli_group_versions_color_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0812_gemini_cli_group_versions_color_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_080846_873fb247.json",
+            "verdict": "PASS",
+            "confidence": 0.95,
+            "required_fixes": "none",
+            "next_action": "start resolve21_immersive_vr_delivery_manifest"
+          }
         },
         {
           "id": "resolve21_immersive_vr_delivery_manifest",
-          "status": "pending",
+          "status": "completed",
           "lane": "feature",
           "why": "Resolve 21 increases support for immersive and VR deliverable workflows.",
           "done_when": [
             "Gemia can emit immersive/VR delivery manifests with stereo/layout metadata",
             "two real clips produce reviewable immersive delivery proxies or manifests"
-          ]
+          ],
+          "completed_at": "2026-05-03 08:22 CST",
+          "implemented_by": "gemini_cli_trusted_shell_with_codex_verification",
+          "summary": "planner-visible Resolve 21 immersive/VR delivery primitive that emits mono and stereo delivery layouts, projection metadata, platform targets, VR readiness hints, and stable asset refs for real clips.",
+          "verification": [
+            "temporary repo focused pytest passed 5/5",
+            "canonical py_compile passed for focused source and tests",
+            "canonical git diff --check passed for focused paths",
+            "canonical focused pytest passed 5/5 with no skips",
+            "adjacent immersive/group/layer/multimaster regression pytest passed 20/20",
+            "two real-video reproductions from inputs/demo.mp4 and inputs/gemia_timeline_demo.mp4"
+          ],
+          "review_artifacts": [
+            "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0822_gemini_cli_immersive_vr_review.json"
+          ],
+          "antigravity_review": {
+            "status": "passed_with_gemini_cli_review_after_antigravity_bridge_failure",
+            "review_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260503_0822_gemini_cli_immersive_vr_review.json",
+            "failed_antigravity_task": "/Users/xiehaibo/.gemia/bridge/agents/antigravity/failed/bridge_20260503_081757_1040cc60.json",
+            "verdict": "PASS",
+            "confidence": 1.0,
+            "required_fixes": "none",
+            "next_action": "start resolve21_blended_album_multimaster_vr_scene"
+          }
         }
       ],
       "blended_scene": {
         "id": "resolve21_blended_album_multimaster_vr_scene",
-        "status": "pending",
+        "status": "in_progress",
         "workflow": [
           "ingest real footage and still frames into album/lightbox metadata",
           "register media through asset identity references",
@@ -2026,7 +2192,106 @@
           "tests need deterministic fake-manager fixtures rather than external DAM state"
         ]
       },
-      "next_action": "wait for batch_004 blended scene and OpenImageIO architecture integration, then start resolve21_photo_album_lightbox_tether_ingest"
+      "next_action": "start resolve21_blended_album_multimaster_vr_scene"
+    },
+    {
+      "id": "davinci_resolve_21_batch_006",
+      "status": "pending",
+      "source": "DaVinci Resolve 21 official/current feature refresh after batch_005 five-feature completion",
+      "searched_at": "2026-05-03 08:24 CST",
+      "sources": [
+        {
+          "title": "DaVinci Resolve 21 What's New",
+          "url": "https://www.blackmagicdesign.com/products/davinciresolve/whatsnew",
+          "notes": "Official source for Fusion macro editor inspector, audio-driven Fusion animation, USD toolset, Fairlight EQ/level matching/Chain FX, creator workflows, and immersive delivery details."
+        },
+        {
+          "title": "DaVinci Resolve 21 New Features Guide",
+          "url": "https://documents.blackmagicdesign.com/SupportNotes/DaVinci_Resolve_21_New_Features_Guide.pdf",
+          "notes": "Official PDF source for deeper Resolve 21 feature behavior and Fusion variables/user metadata details."
+        },
+        {
+          "title": "PixarAnimationStudios/OpenUSD",
+          "url": "https://github.com/PixarAnimationStudios/OpenUSD",
+          "notes": "Architecture candidate for scalable scene/stage/layer interchange around Fusion USD and immersive scene metadata."
+        }
+      ],
+      "features": [
+        {
+          "id": "resolve21_fusion_macro_editor_inspector_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 updates Fusion macro authoring with an inspector view for publishing reusable tools and templates.",
+          "done_when": [
+            "Gemia can emit macro inspector manifests with controls, defaults, publish groups, and validation hints",
+            "two real clips produce reviewable macro-template manifests"
+          ]
+        },
+        {
+          "id": "resolve21_audio_driven_fusion_animation",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 connects Fusion animation to Fairlight audio analysis through the Fairlight Animator modifier.",
+          "done_when": [
+            "Gemia can build audio-driven animation manifests from real clip audio levels",
+            "two real clips produce reviewable parameter automation curves"
+          ]
+        },
+        {
+          "id": "resolve21_fusion_usd_hydra_toolset_manifest",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 updates Fusion USD support to USD SDK 25.11 and Hydra 2.0 with loader controls and texture tools.",
+          "done_when": [
+            "Gemia can serialize USD/Hydra scene-layer manifests linked to real timeline clips",
+            "two real clips produce reviewable USD stage and render-intent manifests"
+          ]
+        },
+        {
+          "id": "resolve21_fairlight_6band_clip_eq",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds 6-band clip EQ across Cut, Edit, and Fairlight pages.",
+          "done_when": [
+            "Gemia can emit clip-level 6-band EQ manifests with copyable track/plugin settings",
+            "two real audio-bearing clips produce reviewable EQ manifests"
+          ]
+        },
+        {
+          "id": "resolve21_fairlight_eq_level_match_chainfx",
+          "status": "pending",
+          "lane": "feature",
+          "why": "Resolve 21 adds EQ/level matching and Chain FX presets for repeatable audio finishing.",
+          "done_when": [
+            "Gemia can compare reference and target clip audio and emit EQ/level match plus Chain FX manifests",
+            "two real audio-bearing clip pairs produce reviewable matching diagnostics"
+          ]
+        }
+      ],
+      "blended_scene": {
+        "id": "resolve21_blended_fusion_audio_usd_fairlight_scene",
+        "status": "pending",
+        "workflow": [
+          "ingest real footage and audio into a Fusion macro manifest",
+          "drive Fusion animation parameters from clip audio analysis",
+          "register scene context through a USD/Hydra stage manifest",
+          "apply Fairlight 6-band EQ and level matching",
+          "emit a Chain FX and blended review package"
+        ]
+      },
+      "architecture_integration": {
+        "id": "github_openusd_stage_identity_backend",
+        "status": "pending",
+        "repo": "PixarAnimationStudios/OpenUSD",
+        "why": "Provide optional USD stage/layer identity metadata for Fusion USD/Hydra scenes and immersive/fairlight blended review packages.",
+        "integration_boundary": "optional JSON/USD-stage adapter behind new Gemia scene metadata helpers; no mandatory OpenUSD runtime dependency for default tests",
+        "risks": [
+          "native OpenUSD build is heavy",
+          "USD schema scope can sprawl beyond manifest identity",
+          "tests should use deterministic text USDA-like fixtures when pxr bindings are absent"
+        ]
+      },
+      "next_action": "start resolve21_fusion_macro_editor_inspector_manifest"
     }
   ],
   "seed_ready_checks": [
