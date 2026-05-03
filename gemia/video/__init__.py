@@ -181,6 +181,7 @@ from gemia.video.html_graphics import (
     render_html_frame, render_lottie_frame,
 )
 from gemia.video.photo_page import render_photo_page_batch_raw_grade
+from gemia.video.photo_album import render_photo_album_lightbox_tether_ingest
 from gemia.video.proxy import ProxyAsset, ProxyManager
 from gemia.video.backends import (
     BackendDecision, RenderBackend, RenderProfile, RenderResult,
@@ -388,4 +389,34 @@ __all__.extend([
     "video_polar_sheen",
     "video_lantern_drift",
     "render_photo_page_batch_raw_grade",
+    "render_photo_album_lightbox_tether_ingest",
+])
+
+from gemia.video.ingest_search_graphics_scene import render_blended_ingest_search_graphics_scene
+
+__all__.extend([
+    "render_blended_ingest_search_graphics_scene",
+])
+
+from gemia.video.multimaster import render_multimaster_trim_pass_manager
+
+__all__.extend([
+    "render_multimaster_trim_pass_manager",
+])
+from gemia.video.layer_graph_versions import render_layer_list_node_graph_versions
+
+__all__.extend([
+    "render_layer_list_node_graph_versions",
+])
+
+from gemia.video.group_versions import render_group_versions_color_workflow
+
+__all__.extend([
+    "render_group_versions_color_workflow",
+])
+
+from gemia.video.immersive_vr import render_immersive_vr_delivery_manifest
+
+__all__.extend([
+    "render_immersive_vr_delivery_manifest",
 ])
