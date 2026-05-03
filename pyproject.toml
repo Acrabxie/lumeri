@@ -1,5 +1,5 @@
 [project]
-name = "gemia"
+name = "lumeri"
 version = "0.1.0"
 description = "AI-native video/image/audio workbench"
 requires-python = ">=3.12"
