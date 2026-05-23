@@ -569,8 +569,13 @@ def _append_plan_layer_branch(
                 "name": str(layer_spec.get("name", layer_id)),
                 "source": layer_spec.get("source"),
                 "text": layer_spec.get("text"),
+                "html": layer_spec.get("html"),
                 "color": layer_spec.get("color"),
+                "size": layer_spec.get("size"),
                 "font_config": dict(layer_spec.get("font_config", {}) or {}),
+                "blur_radius": layer_spec.get("blur_radius"),
+                "gaussian_blur_radius": layer_spec.get("gaussian_blur_radius"),
+                "metadata": dict(layer_spec.get("metadata", {}) or {}),
                 "start_frame": int(layer_spec.get("start_frame", 0) or 0),
                 "end_frame": _optional_int(layer_spec.get("end_frame")),
                 "duration": _optional_int(layer_spec.get("duration")),
@@ -832,6 +837,15 @@ def _serialize_keyframe_spec(track_spec: Mapping[str, Any]) -> dict[str, Any]:
         ]
     else:
         items = []
+    if any(_is_vector_keyframe_value(value_spec) for _, value_spec in items):
+        return {
+            "mode": mode,
+            "relative_to": relative_to,
+            "points": [
+                _serialize_vector_keyframe_point(timestamp, value_spec)
+                for timestamp, value_spec in sorted(items, key=lambda item: item[0])
+            ],
+        }
     track = KeyframeTrack(mode=mode, relative_to=relative_to)
     for timestamp, value_spec in sorted(items, key=lambda item: item[0]):
         if isinstance(value_spec, Mapping):
@@ -842,6 +856,31 @@ def _serialize_keyframe_spec(track_spec: Mapping[str, Any]) -> dict[str, Any]:
             easing = "linear"
         track.add_keyframe(timestamp, value, easing=easing)
     return track.to_curve_metadata()
+
+
+def _is_vector_keyframe_value(value_spec: Any) -> bool:
+    value = value_spec.get("value", value_spec) if isinstance(value_spec, Mapping) else value_spec
+    if isinstance(value, Mapping):
+        return any(key in value for key in ("x", "y", "left", "top"))
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and len(value) >= 2
+
+
+def _serialize_vector_keyframe_point(timestamp: float, value_spec: Any) -> dict[str, Any]:
+    easing = "linear"
+    value = value_spec
+    if isinstance(value_spec, Mapping):
+        value = value_spec.get("value", value_spec)
+        easing = str(value_spec.get("easing", "linear"))
+    if isinstance(value, Mapping):
+        x_value = value.get("x", value.get("left", 0.0))
+        y_value = value.get("y", value.get("top", 0.0))
+    else:
+        x_value, y_value = value[0], value[1]
+    return {
+        "frame": float(timestamp),
+        "value": [float(x_value), float(y_value)],
+        "easing": easing,
+    }
 
 
 def _optional_int(value: Any) -> int | None:

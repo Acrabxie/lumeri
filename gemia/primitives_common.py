@@ -5,6 +5,7 @@ Provides type aliases, input normalization, and the @batchable decorator.
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import numpy as np
@@ -66,3 +67,10 @@ def ensure_float32(img: np.ndarray) -> Image:
 def to_uint8(img: Image) -> np.ndarray:
     """Convert float32 [0, 1] image back to uint8 [0, 255]."""
     return np.clip(img * 255.0, 0, 255).astype(np.uint8)
+
+
+def ensure_path_exists(path: str | Path) -> Path:
+    """Create *path* as a directory if needed and return it as a Path."""
+    resolved = Path(path).expanduser()
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved

@@ -12,8 +12,15 @@ from gemia.video.compositing import (
     overlay, add_audio_track, object_remove, background_replace, stereo_3d_align,
     depth_mask, picture_in_picture,
 )
+from gemia.video.masking import (
+    render_chroma_key_preview,
+    render_luma_key_preview,
+    render_masked_composite,
+    render_shape_mask_preview,
+)
 from gemia.video.transitions import (
     transition_dissolve, transition_wipe, transition_push, transition_custom,
+    transition_shutter,
 )
 from gemia.video.analysis import detect_scenes, get_metadata, multicam_sync, scene_detect, auto_highlight, smart_multicam
 from gemia.video.generative import (
@@ -193,13 +200,16 @@ from gemia.video.photo_page import render_photo_page_batch_raw_grade
 from gemia.video.photo_album import render_photo_album_lightbox_tether_ingest
 from gemia.video.proxy import ProxyAsset, ProxyManager
 from gemia.video.backends import (
-    BackendDecision, RenderBackend, RenderProfile, RenderResult,
-    SoftwareGraphBackend, SoftwareRenderBackend, choose_render_backend,
+    BackendDecision, FlowTrackingAnalysisResult, RenderBackend, RenderProfile, RenderResult,
+    OpenCVFlowTrackingBackend, SoftwareGraphBackend, SoftwareRenderBackend,
+    choose_render_backend, render_opencv_flow_tracking_backend_manifest,
 )
 from gemia.video.dialogue_matcher import DialogueMatcherResult, render_dialogue_matcher_plan
 from gemia.video.music_editor import MusicEditorResult, render_ai_music_editor_plan
 from gemia.video.animated_subtitles import AnimatedSubtitlesResult, render_ai_animated_subtitles_plan
 from gemia.video.multicam_smartswitch import MulticamSmartSwitchResult, render_ai_multicam_smartswitch_plan
+from gemia.video.replay_editor_multicam import DEFAULT_REPLAY_ACTIONS, render_replay_editor_multicam_action_manifest
+from gemia.video.blended_denoise_flow_tracker_replay_scene import render_blended_denoise_flow_tracker_replay_scene
 
 __all__ = [
     # frames
@@ -212,9 +222,12 @@ __all__ = [
     # compositing
     "overlay", "add_audio_track", "object_remove", "background_replace", "stereo_3d_align",
     "depth_mask", "picture_in_picture",
+    "render_chroma_key_preview", "render_luma_key_preview",
+    "render_shape_mask_preview", "render_masked_composite",
     "lut_apply", "vhs_effect", "chroma_aberration", "zoom_pan", "color_wheels",
     # transitions
     "transition_dissolve", "transition_wipe", "transition_push", "transition_custom",
+    "transition_shutter",
     # analysis
     "detect_scenes", "get_metadata", "multicam_sync", "scene_detect", "auto_highlight", "smart_multicam",
     # generative
@@ -259,12 +272,16 @@ __all__ = [
     "MusicEditorResult", "render_ai_music_editor_plan",
     "AnimatedSubtitlesResult", "render_ai_animated_subtitles_plan",
     "MulticamSmartSwitchResult", "render_ai_multicam_smartswitch_plan",
+    "DEFAULT_REPLAY_ACTIONS", "render_replay_editor_multicam_action_manifest",
+    "render_blended_denoise_flow_tracker_replay_scene",
     "render_blended_portrait_slate_delivery_scene",
     "HtmlGraphicsRenderResult", "render_html_graphics_plan",
     "render_html_frame", "render_lottie_frame",
     "ProxyAsset", "ProxyManager",
     "BackendDecision", "RenderBackend", "RenderProfile", "RenderResult",
+    "FlowTrackingAnalysisResult", "OpenCVFlowTrackingBackend",
     "SoftwareGraphBackend", "SoftwareRenderBackend", "choose_render_backend",
+    "render_opencv_flow_tracking_backend_manifest",
     # export
     "export_preset", "proxy_generate", "batch_export",
     # effects
@@ -518,4 +535,39 @@ from gemia.video.atem_mini_import import render_atem_mini_project_import_timelin
 
 __all__.extend([
     "render_atem_mini_project_import_timeline_manifest",
+])
+
+from gemia.video.advanced_noise_reduction import render_advanced_noise_reduction_profile_manifest
+
+__all__.extend([
+    "render_advanced_noise_reduction_profile_manifest",
+])
+
+from gemia.video.blended_mask_tags_social_atem_scene import render_blended_mask_tags_social_atem_scene
+
+__all__.extend([
+    "render_blended_mask_tags_social_atem_scene",
+])
+
+from gemia.video.opentimelineio_package import (
+    import_opentimelineio_timeline_package,
+    render_opentimelineio_timeline_package_backend,
+)
+
+from gemia.video.optical_flow_speed_change import render_optical_flow_speed_change_manifest
+from gemia.video.keyframes_curves_manifest import DEFAULT_CURVE_TRACKS, render_keyframes_curves_loop_pingpong_manifest
+from gemia.video.premiere_media_intelligence import DEFAULT_SEARCH_QUERIES, render_premiere_media_intelligence_visual_marker_search_manifest
+from gemia.video.premiere_generative_extend import DEFAULT_EXTENSION_REQUESTS, DEFAULT_PROVIDER_CONSTRAINTS, render_premiere_generative_extend_edit_handle_manifest
+from gemia.video.track_follow_mask import render_track_follow_objects_mask_manifest
+from gemia.video.fusion_effect_animation import render_animate_fusion_effects_edit_page_manifest
+
+__all__.extend([
+    "import_opentimelineio_timeline_package",
+    "render_opentimelineio_timeline_package_backend",
+    "DEFAULT_CURVE_TRACKS", "render_keyframes_curves_loop_pingpong_manifest",
+    "DEFAULT_SEARCH_QUERIES", "render_premiere_media_intelligence_visual_marker_search_manifest",
+    "DEFAULT_EXTENSION_REQUESTS", "DEFAULT_PROVIDER_CONSTRAINTS", "render_premiere_generative_extend_edit_handle_manifest",
+    "render_optical_flow_speed_change_manifest",
+    "render_track_follow_objects_mask_manifest",
+    "render_animate_fusion_effects_edit_page_manifest",
 ])

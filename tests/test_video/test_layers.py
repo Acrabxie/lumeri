@@ -180,11 +180,46 @@ class TestLayerFactories:
         assert frame.shape == (5, 6, 4)
         assert np.allclose(frame[0, 0], [25 / 255.0, 50 / 255.0, 75 / 255.0, 1.0], atol=1e-6)
 
+    def test_make_image_layer_applies_gaussian_blur_to_alpha(self, tmp_path: Path) -> None:
+        img_path = tmp_path / "dot.png"
+        arr = np.zeros((9, 9, 4), dtype=np.uint8)
+        arr[4, 4] = [255, 255, 255, 255]
+        PILImage.fromarray(arr, mode="RGBA").save(img_path)
+
+        layer = make_image_layer(str(img_path), duration=1, blur_radius=2.0)
+        frame = layer.frame_content(0)
+
+        assert frame.shape == (9, 9, 4)
+        assert frame[4, 4, 3] < 1.0
+        assert frame[4, 5, 3] > 0.0
+
     def test_make_text_layer_renders_non_empty_alpha(self) -> None:
         layer = make_text_layer("Hello", position=(10, 12), font_config={"size": 24})
         frame = layer.frame_content(0)
         assert frame.shape[2] == 4
         assert np.max(frame[..., 3]) > 0.0
+
+    def test_make_text_layer_renders_blurred_glow_without_removing_core_text(self) -> None:
+        plain = make_text_layer("Hi", position=(0, 0), font_config={"size": 32, "padding": 2})
+        glowing = make_text_layer(
+            "Hi",
+            position=(0, 0),
+            font_config={
+                "size": 32,
+                "padding": 2,
+                "color": [1.0, 1.0, 1.0, 1.0],
+                "glow_radius": 5.0,
+                "glow_color": [0.0, 0.9, 1.0, 0.55],
+            },
+        )
+
+        plain_frame = plain.frame_content(0)
+        glowing_frame = glowing.frame_content(0)
+
+        assert glowing_frame.shape[0] > plain_frame.shape[0]
+        assert glowing_frame.shape[1] > plain_frame.shape[1]
+        assert np.max(glowing_frame[..., 3]) > 0.9
+        assert np.count_nonzero(glowing_frame[..., 3] > 0.02) > np.count_nonzero(plain_frame[..., 3] > 0.02)
 
 
 class TestExecuteLayerPlan:
@@ -279,6 +314,61 @@ class TestExecuteLayerPlan:
         assert np.isclose(frame[0, 0, 0], 128 / 255.0, atol=1e-3)
         assert np.isclose(frame[0, 0, 1], 128 / 255.0, atol=1e-3)
         assert np.isclose(frame[0, 0, 2], 128 / 255.0, atol=1e-3)
+
+    def test_execute_layer_plan_tints_image_layer_color(self, tmp_path: Path) -> None:
+        img_path = tmp_path / "cyan.png"
+        PILImage.new("RGBA", (4, 4), (0, 220, 255, 255)).save(img_path)
+
+        plan = {
+            "width": 4,
+            "height": 4,
+            "fps": 30.0,
+            "total_frames": 1,
+            "layers": [
+                {
+                    "id": "tinted",
+                    "type": "image",
+                    "source": str(img_path),
+                    "duration": 1,
+                    "color": [1.0, 0.84, 0.12, 1.0],
+                }
+            ],
+        }
+
+        stack = execute_layer_plan(plan)
+        frame = stack.render_frame(0)
+
+        assert frame[0, 0, 0] > frame[0, 0, 1] > frame[0, 0, 2]
+        assert frame[0, 0, 0] > 0.9
+        assert np.isclose(frame[0, 0, 3], 1.0, atol=1e-6)
+
+    def test_execute_layer_plan_reads_image_blur_radius_from_metadata(self, tmp_path: Path) -> None:
+        img_path = tmp_path / "dot.png"
+        arr = np.zeros((9, 9, 4), dtype=np.uint8)
+        arr[4, 4] = [255, 255, 255, 255]
+        PILImage.fromarray(arr, mode="RGBA").save(img_path)
+
+        plan = {
+            "width": 9,
+            "height": 9,
+            "fps": 30.0,
+            "total_frames": 1,
+            "layers": [
+                {
+                    "id": "blurred",
+                    "type": "image",
+                    "source": str(img_path),
+                    "duration": 1,
+                    "metadata": {"contact_shadow_blur_radius": 2.0},
+                }
+            ],
+        }
+
+        stack = execute_layer_plan(plan)
+        frame = stack.render_frame(0)
+
+        assert frame[4, 4, 3] < 1.0
+        assert frame[4, 5, 3] > 0.0
 
     def test_execute_layer_plan_with_mask_source(self, tmp_path: Path) -> None:
         img_path = tmp_path / "input.png"

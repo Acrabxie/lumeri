@@ -1,4 +1,4 @@
-"""AI image generation primitives powered by Gemini (Nano Banana).
+"""AI image generation primitives powered by Nano Banana via OpenRouter.
 
 Functions
 ---------
@@ -35,7 +35,7 @@ def generate_image(
     style: str = "",
     model_tier: str = "flash",
 ) -> Image:
-    """Generate an image from a text description using Gemini image generation (Nano Banana).
+    """Generate an image from a text description using Nano Banana.
 
     This function creates a brand-new image from scratch — no input image is needed.
     Suitable for generating title cards, backgrounds, or standalone visual assets.
@@ -46,14 +46,14 @@ def generate_image(
             ``"9:16"``, ``"1:1"``, ``"4:3"``. Default ``"16:9"``.
         style: Optional style hint, e.g. ``"oil painting"``, ``"cyberpunk neon"``.
             When provided it is appended to the prompt. Default ``""`` (no style).
-        model_tier: ``"flash"`` (NB2, faster/cheaper) or ``"pro"`` (NB Pro, higher
-            quality). Default ``"flash"``.
+        model_tier: ``"flash"`` or ``"pro"``. Flash defaults to Nano Banana
+            through OpenRouter unless configured otherwise. Default ``"flash"``.
 
     Returns:
         float32 BGR ndarray, shape (H, W, 3), values in [0, 1].
 
     Raises:
-        RuntimeError: If neither ``GEMINI_API_KEY`` nor ``OPENROUTER_API_KEY`` is set,
+        RuntimeError: If no OpenRouter API key is configured,
             or if the API call fails.
     """
     if style:
@@ -71,9 +71,9 @@ def edit_image(
     instruction: str,
     model_tier: str = "flash",
 ) -> Image:
-    """Edit an image based on a natural-language instruction using Gemini image generation.
+    """Edit an image based on a natural-language instruction using Nano Banana.
 
-    Uses Gemini's image-in / image-out capability to modify the input image
+    Uses Nano Banana image-in / image-out capability to modify the input image
     according to the given instruction.  When used in a video plan, the engine
     applies this function to every frame automatically (same as any other
     ``gemia.picture.*`` function).
@@ -104,7 +104,7 @@ def style_transfer(
     style_prompt: str,
     model_tier: str = "flash",
 ) -> Image:
-    """Apply a visual style to an image using Gemini image generation (Nano Banana).
+    """Apply a visual style to an image using Nano Banana.
 
     Useful for artistic style conversions such as "cyberpunk neon", "水墨画 ink wash",
     "oil painting", "Studio Ghibli", "watercolor", etc.  When used in a video plan,

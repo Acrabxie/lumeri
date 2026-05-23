@@ -4,7 +4,7 @@ import pytest
 import subprocess
 from pathlib import Path
 
-from gemia import accounts
+from gemia import accounts, media_library
 from gemia.media_library import (
     MediaLibraryError,
     get_asset,
@@ -191,3 +191,13 @@ def test_resolve_asset_file_cache_traversal(monkeypatch, tmp_path: Path) -> None
     for filename in invalid_filenames:
         with pytest.raises(MediaLibraryError, match="invalid media cache path"):
             resolve_asset_file(account_id, asset_id, "cache", filename)
+
+
+def test_media_library_connections_close_after_context(monkeypatch, tmp_path: Path) -> None:
+    _patch_account_roots(monkeypatch, tmp_path)
+
+    with media_library._connect("test_account") as conn:
+        conn.execute("SELECT 1").fetchone()
+
+    with pytest.raises(Exception, match="closed"):
+        conn.execute("SELECT 1")

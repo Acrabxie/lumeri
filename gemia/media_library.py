@@ -8,11 +8,13 @@ import re
 import shutil
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from gemia.accounts import account_root
+from gemia.asset_identity import asset_identity_for_record, attach_asset_identity
 from gemia.media_ingest import probe_still_metadata
 from gemia.project_model import IMAGE_DURATION
 from gemia.video.timeline_assets import (
@@ -134,6 +136,8 @@ def import_media(account_id: str, source_path: str | Path, *, original_name: str
         "created_at": now,
         "updated_at": now,
     }
+    metadata["asset_identity"] = asset_identity_for_record(row)
+    row["metadata_json"] = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
     with _connect(account_id) as conn:
         existing = _row_by_id(conn, asset_id)
         if existing:
@@ -181,7 +185,7 @@ def get_asset(account_id: str, asset_id: str, *, include_deleted: bool = False) 
         payload = _dict_from_row(row)
         if payload.get("deleted_at") and not include_deleted:
             return None
-        return _public_asset(payload)
+        return attach_asset_identity(_public_asset(payload))
 
 
 def soft_delete_asset(account_id: str, asset_id: str) -> dict[str, Any]:
@@ -273,16 +277,24 @@ def _ensure_library_dirs(account_id: str) -> None:
         pass
 
 
-def _connect(account_id: str) -> sqlite3.Connection:
+@contextmanager
+def _connect(account_id: str) -> Iterator[sqlite3.Connection]:
     media_root(account_id).mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(library_path(account_id))
     conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
     try:
-        library_path(account_id).chmod(0o600)
-    except OSError:
-        pass
-    return conn
+        _ensure_schema(conn)
+        try:
+            library_path(account_id).chmod(0o600)
+        except OSError:
+            pass
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -384,7 +396,7 @@ def _public_asset(row: dict[str, Any]) -> dict[str, Any]:
     thumbnails = [_asset_file_url(asset_id, "cache", Path(str(item)).name) for item in thumbnails_abs]
     preview_src = _asset_file_url(asset_id, "original")
     duration = IMAGE_DURATION if row.get("media_kind") == "image" else max(float(row.get("duration") or 0.0), 0.0)
-    return {
+    return attach_asset_identity({
         "id": asset_id,
         "asset_id": asset_id,
         "account_id": str(row.get("account_id") or ""),
@@ -413,7 +425,7 @@ def _public_asset(row: dict[str, Any]) -> dict[str, Any]:
         "deleted_at": row.get("deleted_at"),
         "created_at": str(row.get("created_at") or _utc_now()),
         "updated_at": str(row.get("updated_at") or _utc_now()),
-    }
+    })
 
 
 def _asset_file_url(asset_id: str, area: str, filename: str | None = None) -> str:
@@ -506,6 +518,7 @@ __all__ = [
     "MEDIA_LIBRARY_SCHEMA_VERSION",
     "MediaLibraryError",
     "asset_cache_root",
+    "asset_identity_for_record",
     "cache_root",
     "default_clip_for_asset",
     "get_asset",

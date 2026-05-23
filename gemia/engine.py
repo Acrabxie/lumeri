@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,16 @@ from typing import Any
 
 import numpy as np
 
+from gemia.errors import UserInputError
+from gemia.plan_contract import normalize_plan_for_execution
 from gemia.registry import get_info, resolve
+
+
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+_AUDIO_EXTS = {".wav", ".mp3", ".aac", ".flac", ".ogg", ".m4a"}
+_MEDIA_EXTS = _VIDEO_EXTS | _IMAGE_EXTS | _AUDIO_EXTS
+_NON_MEDIA_ARTIFACT_EXTS = {".json", ".md", ".txt", ".html", ".htm", ".csv", ".yaml", ".yml"}
 
 
 class PlanEngine:
@@ -52,25 +62,31 @@ class PlanEngine:
         Returns:
             Path to the output file.
         """
+        plan = normalize_plan_for_execution(
+            plan,
+            input_path=input_path,
+            output_path=output_path,
+            strict_functions=False,
+        )
         bindings: dict[str, Any] = {
             "$input": input_path,
             "$output": output_path,
+            "$last_media": input_path,
         }
         steps = plan.get("steps", [])
         if not steps:
             raise ValueError("执行计划中没有任何步骤，请重试")
 
         # Validate input file exists if it's a path
-        if isinstance(input_path, str) and not isinstance(input_path, list):
+        if isinstance(input_path, str) and input_path.strip():
             from pathlib import Path as _Path
-            p = _Path(input_path)
+            p = _Path(input_path).expanduser()
             if not p.exists():
                 raise FileNotFoundError(f"找不到输入文件：{input_path}")
+            if p.is_dir():
+                raise ValueError(f"输入路径是文件夹，不是媒体文件：{input_path}")
             # Check video format for video-extension files
-            _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
-            if p.suffix.lower() not in _VIDEO_EXTS and p.suffix.lower() not in {
-                ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".wav", ".mp3", ".aac", ".flac", ".ogg", ""
-            }:
+            if p.suffix.lower() not in _MEDIA_EXTS and p.suffix.lower() != "":
                 raise ValueError(
                     f"不支持的文件格式：{p.suffix}，视频请使用 mp4/mov/avi/mkv/webm"
                 )
@@ -86,14 +102,18 @@ class PlanEngine:
             # Resolve input reference
             input_ref = step.get("input")
             if input_ref is None:
-                input_ref = f"${steps[i - 1]['id']}" if i > 0 else "$input"
+                previous_ref = f"${steps[i - 1]['id']}" if i > 0 else "$input"
+                previous_val = self._resolve_ref(previous_ref, bindings)
+                input_ref = "$last_media" if _is_non_media_artifact(previous_val) else previous_ref
             input_val = self._resolve_ref(input_ref, bindings)
+            if self._video_step_should_skip_non_media_artifact(fqn, input_val):
+                input_val = bindings.get("$last_media", "")
 
             # Resolve output path
             output_ref = step.get("output")
             if output_ref == "$output":
                 out_path = output_path
-            elif output_ref is not None and output_ref.startswith("$") and output_ref not in bindings:
+            elif isinstance(output_ref, str) and output_ref.startswith("$") and output_ref not in bindings:
                 # Self-reference like "$step_1" on step_1 — treat as auto temp
                 out_path = str(self.temp_dir / f"{step_id}_{uuid.uuid4().hex[:8]}.mp4")
             elif output_ref is not None:
@@ -117,6 +137,8 @@ class PlanEngine:
             except Exception as exc:
                 raise RuntimeError(f"第 {step_id} 步执行失败：{exc}") from exc
             bindings[f"${step_id}"] = result
+            if _is_media_artifact(result):
+                bindings["$last_media"] = result
 
         last_id = steps[-1]["id"]
         return bindings[f"${last_id}"]
@@ -154,13 +176,17 @@ class PlanEngine:
 
     # ── Internal ───────────────────────────────────────────────────────
 
-    def _resolve_ref(self, ref: str, bindings: dict[str, Any]) -> Any:
+    def _resolve_ref(self, ref: Any, bindings: dict[str, Any]) -> Any:
         """Resolve a variable reference like ``$input`` or ``$step_1``."""
         if isinstance(ref, str) and ref.startswith("$"):
             val = bindings.get(ref)
             if val is None:
                 raise ValueError(f"Unresolved reference: {ref}")
             return val
+        if isinstance(ref, list):
+            return [self._resolve_ref(item, bindings) for item in ref]
+        if isinstance(ref, dict):
+            return {key: self._resolve_ref(value, bindings) for key, value in ref.items()}
         return ref
 
     def _execute_step(self, fqn: str, args: dict, input_val: Any, output_path: str) -> Any:
@@ -170,7 +196,8 @@ class PlanEngine:
         domain = info.domain
 
         input_is_path = isinstance(input_val, str)
-        input_is_frames = isinstance(input_val, list)
+        input_is_path_list = isinstance(input_val, list) and all(isinstance(item, str) for item in input_val)
+        input_is_frames = isinstance(input_val, list) and not input_is_path_list
 
         # ── Generative picture: generate_image (no image input) ───────
         if domain == "picture" and info.name == "generate_image":
@@ -186,6 +213,10 @@ class PlanEngine:
         # ── Picture function on frame list → @batchable handles it ────
         if domain == "picture" and input_is_frames:
             return func(input_val, **args)
+
+        # ── Video function on path list → pass to timeline/transition router ─
+        if domain == "video" and input_is_path_list:
+            return self._call_video_func(func, info, input_val, output_path, args)
 
         # ── Video function on frame list → write frames first ─────────
         if domain == "video" and input_is_frames:
@@ -204,7 +235,15 @@ class PlanEngine:
 
         raise ValueError(f"Cannot execute {fqn}: domain={domain}, input type={type(input_val).__name__}")
 
-    def _call_video_func(self, func: Any, info: Any, input_path: str,
+    def _video_step_should_skip_non_media_artifact(self, fqn: str, input_val: Any) -> bool:
+        if not _is_non_media_artifact(input_val):
+            return False
+        try:
+            return get_info(fqn).domain == "video"
+        except KeyError:
+            return False
+
+    def _call_video_func(self, func: Any, info: Any, input_path: Any,
                          output_path: str, args: dict) -> str:
         """Route video functions based on their signature."""
         sig = inspect.signature(func)
@@ -222,6 +261,25 @@ class PlanEngine:
         if info.name in ("get_metadata", "detect_scenes"):
             return func(input_path, **args)
 
+        # Stock search returns metadata; stock fetch primitives keep the
+        # standard input/output signature for pipeline compatibility.
+        if info.name == "search_stock_media":
+            return func(**args)
+
+        # generate_broll is text/script driven: it downloads public B-roll
+        # into an output directory and does not consume the pipeline media path.
+        if info.name == "generate_broll":
+            call_args = dict(args)
+            script_text = (
+                call_args.pop("script_text", None)
+                or call_args.pop("prompt", None)
+                or call_args.pop("query", None)
+                or "cinematic b-roll"
+            )
+            output_dir = call_args.pop("output_dir", None) or str(Path(output_path).with_suffix(""))
+            call_args.pop("duration", None)
+            return func(str(script_text), str(output_dir), **call_args)
+
         # extract_frames: func(path, **kwargs) → list[Image]
         if info.name == "extract_frames":
             return func(input_path, **args)
@@ -233,7 +291,24 @@ class PlanEngine:
         # concat: func(paths, output_path)
         if param_names and param_names[0] == "paths":
             paths = input_path if isinstance(input_path, list) else [input_path]
-            return func(paths, output_path, **args)
+            normalized_paths = self._normalize_concat_inputs(paths)
+            result = func(normalized_paths, output_path, **args)
+            return result or output_path
+
+        # Two-input compositing/transition functions: func(input_a, input_b, output_path, ...)
+        if "input_a" in param_names and "input_b" in param_names:
+            call_args = dict(args)
+            if "input_a" not in call_args:
+                call_args["input_a"] = input_path[0] if isinstance(input_path, list) and input_path else input_path
+            if "input_b" not in call_args:
+                if isinstance(input_path, list) and len(input_path) >= 2:
+                    call_args["input_b"] = input_path[1]
+                else:
+                    raise UserInputError("双输入视频操作需要 input_a 和 input_b 两段素材。")
+            input_a = call_args.pop("input_a")
+            input_b = call_args.pop("input_b")
+            result = func(input_a, input_b, output_path, **call_args)
+            return result or output_path
 
         # apply_picture_op_to_video: skip (handled by picture auto-bridge)
         if info.name == "apply_picture_op_to_video":
@@ -241,7 +316,42 @@ class PlanEngine:
                              "use a picture function instead.")
 
         # Standard: func(input_path, output_path, **kwargs)
-        return func(input_path, output_path, **args)
+        if isinstance(input_path, list):
+            if len(input_path) != 1:
+                raise UserInputError("这个视频能力一次只能接收一段输入；多段素材请先用 timeline.concat 或 transition 组合。")
+            input_path = input_path[0]
+        result = func(input_path, output_path, **args)
+        return result or output_path
+
+    def _normalize_concat_inputs(self, paths: list[str]) -> list[str]:
+        """Convert still images in a concat list into 3-second video clips."""
+        normalized: list[str] = []
+        for path in paths:
+            source = Path(path).expanduser()
+            if source.suffix.lower() in _IMAGE_EXTS:
+                output = self.temp_dir / f"still_{uuid.uuid4().hex[:8]}.mp4"
+                self._image_to_video_for_concat(source, output)
+                normalized.append(str(output))
+            else:
+                normalized.append(str(source))
+        return normalized
+
+    def _image_to_video_for_concat(self, source: Path, output: Path, *, duration_sec: float = 3.0) -> None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1",
+            "-t", str(duration_sec),
+            "-i", str(source),
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+            "-r", "30",
+            "-c:v", "libx264",
+            "-an",
+            str(output),
+        ]
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"image-to-video concat preparation failed for {source}: {proc.stderr}")
 
     def _call_audio_func(self, func: Any, info: Any, input_val: Any, args: dict) -> Any:
         """Route audio functions.
@@ -292,6 +402,34 @@ def _make_picture_op(func: Any, args: dict) -> Any:
     def op(frame: Any) -> Any:
         return func(frame, **args)
     return op
+
+
+def _path_suffix(value: str) -> str:
+    return Path(value).expanduser().suffix.lower()
+
+
+def _is_media_path(value: str) -> bool:
+    return bool(str(value or "").strip()) and _path_suffix(value) in _MEDIA_EXTS
+
+
+def _is_media_artifact(value: Any) -> bool:
+    if isinstance(value, str):
+        return _is_media_path(value)
+    if isinstance(value, list) and value:
+        return all(isinstance(item, str) and _is_media_path(item) for item in value)
+    return False
+
+
+def _is_non_media_artifact(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    suffix = _path_suffix(value)
+    if suffix in _MEDIA_EXTS:
+        return False
+    if suffix in _NON_MEDIA_ARTIFACT_EXTS:
+        return True
+    path = Path(value).expanduser()
+    return path.exists() and path.is_file() and suffix not in _MEDIA_EXTS
 
 
 def _save_image_to_path(img: np.ndarray, path: str) -> str:

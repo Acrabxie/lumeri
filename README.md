@@ -22,9 +22,9 @@ gemia.audio.frequency.eq(audio, bands={...})
 
 Picture functions automatically work on video — the engine extracts frames, applies the operation per-frame, and re-encodes with original audio. The AI doesn't need to know this; it just picks the right function.
 
-## Nano Banana — AI Image Generation
+## GPT Image 2 — AI Image Generation
 
-Lumeri integrates Gemini image generation as native primitives. The AI planner can call these the same way it calls any other primitive.
+Lumeri integrates GPT Image 2 through the Sisyphus/OpenAI-compatible image API as native primitives. The AI planner can call these the same way it calls any other primitive.
 
 | Function | Description |
 |----------|-------------|
@@ -35,7 +35,7 @@ Lumeri integrates Gemini image generation as native primitives. The AI planner c
 
 When applied to a video, `style_transfer` and `edit_image` are automatically applied per-frame (same auto-bridge as other picture primitives).
 
-Requires `GEMINI_API_KEY` (preferred) or `OPENROUTER_API_KEY`.
+Requires `SISYPHUS_API_KEY` or `~/.gemia/config.json` field `sisyphus_api_key`.
 
 ### Example
 
@@ -82,7 +82,7 @@ Skills now record which models were used and expose adjustable parameters:
 ```json
 {
   "name": "赛博朋克调色",
-  "models_used": ["opencv", "nano_banana_flash"],
+  "models_used": ["opencv", "gpt_image2_flash"],
   "parameters": [
     {"step_id": "step_1", "arg": "preset", "type": "str", "current_value": "cyberpunk"}
   ]
@@ -241,8 +241,8 @@ User prompt
 ┌──────────────────────────────────────────────────────────┐
 │  gemia.picture    gemia.audio    gemia.video              │
 │  (OpenCV/numpy)   (librosa)      (ffmpeg)                 │
-│  + Nano Banana    —              + Veo 3.1                │
-│  (Gemini img gen)                (laozhang.ai)            │
+│  + GPT Image 2    —              + Veo 3.1                │
+│  (Sisyphus API)                  (laozhang.ai)            │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
@@ -253,7 +253,7 @@ User prompt
 
 ## Roadmap
 
-- ✅ **Nano Banana** — Gemini image generation integrated as primitives (NB2 + Pro)
+- ✅ **GPT Image 2** — image generation/editing integrated as primitives through Sisyphus
 - ✅ **Veo integration** — AI-generated video clips via laozhang.ai (Veo 3.1)
 - ✅ **Skills v2** — model tracking, parameterization, `parameters` field
 - **Skills UI** — visual skill browser in the web interface
@@ -265,8 +265,8 @@ User prompt
 
 - Python 3.12+
 - ffmpeg / ffprobe in PATH
-- `OPENROUTER_API_KEY` (required for AI planning; also used as fallback for image gen)
-- `GEMINI_API_KEY` (required for Nano Banana image generation)
+- `OPENROUTER_API_KEY` (required for AI planning)
+- `SISYPHUS_API_KEY` (required for GPT Image 2 image generation/editing)
 - `LAOZHANG_API_KEY` (required for Veo video generation)
 - `OPENROUTER_MODEL` (optional, default `google/gemini-2.5-flash`)
 

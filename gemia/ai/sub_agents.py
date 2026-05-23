@@ -30,26 +30,42 @@ class SubAgentDef:
             self.log_dir = f"logs/{self.name}"
 
 
-# Built-in agents. Add new models here.
+# Built-in agents. Add new models here. Names match the actual underlying
+# model so that planner self-introduction, OpenRouter cache_control fingerprint,
+# and the front-end agent picker stay consistent. Old names (`Gemini3.1pro`,
+# `GPT5.4`) are still accepted as aliases below for backward compat.
 BUILTIN_AGENTS: dict[str, SubAgentDef] = {
-    "Gemini3.1pro": SubAgentDef(
-        name="Gemini3.1pro",
+    "Gemini31Pro": SubAgentDef(
+        name="Gemini31Pro",
+        model="google/gemini-3.1-pro-preview",
+        role="planner",
+        description="Gemini 3.1 Pro via OpenRouter. Default high-quality Lumeri planner.",
+    ),
+    "GeminiFlash3": SubAgentDef(
+        name="GeminiFlash3",
         model="google/gemini-3-flash-preview",
         role="planner",
-        description="Gemini 3 Flash via OpenRouter. Fast and cost-efficient planner.",
+        description="Gemini 3 Flash via OpenRouter. Optional fast planner, not the default.",
     ),
-    "GPT5.4": SubAgentDef(
-        name="GPT5.4",
+    "GPT45": SubAgentDef(
+        name="GPT45",
         model="openai/gpt-4.5",
         role="reviewer",
-        description="GPT 5.4 via OpenRouter. Used for plan review and critique.",
+        description="GPT-4.5 via OpenRouter. Used for plan review and critique.",
         temperature=0.2,
     ),
 }
 
+# Backwards-compatible aliases for old API/UI strings — resolved by SubAgentRegistry.get
+AGENT_ALIASES: dict[str, str] = {
+    "Gemini3.1pro": "Gemini31Pro",
+    "LumeriPlanner": "Gemini31Pro",
+    "GPT5.4": "GPT45",
+}
+
 # Default primary planner name
-DEFAULT_PLANNER = "Gemini3.1pro"
-DEFAULT_REVIEWER = "GPT5.4"
+DEFAULT_PLANNER = "Gemini31Pro"
+DEFAULT_REVIEWER = "GPT45"
 
 
 # ---------------------------------------------------------------------------
@@ -72,13 +88,18 @@ class SubAgentRegistry:
         )
 
     def get(self, name: str) -> "GeminiAdapter":
-        """Return a cached adapter for the named agent."""
-        if name not in self._cache:
-            defn = BUILTIN_AGENTS.get(name)
+        """Return a cached adapter for the named agent.
+
+        Resolves legacy aliases (`Gemini3.1pro`, `GPT5.4`) so older clients
+        keep working after the rename.
+        """
+        canonical = AGENT_ALIASES.get(name, name)
+        if canonical not in self._cache:
+            defn = BUILTIN_AGENTS.get(canonical)
             if defn is None:
                 raise KeyError(f"Unknown sub-agent: {name!r}. Available: {list(BUILTIN_AGENTS)}")
-            self._cache[name] = self._build(defn)
-        return self._cache[name]
+            self._cache[canonical] = self._build(defn)
+        return self._cache[canonical]
 
     def planner(self, name: str | None = None) -> "GeminiAdapter":
         return self.get(name or DEFAULT_PLANNER)

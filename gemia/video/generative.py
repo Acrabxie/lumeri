@@ -1,4 +1,4 @@
-"""AI video generation primitives powered by Veo 3.1 via laozhang.ai.
+"""AI video generation primitives powered by Veo 3.1 via OpenRouter.
 
 Functions
 ---------
@@ -6,14 +6,20 @@ generate_video             : text → video file path
 generate_video_from_image  : image file + text → video file path
 extend_video               : video file + text → extended video file path
 
-All three functions delegate to ``VeoClient`` from ``gemia.ai.veo_client``.
-The engine routes ``generate_video`` specially (no ``input_path`` needed);
-``generate_video_from_image`` and ``extend_video`` receive the current
-pipeline file path as their first positional argument.
+All three functions try ``VeoClient`` first. If the external provider is
+unavailable, they render a local reviewable fallback MP4 and write a
+``.veo-fallback.json`` sidecar so Lumeri can keep the creative flow moving.
 """
 from __future__ import annotations
 
+import json
+import os
+import shutil
 import subprocess
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 # Import at module level so tests can patch "gemia.video.generative.VeoClient"
 try:
@@ -27,6 +33,7 @@ def generate_video(
     *,
     duration: float = 5.0,
     aspect_ratio: str = "16:9",
+    fallback_on_error: bool = True,
 ) -> str:
     """Generate a video from a text description using Veo 3.1.
 
@@ -40,13 +47,19 @@ def generate_video(
         aspect_ratio: ``"16:9"``, ``"9:16"``, or ``"1:1"``. Default ``"16:9"``.
 
     Returns:
-        Absolute path to the generated MP4 video file stored in
-        ``<repo>/temp/veo/``.
-
-    Raises:
-        RuntimeError: If ``LAOZHANG_API_KEY`` is not set or generation fails.
+        Absolute path to the generated or locally fallback-rendered MP4.
     """
-    return VeoClient().generate(prompt, duration=duration, aspect_ratio=aspect_ratio)
+    try:
+        return VeoClient().generate(prompt, duration=duration, aspect_ratio=aspect_ratio)
+    except Exception as exc:
+        if not fallback_on_error:
+            raise
+        return _render_text_fallback(
+            prompt=prompt,
+            duration=duration,
+            aspect_ratio=aspect_ratio,
+            original_error=exc,
+        )
 
 
 def generate_video_from_image(
@@ -54,6 +67,7 @@ def generate_video_from_image(
     *,
     prompt: str,
     duration: float = 5.0,
+    fallback_on_error: bool = True,
 ) -> str:
     """Animate a still image into a video using Veo 3.1.
 
@@ -72,9 +86,22 @@ def generate_video_from_image(
 
     Raises:
         FileNotFoundError: If ``image_path`` does not exist.
-        RuntimeError: If ``LAOZHANG_API_KEY`` is not set or generation fails.
     """
-    return VeoClient().generate_from_image(image_path, prompt, duration=duration)
+    try:
+        return VeoClient().generate_from_image(image_path, prompt, duration=duration)
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        if not fallback_on_error:
+            raise
+        if not Path(image_path).expanduser().exists():
+            raise FileNotFoundError(f"Image not found: {image_path}") from exc
+        return _render_image_fallback(
+            image_path=image_path,
+            prompt=prompt,
+            duration=duration,
+            original_error=exc,
+        )
 
 
 def extend_video(
@@ -82,6 +109,7 @@ def extend_video(
     *,
     prompt: str,
     duration: float = 3.0,
+    fallback_on_error: bool = True,
 ) -> str:
     """Extend a video with an AI-generated continuation using Veo 3.1.
 
@@ -100,9 +128,227 @@ def extend_video(
 
     Raises:
         FileNotFoundError: If ``video_path`` does not exist.
-        RuntimeError: If ``LAOZHANG_API_KEY`` is not set or generation fails.
     """
-    return VeoClient().extend(video_path, prompt, duration=duration)
+    try:
+        return VeoClient().extend(video_path, prompt, duration=duration)
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        if not fallback_on_error:
+            raise
+        if not Path(video_path).expanduser().exists():
+            raise FileNotFoundError(f"Video not found: {video_path}") from exc
+        return _render_extend_fallback(
+            video_path=video_path,
+            prompt=prompt,
+            duration=duration,
+            original_error=exc,
+        )
+
+
+def _render_text_fallback(
+    *,
+    prompt: str,
+    duration: float,
+    aspect_ratio: str,
+    original_error: BaseException,
+) -> str:
+    output = _fallback_output_path("text")
+    width, height = _size_for_aspect_ratio(aspect_ratio)
+    try:
+        from gemia.video.motion_graphics import render_mg_title_card
+
+        render_mg_title_card(
+            "",
+            str(output),
+            title="Lumeri local preview",
+            subtitle=_compact_prompt(prompt),
+            duration=_safe_duration(duration),
+            style="ice",
+            width=width,
+            height=height,
+            fps=18,
+            prefer_manim=False,
+        )
+    except Exception as fallback_exc:
+        raise RuntimeError(_fallback_failed_message(original_error, fallback_exc)) from fallback_exc
+    _write_veo_fallback_sidecar(
+        output,
+        prompt=prompt,
+        duration=duration,
+        aspect_ratio=aspect_ratio,
+        original_error=original_error,
+        fallback_mode="prompt_title_card",
+    )
+    return str(output.resolve())
+
+
+def _render_image_fallback(
+    *,
+    image_path: str,
+    prompt: str,
+    duration: float,
+    original_error: BaseException,
+) -> str:
+    output = _fallback_output_path("image")
+    try:
+        from gemia.video.effects import image_to_video
+
+        image_to_video(
+            str(Path(image_path).expanduser()),
+            str(output),
+            duration_sec=_safe_duration(duration),
+            fps=18,
+            width=960,
+            height=540,
+        )
+    except Exception as fallback_exc:
+        raise RuntimeError(_fallback_failed_message(original_error, fallback_exc)) from fallback_exc
+    _write_veo_fallback_sidecar(
+        output,
+        prompt=prompt,
+        duration=duration,
+        aspect_ratio="source_image",
+        original_error=original_error,
+        fallback_mode="image_to_video",
+        input_path=image_path,
+    )
+    return str(output.resolve())
+
+
+def _render_extend_fallback(
+    *,
+    video_path: str,
+    prompt: str,
+    duration: float,
+    original_error: BaseException,
+) -> str:
+    output = _fallback_output_path("extend")
+    try:
+        generative_extend(video_path, str(output), duration=_safe_duration(duration))
+    except Exception:
+        try:
+            shutil.copyfile(Path(video_path).expanduser(), output)
+        except Exception as fallback_exc:
+            raise RuntimeError(_fallback_failed_message(original_error, fallback_exc)) from fallback_exc
+    _write_veo_fallback_sidecar(
+        output,
+        prompt=prompt,
+        duration=duration,
+        aspect_ratio="source_video",
+        original_error=original_error,
+        fallback_mode="local_extend_or_passthrough",
+        input_path=video_path,
+    )
+    return str(output.resolve())
+
+
+def _fallback_output_path(kind: str) -> Path:
+    root = os.environ.get("GEMIA_VEO_FALLBACK_DIR")
+    if root:
+        temp_dir = Path(root).expanduser()
+    else:
+        temp_dir = Path(__file__).resolve().parent.parent.parent / "temp" / "veo"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return temp_dir / f"veo_fallback_{kind}_{stamp}_{uuid.uuid4().hex[:8]}.mp4"
+
+
+def _safe_duration(value: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 5.0
+    return min(max(parsed, 0.4), 12.0)
+
+
+def _size_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
+    ratio = str(aspect_ratio or "16:9").strip()
+    if ratio == "9:16":
+        return 540, 960
+    if ratio == "1:1":
+        return 720, 720
+    return 960, 540
+
+
+def _compact_prompt(prompt: str, *, max_chars: int = 120) -> str:
+    text = " ".join(str(prompt or "").split())
+    if len(text) <= max_chars:
+        return text or "Veo request"
+    return text[: max_chars - 1].rstrip() + "..."
+
+
+def _sanitize_error(exc: BaseException, *, max_chars: int = 420) -> str:
+    text = " ".join(str(exc).split())
+    return text[:max_chars]
+
+
+def _fallback_failed_message(original_error: BaseException, fallback_error: BaseException) -> str:
+    return (
+        "Veo 外部视频生成接口暂时断开了；Lumeri 尝试生成本地低清预览也失败。"
+        f"外部错误：{_sanitize_error(original_error)}；本地预览错误：{_sanitize_error(fallback_error)}"
+    )
+
+
+def _write_veo_fallback_sidecar(
+    output: Path,
+    *,
+    prompt: str,
+    duration: float,
+    aspect_ratio: str,
+    original_error: BaseException,
+    fallback_mode: str,
+    input_path: str = "",
+) -> None:
+    sidecar = output.with_suffix(".veo-fallback.json")
+    message = (
+        "Veo 外部视频生成接口暂时断开了。我先用 Lumeri 本地渲染做一个可看的低清预览，"
+        "保留原 prompt 和失败原因；等外部接口恢复后，可以只替换这一段生成结果。"
+    )
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "effect": "veo_local_fallback_preview",
+        "kind": "veo_fallback_preview",
+        "status": "fallback",
+        "provider": "openrouter/veo",
+        "model": os.environ.get("VEO_MODEL", "google/veo-3.1"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "input_path": str(Path(input_path).expanduser()) if input_path else "",
+        "output_path": str(output.resolve()),
+        "prompt": str(prompt or ""),
+        "duration": _safe_duration(duration),
+        "aspect_ratio": str(aspect_ratio or ""),
+        "fallback_mode": fallback_mode,
+        "original_error": _sanitize_error(original_error),
+        "user_message": message,
+        "next_action": "先审本地小样；Veo 恢复后只重跑这一段 render pass。",
+        "composition": {
+            "duration": _safe_duration(duration),
+            "blocks": [
+                {
+                    "id": "veo_fallback_notice",
+                    "kind": "text",
+                    "role": "fallback_notice",
+                    "text": "Veo 暂时不可用，本地小样先行",
+                    "data-start": 0,
+                    "data-duration": _safe_duration(duration),
+                },
+                {
+                    "id": "veo_prompt",
+                    "kind": "text",
+                    "role": "prompt",
+                    "text": _compact_prompt(prompt),
+                    "data-start": 0,
+                    "data-duration": _safe_duration(duration),
+                },
+            ],
+        },
+        "provenance": {
+            "generated_by": "lumeri_local_veo_fallback",
+            "external_provider_failed": True,
+        },
+    }
+    sidecar.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -277,16 +523,15 @@ def generate_broll(
     Raises:
         EnvironmentError: If ``PEXELS_API_KEY`` env var is not set.
     """
-    import os, re, subprocess, urllib.request, urllib.parse, json
+    import json, re, ssl, subprocess, urllib.parse, urllib.request
     from pathlib import Path as _Path
 
-    api_key = os.environ.get("PEXELS_API_KEY") or os.environ.get("EXA_API_KEY", "")
-    pexels_key = os.environ.get("PEXELS_API_KEY", "")
-    if not pexels_key:
-        raise EnvironmentError(
-            "PEXELS_API_KEY env var not set. "
-            "Get a free key at https://www.pexels.com/api/"
-        )
+    import certifi
+
+    from gemia.video.stock_media import _api_key
+
+    pexels_key = _api_key("pexels")
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
 
     _Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -313,7 +558,7 @@ def generate_broll(
                f"?query={urllib.parse.quote(kw)}&per_page=1&size=medium")
         req = urllib.request.Request(url, headers={"Authorization": pexels_key})
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=ssl_context) as resp:
                 data = json.loads(resp.read())
         except Exception:
             continue
@@ -332,7 +577,7 @@ def generate_broll(
 
         req2 = urllib.request.Request(file_url)
         try:
-            with urllib.request.urlopen(req2, timeout=30) as resp2:
+            with urllib.request.urlopen(req2, timeout=30, context=ssl_context) as resp2:
                 with open(raw_path, "wb") as fout:
                     fout.write(resp2.read())
         except Exception:

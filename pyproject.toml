@@ -13,7 +13,17 @@ dependencies = [
     "soundfile>=0.12",
     "scipy>=1.12",
     "certifi",
+    "PyYAML>=6",
 ]
+
+[project.scripts]
+lumeri-skill-stats = "gemia.ai.skill_telemetry:main"
+
+[tool.setuptools.packages.find]
+include = ["gemia*", "lumerai*"]
+
+[tool.setuptools.package-data]
+"gemia.ai" = ["skills/*/SKILL.md", "skills/_combos/*.yaml"]
 
 [project.optional-dependencies]
 dev = [

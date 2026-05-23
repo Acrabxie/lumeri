@@ -1092,3 +1092,8 @@ Codex completed `resolve21_html_graphics_lottie_support` and reproduced it twice
 - direct shell Claude fallback: first flagged a bracket-formatting issue in `gemia/video/layers.py`; Codex fixed the formatting, reran verification, and re-review passed
 
 Feature status is completed via direct fallback review at `/Users/xiehaibo/.gemia/bridge/agents/antigravity/outbox/bridge_20260427_031850_direct_claude_fallback.json`. Remaining human/infrastructure action is unchanged: restore native OpenClaw model connectivity and fix Claude Code auth inheritance for Gemia Python child processes.
+
+## 2026-05-04 Antigravity review bridge
+
+- Same infrastructure issue has exceeded 3 failures: OpenClaw gateway closes with 1006/network errors, then Claude fallback reports `Not logged in · Please run /login`.
+- Current feature was not blocked because Gemini CLI read-only review passed, but true Antigravity review needs human repair of OpenClaw/OpenRouter/Claude login state.
