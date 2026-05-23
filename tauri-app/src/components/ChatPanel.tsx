@@ -9,6 +9,7 @@ interface Props {
   pendingAskQuestions: AskQuestion[];
   onSend: (text: string) => void;
   onAnswerAsk: (answers: Record<string, string>) => void;
+  onCancel?: () => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -28,6 +29,7 @@ export default function ChatPanel({
   pendingAskQuestions,
   onSend,
   onAnswerAsk,
+  onCancel,
 }: Props) {
   const [input, setInput] = useState("");
   // answers keyed by question id
@@ -55,6 +57,26 @@ export default function ChatPanel({
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pendingAskId]);
 
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if (
+        isRunning &&
+        onCancel &&
+        e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "c"
+      ) {
+        e.preventDefault();
+        onCancel();
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [isRunning, onCancel]);
+
   function handleSend() {
     const text = input.trim();
     if (!text || isRunning) return;
@@ -67,20 +89,35 @@ export default function ChatPanel({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && e.metaKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleSend();
+      return;
+    }
+
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSend();
     }
   }
 
-  const inputDisabled = !hasVideo || isRunning;
+  const inputDisabled = isRunning;
   const canSend = !inputDisabled && input.trim().length > 0;
 
-  const placeholder = !hasVideo
-    ? "先上传一个视频..."
-    : isRunning
-    ? "正在处理..."
-    : "描述你想做什么（⌘↵ 发送）";
+  const placeholder = isRunning
+    ? "正在处理... Ctrl+C 中止"
+    : hasVideo
+    ? "描述你想做什么（Enter 运行，Shift+Enter 换行）"
+    : "直接描述你想创作的视频（Enter 运行，Shift+Enter 换行）";
+
+  const lastLiveStatusIndex = isRunning
+    ? messages.reduce((last, msg, index) => {
+        const canFlow =
+          msg.role !== "user" &&
+          (msg.statusType === "planning" || msg.statusType === "executing" || msg.statusType === "asking");
+        return canFlow ? index : last;
+      }, -1)
+    : -1;
 
   return (
     <div
@@ -118,15 +155,20 @@ export default function ChatPanel({
               letterSpacing: "0.04em",
             }}
           >
-            {hasVideo ? "> 输入指令开始处理" : "> 等待视频..."}
+            {hasVideo ? "> 输入指令开始处理" : "> 直接输入 prompt 开始创作"}
           </div>
         )}
 
-        {messages.map((msg) =>
+        {messages.map((msg, index) =>
           msg.role === "user" ? (
             <UserBubble key={msg.id} content={msg.content} />
           ) : (
-            <AiBubble key={msg.id} content={msg.content} statusType={msg.statusType} />
+            <AiBubble
+              key={msg.id}
+              content={msg.content}
+              statusType={msg.statusType}
+              isLive={index === lastLiveStatusIndex}
+            />
           )
         )}
 
@@ -321,7 +363,7 @@ function AskQuestionWidget({
             style={{ flex: 1, accentColor: "var(--blue)" }}
           />
           <span style={{ fontSize: 13, color: "var(--text)", minWidth: 40, textAlign: "right" }}>
-            {value || question.default ?? question.min ?? 0}
+            {value || (question.default ?? question.min ?? 0)}
             {question.unit ? ` ${question.unit}` : ""}
           </span>
         </div>
@@ -350,45 +392,63 @@ function AskQuestionWidget({
   );
 }
 
-function AiBubble({ content, statusType }: { content: string; statusType?: AppStatus }) {
+function AiBubble({
+  content,
+  statusType,
+  isLive,
+}: {
+  content: string;
+  statusType?: AppStatus;
+  isLive?: boolean;
+}) {
   const color = STATUS_COLOR[statusType ?? ""] ?? "var(--text2)";
-  const isActive = statusType === "planning" || statusType === "executing";
+  const isExecutionTone = statusType === "planning" || statusType === "executing" || statusType === "asking";
+  const isFlowing = isExecutionTone && isLive;
+  const textStyle: React.CSSProperties =
+    statusType === "error"
+      ? { color, fontSize: 14, lineHeight: 1.76, fontWeight: 400 }
+      : isExecutionTone
+      ? isFlowing
+        ? {
+            color: "rgba(205,216,224,.58)",
+            backgroundImage:
+              "linear-gradient(105deg, rgba(145,156,166,.42) 0%, rgba(224,234,240,.82) 38%, rgba(133,144,154,.46) 74%)",
+            backgroundSize: "240% 100%",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            animation: "lumeri-exec-flow 3.8s ease-in-out infinite",
+            fontSize: 13.5,
+            lineHeight: 1.72,
+            fontWeight: 400,
+          }
+        : {
+            color: "rgba(205,216,224,.62)",
+            fontSize: 13.5,
+            lineHeight: 1.72,
+            fontWeight: 400,
+          }
+      : {
+          color: "var(--text)",
+          fontSize: 14.5,
+          lineHeight: 1.78,
+          fontWeight: 400,
+        };
 
   return (
     <div style={{ display: "flex", justifyContent: "flex-start" }}>
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          maxWidth: "82%",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "12px 12px 12px 2px",
-          padding: "9px 13px",
+          maxWidth: isExecutionTone ? "84%" : "88%",
+          padding: isExecutionTone ? "5px 2px 8px" : "8px 2px 13px",
+          color: "var(--text)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
         }}
       >
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: color,
-            flexShrink: 0,
-            animation: isActive ? "pulse-dot 1.2s ease-in-out infinite" : "none",
-          }}
-        />
-        <span
-          style={{
-            fontSize: 12,
-            fontFamily: "var(--font-mono)",
-            color,
-            letterSpacing: "0.03em",
-            lineHeight: 1.5,
-          }}
-        >
+        <div style={textStyle}>
           {content}
-        </span>
+        </div>
       </div>
     </div>
   );

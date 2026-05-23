@@ -39,6 +39,53 @@ def _scale_keyframe_track(track_spec: Any, *, scale: float) -> dict[str, Any]:
     return scaled_track
 
 
+def _scale_vector_value(value: Any, *, scale: float) -> Any:
+    if isinstance(value, dict):
+        scaled = dict(value)
+        if "value" in scaled:
+            scaled["value"] = _scale_vector_value(scaled["value"], scale=scale)
+        for key in ("x", "y", "left", "top"):
+            if key in scaled:
+                scaled[key] = float(scaled[key]) * scale
+        return scaled
+    if isinstance(value, (list, tuple)) and len(value) >= 2:
+        scaled_items = list(value)
+        scaled_items[0] = float(scaled_items[0]) * scale
+        scaled_items[1] = float(scaled_items[1]) * scale
+        return scaled_items
+    return value
+
+
+def _scale_vector_keyframe_track(track_spec: Any, *, scale: float) -> Any:
+    if not isinstance(track_spec, dict):
+        return track_spec
+    scaled_track = deepcopy(track_spec)
+    for list_key in ("points", "keyframes"):
+        points = scaled_track.get(list_key)
+        if isinstance(points, list):
+            scaled_track[list_key] = [
+                _scale_vector_value(point, scale=scale)
+                for point in points
+            ]
+            return scaled_track
+    ignored = {"mode", "relative_to", "points", "keyframes"}
+    for frame_key, value_spec in list(scaled_track.items()):
+        if frame_key in ignored:
+            continue
+        scaled_track[frame_key] = _scale_vector_value(value_spec, scale=scale)
+    return scaled_track
+
+
+def _scale_layer_size(layer: dict[str, Any], *, scale: float) -> None:
+    raw_size = layer.get("size")
+    if not isinstance(raw_size, (list, tuple)) or len(raw_size) < 2:
+        return
+    layer["size"] = [
+        max(1, int(round(float(raw_size[0]) * scale))),
+        max(1, int(round(float(raw_size[1]) * scale))),
+    ]
+
+
 def _layer_uses_proxy_source(layer: dict[str, Any]) -> bool:
     metadata = layer.get("metadata")
     return isinstance(metadata, dict) and bool(metadata.get("proxy_path"))
@@ -65,12 +112,24 @@ def _scale_layer_plan(plan: dict[str, Any], *, max_long_edge: int) -> dict[str, 
             if "padding" in font_config or scale < 1.0:
                 font_config["padding"] = max(0, int(round(float(font_config.get("padding", 4)) * scale)))
             layer["font_config"] = font_config
+        elif layer.get("type") in {"solid", "html", "lottie"}:
+            _scale_layer_size(layer, scale=scale)
 
         if layer.get("type") in {"image", "video"} and not _layer_uses_proxy_source(layer):
             layer["scale"] = float(layer.get("scale", 1.0) or 1.0) * scale
             keyframes = layer.get("keyframes")
             if isinstance(keyframes, dict) and "scale" in keyframes:
                 keyframes["scale"] = _scale_keyframe_track(keyframes["scale"], scale=scale)
+        keyframes = layer.get("keyframes")
+        if isinstance(keyframes, dict):
+            if "position" in keyframes:
+                keyframes["position"] = _scale_vector_keyframe_track(keyframes["position"], scale=scale)
+            for scalar_position_key in ("position_x", "position_y", "x", "y"):
+                if scalar_position_key in keyframes:
+                    keyframes[scalar_position_key] = _scale_keyframe_track(
+                        keyframes[scalar_position_key],
+                        scale=scale,
+                    )
     preview_plan.setdefault("metadata", {})
     preview_plan["metadata"]["shadow_scale"] = scale
     return preview_plan

@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image as PILImage
 from PIL import ImageDraw, ImageFont
 
+from gemia.video.lottie_renderer import select_lottie_renderer
 from gemia.video.layers import render_layer_plan
 
 
@@ -25,16 +26,24 @@ class HtmlGraphicsRenderResult:
 
 
 class _HtmlBoxParser(HTMLParser):
+    _NON_RENDERED_TAGS = {"script", "style"}
+
     def __init__(self) -> None:
         super().__init__()
         self._stack: list[dict[str, Any]] = []
         self.boxes: list[dict[str, Any]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag_name = tag.lower()
+        if tag_name in self._NON_RENDERED_TAGS:
+            self._stack.append({"tag": tag_name, "style": {}, "text": "", "non_rendered": True})
+            return
         attr_map = {name: value or "" for name, value in attrs}
-        self._stack.append({"tag": tag.lower(), "style": _parse_style(attr_map.get("style", "")), "text": ""})
+        self._stack.append({"tag": tag_name, "style": _parse_style(attr_map.get("style", "")), "text": ""})
 
     def handle_data(self, data: str) -> None:
+        if any(item.get("non_rendered") for item in self._stack):
+            return
         if self._stack:
             self._stack[-1]["text"] += data
 
@@ -44,11 +53,11 @@ class _HtmlBoxParser(HTMLParser):
         item = self._stack.pop()
         if item["tag"] != tag.lower():
             return
+        if item.get("non_rendered"):
+            return
         text = re.sub(r"\s+", " ", item["text"]).strip()
         if text or item["style"].get("background") or item["style"].get("background-color"):
             self.boxes.append({"tag": item["tag"], "text": text, "style": item["style"]})
-        if self._stack and text:
-            self._stack[-1]["text"] += " " + text
 
 
 def render_html_graphics_plan(
@@ -63,25 +72,44 @@ def render_html_graphics_plan(
     max_long_edge: int | None = 540,
 ) -> str:
     """Render Resolve-style HTML graphics and Lottie alpha overlays over video."""
-    source = Path(input_path).expanduser().resolve()
+    raw_input_path = str(input_path or "").strip()
+    source: Path | None = Path(raw_input_path).expanduser().resolve() if raw_input_path else None
     output = Path(output_path).expanduser().resolve()
-    if not source.exists():
+    if source is not None and not source.exists():
         raise FileNotFoundError(f"HTML graphics input does not exist: {source}")
+    if source is not None and source.is_dir():
+        raise IsADirectoryError(f"HTML graphics input must be a media file, got directory: {source}")
 
-    meta = _video_metadata(source)
-    width, height = _scaled_size(int(meta["width"]), int(meta["height"]), max_long_edge)
-    scale = width / max(float(meta["width"]), 1.0)
-    total_frames = int(meta["frames"] or 1)
-    layers: list[dict[str, Any]] = [
-        {
-            "id": "source_video",
-            "type": "video",
-            "source": str(source),
-            "start_frame": 0,
-            "end_frame": total_frames,
-            "scale": scale,
-        }
-    ]
+    blank_canvas = source is None
+    if blank_canvas:
+        meta = {"width": 1920, "height": 1080, "fps": 30.0, "frames": 90}
+        width, height = _scaled_size(int(meta["width"]), int(meta["height"]), max_long_edge)
+        total_frames = int(meta["frames"])
+        layers: list[dict[str, Any]] = [
+            {
+                "id": "blank_canvas_background",
+                "type": "solid",
+                "color": [0.015, 0.02, 0.035, 1.0],
+                "start_frame": 0,
+                "end_frame": total_frames,
+                "z_index": 0,
+            }
+        ]
+    else:
+        meta = _video_metadata(source)
+        width, height = _scaled_size(int(meta["width"]), int(meta["height"]), max_long_edge)
+        scale = width / max(float(meta["width"]), 1.0)
+        total_frames = int(meta["frames"] or 1)
+        layers = [
+            {
+                "id": "source_video",
+                "type": "video",
+                "source": str(source),
+                "start_frame": 0,
+                "end_frame": total_frames,
+                "scale": scale,
+            }
+        ]
 
     if overlay_layers:
         for index, layer in enumerate(overlay_layers):
@@ -102,7 +130,11 @@ def render_html_graphics_plan(
                     "start_frame": 0,
                     "end_frame": total_frames,
                     "z_index": 10,
-                    "position": [max(8, width // 18), max(8, height - max(72, height // 4))],
+                    "position": (
+                        [0, 0]
+                        if blank_canvas
+                        else [max(8, width // 18), max(8, height - max(72, height // 4))]
+                    ),
                 }
             )
         if lottie_source:
@@ -136,7 +168,8 @@ def render_html_graphics_plan(
                 "schema_version": 1,
                 "effect": "resolve21_html_graphics_lottie_support",
                 "rendered_at": datetime.now(timezone.utc).isoformat(),
-                "source_path": str(source),
+                "source_path": str(source) if source is not None else "",
+                "blank_canvas": blank_canvas,
                 "output_path": str(output),
                 "rendered_frames": rendered_frames,
                 "frame_step": max(int(frame_step), 1),
@@ -161,7 +194,10 @@ def render_html_frame(source: str | None, html: str | None, *, width: int, heigh
     parser.feed(markup)
     canvas = PILImage.new("RGBA", (max(int(width), 1), max(int(height), 1)), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
-    boxes = parser.boxes or [{"tag": "div", "text": re.sub(r"<[^>]+>", " ", markup), "style": {}}]
+    fallback_text = _visible_text_from_markup(markup)
+    boxes = parser.boxes or (
+        [{"tag": "div", "text": fallback_text, "style": {}}] if fallback_text else []
+    )
     cursor_y = 0
     for box in boxes:
         style = box["style"]
@@ -187,50 +223,19 @@ def render_html_frame(source: str | None, html: str | None, *, width: int, heigh
     return np.asarray(canvas, dtype=np.float32) / 255.0
 
 
+def lottie_renderer_metadata(source: str) -> dict[str, Any]:
+    """Return renderer identity plus basic Lottie clip metadata."""
+    renderer = select_lottie_renderer()
+    metadata = dict(renderer.get_metadata(source))
+    metadata["renderer"] = renderer.name
+    metadata["source"] = str(source)
+    return metadata
+
+
 def render_lottie_frame(source: str, *, width: int, height: int, frame_index: int) -> np.ndarray:
     """Render a compact Lottie shape subset to an RGBA float frame."""
-    data = json.loads(Path(source).expanduser().read_text(encoding="utf-8"))
-    source_w = int(data.get("w") or width or 1)
-    source_h = int(data.get("h") or height or 1)
-    scale_x = max(int(width), 1) / max(source_w, 1)
-    scale_y = max(int(height), 1) / max(source_h, 1)
-    canvas = PILImage.new("RGBA", (max(int(width), 1), max(int(height), 1)), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(canvas)
-    for layer in data.get("layers", []):
-        if int(layer.get("ty", 4)) != 4:
-            continue
-        ip = int(layer.get("ip", data.get("ip", 0)) or 0)
-        op = int(layer.get("op", data.get("op", frame_index + 1)) or frame_index + 1)
-        if frame_index < ip or frame_index >= op:
-            continue
-        transform = layer.get("ks") or {}
-        opacity = _clamp(_animated_value(transform.get("o", {"k": 100}), frame_index) / 100.0, 0.0, 1.0)
-        position = _animated_list(transform.get("p", {"k": [source_w / 2, source_h / 2, 0]}), frame_index)
-        layer_scale = _animated_list(transform.get("s", {"k": [100, 100, 100]}), frame_index)
-        fill = (255, 255, 255, int(255 * opacity))
-        for shape in _flatten_shapes(layer.get("shapes", [])):
-            if shape.get("ty") == "fl":
-                color = shape.get("c", {}).get("k", [1, 1, 1, 1])
-                fill_opacity = _animated_value(shape.get("o", {"k": 100}), frame_index) / 100.0
-                fill = (
-                    int(_clamp(float(color[0]), 0, 1) * 255),
-                    int(_clamp(float(color[1]), 0, 1) * 255),
-                    int(_clamp(float(color[2]), 0, 1) * 255),
-                    int(255 * _clamp(opacity * fill_opacity, 0, 1)),
-                )
-            elif shape.get("ty") in {"rc", "el"}:
-                size = _animated_list(shape.get("s", {"k": [80, 80]}), frame_index)
-                pos = _animated_list(shape.get("p", {"k": [0, 0]}), frame_index)
-                cx = (position[0] + pos[0]) * scale_x
-                cy = (position[1] + pos[1]) * scale_y
-                w = size[0] * (layer_scale[0] / 100.0) * scale_x
-                h = size[1] * (layer_scale[1] / 100.0) * scale_y
-                bounds = [cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0]
-                if shape.get("ty") == "el":
-                    draw.ellipse(bounds, fill=fill)
-                else:
-                    draw.rounded_rectangle(bounds, radius=float(shape.get("r", {}).get("k", 0) or 0), fill=fill)
-    return np.asarray(canvas, dtype=np.float32) / 255.0
+    renderer = select_lottie_renderer()
+    return renderer.render_frame(source, width=width, height=height, frame_index=frame_index)
 
 
 def lottie_metadata(source: str) -> dict[str, int | float]:
@@ -243,6 +248,16 @@ def lottie_metadata(source: str) -> dict[str, int | float]:
         "fps": float(data.get("fr") or 30.0),
         "frames": max(op - ip, 1),
     }
+
+
+def lottie_renderer_metadata(source: str) -> dict[str, Any]:
+    from gemia.video.lottie_renderer import select_lottie_renderer
+
+    renderer = select_lottie_renderer()
+    meta: dict[str, Any] = dict(renderer.get_metadata(source))
+    meta["renderer"] = renderer.name
+    meta["source"] = source
+    return meta
 
 
 def _video_metadata(path: str | Path) -> dict[str, int | float]:
@@ -274,6 +289,16 @@ def _parse_style(style: str) -> dict[str, str]:
             key, value = item.split(":", 1)
             out[key.strip().lower()] = value.strip()
     return out
+
+
+def _visible_text_from_markup(markup: str) -> str:
+    without_non_rendered = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>",
+        " ",
+        str(markup),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", without_non_rendered)).strip()
 
 
 def _css_number(value: str | None, default: float) -> float:
@@ -372,6 +397,7 @@ def _clamp(value: float, low: float, high: float) -> float:
 __all__ = [
     "HtmlGraphicsRenderResult",
     "lottie_metadata",
+    "lottie_renderer_metadata",
     "render_html_frame",
     "render_html_graphics_plan",
     "render_lottie_frame",

@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "sync:creative-runtime": "python3 ../scripts/sync_creative_runtime_asset.py",
+    "check:creative-runtime": "python3 ../scripts/sync_creative_runtime_asset.py --check",
     "tauri": "tauri"
   },
   "dependencies": {

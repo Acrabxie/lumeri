@@ -4,12 +4,15 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Any, Callable
+from collections.abc import Mapping, Sequence
 
 import cv2
 import numpy as np
 from PIL import Image as PILImage
-from PIL import ImageDraw, ImageFont
+from PIL import ImageDraw, ImageFilter, ImageFont
 
 from gemia.primitives_common import ensure_float32, to_uint8
 from gemia.registry import get_info, get_registry, resolve
@@ -79,6 +82,13 @@ def _load_font(font_config: dict[str, Any] | None) -> ImageFont.ImageFont | Imag
     cfg = dict(font_config or {})
     font_size = int(cfg.get("size", 48))
     font_path = cfg.get("path")
+    if not font_path:
+        try:
+            from gemia.video.fonts import resolve_font_path
+
+            font_path = resolve_font_path(cfg)
+        except Exception:
+            font_path = None
     if font_path:
         try:
             return ImageFont.truetype(font_path, font_size)
@@ -148,6 +158,18 @@ def _apply_primitive_chain(frame: RGBAFrame, primitives_chain: PrimitiveChain | 
     return _to_rgba(result)
 
 
+def _tint_rgba(frame: RGBAFrame, color: Sequence[float]) -> RGBAFrame:
+    rgba = _to_rgba(frame).copy()
+    tint = np.array(list(color)[:4], dtype=np.float32)
+    if tint.shape[0] < 4:
+        tint = np.pad(tint, (0, 4 - tint.shape[0]), constant_values=1.0)
+    tint = np.clip(tint, 0.0, 1.0)
+    shade = np.max(rgba[..., :3], axis=2, keepdims=True)
+    rgba[..., :3] = shade * tint[:3].reshape(1, 1, 3)
+    rgba[..., 3] = rgba[..., 3] * float(tint[3])
+    return rgba
+
+
 def _track_from_spec(spec: dict[str, Any]) -> KeyframeTrack:
     mode = str(spec.get("mode", "clamp")) if "mode" in spec else "clamp"
     relative_to = float(spec.get("relative_to", 0.0)) if "relative_to" in spec else 0.0
@@ -174,6 +196,44 @@ def _track_from_spec(spec: dict[str, Any]) -> KeyframeTrack:
             easing = "linear"
         track.add_keyframe(frame_number, value, easing=easing)
     return track
+
+
+def _vector_tracks_from_spec(spec: dict[str, Any]) -> dict[str, KeyframeTrack]:
+    mode = str(spec.get("mode", "clamp")) if "mode" in spec else "clamp"
+    relative_to = float(spec.get("relative_to", 0.0)) if "relative_to" in spec else 0.0
+    raw_points = spec.get("keyframes", spec.get("points", spec))
+    if isinstance(raw_points, list):
+        items = [
+            (float(item.get("time", item.get("frame", 0.0))), item)
+            for item in raw_points
+            if isinstance(item, Mapping)
+        ]
+    else:
+        ignored = {"mode", "relative_to", "keyframes", "points"}
+        items = [
+            (float(frame_key), value_spec)
+            for frame_key, value_spec in raw_points.items()
+            if frame_key not in ignored
+        ]
+
+    track_x = KeyframeTrack(mode=mode, relative_to=relative_to)
+    track_y = KeyframeTrack(mode=mode, relative_to=relative_to)
+    for frame_number, value_spec in sorted(items, key=lambda item: item[0]):
+        easing = "linear"
+        value: Any = value_spec
+        if isinstance(value_spec, Mapping):
+            value = value_spec.get("value", value_spec)
+            easing = str(value_spec.get("easing", "linear"))
+        if isinstance(value, Mapping):
+            x_value = value.get("x", value.get("left"))
+            y_value = value.get("y", value.get("top"))
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and len(value) >= 2:
+            x_value, y_value = value[0], value[1]
+        else:
+            raise ValueError("Vector keyframe values must be [x, y] or {x, y}.")
+        track_x.add_keyframe(frame_number, float(x_value), easing=easing)
+        track_y.add_keyframe(frame_number, float(y_value), easing=easing)
+    return {"position_x": track_x, "position_y": track_y}
 
 
 def _fit_to_canvas(content: RGBAFrame, width: int, height: int, position: tuple[int, int]) -> RGBAFrame:
@@ -243,6 +303,20 @@ def _apply_alpha_mask(frame: RGBAFrame, mask: np.ndarray | None) -> RGBAFrame:
         alpha_mask = cv2.resize(alpha_mask, (rgba.shape[1], rgba.shape[0]), interpolation=cv2.INTER_LINEAR)
     rgba[..., 3] *= np.clip(alpha_mask, 0.0, 1.0)
     return rgba
+
+
+def _apply_gaussian_blur_rgba(frame: RGBAFrame, radius: float | None) -> RGBAFrame:
+    rgba = _to_rgba(frame)
+    if radius is None or radius <= 0:
+        return rgba
+    blurred = cv2.GaussianBlur(
+        rgba,
+        (0, 0),
+        sigmaX=float(radius),
+        sigmaY=float(radius),
+        borderType=cv2.BORDER_DEFAULT,
+    )
+    return _to_rgba(np.clip(blurred, 0.0, 1.0).astype(np.float32))
 
 
 def _flatten_rgba_for_video(
@@ -317,6 +391,16 @@ class Layer:
         del fps
         return float(track.evaluate(float(frame_index)))
 
+    def position_value(self, frame_index: int) -> tuple[int, int]:
+        x, y = self.position
+        x_track = self.keyframes.get("position_x") or self.keyframes.get("x")
+        y_track = self.keyframes.get("position_y") or self.keyframes.get("y")
+        if x_track is not None:
+            x = x_track.evaluate(float(frame_index))
+        if y_track is not None:
+            y = y_track.evaluate(float(frame_index))
+        return (int(round(float(x))), int(round(float(y))))
+
     def frame_content(self, frame_index: int) -> RGBAFrame:
         local_frame = frame_index - self.start_frame
         frame = _to_rgba(self.content_fn(local_frame))
@@ -353,7 +437,7 @@ class LayerStack:
             if not layer.is_active(frame_index):
                 continue
             content = layer.frame_content(frame_index)
-            placed = _fit_to_canvas(content, self.width, self.height, layer.position)
+            placed = _fit_to_canvas(content, self.width, self.height, layer.position_value(frame_index))
             opacity = float(np.clip(layer.property_value("opacity", frame_index, self.fps), 0.0, 1.0))
             if opacity <= 0.0:
                 continue
@@ -391,17 +475,27 @@ class LayerStack:
         if not frames:
             raise ValueError("No frames selected for render.")
 
-        output_path = str(output_path)
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        final_path = Path(output_path).expanduser().resolve()
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        should_transcode_mp4 = final_path.suffix.lower() == ".mp4" and shutil.which("ffmpeg") is not None
+        write_path = (
+            final_path.with_name(f"{final_path.stem}.opencv-tmp{final_path.suffix}")
+            if should_transcode_mp4
+            else final_path
+        )
         fps = self.fps / max(int(step), 1)
         fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (self.width, self.height))
+        writer = cv2.VideoWriter(str(write_path), fourcc, fps, (self.width, self.height))
         try:
             for frame in frames:
                 writer.write(to_uint8(_flatten_rgba_for_video(frame, background_color=background_color)))
         finally:
             writer.release()
-        return output_path
+        if should_transcode_mp4:
+            _transcode_browser_mp4(write_path, final_path)
+            if write_path != final_path and write_path.exists():
+                write_path.unlink()
+        return str(final_path)
 
 
 def make_video_layer(video_path: str, primitives_chain: PrimitiveChain | None = None) -> Layer:
@@ -423,8 +517,19 @@ def make_video_layer(video_path: str, primitives_chain: PrimitiveChain | None = 
     )
 
 
-def make_image_layer(image_path: str, duration: int) -> Layer:
+def make_image_layer(
+    image_path: str,
+    duration: int,
+    size: tuple[int, int] | None = None,
+    *,
+    blur_radius: float | None = None,
+) -> Layer:
     frame = _read_image_rgba(image_path)
+    if size is not None:
+        target_w, target_h = max(int(size[0]), 1), max(int(size[1]), 1)
+        if frame.shape[1] != target_w or frame.shape[0] != target_h:
+            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    frame = _apply_gaussian_blur_rgba(frame, blur_radius)
 
     def content_fn(_frame_index: int) -> RGBAFrame:
         return frame.copy()
@@ -458,9 +563,16 @@ def make_mask_layer(mask_path: str, duration: int) -> Callable[[int], np.ndarray
 
 def make_text_layer(text: str, position: tuple[int, int], font_config: dict[str, Any] | None = None) -> Layer:
     cfg = dict(font_config or {})
-    padding = int(cfg.get("padding", 4))
+    base_padding = int(cfg.get("padding", 4))
+    glow_radius = max(0.0, float(cfg.get("glow_radius", cfg.get("aura_radius", 0.0)) or 0.0))
+    glow_extra = int(round(glow_radius * 2.0)) if glow_radius > 0 else 0
+    padding = base_padding + glow_extra
     fill = tuple(cfg.get("color", (1.0, 1.0, 1.0, 1.0)))
     fill_u8 = tuple(int(np.clip(channel, 0.0, 1.0) * 255) for channel in fill)
+    glow_color = tuple(cfg.get("glow_color", fill))
+    if len(glow_color) < 4:
+        glow_color = tuple(list(glow_color) + [0.55])
+    glow_u8 = tuple(int(np.clip(channel, 0.0, 1.0) * 255) for channel in glow_color[:4])
     font = _load_font(cfg)
 
     dummy = PILImage.new("RGBA", (1, 1), (0, 0, 0, 0))
@@ -471,8 +583,15 @@ def make_text_layer(text: str, position: tuple[int, int], font_config: dict[str,
 
     def content_fn(_frame_index: int) -> RGBAFrame:
         img = PILImage.new("RGBA", (width, height), (0, 0, 0, 0))
+        text_xy = (padding - bbox[0], padding - bbox[1])
+        if glow_radius > 0:
+            glow = PILImage.new("RGBA", (width, height), (0, 0, 0, 0))
+            glow_draw = ImageDraw.Draw(glow)
+            glow_draw.text(text_xy, text, fill=glow_u8, font=font)
+            glow = glow.filter(ImageFilter.GaussianBlur(glow_radius))
+            img.alpha_composite(glow)
         draw = ImageDraw.Draw(img)
-        draw.text((padding - bbox[0], padding - bbox[1]), text, fill=fill_u8, font=font)
+        draw.text(text_xy, text, fill=fill_u8, font=font)
         return np.asarray(img, dtype=np.float32) / 255.0
 
     return Layer(
@@ -589,6 +708,32 @@ def _resolve_layer_timing(
     return start_frame, end_frame, duration
 
 
+def _layer_blur_radius(layer_spec: Mapping[str, Any]) -> float | None:
+    metadata = layer_spec.get("metadata")
+    candidates = [
+        layer_spec.get("blur_radius"),
+        layer_spec.get("gaussian_blur_radius"),
+    ]
+    if isinstance(metadata, Mapping):
+        candidates.extend(
+            [
+                metadata.get("blur_radius"),
+                metadata.get("contact_shadow_blur_radius"),
+                metadata.get("gaussian_blur_radius"),
+            ]
+        )
+    for candidate in candidates:
+        if candidate is None or candidate == "":
+            continue
+        try:
+            radius = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if radius > 0:
+            return min(radius, 64.0)
+    return None
+
+
 def materialize_layer_plan(plan: dict[str, Any]) -> dict[str, Any]:
     """Return a plan with inferred metrics and explicit per-layer timing."""
     materialized = deepcopy(plan)
@@ -683,7 +828,14 @@ def execute_layer_plan(plan: dict[str, Any]) -> LayerStack:
             layer = make_video_layer(layer_spec["source"])
         elif layer_type == "image":
             duration = int(layer_spec.get("duration", 1) or 1)
-            layer = make_image_layer(layer_spec["source"], duration=duration)
+            raw_size = layer_spec.get("size")
+            size = tuple(raw_size) if raw_size is not None else None
+            layer = make_image_layer(
+                layer_spec["source"],
+                duration=duration,
+                size=size,
+                blur_radius=_layer_blur_radius(layer_spec),
+            )
         elif layer_type == "text":
             layer = make_text_layer(
                 layer_spec["text"],
@@ -692,7 +844,11 @@ def execute_layer_plan(plan: dict[str, Any]) -> LayerStack:
             )
         elif layer_type == "solid":
             duration = int(layer_spec.get("duration", 1) or 1)
-            layer = make_solid_layer(tuple(layer_spec["color"]), duration=duration, size=(width, height))
+            layer = make_solid_layer(
+                tuple(layer_spec["color"]),
+                duration=duration,
+                size=tuple(layer_spec.get("size", (width, height))),
+            )
         elif layer_type == "html":
             duration = int(layer_spec.get("duration", total_frames) or total_frames)
             layer = make_html_layer(
@@ -724,6 +880,31 @@ def execute_layer_plan(plan: dict[str, Any]) -> LayerStack:
         layer.rotation_deg = float(layer_spec.get("rotation_deg", layer.rotation_deg))
         if "position" in layer_spec:
             layer.position = tuple(layer_spec["position"])
+            if layer_type == "text":
+                font_config = layer_spec.get("font_config") if isinstance(layer_spec.get("font_config"), dict) else {}
+                glow_radius = max(
+                    0.0,
+                    float(font_config.get("glow_radius", font_config.get("aura_radius", 0.0)) or 0.0),
+                )
+                if glow_radius > 0:
+                    glow_extra = int(round(glow_radius * 2.0))
+                    layer.position = (
+                        int(round(float(layer.position[0]) - glow_extra)),
+                        int(round(float(layer.position[1]) - glow_extra)),
+                    )
+        if layer_type == "image" and "color" in layer_spec:
+            original_content_fn = layer.content_fn
+            tint_color = list(layer_spec["color"])
+
+            def tinted_content_fn(
+                frame_index: int,
+                *,
+                _fn: Callable[[int], RGBAFrame] = original_content_fn,
+                _color: Sequence[float] = tint_color,
+            ) -> RGBAFrame:
+                return _tint_rgba(_fn(frame_index), _color)
+
+            layer.content_fn = tinted_content_fn
         if layer_spec.get("mask_source"):
             duration = int(layer.end_frame or total_frames or 1)
             layer.mask_fn = make_mask_layer(str(layer_spec["mask_source"]), duration=duration)
@@ -736,10 +917,13 @@ def execute_layer_plan(plan: dict[str, Any]) -> LayerStack:
                 return _apply_primitive_chain(_fn(frame_index), _chain)
 
             layer.content_fn = wrapped_content_fn
-        layer.keyframes = {
-            name: _track_from_spec(spec)
-            for name, spec in (layer_spec.get("keyframes") or {}).items()
-        }
+        keyframes: dict[str, KeyframeTrack] = {}
+        for name, spec in (layer_spec.get("keyframes") or {}).items():
+            if name == "position":
+                keyframes.update(_vector_tracks_from_spec(spec))
+            else:
+                keyframes[name] = _track_from_spec(spec)
+        layer.keyframes = keyframes
         stack.add_layer(layer)
 
     return stack
@@ -765,6 +949,38 @@ def render_layer_plan(
         end_frame=end_frame,
         step=step,
     )
+
+
+def _transcode_browser_mp4(source_path: Path, output_path: Path) -> None:
+    """Re-encode OpenCV's mp4v output into Chromium/Safari-friendly H.264."""
+    tmp_path = output_path.with_name(f"{output_path.stem}.h264-tmp{output_path.suffix}")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(source_path),
+        "-an",
+        "-vf",
+        "scale=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-profile:v",
+        "baseline",
+        "-movflags",
+        "+faststart",
+        str(tmp_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise RuntimeError(f"ffmpeg browser MP4 transcode failed: {proc.stderr[-800:]}")
+    tmp_path.replace(output_path)
 
 
 __all__ = [

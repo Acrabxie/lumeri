@@ -1,4 +1,4 @@
-"""Integration tests for Nano Banana + Veo generative primitives.
+"""Integration tests for GPT Image 2 + Veo generative primitives.
 
 Validates that:
 - All 5 core generative functions can be imported and inspected

@@ -14,7 +14,7 @@ from gemia.registry import get_info, get_registry
 
 SUPPORTED_LAYER_TYPES = frozenset({"video", "image", "text", "solid", "html", "lottie"})
 SUPPORTED_BLEND_MODES = frozenset({"normal", "multiply", "screen", "overlay"})
-SUPPORTED_KEYFRAME_PROPERTIES = frozenset({"opacity", "scale", "rotation_deg"})
+SUPPORTED_KEYFRAME_PROPERTIES = frozenset({"opacity", "scale", "rotation_deg", "position", "position_x", "position_y", "x", "y"})
 SUPPORTED_EASINGS = frozenset({"linear", "ease_in", "ease_out", "ease_in_out", "bezier"})
 SUPPORTED_KEYFRAME_MODES = frozenset({"clamp", "loop", "pingpong", "relative"})
 
@@ -227,13 +227,16 @@ def _validate_keyframes(
             else:
                 raw_value = frame_value_spec
 
-            parsed_value = _parse_float_like(raw_value, field_path=f"{frame_key_path}.value", issues=issues)
-            if parsed_value is None:
-                continue
-            if property_name == "opacity" and not 0.0 <= parsed_value <= 1.0:
-                issues.append(f"{frame_key_path}.value must stay within [0.0, 1.0], got {parsed_value}.")
-            if property_name == "scale" and parsed_value <= 0.0:
-                issues.append(f"{frame_key_path}.value must be > 0 for scale, got {parsed_value}.")
+            if property_name == "position":
+                _validate_position_keyframe_value(raw_value, field_path=f"{frame_key_path}.value", issues=issues)
+            else:
+                parsed_value = _parse_float_like(raw_value, field_path=f"{frame_key_path}.value", issues=issues)
+                if parsed_value is None:
+                    continue
+                if property_name == "opacity" and not 0.0 <= parsed_value <= 1.0:
+                    issues.append(f"{frame_key_path}.value must stay within [0.0, 1.0], got {parsed_value}.")
+                if property_name == "scale" and parsed_value <= 0.0:
+                    issues.append(f"{frame_key_path}.value must be > 0 for scale, got {parsed_value}.")
             if easing not in SUPPORTED_EASINGS and not _is_bezier_easing(easing):
                 valid = ", ".join(sorted(SUPPORTED_EASINGS))
                 issues.append(f"{frame_key_path}.easing must be one of {valid}, got {easing!r}.")
@@ -253,6 +256,20 @@ def _iter_keyframe_track_items(track_spec: Mapping[str, Any]) -> list[tuple[Any,
         return list(raw_points.items())
     ignored = {"mode", "relative_to", "keyframes", "points"}
     return [(key, value) for key, value in track_spec.items() if key not in ignored]
+
+
+def _validate_position_keyframe_value(value: Any, *, field_path: str, issues: list[str]) -> None:
+    if isinstance(value, Mapping):
+        x_value = value.get("x", value.get("left"))
+        y_value = value.get("y", value.get("top"))
+        _parse_float_like(x_value, field_path=f"{field_path}.x", issues=issues)
+        _parse_float_like(y_value, field_path=f"{field_path}.y", issues=issues)
+        return
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 2:
+        issues.append(f"{field_path} must be a 2-item [x, y] sequence or {{x, y}} object.")
+        return
+    for index, component in enumerate(value):
+        _parse_float_like(component, field_path=f"{field_path}[{index}]", issues=issues)
 
 
 def _is_bezier_easing(easing: str) -> bool:

@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use tauri::{Manager, State};
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
 
 struct ServerProcess(Mutex<Option<CommandChild>>);
 
@@ -24,25 +24,35 @@ async fn api_call(
     let req = match method.to_uppercase().as_str() {
         "GET" => client.get(&url),
         "POST" => {
-            let r = client
-                .post(&url)
-                .header("Content-Type", "application/json");
-            if let Some(b) = body { r.body(b) } else { r }
+            let r = client.post(&url).header("Content-Type", "application/json");
+            if let Some(b) = body {
+                r.body(b)
+            } else {
+                r
+            }
+        }
+        "DELETE" => {
+            let r = client.delete(&url);
+            if let Some(b) = body {
+                r.header("Content-Type", "application/json").body(b)
+            } else {
+                r
+            }
         }
         _ => return Err(format!("Unsupported method: {}", method)),
     };
 
-    let resp = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({ "status": status, "body": text }))
 }
 
-/// Upload a video file to the Python server, bypassing system proxy.
-/// src_path: absolute local file path selected by the user.
-#[tauri::command]
-async fn upload_video(src_path: String) -> Result<serde_json::Value, String> {
+async fn upload_file_to_sidecar(src_path: String) -> Result<serde_json::Value, String> {
     let path = std::path::PathBuf::from(&src_path);
     if !path.exists() {
         return Err(format!("File not found: {}", src_path));
@@ -62,7 +72,7 @@ async fn upload_video(src_path: String) -> Result<serde_json::Value, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .post("http://127.0.0.1:7788/upload-video")
+        .post("http://127.0.0.1:7788/upload-media")
         .header("Content-Type", "application/octet-stream")
         .header("X-Filename", &filename)
         .body(data)
@@ -74,6 +84,19 @@ async fn upload_video(src_path: String) -> Result<serde_json::Value, String> {
     let text = resp.text().await.map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({ "status": status, "body": text }))
+}
+
+/// Upload any supported media file to the Python server, bypassing system proxy.
+/// src_path: absolute local file path selected by the user.
+#[tauri::command]
+async fn upload_media(src_path: String) -> Result<serde_json::Value, String> {
+    upload_file_to_sidecar(src_path).await
+}
+
+/// Backward-compatible command kept for older frontend bundles.
+#[tauri::command]
+async fn upload_video(src_path: String) -> Result<serde_json::Value, String> {
+    upload_file_to_sidecar(src_path).await
 }
 
 /// Fetch a video file from the server and return it as base64 for the WebView.
@@ -104,6 +127,19 @@ async fn reveal_in_finder(path: String) -> Result<(), String> {
     std::process::Command::new("open")
         .arg("-R")
         .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Open a trusted external URL in the system browser.
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://accounts.google.com/") {
+        return Err("Only Google sign-in URLs can be opened here".to_string());
+    }
+    std::process::Command::new("open")
+        .arg(&url)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -159,9 +195,14 @@ fn config_exists() -> bool {
         return false;
     }
     // Validate that openrouter_api_key is present, non-empty, and not a placeholder
-    let Ok(text) = std::fs::read_to_string(&path) else { return false };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
-    let key = json.get("openrouter_api_key")
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    let key = json
+        .get("openrouter_api_key")
         .and_then(|v| v.as_str())
         .unwrap_or("");
     !key.is_empty() && key != "test" && key != "sk-or-..." && key.len() > 10
@@ -180,8 +221,16 @@ fn get_config() -> serde_json::Value {
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
         return serde_json::json!({"openrouter_api_key": "", "gemini_api_key": ""});
     };
-    let or_key = json.get("openrouter_api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let gm_key = json.get("gemini_api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let or_key = json
+        .get("openrouter_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let gm_key = json
+        .get("gemini_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     serde_json::json!({"openrouter_api_key": or_key, "gemini_api_key": gm_key})
 }
 
@@ -207,9 +256,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             api_call,
+            upload_media,
             upload_video,
             fetch_video_b64,
             reveal_in_finder,
+            open_url,
             save_config,
             config_exists,
             get_config,

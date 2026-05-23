@@ -15,6 +15,8 @@ from typing import Any
 
 import certifi
 
+from .provider_audit import audit_provider_payload
+
 
 def _read_config_key(field: str) -> str:
     """Read a single key from ~/.gemia/config.json, returning '' on any error."""
@@ -31,6 +33,8 @@ def _read_config_key(field: str) -> str:
 _GEMINI_NATIVE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 _GEMINI_UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 _GEMINI_FILE_URL = "https://generativelanguage.googleapis.com/v1beta/{name}"
+_DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
+_DEFAULT_OPENROUTER_MODEL = "google/gemini-3.1-pro-preview"
 _DEFAULT_INLINE_VIDEO_MAX_BYTES = 20 * 1024 * 1024
 _DEFAULT_UPLOAD_VIDEO_MAX_BYTES = 512 * 1024 * 1024
 _VIDEO_MIME_TYPES = {
@@ -49,7 +53,7 @@ _VIDEO_MIME_TYPES = {
 
 
 class GeminiAdapter:
-    """Gemini adapter — native Gemini API (via proxy) with OpenRouter fallback."""
+    """Planner adapter for native Gemini or OpenRouter-hosted Gemini."""
 
     def __init__(
         self,
@@ -58,31 +62,60 @@ class GeminiAdapter:
         api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         log_dir: str | Path = "logs/gemini",
     ) -> None:
-        # Native Gemini API key (preferred)
         self.gemini_api_key = (
             api_key
             or os.environ.get("GEMINI_API_KEY")
             or _read_config_key("gemini_api_key")
         )
-        # OpenRouter fallback
         self.openrouter_api_key = (
             os.environ.get("OPENROUTER_API_KEY")
             or _read_config_key("openrouter_api_key")
         )
-        # Model: native uses gemini-2.5-flash, OpenRouter needs provider prefix
-        self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-        self.model = model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash-preview")
+        configured_provider = (
+            os.environ.get("GEMIA_AI_PROVIDER")
+            or _read_config_key("ai_provider")
+            or ""
+        ).strip().lower()
+        self.gemini_model = (
+            model
+            or os.environ.get("GEMIA_PLANNER_MODEL")
+            or os.environ.get("GEMINI_MODEL")
+            or _read_config_key("planner_model")
+            or _read_config_key("gemini_model")
+            or _DEFAULT_GEMINI_MODEL
+        )
+        self.openrouter_model = (
+            model
+            or os.environ.get("GEMIA_PLANNER_MODEL")
+            or os.environ.get("GEMIA_OPENROUTER_MODEL")
+            or os.environ.get("OPENROUTER_MODEL")
+            or _read_config_key("planner_model")
+            or _read_config_key("openrouter_model")
+            or _DEFAULT_OPENROUTER_MODEL
+        )
+        if configured_provider in {"openrouter", "gemini_native"}:
+            self.provider = configured_provider
+        elif self.openrouter_api_key:
+            self.provider = "openrouter"
+        else:
+            self.provider = "gemini_native"
+        self.model = self.openrouter_model if self.provider == "openrouter" else self.gemini_model
         self.api_url = api_url
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.ssl_verify = os.environ.get("GEMIA_SSL_VERIFY", "1") != "0"
-        # Proxy for native Gemini (e.g. http://127.0.0.1:7890)
+        # Proxy for native Gemini (e.g. http://127.0.0.1:7890).
+        # Empty by default — only set GEMIA_PROXY / config.proxy when an actual
+        # local HTTP proxy exists; otherwise every native call burns ~90s on
+        # connection refused before falling back to OpenRouter.
         self.proxy = (
             os.environ.get("GEMIA_PROXY")
             or _read_config_key("proxy")
-            or "http://127.0.0.1:7890"
+            or ""
         )
-        if not self.gemini_api_key and not self.openrouter_api_key:
+        if self.provider == "openrouter" and not self.openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter planning")
+        if self.provider == "gemini_native" and not self.gemini_api_key and not self.openrouter_api_key:
             raise RuntimeError("GEMINI_API_KEY or OPENROUTER_API_KEY is required")
 
     async def generate_plan_json(
@@ -92,12 +125,14 @@ class GeminiAdapter:
         tag: str,
         *,
         attach_video: bool = False,
+        dynamic_system_prompt: str | None = None,
     ) -> dict[str, Any]:
-        # Try native Gemini API first, fall back to OpenRouter
-        if self.gemini_api_key:
+        # Native Gemini is still supported, but OpenRouter is the primary
+        # planner when configured. OpenRouter plan calls stay text-only.
+        if self.provider == "gemini_native" and self.gemini_api_key:
             try:
                 body, request_meta = self._post_gemini_native(
-                    system_prompt,
+                    _combine_system_prompts(system_prompt, dynamic_system_prompt),
                     user_payload,
                     attach_video=attach_video,
                 )
@@ -125,18 +160,20 @@ class GeminiAdapter:
                 if not self.openrouter_api_key:
                     raise RuntimeError(f"Gemini native API 请求失败：{exc}") from exc
 
-        # OpenRouter fallback
-        payload = {
-            "model": self.model,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-            ],
-        }
-        body = self._post_openrouter(payload)
-        self._write_log(tag=tag, request_payload=payload, response_body=body)
+        if dynamic_system_prompt:
+            body, request_meta = self._post_openrouter(
+                system_prompt,
+                user_payload,
+                tag=tag,
+                dynamic_system_prompt=dynamic_system_prompt,
+            )
+        else:
+            body, request_meta = self._post_openrouter(system_prompt, user_payload, tag=tag)
+        self._write_log(
+            tag=tag,
+            request_payload={"backend": "openrouter", "model": self.openrouter_model, **request_meta},
+            response_body=body,
+        )
         content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content", "")
         if not content:
             raise RuntimeError(f"Gemini returned empty content: {body}")
@@ -174,9 +211,63 @@ class GeminiAdapter:
             raise RuntimeError(f"Gemini returned empty video context: {body}")
         return self._extract_json(content)
 
+    async def generate_text(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        tag: str = "generate-text",
+        *,
+        dynamic_system_prompt: str | None = None,
+    ) -> str:
+        """Generate plain text instead of a Plan JSON object."""
+        if self.provider == "gemini_native" and self.gemini_api_key:
+            try:
+                body, request_meta = self._post_gemini_native(
+                    _combine_system_prompts(system_prompt, dynamic_system_prompt),
+                    user_payload,
+                    attach_video=False,
+                )
+                self._write_log(
+                    tag=tag,
+                    request_payload={"backend": "gemini_native", "model": self.gemini_model, **request_meta},
+                    response_body=body,
+                )
+                content = body.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if content:
+                    return content
+            except Exception as exc:
+                if not self.openrouter_api_key:
+                    raise RuntimeError(f"Gemini native API 请求失败：{exc}") from exc
+
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        if dynamic_system_prompt:
+            messages.append({"role": "system", "content": dynamic_system_prompt})
+        messages.append(
+            {
+                "role": "user",
+                "content": json.dumps(user_payload, ensure_ascii=False, sort_keys=True),
+            }
+        )
+        payload = {
+            "model": self.openrouter_model,
+            "temperature": 0,
+            "max_tokens": 448,
+            "messages": messages,
+        }
+        body, request_meta = self._post_openrouter(payload, tag=tag)
+        self._write_log(
+            tag=tag,
+            request_payload={"backend": "openrouter", "model": self.openrouter_model, **request_meta},
+            response_body=body,
+        )
+        content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        if not content:
+            raise RuntimeError(f"Gemini returned empty content: {body}")
+        return str(content)
+
     def can_read_video(self, input_path: Any) -> bool:
         """Return whether native Gemini can receive at least one local video path."""
-        if not self.gemini_api_key:
+        if self.provider != "gemini_native" or not self.gemini_api_key:
             return False
         for path in _iter_video_paths(input_path):
             if Path(path).expanduser().exists():
@@ -374,16 +465,79 @@ class GeminiAdapter:
         }) if self.proxy else urllib.request.ProxyHandler({})
         return urllib.request.build_opener(proxy_handler)
 
-    def _post_openrouter(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _openrouter_payload(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        *,
+        dynamic_system_prompt: str | None = None,
+        use_cache_control: bool = True,
+    ) -> dict[str, Any]:
+        """Build the OpenRouter chat-completions payload.
+
+        The system prompt is the stable block; OpenRouter's prompt caching
+        contract uses ``cache_control`` on a content block, not a top-level key.
+        """
+        system_block: dict[str, Any] = {"type": "text", "text": system_prompt}
+        if use_cache_control:
+            system_block["cache_control"] = {"type": "ephemeral"}
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": [system_block]},
+        ]
+        if dynamic_system_prompt:
+            messages.append({"role": "system", "content": dynamic_system_prompt})
+        messages.append(
+            {
+                "role": "user",
+                "content": json.dumps(user_payload, ensure_ascii=False, sort_keys=True),
+            }
+        )
+        return {
+            "model": self.openrouter_model,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+        }
+
+    def _post_openrouter(
+        self,
+        system_prompt: str | dict[str, Any],
+        user_payload: dict[str, Any] | None = None,
+        tag: str = "openrouter",
+        *,
+        dynamic_system_prompt: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if isinstance(system_prompt, dict) and user_payload is None:
+            payload = system_prompt
+        else:
+            payload = self._openrouter_payload(
+                str(system_prompt),
+                user_payload or {},
+                dynamic_system_prompt=dynamic_system_prompt,
+            )
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://local-lumeri-desktop",
+            "X-Title": "lumeri-desktop",
+        }
+        provider_payload_audit = audit_provider_payload(payload)
+        desktop_txt = self._write_desktop_input_txt(
+            tag=tag,
+            endpoint=self.api_url,
+            request_body=payload,
+            headers=headers,
+            request_meta={
+                "provider": "openrouter",
+                "model": self.openrouter_model,
+                "message_count": len(payload.get("messages") or []),
+                "provider_payload_audit": provider_payload_audit,
+            },
+        )
         req = urllib.request.Request(
             self.api_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://local-gemia-mvp",
-                "X-Title": "gemia-mvp",
-            },
+            headers=headers,
             method="POST",
         )
         if self.ssl_verify:
@@ -397,7 +551,13 @@ class GeminiAdapter:
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=90, context=context) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
+                    body = json.loads(resp.read().decode("utf-8"))
+                    return body, {
+                        "message_count": len(payload.get("messages") or []),
+                        "desktop_input_txt": desktop_txt,
+                        "provider_payload_audit": provider_payload_audit,
+                        "usage": body.get("usage") if isinstance(body, dict) else None,
+                    }
             except urllib.error.HTTPError as exc:
                 error_body = exc.read().decode("utf-8", errors="ignore")
                 if 400 <= exc.code < 500:
@@ -409,6 +569,39 @@ class GeminiAdapter:
                 time.sleep(2 ** attempt)
         raise last_error  # type: ignore[misc]
 
+    def _write_desktop_input_txt(
+        self,
+        *,
+        tag: str,
+        endpoint: str,
+        request_body: dict[str, Any],
+        headers: dict[str, Any],
+        request_meta: dict[str, Any] | None = None,
+    ) -> str | None:
+        if os.environ.get("GEMIA_INPUT_TXT_LOG", "0") != "1":
+            return None
+        out_dir = Path(
+            os.environ.get("GEMIA_INPUT_TXT_DIR")
+            or (Path.home() / "Desktop" / "Lumeri Gemini Inputs")
+        ).expanduser()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        safe_tag = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in tag)[:80] or "input"
+        path = out_dir / f"{ts}-{safe_tag}.txt"
+        record = {
+            "timestamp": ts,
+            "tag": tag,
+            "endpoint": endpoint,
+            "headers": _redact(headers),
+            "request_meta": _redact(request_meta or {}),
+            "request_body": _redact(request_body),
+        }
+        text = json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        path.write_text(text, encoding="utf-8")
+        latest = out_dir / "latest.txt"
+        latest.write_text(text, encoding="utf-8")
+        return str(path)
+
     def _write_log(self, tag: str, request_payload: dict[str, Any], response_body: dict[str, Any]) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = self.log_dir / f"{ts}-{tag}.json"
@@ -419,6 +612,8 @@ class GeminiAdapter:
             "request": request_payload,
             "response": response_body,
         }
+        if isinstance(response_body, dict) and isinstance(response_body.get("usage"), dict):
+            record["usage"] = response_body["usage"]
         path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
 
     @staticmethod
@@ -464,6 +659,28 @@ def _env_int(name: str, default: int) -> int:
         return max(int(raw), 0)
     except ValueError:
         return default
+
+
+def _redact(value: Any) -> Any:
+    secret_fragments = ("authorization", "api_key", "apikey", "access_token", "refresh_token", "secret")
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if any(fragment in key_text for fragment in secret_fragments):
+                cleaned[key] = "<redacted>"
+            else:
+                cleaned[key] = _redact(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
+
+def _combine_system_prompts(system_prompt: str, dynamic_system_prompt: str | None = None) -> str:
+    if not dynamic_system_prompt:
+        return system_prompt
+    return f"{system_prompt}\n\n{dynamic_system_prompt}"
 
 
 def build_plan_system_prompt() -> str:
@@ -562,7 +779,7 @@ def build_plan_or_ask_system_prompt() -> str:
         When to ask:
         - Style/effect is totally unspecified ("make it cool", "do something interesting")
         - Duration is ambiguous for trim/subtitle
-        - Multi-step request references tools not yet available (Nano Banana, Veo, etc.)
+        - Multi-step request references tools not yet available (GPT Image 2, Veo, etc.)
 
         When NOT to ask:
         - Simple clear operations: "裁前10秒", "加速2倍", "color grade warm"
@@ -573,134 +790,102 @@ def build_plan_or_ask_system_prompt() -> str:
     ).strip()
 
 
-def build_primitive_plan_system_prompt() -> str:
-    """System prompt for Plan v2 — references actual primitive functions."""
-    from gemia.registry import catalog_for_prompt
-    catalog = catalog_for_prompt()
+def build_primitive_plan_system_prompt(
+    categories: list[str] | tuple[str, ...] | None = None,
+    *,
+    has_video_context: bool = False,
+) -> str:
+    """System prompt for Plan v2 with an on-demand primitive catalog."""
+    from gemia.registry import catalog_for_categories
+
+    catalog = catalog_for_categories(categories or ["core"])
+    video_context_note = ""
+    if has_video_context:
+        video_context_note = textwrap.dedent(
+            """
+            Video context:
+            - payload.video_context is a compact local summary of the relevant video clip.
+            - Use duration, mood, key_frame, and suggested_use as planning hints.
+            - Do not request native video upload/read; plan from this metadata and the project state.
+            """
+        ).strip()
+
+    rules_table = textwrap.dedent(
+        """
+        | trigger keywords | preferred primitive | extra args |
+        |---|---|---|
+        | layered edit, overlay, graph, keyframed opacity/position | gemia.video.layer_flow.render_layer_workflow | use args.overlay_layers; avoid preview/compositing internals |
+        | focus, aperture, rack focus, click-to-focus | gemia.video.cinefocus.render_cinefocus_plan | normalized focus keyframes 0..1 |
+        | motion blur, blurry action, deblur | gemia.video.motion_deblur.render_motion_deblur_plan | strength or quality if given |
+        | ultra sharpen, recover detail | gemia.video.ultrasharpen.render_ultrasharpen_plan | keep natural detail |
+        | age, younger, older face | gemia.video.face_age.render_face_age_plan | preserve identity unless user asks otherwise |
+        | face shape, jaw, eyes, mouth | gemia.video.face_reshaper.render_face_reshaper_plan | subtle=True unless requested |
+        | blemish, acne, skin cleanup | gemia.video.blemish.render_blemish_removal_plan | preserve texture |
+        | slate id, scene metadata, AI slate | gemia.video.slate_id.render_slate_id_metadata_plan | analysis/report output |
+        | HTML, Lottie, lower third, data panel, OGraf | gemia.video.html_graphics.render_html_graphics_plan | html/html_source/lottie_source/overlay_layers |
+        | LumeriLink, Blender, spatial, 3D, parallax | gemia.video.blender_link.render_blender_link_operation | operation/style/intensity |
+        """
+    ).strip()
+
     return textwrap.dedent(
         f"""
-        You are Gemia's AI planner for video/image/audio workflows.
-        Return JSON only. No markdown.
+        You are Lumeri's Plan v2 planner for video/image/audio workflows.
+        Return one valid JSON object only. No markdown in the answer.
 
-        If a "video_context" object is present in the user payload, it came
-        from Gemini reading the attached source video. Use its visual/audio
-        observations, timestamps, and edit opportunities when choosing steps.
-        You may plan multiple executable steps when the request benefits from
-        content-aware editing; keep the plan concise, but do not collapse a
-        real multi-operation edit into a single vague step.
+        {video_context_note}
 
-        You have access to these primitive functions:
-
+        Available primitives:
         {catalog}
 
-        Layer-first workflow rule:
-        - For layered edits, text/graphics overlays, keyframed opacity/position,
-          picture primitive chains on overlays, or graph-native previews, prefer
-          gemia.video.layer_flow.render_layer_workflow. Put overlay layer specs
-          in args.overlay_layers and keep "$input" / "$output" only as the
-          step input/output references. Do not call render_shadow_preview or
-          compositing_graph helpers directly.
+        Routing rules:
+        {rules_table}
 
-        CineFocus rule:
-        - For click-to-focus, aperture simulation, or rack-focus requests, prefer
-          gemia.video.cinefocus.render_cinefocus_plan with normalized 0..1 focus
-          keyframes and use "$input" / "$output" as the step references.
-
-        Motion Deblur rule:
-        - For motion streaks, blurry action footage, or AI Motion Deblur requests,
-          prefer gemia.video.motion_deblur.render_motion_deblur_plan and use
-          "$input" / "$output" as the step references.
-
-        HTML graphics / Lottie rule:
-        - For OGraf-style HTML graphics, lower thirds, badges, data panels, or
-          Lottie animation overlays, prefer
-          gemia.video.html_graphics.render_html_graphics_plan. Provide inline
-          html, html_source, lottie_source, or explicit overlay_layers with
-          type "html" / "lottie"; keep "$input" / "$output" references.
-
-        Analyze the user's request. Choose one of two responses:
-
-        === CASE A: Request is specific enough to execute ===
-        Return a Plan v2 JSON:
+        CASE A: enough information to execute.
+        Return:
         {{
           "version": "2.0",
-          "goal": "string describing the intent",
+          "goal": "short intent",
+          "assistant_message": "用中文给用户一两句自然语言说明：你理解了什么、准备怎么处理，不要写思维链",
           "steps": [
             {{
               "id": "step_1",
-              "function": "gemia.picture.color.color_grade",
-              "args": {{"preset": "cyberpunk"}},
+              "function": "fully.qualified.primitive",
+              "args": {{}},
               "input": "$input",
-              "output": "$output"
+              "output": "$output",
+              "assistant_message": "用中文给用户一句话说明这一步会做什么，不要写思维链"
             }}
           ]
         }}
 
-        Variable references:
-        - "$input" = user's input video file
-        - "$output" = desired output file (use ONLY on the last step)
-        - "$step_N" = output of step with id "step_N"
+        References:
+        - "$input" is the provided input_path.
+        - "$output" is the provided output_path and should appear only on the final media-producing step.
+        - "$step_N" is the output of an earlier step.
+        - Omit input for intermediate steps when it consumes the previous step.
+        - Omit output for non-final media-producing steps.
 
-        IMPORTANT rules:
-        - Think through the edit internally in stages: understand the request,
-          inspect the video_context, choose primitives, then validate that every
-          step consumes the previous output correctly. Return only the final
-          JSON, not the private reasoning.
-        - If a gemia.picture.* function is used and the input is a video,
-          the engine applies it to every frame automatically. Do NOT add
-          extract_frames/frames_to_video steps for this — just use the
-          picture function directly with "$input".
-        - For video timeline operations (trim, speed, reverse, concat),
-          use gemia.video.timeline.* functions.
-        - Keep plans minimal for simple requests; for richer requests, use
-          2-6 clear steps such as trim, stabilize, color, caption, retime, or
-          generative enhancement when those steps are available in the catalog.
-        - Omit "input" for intermediate steps (defaults to previous step output).
-        - Omit "output" for non-final steps (auto-generates temp path).
-        - "args" must only contain JSON-serializable values (no arrays or objects
-          that represent numpy data).
+        Planning constraints:
+        - Use only primitives shown in the catalog unless the rule table names an exact preferred primitive.
+        - Include top-level assistant_message for every executable plan.
+        - Include assistant_message on every step, written as one concise Chinese user-visible status sentence for what is happening now. Do not write private reasoning or chain-of-thought.
+        - For timeline edit, trim, speed, reverse, concat, or rotate, prefer gemia.video.timeline.*.
+        - If a gemia.picture.* function is applied to video, Lumeri runs it on frames automatically; do not add extract/frames-to-video steps.
+        - Keep simple requests to 1-2 steps; richer edits should usually be 2-6 clear steps.
+        - Analysis primitives that return metadata are not media pipeline steps unless the user explicitly asks for analysis.
+        - args must be JSON-serializable. Never include numpy arrays, binary data, or local thumbnails.
 
-        IMPORTANT notes on generative functions:
-        - gemia.picture.generative.generate_image: generates a new image from scratch (no input image needed). Use when creating title cards, backgrounds, or standalone images. Args: prompt (str), aspect_ratio (str), style (str), model_tier (str).
-        - gemia.picture.generative.style_transfer: applies a visual style to each video frame. Use for "赛博朋克", "水墨画", "油画" style requests on videos. Args: img (auto from pipeline), style_prompt (str), model_tier (str).
-        - gemia.picture.generative.edit_image: edits each frame with an instruction. Use for "remove background", "add rain effect" on videos. Args: img (auto from pipeline), instruction (str), model_tier (str).
-        - gemia.picture.generative.blend_images: blends current frame with another image file (requires img_b_path arg pointing to a local file). Args: img (auto from pipeline), img_b_path (str), prompt (str), model_tier (str).
-        - gemia.video.generative.generate_video: generates a new video from text prompt. No input needed. Args: prompt (str), duration (float), aspect_ratio (str).
-        - gemia.video.generative.generate_video_from_image: animates a still image into video. Input is an image file path. Args: image_path (auto from pipeline), prompt (str), duration (float).
-        - gemia.video.generative.extend_video: extends the end of a video. Input is a video file path. Args: video_path (auto from pipeline), prompt (str), duration (float).
-
-        IMPORTANT notes on non-generative functions:
-        - gemia.video.frames.stabilize: stabilizes shaky video. Args: video_path (auto), output_path (auto), smoothness (int, default 30).
-        - gemia.video.frames.retime: variable speed retiming. Args: video_path (auto), output_path (auto), speed_map (list of [timestamp_sec, speed_factor] pairs, e.g. [[0,1.0],[3,2.0]]).
-        - gemia.picture.color.lift_gamma_gain: adjusts lift/gamma/gain per channel. Args: img (auto), lift/gamma/gain as floats.
-        - gemia.picture.color.log_to_linear: converts log-encoded footage to linear. Args: img (auto), log_format ('slog2'|'slog3'|'logc'|'log3g10').
-        - gemia.picture.color.color_space_convert: converts between color spaces. Args: img (auto), src/dst as strings.
-        - gemia.picture.analysis.waveform_monitor: returns waveform analysis image (use for QC, not in pipeline).
-        - gemia.video.analysis.detect_scenes: returns list of scene change timestamps. Args: path (video), threshold (float).
-        - gemia.video.analysis.get_metadata: returns dict with duration/width/height/fps. Args: path (video).
-
-        For analysis functions (detect_scenes, get_metadata, waveform_monitor) that return data rather than media files, do NOT include them in a pipeline — only use them when the user explicitly asks for analysis results.
-
-        === CASE B: Request is too vague or missing key parameters ===
-        Return an Ask JSON (max 3 questions). Each question must include "id", "text", and "input_type".
-        Choose the most appropriate input_type:
-        - "choices": discrete options (include "choices" array)
-        - "slider": numeric range (include "min", "max", "default", "step", "unit")
-        - "text": free-form answer (optionally include "placeholder")
-
-        Example:
+        CASE B: missing required information.
+        Return:
         {{
           "ask": true,
           "questions": [
-            {{"id": "q0", "text": "What visual style?", "input_type": "choices", "choices": ["warm", "cool", "vintage", "cyberpunk"]}},
-            {{"id": "q1", "text": "Output duration (seconds)?", "input_type": "slider", "min": 1, "max": 60, "default": 10, "step": 1, "unit": "s"}},
-            {{"id": "q2", "text": "Any other notes?", "input_type": "text", "placeholder": "Optional..."}}
+            {{"id": "q0", "text": "question", "input_type": "choices|slider|text"}}
           ]
         }}
-
-        When to ask: style/effect is totally unspecified, duration is ambiguous.
-        When NOT to ask: clear operations like "裁前10秒", "加速2倍", "warm调色".
-        If "clarifications" are provided in the payload, generate the Plan — do not ask again.
+        Ask at most 3 questions. Ask only for required execution details such as effect type, target material, or duration.
+        If payload.clarifications exists, treat it as authoritative and generate a plan instead of asking again.
+        Clear short requests like "裁前10秒", "加速2倍", "暖色调色", or "加字幕" should execute without asking.
         """
     ).strip()
 

@@ -7,12 +7,65 @@ import ChatPanel from "./components/ChatPanel";
 import SkillsPanel from "./components/SkillsPanel";
 import type { AppStatus, AskQuestion, ChatMessage, Skill } from "./types";
 import DevPanel from "./dev/DevPanel"; // [DEV] remove this line to disable dev panel
+import { friendlyError } from "./lib/errorMap";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let _mid = 0;
 const newId = () => `m${++_mid}_${Date.now()}`;
+const PLAYABLE_VIDEO_RE = /\.(mp4|mov|m4v|webm)$/i;
+const firstPlayableVideoOutput = (outputs?: string[]) =>
+  Array.isArray(outputs) ? outputs.find((output) => PLAYABLE_VIDEO_RE.test(String(output).split("?")[0])) : undefined;
+const basename = (value: string) => value.split(/[\\/]/).pop() || value;
+const SERVER_FILE_RE = /(?:^|\/)(outputs|frames|styled|demo|inputs|uploads|temp|timeline)\/(.+)$/;
+const serverRelativeOutputPath = (value: string) => {
+  const match = value.replace(/\\/g, "/").match(SERVER_FILE_RE);
+  return match ? `${match[1]}/${match[2]}` : `outputs/${basename(value)}`;
+};
 
 type ApiResult = { ok: boolean; status: number; data: Record<string, unknown> };
+
+const humanErrorMessage = (raw: unknown) => friendlyError(raw);
+const taskArtifactSummary = (task: Record<string, unknown>, playableOutput?: string) => {
+  const lines: string[] = [];
+  if (playableOutput) {
+    lines.push(`preview: ${basename(playableOutput)}`);
+  }
+
+  const artifacts = Array.isArray(task.artifact_outputs)
+    ? task.artifact_outputs
+    : Array.isArray(task.artifacts)
+    ? task.artifacts
+    : [];
+  const artifactNames = artifacts
+    .map((artifact) => {
+      if (typeof artifact === "string") return basename(artifact);
+      if (artifact && typeof artifact === "object") {
+        const record = artifact as Record<string, unknown>;
+        const path = record.path ?? record.output_path ?? record.artifact_path ?? record.name;
+        return typeof path === "string" ? basename(path) : "";
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  if (artifactNames.length) {
+    lines.push(`artifacts: ${artifactNames.join(", ")}`);
+  }
+
+  return lines.length ? `完成 ✓\n${lines.join("\n")}` : "完成 ✓";
+};
+const taskUserMessage = (task: Record<string, unknown>, fallback: string) => {
+  if (typeof task.user_message === "string" && task.user_message) return task.user_message;
+  const events = Array.isArray(task.agent_events) ? task.agent_events : [];
+  const last = [...events].reverse().find((event) => typeof event === "object" && event !== null) as
+    | Record<string, unknown>
+    | undefined;
+  if (last) {
+    if (typeof last.user_message === "string" && last.user_message) return last.user_message;
+    if (typeof last.body === "string" && last.body) return last.body;
+  }
+  return fallback;
+};
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus>("starting");
@@ -154,21 +207,28 @@ export default function App() {
           const taskStatus = r.data.status as string;
           const outputs = r.data.outputs as string[] | undefined;
 
-          if (taskStatus === "succeeded") {
+          if (taskStatus === "succeeded" || taskStatus === "preview_ready") {
             stopPolling();
             setStatus("done");
             setIsRunning(false);
-            updateLastStatus("完成 ✓", "done");
-            if (outputs?.length) {
-              const filename = outputs[0].split("/").pop() ?? "";
-              await loadVideoPreview("outputs/" + filename);
+            const playableOutput = firstPlayableVideoOutput(outputs);
+            if (playableOutput) {
+              updateLastStatus(taskArtifactSummary(r.data, playableOutput), "done");
+              await loadVideoPreview(serverRelativeOutputPath(playableOutput));
               if (videoRef.current) videoRef.current.play().catch(() => {});
+            } else {
+              updateLastStatus(taskUserMessage(r.data, "生成了小样记录，但没有新的可播放视频。"), "done");
             }
+          } else if (taskStatus === "artifact_ready") {
+            stopPolling();
+            setStatus("done");
+            setIsRunning(false);
+            updateLastStatus(taskUserMessage(r.data, "生成了文档或计划，没有可播放视频。"), "done");
           } else if (taskStatus === "failed") {
             stopPolling();
             setStatus("error");
             setIsRunning(false);
-            updateLastStatus("执行失败", "error");
+            updateLastStatus(taskUserMessage(r.data, "这一步没有完成。"), "error");
           }
         } catch {
           // ignore transient errors
@@ -201,15 +261,15 @@ export default function App() {
           updateLastStatus("需要更多信息", "asking");
           return;
         }
-        if (!r.ok || !r.data.task_id) throw new Error((r.data.error as string) ?? "Server error");
+        if (!r.ok || !r.data.task_id) throw r.data;
         setStatus("executing");
         updateLastStatus("正在执行...", "executing");
         startPolling(r.data.task_id as string);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = humanErrorMessage(e);
         setStatus("error");
         setIsRunning(false);
-        updateLastStatus(`错误: ${msg}`, "error");
+        updateLastStatus(msg, "error");
       }
     },
     [pendingAskId, addMsg, api, updateLastStatus, startPolling]
@@ -225,7 +285,7 @@ export default function App() {
       addMsg({ role: "user", content: text });
       addMsg({ role: "status", content: "正在规划...", statusType: "planning" });
       try {
-        const r = await api("POST", "/run-prompt", { prompt: text, video: serverVideoPath });
+        const r = await api("POST", "/run-prompt", { prompt: text, video: serverVideoPath, stream_logs: true });
         if (r.data.ask) {
           setStatus("asking");
           setIsRunning(false);
@@ -234,15 +294,15 @@ export default function App() {
           updateLastStatus("需要更多信息", "asking");
           return;
         }
-        if (!r.ok || !r.data.task_id) throw new Error((r.data.error as string) ?? "Server error");
+        if (!r.ok || !r.data.task_id) throw r.data;
         setStatus("executing");
         updateLastStatus("正在执行...", "executing");
         startPolling(r.data.task_id as string);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = humanErrorMessage(e);
         setStatus("error");
         setIsRunning(false);
-        updateLastStatus(`错误: ${msg}`, "error");
+        updateLastStatus(msg, "error");
       }
     },
     [serverVideoPath, addMsg, api, stopPolling, updateLastStatus, startPolling]
@@ -262,13 +322,13 @@ export default function App() {
           skill_id: skillName,
           inputs: { video: serverVideoPath },
         });
-        if (!r.ok || !r.data.task_id) throw new Error((r.data.error as string) ?? "Skill error");
+        if (!r.ok || !r.data.task_id) throw r.data;
         startPolling(r.data.task_id as string);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = humanErrorMessage(e);
         setStatus("error");
         setIsRunning(false);
-        updateLastStatus(`错误: ${msg}`, "error");
+        updateLastStatus(msg, "error");
       }
     },
     [serverVideoPath, isRunning, addMsg, api, startPolling, updateLastStatus]
@@ -301,7 +361,7 @@ export default function App() {
             }}
             onError={(msg) => {
               setStatus("error");
-              addMsg({ role: "status", content: `错误: ${msg}`, statusType: "error" });
+              addMsg({ role: "status", content: humanErrorMessage(msg), statusType: "error" });
             }}
           />
           {/* Timeline */}

@@ -245,6 +245,10 @@ def _collect_manifest_findings(
     motion_deblur_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".motion_deblur.json"))
     html_graphics_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".html_graphics.json"))
     slate_id_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".slate_id.json"))
+    blemish_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".blemish.json"))
+    face_age_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".face_age.json"))
+    face_reshaper_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".face_reshaper.json"))
+    ultrasharpen_metadata = _read_json_file(Path(output_path).expanduser().resolve().with_suffix(".ultrasharpen.json"))
     if preview_manifest:
         manifest_output = str(preview_manifest.get("output_path", ""))
         if manifest_output and Path(manifest_output).expanduser().resolve() != Path(output_path):
@@ -262,6 +266,14 @@ def _collect_manifest_findings(
         _add_finding(findings, "info", "html_graphics_metadata_recorded", "HTML graphics metadata sidecar is attached.")
     elif slate_id_metadata.get("effect") == "resolve21_ai_slate_id_metadata":
         _add_finding(findings, "info", "slate_id_metadata_recorded", "Slate ID metadata sidecar is attached.")
+    elif blemish_metadata.get("effect") == "resolve21_ai_blemish_removal":
+        _add_finding(findings, "info", "blemish_metadata_recorded", "Blemish Removal metadata sidecar is attached.")
+    elif face_age_metadata.get("effect") == "resolve21_ai_face_age_transformer":
+        _add_finding(findings, "info", "face_age_metadata_recorded", "Face Age metadata sidecar is attached.")
+    elif face_reshaper_metadata.get("effect") == "resolve21_ai_face_reshaper":
+        _add_finding(findings, "info", "face_reshaper_metadata_recorded", "Face Reshaper metadata sidecar is attached.")
+    elif ultrasharpen_metadata.get("effect") == "resolve21_ai_ultrasharpen":
+        _add_finding(findings, "info", "ultrasharpen_metadata_recorded", "UltraSharpen metadata sidecar is attached.")
     else:
         _add_finding(findings, "warning", "preview_manifest_missing", "No preview manifest was attached to the review.")
 
@@ -290,6 +302,45 @@ def _collect_manifest_findings(
             _add_finding(findings, "info", "slate_id_detected_recorded", "Slate ID metadata records detected slate frames.")
         else:
             _add_finding(findings, "info", "slate_id_no_slate_diagnostic_recorded", "Slate ID metadata records a no-slate diagnostic.")
+    elif blemish_metadata.get("effect") == "resolve21_ai_blemish_removal":
+        cleanup = blemish_metadata.get("cleanup", {}) if isinstance(blemish_metadata.get("cleanup"), dict) else {}
+        _add_finding(
+            findings,
+            "info",
+            "blemish_cleanup_recorded",
+            f"Blemish metadata records average cleanup delta {cleanup.get('average_delta')}.",
+        )
+    elif face_age_metadata.get("effect") == "resolve21_ai_face_age_transformer":
+        face_detection = face_age_metadata.get("face_detection", {}) if isinstance(face_age_metadata.get("face_detection"), dict) else {}
+        if face_detection.get("no_face_evidence"):
+            _add_finding(findings, "info", "face_age_no_face_evidence_recorded", "Face Age metadata records a no-face diagnostic.")
+        else:
+            _add_finding(
+                findings,
+                "info",
+                "face_age_tracks_recorded",
+                f"Face Age metadata records age offset {face_age_metadata.get('age_offset_years')}.",
+            )
+    elif face_reshaper_metadata.get("effect") == "resolve21_ai_face_reshaper":
+        face_detection = face_reshaper_metadata.get("face_detection", {}) if isinstance(face_reshaper_metadata.get("face_detection"), dict) else {}
+        tracking = face_reshaper_metadata.get("tracking", {}) if isinstance(face_reshaper_metadata.get("tracking"), dict) else {}
+        if face_detection.get("no_face_evidence"):
+            _add_finding(findings, "info", "face_reshaper_no_face_evidence_recorded", "Face Reshaper metadata records a no-face diagnostic.")
+        else:
+            _add_finding(
+                findings,
+                "info",
+                "face_reshaper_warp_recorded",
+                f"Face Reshaper metadata records {tracking.get('tracked_frames', 0)} tracked frames.",
+            )
+    elif ultrasharpen_metadata.get("effect") == "resolve21_ai_ultrasharpen":
+        sharpness = ultrasharpen_metadata.get("sharpness", {}) if isinstance(ultrasharpen_metadata.get("sharpness"), dict) else {}
+        _add_finding(
+            findings,
+            "info",
+            "ultrasharpen_sharpness_recorded",
+            f"UltraSharpen metadata records sharpness delta {sharpness.get('delta')}.",
+        )
     else:
         _add_finding(findings, "warning", "layer_flow_manifest_missing", "No layer-flow manifest was attached to the review.")
 

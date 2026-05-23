@@ -12,9 +12,7 @@ from .bridge import (
     BridgeTask,
     ClaudeCodeAdapter,
     ControllerAdapter,
-    FallbackBridgeAdapter,
     MasterBridgeController,
-    OpenClawAgentAdapter,
     QueueBridgeAdapter,
 )
 from .video.layers import render_layer_plan
@@ -102,6 +100,11 @@ def main() -> None:
     p_intellisearch_search.add_argument("--output", default=None, help="Optional output result JSON path")
     p_intellisearch_search.add_argument("--limit", type=int, default=5, help="Maximum matches")
 
+    p_skill_stats = sub.add_parser("skill-stats", help="Show Lumeri planner skill router telemetry")
+    p_skill_stats.add_argument("--days", type=int, default=7)
+    p_skill_stats.add_argument("--db", default=None)
+    p_skill_stats.add_argument("--json", action="store_true")
+
     p_plan = sub.add_parser("plan")
     p_plan.add_argument("request")
     p_plan.add_argument("--video", required=True)
@@ -110,9 +113,97 @@ def main() -> None:
     p_revise.add_argument("task_id", help="Original task ID")
     p_revise.add_argument("--feedback", required=True, help="Revision instruction / style feedback")
 
+    p_lumerai_script = sub.add_parser(
+        "lumerai-script",
+        help="Developer entry: run a Lumeri runtime script through the sandbox (gated by LUMERAI_SCRIPT_MODE=1)",
+    )
+    p_lumerai_script.add_argument("--script", required=True, help="Path to the AI/developer-authored Python script")
+    p_lumerai_script.add_argument("--project-state", default=None, help="(legacy) Path to a JSON project state file; mutually exclusive with --project-id")
+    p_lumerai_script.add_argument("--project-id", default=None, help="Persistent project id under <root>/projects/<id>/; auto-created on first reference")
+    p_lumerai_script.add_argument("--project-init-from", default=None, help="When auto-creating, seed the new project from this JSON file")
+    p_lumerai_script.add_argument("--session-id", required=True, help="Session identifier for provenance")
+    p_lumerai_script.add_argument("--ai-model", default="developer-cli", help="Provenance label for the calling model")
+    p_lumerai_script.add_argument("--timeout-sec", type=int, default=30)
+    p_lumerai_script.add_argument("--dry-run", action="store_true", help="Validate only; do not execute")
+    p_lumerai_script.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
+
+    p_lumerai_undo = sub.add_parser(
+        "lumerai-undo",
+        help="Rewind a Lumeri project to an earlier patch seq (gated by LUMERAI_SCRIPT_MODE=1)",
+    )
+    p_lumerai_undo.add_argument("--project-id", required=True)
+    p_lumerai_undo.add_argument(
+        "--to-seq",
+        required=True,
+        type=int,
+        help="Target patch sequence number; 0 rewinds to the original seed",
+    )
+    p_lumerai_undo.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
+
+    p_lumerai_inspect = sub.add_parser(
+        "lumerai-inspect",
+        help="Read-only summary of a stored Lumeri project (timeline + history)",
+    )
+    p_lumerai_inspect.add_argument("--project-id", required=True)
+    p_lumerai_inspect.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    p_lumerai_inspect.add_argument(
+        "--history",
+        type=int,
+        default=0,
+        help="Include metadata for the N most recent patches",
+    )
+    p_lumerai_inspect.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
+
+    p_lumerai_render = sub.add_parser(
+        "lumerai-render",
+        help="Render a low-res preview MP4 for a stored Lumeri project (gated by LUMERAI_SCRIPT_MODE=1)",
+    )
+    p_lumerai_render.add_argument("--project-id", required=True)
+    p_lumerai_render.add_argument(
+        "--max-long-edge",
+        type=int,
+        default=640,
+        help="Scale preview so its longest edge is at most this many pixels",
+    )
+    p_lumerai_render.add_argument("--label", default="preview")
+    p_lumerai_render.add_argument("--timeout-sec", type=int, default=120)
+    p_lumerai_render.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
+
+    p_lumerai_agent = sub.add_parser(
+        "lumerai-agent",
+        help="Run the experimental agent loop (gated by LUMERAI_SCRIPT_MODE=1)",
+    )
+    p_lumerai_agent.add_argument("--project-id", required=True)
+    p_lumerai_agent.add_argument("--session-id", required=True)
+    p_lumerai_agent.add_argument("--goal", required=True)
+    p_lumerai_agent.add_argument("--max-turns", type=int, default=3)
+    p_lumerai_agent.add_argument("--ai-model", default="agent-loop")
+    p_lumerai_agent.add_argument(
+        "--ai-agent",
+        default=None,
+        help="Adapter agent name passed to AIClient (provider routing)",
+    )
+    p_lumerai_agent.add_argument(
+        "--canned-script",
+        default=None,
+        help="Experimental smoke-test path: read a fixed Python script instead of calling a live model",
+    )
+    p_lumerai_agent.add_argument(
+        "--deny",
+        action="append",
+        default=[],
+        help="Deny a permission action (repeatable). E.g. --deny patch:apply",
+    )
+    p_lumerai_agent.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
+
     p_server = sub.add_parser("server", help="Start the web server")
-    p_server.add_argument("--host", default="127.0.0.1")
-    p_server.add_argument("--port", type=int, default=7788)
+    p_server.add_argument("--host", default=None, help="Bind host; defaults to GEMIA_HOST/LUMERI_HOST or 0.0.0.0")
+    p_server.add_argument("--port", type=int, default=None, help="Bind port; defaults to GEMIA_PORT/LUMERI_PORT or 7788")
 
     p_bridge_init = sub.add_parser("bridge-init", help="Create bridge inbox/outbox directories")
     p_bridge_init.add_argument("--root", default="~/.gemia/bridge")
@@ -166,8 +257,8 @@ def main() -> None:
     p_agent_once.add_argument("--queue-root", default="~/.gemia/bridge/agents/antigravity")
     p_agent_once.add_argument(
         "--adapter",
-        choices=["openclaw", "claude", "openclaw-with-claude-fallback"],
-        default="openclaw-with-claude-fallback",
+        choices=["claude", "openclaw", "openclaw-with-claude-fallback"],
+        default="claude",
     )
     p_agent_once.add_argument("--openclaw-bin", default="openclaw")
     p_agent_once.add_argument("--openclaw-agent", default="worker")
@@ -180,8 +271,8 @@ def main() -> None:
     p_agent_daemon.add_argument("--queue-root", default="~/.gemia/bridge/agents/antigravity")
     p_agent_daemon.add_argument(
         "--adapter",
-        choices=["openclaw", "claude", "openclaw-with-claude-fallback"],
-        default="openclaw-with-claude-fallback",
+        choices=["claude", "openclaw", "openclaw-with-claude-fallback"],
+        default="claude",
     )
     p_agent_daemon.add_argument("--openclaw-bin", default="openclaw")
     p_agent_daemon.add_argument("--openclaw-agent", default="worker")
@@ -219,10 +310,22 @@ def main() -> None:
         _cmd_intellisearch_index(args)
     elif args.command == "intellisearch-search":
         _cmd_intellisearch_search(args)
+    elif args.command == "skill-stats":
+        _cmd_skill_stats(args)
     elif args.command == "revise-task":
         _cmd_revise_task(args)
     elif args.command == "plan":
         print(json.dumps(GemiaOrchestrator().plan_from_prompt(args.request, input_path=args.video), ensure_ascii=False, indent=2))
+    elif args.command == "lumerai-script":
+        raise SystemExit(_cmd_lumerai_script(args))
+    elif args.command == "lumerai-undo":
+        raise SystemExit(_cmd_lumerai_undo(args))
+    elif args.command == "lumerai-inspect":
+        raise SystemExit(_cmd_lumerai_inspect(args))
+    elif args.command == "lumerai-render":
+        raise SystemExit(_cmd_lumerai_render(args))
+    elif args.command == "lumerai-agent":
+        raise SystemExit(_cmd_lumerai_agent(args))
     elif args.command == "server":
         import importlib.util, pathlib
         _spec = importlib.util.spec_from_file_location(
@@ -306,6 +409,364 @@ def _cmd_run(args: argparse.Namespace) -> None:
     task_id = engine.run_with_task(plan, str(Path(args.video).resolve()), output_path)
     print(f"\nDone! task_id={task_id}")
     print(f"Output: {output_path}")
+
+
+def _cmd_lumerai_script(args: argparse.Namespace) -> int:
+    """Developer entry: script file -> sandbox -> TimelinePatch -> task.
+
+    Returns a process exit code. Always writes a JSON document to stdout —
+    either a success summary or a structured error. Raw sandbox stderr is kept
+    in the task JSON instead of being printed directly.
+    """
+    import os
+    import sys
+    import traceback
+
+    def _emit_error(error_code: str, message: str, *, script_hash: str = "", extra: dict | None = None) -> int:
+        payload = {
+            "status": "failed",
+            "error": {"code": error_code, "message": message},
+            "script_hash": script_hash,
+        }
+        if extra:
+            payload.update(extra)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+
+    if os.environ.get("LUMERAI_SCRIPT_MODE", "0") != "1":
+        return _emit_error(
+            "feature_flag_disabled",
+            "LUMERAI_SCRIPT_MODE=1 is required to run lumerai-script",
+        )
+
+    script_path = Path(args.script).expanduser()
+    if not script_path.exists():
+        return _emit_error("script_not_found", f"Script file does not exist: {script_path}")
+    try:
+        script_text = script_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _emit_error("script_read_failed", f"Cannot read script: {exc}")
+
+    use_id = bool(args.project_id)
+    use_inline = bool(args.project_state)
+    if use_id and use_inline:
+        return _emit_error(
+            "conflicting_project_inputs",
+            "--project-id and --project-state are mutually exclusive",
+        )
+    if not use_id and not use_inline:
+        return _emit_error(
+            "missing_project_input",
+            "one of --project-id or --project-state is required",
+        )
+
+    project_state: dict | None = None
+    if use_inline:
+        state_path = Path(args.project_state).expanduser()
+        if not state_path.exists():
+            return _emit_error("project_state_not_found", f"Project state file does not exist: {state_path}")
+        try:
+            project_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return _emit_error("project_state_invalid", f"Cannot parse project state JSON: {exc}")
+        if not isinstance(project_state, dict):
+            return _emit_error("project_state_invalid", "Project state JSON must be an object")
+
+    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
+
+    created = False
+    if use_id:
+        from .project_store import ProjectStoreError as _PSE
+
+        try:
+            if not orch.project_store.exists(args.project_id):
+                seed: dict | None = None
+                if args.project_init_from:
+                    seed_path = Path(args.project_init_from).expanduser()
+                    if not seed_path.exists():
+                        return _emit_error(
+                            "project_init_seed_not_found",
+                            f"--project-init-from path does not exist: {seed_path}",
+                        )
+                    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+                    if not isinstance(seed, dict):
+                        return _emit_error("project_init_seed_invalid", "seed JSON must be an object")
+                orch.project_store.create(args.project_id, seed=seed)
+                created = True
+        except _PSE as exc:
+            return _emit_error("invalid_project_id", str(exc))
+        except (OSError, json.JSONDecodeError) as exc:
+            return _emit_error("project_init_seed_invalid", f"Cannot read seed JSON: {exc}")
+
+    try:
+        task = orch.plan_from_script(
+            script_text,
+            project_state=project_state,
+            project_id=args.project_id if use_id else None,
+            session_id=args.session_id,
+            ai_model=args.ai_model,
+            timeout_sec=int(args.timeout_sec),
+            dry_run=bool(args.dry_run),
+        )
+    except RuntimeError as exc:
+        return _emit_error("feature_flag_disabled", str(exc))
+    except Exception as exc:  # pragma: no cover - defensive
+        return _emit_error(
+            "orchestrator_failed",
+            f"{type(exc).__name__}: {exc}",
+            extra={"traceback_tail": traceback.format_exc().splitlines()[-3:]},
+        )
+
+    if args.dry_run:
+        ok = task.get("status") == "succeeded"
+        payload = {
+            "status": task.get("status"),
+            "dry_run": True,
+            "script_hash": task.get("script_hash", ""),
+        }
+        if not ok:
+            payload["error"] = {"code": "sandbox_violation", "message": task.get("error") or task.get("stderr") or "dry-run failed"}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if ok else 1
+
+    task_id = task.get("task_id", "")
+    task_file = str((orch.tasks_dir / f"{task_id}.json").resolve()) if task_id else ""
+
+    if task.get("status") != "succeeded":
+        code = "script_execution_failed"
+        if task.get("error_code") == "no_timeline_patches":
+            code = "script_emitted_no_patches"
+        return _emit_error(
+            code,
+            task.get("error") or "Script execution failed",
+            script_hash=task.get("script_hash", ""),
+            extra={"task_id": task_id, "task_path": task_file},
+        )
+
+    project_state_out = task.get("project_state") or {}
+    timeline = project_state_out.get("timeline") if isinstance(project_state_out, dict) else None
+    clips = (timeline or {}).get("clips") or []
+    patches = task.get("timeline_patches") or []
+
+    summary = {
+        "status": "succeeded",
+        "task_id": task_id,
+        "task_path": task_file,
+        "script_hash": task.get("script_hash", ""),
+        "patch_count": len(patches),
+        "timeline_clip_count": len(clips),
+    }
+    if use_id:
+        summary["project_id"] = args.project_id
+        summary["created"] = created
+        summary["project_state_path"] = str(orch.project_store.state_path(args.project_id))
+        summary["patch_seq_start"] = task.get("patch_seq_start", 0)
+        summary["patch_seq_end"] = task.get("patch_seq_end", 0)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_lumerai_undo(args: argparse.Namespace) -> int:
+    """Rewind a stored project to an earlier patch seq."""
+    import os
+
+    def _emit_error(code: str, message: str) -> int:
+        print(json.dumps(
+            {"status": "failed", "error": {"code": code, "message": message}},
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 1
+
+    if os.environ.get("LUMERAI_SCRIPT_MODE", "0") != "1":
+        return _emit_error(
+            "feature_flag_disabled",
+            "LUMERAI_SCRIPT_MODE=1 is required to run lumerai-undo",
+        )
+
+    from .project_store import ProjectStoreError as _PSE
+
+    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
+    try:
+        if not orch.project_store.exists(args.project_id):
+            return _emit_error("project_not_found", f"project not found: {args.project_id}")
+        result = orch.project_store.undo_to_seq(args.project_id, int(args.to_seq))
+    except _PSE as exc:
+        code = "invalid_target_seq" if "target_seq" in str(exc) else "invalid_project_id"
+        return _emit_error(code, str(exc))
+
+    summary = {
+        "status": "succeeded",
+        "project_id": args.project_id,
+        "from_seq": result["from_seq"],
+        "to_seq": result["to_seq"],
+        "discarded_count": len(result["discarded"]),
+        "project_state_path": str(orch.project_store.state_path(args.project_id)),
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_lumerai_inspect(args: argparse.Namespace) -> int:
+    """Read-only project summary. No feature flag; pure read."""
+    from .project_inspect import inspect_project, render_text
+    from .project_store import ProjectStoreError as _PSE
+
+    def _emit_error(code: str, message: str) -> int:
+        print(json.dumps(
+            {"status": "failed", "error": {"code": code, "message": message}},
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 1
+
+    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
+    try:
+        if not orch.project_store.exists(args.project_id):
+            return _emit_error("project_not_found", f"project not found: {args.project_id}")
+        summary = inspect_project(
+            orch.project_store, args.project_id, history=max(int(args.history), 0)
+        )
+    except _PSE as exc:
+        return _emit_error("invalid_project_id", str(exc))
+
+    if args.format == "text":
+        print(render_text(summary), end="")
+    else:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_lumerai_render(args: argparse.Namespace) -> int:
+    """Render a ProjectStore project into a low-res preview."""
+    import os
+
+    from .project_render import ProjectRenderError, render_project_preview
+    from .project_store import ProjectStoreError as _PSE
+
+    def _emit_error(code: str, message: str, *, detail: str = "") -> int:
+        payload = {"status": "failed", "error": {"code": code, "message": message}}
+        if detail:
+            payload["error"]["detail"] = detail
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1
+
+    if os.environ.get("LUMERAI_SCRIPT_MODE", "0") != "1":
+        return _emit_error(
+            "feature_flag_disabled",
+            "LUMERAI_SCRIPT_MODE=1 is required to run lumerai-render",
+        )
+
+    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
+    try:
+        if not orch.project_store.exists(args.project_id):
+            return _emit_error("project_not_found", f"project not found: {args.project_id}")
+        manifest = render_project_preview(
+            orch.project_store,
+            args.project_id,
+            output_root=orch.outputs_dir,
+            max_long_edge=int(args.max_long_edge),
+            label=str(args.label or "preview"),
+            timeout_sec=int(args.timeout_sec),
+        )
+    except _PSE as exc:
+        return _emit_error("invalid_project_id", str(exc))
+    except ProjectRenderError as exc:
+        return _emit_error(exc.code, str(exc), detail=exc.detail)
+    except Exception as exc:  # pragma: no cover - defensive command boundary
+        return _emit_error("render_failed", f"{type(exc).__name__}: {exc}")
+
+    print(json.dumps(
+        {
+            "status": "succeeded",
+            "project_id": args.project_id,
+            "render_id": manifest.get("render_id"),
+            "patch_seq": manifest.get("patch_seq"),
+            "preview_path": manifest.get("preview_path"),
+            "manifest_path": manifest.get("manifest_path"),
+            "duration": manifest.get("duration"),
+            "resolution": manifest.get("resolution"),
+            "source_clip_count": len(manifest.get("source_clips") or []),
+        },
+        ensure_ascii=False,
+        indent=2,
+    ))
+    return 0
+
+
+def _cmd_lumerai_agent(args: argparse.Namespace) -> int:
+    """Run the experimental Lumeri agent loop end-to-end."""
+    import os
+
+    from .agent_loop import run_agent_loop
+    from .permissions import DENY, PermissionSet
+
+    def _emit_error(code: str, message: str) -> int:
+        print(json.dumps(
+            {"status": "failed", "error": {"code": code, "message": message}},
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 1
+
+    if os.environ.get("LUMERAI_SCRIPT_MODE", "0") != "1":
+        return _emit_error(
+            "feature_flag_disabled",
+            "LUMERAI_SCRIPT_MODE=1 is required to run lumerai-agent",
+        )
+
+    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
+    if not orch.project_store.exists(args.project_id):
+        return _emit_error("project_not_found", f"project not found: {args.project_id}")
+
+    perms = PermissionSet({action: DENY for action in (args.deny or [])})
+    if args.canned_script:
+        script_path = Path(args.canned_script).expanduser()
+        if not script_path.exists():
+            return _emit_error("canned_script_not_found", f"Script file does not exist: {script_path}")
+        try:
+            script_text = script_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return _emit_error("canned_script_read_failed", f"Cannot read canned script: {exc}")
+
+        class _CannedScriptClient:
+            async def generate_script(self, request, **kwargs):
+                return script_text
+
+        ai_client = _CannedScriptClient()
+    else:
+        from .ai.ai_client import AIClient
+
+        client_kwargs: dict = {}
+        ai_client = AIClient(**client_kwargs)
+        if args.ai_agent:
+            original = ai_client.generate_script
+
+            async def _wrapped(request, **kwargs):
+                kwargs.setdefault("agent", args.ai_agent)
+                return await original(request, **kwargs)
+
+            ai_client.generate_script = _wrapped  # type: ignore[assignment]
+
+    try:
+        result = run_agent_loop(
+            orch,
+            ai_client,
+            project_id=args.project_id,
+            goal=args.goal,
+            session_id=args.session_id,
+            max_turns=int(args.max_turns),
+            ai_model=args.ai_model,
+            permissions=perms,
+        )
+    except RuntimeError as exc:
+        return _emit_error("feature_flag_disabled", str(exc))
+    except Exception as exc:  # pragma: no cover - defensive
+        return _emit_error("agent_loop_failed", f"{type(exc).__name__}: {exc}")
+
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    benign_statuses = {"done_marker", "max_turns_reached", "no_progress", "no_patch"}
+    return 0 if result.get("status") in benign_statuses else 1
 
 
 def _cmd_render_layer_plan(args: argparse.Namespace) -> None:
@@ -400,6 +861,21 @@ def _cmd_intellisearch_search(args: argparse.Namespace) -> None:
         ensure_ascii=False,
         indent=2,
     ))
+
+
+def _cmd_skill_stats(args: argparse.Namespace) -> None:
+    from .ai.skill_router import load_skill_metadata
+    from .ai.skill_telemetry import format_skill_stats, skill_stats
+
+    stats = skill_stats(
+        days=args.days,
+        db_path=args.db,
+        all_skill_ids=sorted(load_skill_metadata().keys()),
+    )
+    if args.json:
+        print(json.dumps(stats, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(format_skill_stats(stats), end="")
 
 
 def _cmd_run_skill(args: argparse.Namespace) -> None:
@@ -546,22 +1022,32 @@ def _make_bridge_daemon(args: argparse.Namespace) -> BridgeDaemon:
 
 def _make_agent_queue_daemon(args: argparse.Namespace) -> BridgeDaemon:
     paths = BridgePaths.from_root(args.queue_root)
-    openclaw_adapter = OpenClawAgentAdapter(
-        openclaw_bin=args.openclaw_bin,
-        agent=args.openclaw_agent,
-        timeout_sec=args.timeout_sec,
-        default_cwd=args.cwd,
-    )
     claude_adapter = ClaudeCodeAdapter(
         claude_bin=args.claude_bin,
         timeout_sec=args.timeout_sec,
         default_cwd=args.cwd,
     )
-    if args.adapter == "openclaw":
-        adapter = openclaw_adapter
-    elif args.adapter == "claude":
+    if args.adapter == "claude":
         adapter = claude_adapter
+    elif args.adapter == "openclaw":
+        from .bridge import OpenClawAgentAdapter
+
+        openclaw_adapter = OpenClawAgentAdapter(
+            openclaw_bin=args.openclaw_bin,
+            agent=args.openclaw_agent,
+            timeout_sec=args.timeout_sec,
+            default_cwd=args.cwd,
+        )
+        adapter = openclaw_adapter
     else:
+        from .bridge import FallbackBridgeAdapter, OpenClawAgentAdapter
+
+        openclaw_adapter = OpenClawAgentAdapter(
+            openclaw_bin=args.openclaw_bin,
+            agent=args.openclaw_agent,
+            timeout_sec=args.timeout_sec,
+            default_cwd=args.cwd,
+        )
         adapter = FallbackBridgeAdapter("antigravity_openclaw", openclaw_adapter, claude_adapter)
     return BridgeDaemon(paths, adapter, auto_heartbeat_interval_sec=0)
 
