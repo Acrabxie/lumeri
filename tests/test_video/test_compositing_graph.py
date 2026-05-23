@@ -61,6 +61,39 @@ class TestCompositingGraph:
             "total_frames",
         ]
 
+    def test_build_graph_from_layer_plan_preserves_position_keyframes(self) -> None:
+        plan = {
+            "width": 100,
+            "height": 60,
+            "fps": 30,
+            "total_frames": 11,
+            "layers": [
+                {
+                    "id": "moving_dot",
+                    "type": "solid",
+                    "color": [1.0, 0.0, 0.0, 1.0],
+                    "position": [10, 12],
+                    "size": [10, 10],
+                    "duration": 11,
+                    "keyframes": {
+                        "position": {
+                            "points": [
+                                {"frame": 0, "value": [10, 12]},
+                                {"frame": 10, "value": [70, 12]},
+                            ]
+                        }
+                    },
+                }
+            ],
+        }
+
+        graph = build_compositing_graph_from_layer_plan(plan)
+        automation_node = next(node for node in graph.nodes.values() if node.kind == "automation")
+
+        position_track = automation_node.params["tracks"]["position"]
+        assert position_track["points"][0]["value"] == [10.0, 12.0]
+        assert position_track["points"][-1]["value"] == [70.0, 12.0]
+
     def test_build_graph_from_layer_stack_preserves_layer_ids(self) -> None:
         stack = LayerStack(width=4, height=4, fps=30.0, total_frames=1)
         stack.add_layer(

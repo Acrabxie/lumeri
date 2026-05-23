@@ -1,5 +1,10 @@
 """Backend surfaces for graph-targeted video rendering."""
 from gemia.video.backends.base import RenderBackend, RenderProfile, RenderResult
+from gemia.video.backends.opencv_flow import (
+    FlowTrackingAnalysisResult,
+    OpenCVFlowTrackingBackend,
+    render_opencv_flow_tracking_backend_manifest,
+)
 from gemia.video.backends.selection import (
     BackendDecision,
     GRAPH_NATIVE_SOFTWARE_STRATEGY,
@@ -10,7 +15,9 @@ from gemia.video.backends.software import SoftwareGraphBackend, SoftwareRenderBa
 
 __all__ = [
     "BackendDecision",
+    "FlowTrackingAnalysisResult",
     "GRAPH_NATIVE_SOFTWARE_STRATEGY",
+    "OpenCVFlowTrackingBackend",
     "RenderBackend",
     "RenderProfile",
     "RenderResult",
@@ -18,4 +25,5 @@ __all__ = [
     "SoftwareGraphBackend",
     "SoftwareRenderBackend",
     "choose_render_backend",
+    "render_opencv_flow_tracking_backend_manifest",
 ]

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from gemia.engine import PlanEngine
 from gemia.registry import catalog_for_prompt
-from gemia.video.html_graphics import render_html_graphics_plan
+from gemia.video.html_graphics import _HtmlBoxParser, render_html_frame, render_html_graphics_plan
 from gemia.video.layers import render_layer_plan
 from gemia.video.review import review_real_media_artifact
 
@@ -48,9 +52,69 @@ def _write_lottie(path: Path) -> None:
     )
 
 
+def _video_codec(path: Path) -> str:
+    if shutil.which("ffprobe") is None:
+        pytest.skip("ffprobe is not available")
+    proc = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.strip()
+
+
 def test_html_graphics_plan_is_planner_visible() -> None:
     assert "gemia.video.html_graphics.render_html_graphics_plan" in catalog_for_prompt()
     assert "gemia.video.html_graphics.render_lottie_frame" not in catalog_for_prompt()
+
+
+def test_html_parser_does_not_burn_style_text_or_duplicate_children() -> None:
+    parser = _HtmlBoxParser()
+    parser.feed(
+        """
+        <div style="width:1920px;height:1080px;display:flex;align-items:center;justify-content:center;">
+          <div style="color:white;font-size:120px;font-weight:bold;">
+            <style>@keyframes slideIn { from { opacity:0; } to { opacity:1; } }</style>
+            NEON CUT
+          </div>
+        </div>
+        """
+    )
+
+    rendered_texts = [box["text"] for box in parser.boxes]
+
+    assert rendered_texts == ["NEON CUT"]
+    assert all("@keyframes" not in text for text in rendered_texts)
+
+
+def test_html_frame_css_only_markup_does_not_burn_css_source() -> None:
+    frame = render_html_frame(
+        None,
+        """
+        <div class="blade-shell">
+          <style>
+            .blade { position:absolute; width:200vw; height:200vh; background:#111; }
+          </style>
+          <div class="blade"></div>
+        </div>
+        """,
+        width=180,
+        height=96,
+    )
+
+    assert float(frame[:, :, 3].max()) == 0.0
 
 
 def test_layer_plan_accepts_html_and_lottie_layers(tmp_path: Path) -> None:
@@ -144,3 +208,56 @@ def test_plan_engine_runs_html_graphics_and_real_media_review(sample_video_path:
     assert any(finding["code"] == "html_graphics_metadata_recorded" for finding in review.findings)
     assert any(finding["code"] == "html_graphics_alpha_recorded" for finding in review.findings)
     assert metadata["overlay_types"] == ["html", "lottie"]
+
+
+def test_html_graphics_plan_supports_prompt_only_blank_canvas(tmp_path: Path) -> None:
+    output = tmp_path / "blank-html-graphics.mp4"
+
+    result = render_html_graphics_plan(
+        "",
+        str(output),
+        html="<div style='left:28px;top:48px;width:260px;height:64px;background:#00d6c9;color:#071013;font-size:28px;padding:12px;border-radius:8px'>LUMERI PULSE</div>",
+        frame_step=3,
+        max_long_edge=160,
+    )
+
+    metadata = json.loads(output.with_suffix(".html_graphics.json").read_text(encoding="utf-8"))
+
+    assert result == str(output.resolve())
+    assert output.exists()
+    assert metadata["blank_canvas"] is True
+    assert metadata["source_path"] == ""
+    assert metadata["overlay_count"] == 1
+    assert metadata["overlay_types"] == ["html"]
+    assert metadata["plan"]["layers"][0]["id"] == "blank_canvas_background"
+    assert all(layer["id"] != "source_video" for layer in metadata["plan"]["layers"])
+    assert _video_codec(output) == "h264"
+
+
+def test_plan_engine_runs_prompt_only_html_graphics_blank_canvas(tmp_path: Path) -> None:
+    output = tmp_path / "engine-blank-html-graphics.mp4"
+    plan = {
+        "version": "2.1",
+        "goal": "Render a prompt-only MG title card",
+        "steps": [
+            {
+                "id": "graphics",
+                "function": "gemia.video.html_graphics.render_html_graphics_plan",
+                "args": {
+                    "html": "<div style='left:24px;top:40px;width:220px;height:56px;background:#111;color:#fff;font-size:24px;padding:10px'>LUMERI</div>",
+                    "frame_step": 3,
+                    "max_long_edge": 160,
+                },
+                "input": "$input",
+                "output": "$output",
+            }
+        ],
+    }
+
+    result = PlanEngine(root_dir=tmp_path / "engine").execute(plan, "", str(output))
+    metadata = json.loads(output.with_suffix(".html_graphics.json").read_text(encoding="utf-8"))
+
+    assert result == str(output.resolve())
+    assert output.exists()
+    assert metadata["blank_canvas"] is True
+    assert metadata["source_path"] == ""

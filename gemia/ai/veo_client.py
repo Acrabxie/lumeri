@@ -257,7 +257,7 @@ class VeoClient:
         try:
             ctx = self._ssl_context()
             with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                return _decode_json_response(resp.read(), url=url, method="POST")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")
             raise RuntimeError(f"Veo API HTTP {exc.code}: {body}") from exc
@@ -274,7 +274,7 @@ class VeoClient:
         try:
             ctx = self._ssl_context()
             with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                return _decode_json_response(resp.read(), url=url, method="GET")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")
             raise RuntimeError(f"Veo API HTTP {exc.code}: {body}") from exc
@@ -309,6 +309,20 @@ def _file_to_b64(path: str) -> str:
     if not p.exists():
         raise FileNotFoundError(f"File not found: {path}")
     return base64.b64encode(p.read_bytes()).decode("ascii")
+
+
+def _decode_json_response(raw: bytes, *, url: str, method: str) -> dict:
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise RuntimeError(f"Veo API {method} {url} returned empty response")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        preview = text[:240].replace("\n", " ")
+        raise RuntimeError(f"Veo API {method} {url} returned non-JSON response: {preview}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Veo API {method} {url} returned {type(data).__name__}, expected object")
+    return data
 
 
 def _image_path_to_data_uri(path: str) -> str:

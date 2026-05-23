@@ -23,7 +23,7 @@ __all__ = [
     "histogram", "dominant_colors", "edge_detect",
     # composite
     "create_mask", "blend", "composite",
-    # generative (Nano Banana)
+    # generative (GPT Image 2)
     "generate_image", "edit_image", "style_transfer", "blend_images",
     # enhance
     "super_scale", "match_color", "skin_tone_protect", "hdr_grade", "film_grain_organic",

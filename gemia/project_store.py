@@ -1,0 +1,262 @@
+"""Persistent on-disk store for canonical Lumeri project_state.
+
+This module is the host-side complement to the sandbox: scripts run inside the
+sandbox and emit TimelinePatch JSON, but only the host can apply those patches
+to a real project. ``ProjectStore`` owns the disk layout::
+
+    <root>/<project_id>/state.json          # current normalized snapshot
+    <root>/<project_id>/patches/0001.json   # append-only history (one file/patch)
+    <root>/<project_id>/meta.json           # created_at, updated_at, patch_seq
+
+It is intentionally small and dependency-free beyond ``gemia.project_model``
+and ``lumerai.patches``.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from gemia.project_model import empty_project, normalize_project
+from lumerai.patches import apply_timeline_patches
+
+
+_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,63}$")
+
+
+class ProjectStoreError(ValueError):
+    """Raised for invalid project ids or missing projects."""
+
+
+class ProjectStore:
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root).expanduser().resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    # ── path helpers ────────────────────────────────────────────────
+    def project_dir(self, project_id: str) -> Path:
+        self._validate_id(project_id)
+        return self.root / project_id
+
+    def state_path(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "state.json"
+
+    def patches_dir(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "patches"
+
+    def meta_path(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "meta.json"
+
+    def seed_path(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "seed.json"
+
+    def discarded_dir(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "patches_discarded"
+
+    def renders_dir(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "renders"
+
+    def render_manifest_path(self, project_id: str, render_id: str) -> Path:
+        return self.renders_dir(project_id) / f"{render_id}.json"
+
+    def exists(self, project_id: str) -> bool:
+        try:
+            return self.state_path(project_id).exists()
+        except ProjectStoreError:
+            return False
+
+    # ── create / load ───────────────────────────────────────────────
+    def create(self, project_id: str, *, seed: dict[str, Any] | None = None) -> dict[str, Any]:
+        pdir = self.project_dir(project_id)
+        if (pdir / "state.json").exists():
+            raise ProjectStoreError(f"project already exists: {project_id}")
+        pdir.mkdir(parents=True, exist_ok=True)
+        self.patches_dir(project_id).mkdir(parents=True, exist_ok=True)
+        state = normalize_project(seed) if seed else empty_project()
+        now = datetime.now(timezone.utc).isoformat()
+        self._write_json(self.state_path(project_id), state)
+        self._write_json(self.seed_path(project_id), state)
+        self._write_json(
+            self.meta_path(project_id),
+            {
+                "project_id": project_id,
+                "created_at": now,
+                "updated_at": now,
+                "patch_seq": 0,
+                "undo_log": [],
+            },
+        )
+        return copy.deepcopy(state)
+
+    def load(self, project_id: str) -> dict[str, Any]:
+        path = self.state_path(project_id)
+        if not path.exists():
+            raise ProjectStoreError(f"project not found: {project_id}")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return normalize_project(raw)
+
+    def load_meta(self, project_id: str) -> dict[str, Any]:
+        path = self.meta_path(project_id)
+        if not path.exists():
+            raise ProjectStoreError(f"project meta not found: {project_id}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    # ── patch application ──────────────────────────────────────────
+    def apply_patches(
+        self,
+        project_id: str,
+        patches: list[dict[str, Any]],
+        *,
+        session_id: str,
+        script_hash: str,
+    ) -> dict[str, Any]:
+        """Apply patches to the stored project, persist each patch, return new state.
+
+        Returns a dict::
+
+            {
+                "project_state": <normalized state>,
+                "patch_seq_start": int,  # first new seq (0 if no patches)
+                "patch_seq_end": int,    # last new seq (0 if no patches)
+                "patch_files": [str, ...],
+            }
+        """
+        current = self.load(project_id)
+        meta = self.load_meta(project_id)
+        last_seq = int(meta.get("patch_seq") or 0)
+        if not patches:
+            return {
+                "project_state": current,
+                "patch_seq_start": 0,
+                "patch_seq_end": 0,
+                "patch_files": [],
+            }
+        updated = apply_timeline_patches(current, patches)
+        patches_dir = self.patches_dir(project_id)
+        patches_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
+        written: list[str] = []
+        for patch in patches:
+            last_seq += 1
+            entry = {
+                "seq": last_seq,
+                "applied_at": now,
+                "session_id": session_id,
+                "script_hash": script_hash,
+                "patch": patch,
+            }
+            path = patches_dir / f"{last_seq:04d}.json"
+            self._write_json(path, entry)
+            written.append(str(path))
+        self._write_json(self.state_path(project_id), updated)
+        meta["updated_at"] = now
+        meta["patch_seq"] = last_seq
+        self._write_json(self.meta_path(project_id), meta)
+        start = last_seq - len(patches) + 1
+        return {
+            "project_state": updated,
+            "patch_seq_start": start,
+            "patch_seq_end": last_seq,
+            "patch_files": written,
+        }
+
+    def load_seed(self, project_id: str) -> dict[str, Any]:
+        path = self.seed_path(project_id)
+        if not path.exists():
+            raise ProjectStoreError(f"seed missing for project: {project_id}")
+        return normalize_project(json.loads(path.read_text(encoding="utf-8")))
+
+    def undo_to_seq(self, project_id: str, target_seq: int) -> dict[str, Any]:
+        """Rewind the project to the state right after patch ``target_seq``.
+
+        ``target_seq == 0`` rewinds to the original seed. Discarded patch files
+        are moved (not deleted) into ``patches_discarded/`` for audit.
+        Returns ``{project_state, from_seq, to_seq, discarded: [seq, ...]}``.
+        """
+        if not isinstance(target_seq, int) or target_seq < 0:
+            raise ProjectStoreError(f"target_seq must be a non-negative int, got {target_seq!r}")
+        meta = self.load_meta(project_id)
+        current_seq = int(meta.get("patch_seq") or 0)
+        if target_seq > current_seq:
+            raise ProjectStoreError(
+                f"target_seq {target_seq} is beyond current patch_seq {current_seq}"
+            )
+        if target_seq == current_seq:
+            return {
+                "project_state": self.load(project_id),
+                "from_seq": current_seq,
+                "to_seq": current_seq,
+                "discarded": [],
+            }
+        history = self.history(project_id)
+        keep = [entry for entry in history if int(entry.get("seq") or 0) <= target_seq]
+        discard = [entry for entry in history if int(entry.get("seq") or 0) > target_seq]
+        # Rebuild from seed by replaying kept patches.
+        state = self.load_seed(project_id)
+        if keep:
+            state = apply_timeline_patches(state, [e["patch"] for e in keep])
+        # Move discarded patch files aside.
+        discarded_dir = self.discarded_dir(project_id)
+        discarded_dir.mkdir(parents=True, exist_ok=True)
+        moved: list[int] = []
+        now = datetime.now(timezone.utc).isoformat()
+        timestamp_tag = now.replace(":", "").replace("-", "").replace(".", "")
+        for entry in discard:
+            seq = int(entry.get("seq") or 0)
+            src = self.patches_dir(project_id) / f"{seq:04d}.json"
+            if src.exists():
+                dest = discarded_dir / f"{seq:04d}.{timestamp_tag}.json"
+                src.replace(dest)
+            moved.append(seq)
+        # Persist rebuilt state + meta.
+        self._write_json(self.state_path(project_id), state)
+        meta["updated_at"] = now
+        meta["patch_seq"] = target_seq
+        log = list(meta.get("undo_log") or [])
+        log.append(
+            {
+                "at": now,
+                "from_seq": current_seq,
+                "to_seq": target_seq,
+                "discarded": moved,
+            }
+        )
+        meta["undo_log"] = log
+        self._write_json(self.meta_path(project_id), meta)
+        return {
+            "project_state": state,
+            "from_seq": current_seq,
+            "to_seq": target_seq,
+            "discarded": moved,
+        }
+
+    def history(self, project_id: str) -> list[dict[str, Any]]:
+        pdir = self.patches_dir(project_id)
+        if not pdir.exists():
+            return []
+        entries: list[dict[str, Any]] = []
+        for path in sorted(pdir.glob("*.json")):
+            try:
+                entries.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError):
+                continue
+        entries.sort(key=lambda e: int(e.get("seq") or 0))
+        return entries
+
+    # ── internals ───────────────────────────────────────────────────
+    @staticmethod
+    def _validate_id(project_id: str) -> None:
+        if not isinstance(project_id, str) or not _PROJECT_ID_RE.match(project_id):
+            raise ProjectStoreError(
+                f"invalid project_id (must match [A-Za-z0-9][A-Za-z0-9_-]{{0,63}}): {project_id!r}"
+            )
+
+    @staticmethod
+    def _write_json(path: Path, payload: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)

@@ -271,7 +271,20 @@ def _layer_spec_from_steps(
                 continue
             saw_primary_source = True
             spec["type"] = media_type
-            _copy_if_present(step.params, spec, "name", "source", "text", "color", "font_config")
+            _copy_if_present(
+                step.params,
+                spec,
+                "name",
+                "source",
+                "text",
+                "html",
+                "color",
+                "size",
+                "font_config",
+                "blur_radius",
+                "gaussian_blur_radius",
+                "metadata",
+            )
             _copy_int_if_present(step.params, spec, "start_frame", "end_frame", "duration")
         elif step.kind == "picture_chain":
             if step.params.get("ops"):

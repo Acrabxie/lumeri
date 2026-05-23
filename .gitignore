@@ -8,6 +8,8 @@ dist/
 build/
 *.whl
 .eggs/
+tauri-app/src-tauri/target/
+tauri-app/src-tauri/binaries/
 
 # Virtual environments
 .venv/
@@ -26,6 +28,7 @@ htmlcov/
 *.swo
 *~
 .DS_Store
+._*
 
 # Environment
 .env
@@ -34,15 +37,20 @@ htmlcov/
 # Gemia runtime data
 inputs/
 outputs/
+output/
 temp/
 tasks/
 plans/
+projects/
+sessions/
+workspaces/
 # skills_v2/ is tracked — preset skills are part of the repo
 frames/
 styled/
 logs/
 demo/
 notes/
+.playwright-cli/
 
 # Logs
 *.log

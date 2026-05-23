@@ -14,7 +14,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  user-select: none;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ── Header ── */
@@ -44,6 +45,7 @@ body {
   -webkit-app-region: no-drag;
   background: none; border: 1px solid #333; border-radius: 7px;
   color: #888; font-size: 14px; padding: 4px 10px; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
   transition: all 0.15s; line-height: 1;
 }
 .settings-btn:hover { border-color: #a78bfa; color: #a78bfa; }
@@ -113,6 +115,7 @@ textarea#prompt::placeholder { color: #444; }
 .run-btn {
   background: #a78bfa; color: white; border: none; border-radius: 8px;
   padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
   transition: background 0.15s; -webkit-app-region: no-drag;
 }
 .run-btn:hover:not(:disabled) { background: #8b5cf6; }
@@ -480,7 +483,7 @@ async function runPrompt() {
   document.getElementById('output-bar').classList.remove('visible');
 
   try {
-    const r = await api('POST', '/run-prompt', { prompt, video: uploadedVideoPath });
+    const r = await api('POST', '/run-prompt', { prompt, video: uploadedVideoPath, stream_logs: true });
 
     if (r.data.ask) {
       setProgress(false);
