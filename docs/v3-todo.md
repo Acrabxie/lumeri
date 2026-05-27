@@ -38,3 +38,8 @@ itself.
 Both surfaced by Codex review on 2026-05-27. Not blocking the A/B/C
 direction decision. Both are real bugs but neither manifested in the
 milestone use case.
+
+---
+
+Selected next direction: A (Tauri SSE integration for real creative tasks).
+See chat for prerequisite decisions and Opus spec.
