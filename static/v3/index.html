@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lumeri v3</title>
+<link rel="stylesheet" href="/v3/v3.css" />
+</head>
+<body>
+<header class="app-header">
+  <div class="title-block">
+    <h1>Lumeri v3</h1>
+    <span class="session-id" id="session-id-label">—</span>
+  </div>
+  <div class="header-actions">
+    <span class="status-pill" id="connection-pill">offline</span>
+    <button type="button" id="new-session-btn">new session</button>
+  </div>
+</header>
+
+<main class="app-main">
+  <section class="left-pane" id="timeline-pane">
+    <div class="empty-state" id="empty-state">
+      <p>Upload a clip and describe what you want.</p>
+      <p>The agent will pick the actions and stream progress back here.</p>
+    </div>
+    <div class="timeline" id="timeline" hidden></div>
+  </section>
+
+  <section class="right-pane">
+    <h2 class="pane-heading">Session assets</h2>
+    <div class="asset-grid" id="asset-grid">
+      <p class="placeholder">No assets yet.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="composer">
+  <input type="file" id="upload-input" hidden />
+  <button type="button" id="upload-btn" class="composer-btn">＋ upload clip</button>
+  <textarea
+    id="prompt-input"
+    rows="2"
+    placeholder="比如：把这段视频前 5 秒慢动作处理,加暖色调和标题,导出 1080p"
+  ></textarea>
+  <button type="button" id="send-btn" class="composer-btn primary" disabled>send</button>
+</footer>
+
+<script src="/v3/v3.js" defer></script>
+</body>
+</html>
