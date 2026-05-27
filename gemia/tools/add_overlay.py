@@ -1,0 +1,150 @@
+"""add_overlay: burn text caption, image overlay, or subtitle on a video."""
+from __future__ import annotations
+
+import glob
+from pathlib import Path
+from typing import Any
+
+from gemia.tools._context import ToolContext
+from gemia.tools._ffmpeg import ffprobe_duration, run_ffmpeg_with_progress
+
+
+_FONT_CACHE: list[str] = []
+
+
+def _font_file() -> str:
+    if _FONT_CACHE:
+        return _FONT_CACHE[0]
+    candidates = (
+        glob.glob("/System/Library/Fonts/Supplemental/Arial.ttf")
+        + glob.glob("/System/Library/Fonts/**/*.ttf", recursive=True)
+        + glob.glob("/Library/Fonts/*.ttf")
+        + glob.glob("/usr/share/fonts/**/*.ttf", recursive=True)
+    )
+    if not candidates:
+        raise RuntimeError("no usable .ttf font found for drawtext overlay")
+    _FONT_CACHE.append(candidates[0])
+    return candidates[0]
+
+
+_POSITIONS: dict[str, tuple[str, str]] = {
+    "top_left":      ("20",                       "20"),
+    "top_center":    ("(w-text_w)/2",             "20"),
+    "top_right":     ("w-text_w-20",              "20"),
+    "center_left":   ("20",                       "(h-text_h)/2"),
+    "center":        ("(w-text_w)/2",             "(h-text_h)/2"),
+    "center_right":  ("w-text_w-20",              "(h-text_h)/2"),
+    "bottom_left":   ("20",                       "h-text_h-20"),
+    "bottom_center": ("(w-text_w)/2",             "h-text_h-40"),
+    "bottom_right":  ("w-text_w-20",              "h-text_h-20"),
+}
+
+
+def _drawtext_filter(text: str, position: str, start: float, end: float, size: int, color: str) -> str:
+    if position not in _POSITIONS:
+        raise ValueError(
+            f"unknown position {position!r}. Known: {', '.join(_POSITIONS.keys())}"
+        )
+    x, y = _POSITIONS[position]
+    escaped = (
+        text.replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "\\'")
+            .replace("%", "\\%")
+    )
+    return (
+        f"drawtext=fontfile='{_font_file()}':text='{escaped}'"
+        f":x={x}:y={y}:fontsize={size}:fontcolor={color}"
+        f":box=1:boxcolor=black@0.5:boxborderw=10"
+        f":enable='between(t,{start:.3f},{end:.3f})'"
+    )
+
+
+async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    asset_id = str(args["asset_id"])
+    kind = str(args["kind"])
+    src = ctx.registry.get(asset_id)
+    if src.kind != "video":
+        raise ValueError(f"add_overlay requires a video asset, got {src.kind!r}")
+
+    duration = ffprobe_duration(src.path)
+    start = float(args.get("start_sec", 0.0))
+    end_raw = args.get("end_sec")
+    end = duration if end_raw is None else float(end_raw)
+    if end <= start:
+        raise ValueError(f"end_sec ({end}) must be > start_sec ({start})")
+    position = str(args.get("position", "bottom_center"))
+
+    if kind == "text":
+        text = str(args.get("text") or "")
+        if not text:
+            raise ValueError("add_overlay kind=text requires non-empty text")
+        size = int(args.get("font_size", 32))
+        color = str(args.get("font_color", "white"))
+        filter_str = _drawtext_filter(text, position, start, end, size, color)
+        cmd_input_extra: list[str] = []
+        vf_arg = ["-vf", filter_str]
+        label = f"text {text!r} {position} {start:.2f}-{end:.2f}s"
+    elif kind == "subtitle":
+        text = str(args.get("text") or "")
+        if not text:
+            raise ValueError("add_overlay kind=subtitle requires non-empty text")
+        size = int(args.get("font_size", 28))
+        color = str(args.get("font_color", "white"))
+        filter_str = _drawtext_filter(text, "bottom_center", start, end, size, color)
+        cmd_input_extra = []
+        vf_arg = ["-vf", filter_str]
+        label = f"subtitle {text!r} {start:.2f}-{end:.2f}s"
+    elif kind == "image":
+        overlay_id = args.get("overlay_asset_id")
+        if not overlay_id:
+            raise ValueError("add_overlay kind=image requires overlay_asset_id")
+        overlay_rec = ctx.registry.get(str(overlay_id))
+        if overlay_rec.kind != "image":
+            raise ValueError(
+                f"overlay_asset_id {overlay_id} is {overlay_rec.kind!r}, expected image"
+            )
+        x, y = _POSITIONS.get(position, _POSITIONS["bottom_center"])
+        cmd_input_extra = ["-i", str(overlay_rec.path)]
+        vf_arg = [
+            "-filter_complex",
+            f"[0:v][1:v]overlay={x}:{y}:enable='between(t,{start:.3f},{end:.3f})'",
+        ]
+        label = f"image overlay {overlay_id} {position} {start:.2f}-{end:.2f}s"
+    else:
+        raise ValueError(f"unknown overlay kind: {kind!r}. Known: text, image, subtitle")
+
+    new_id = ctx.registry.allocate_id("video")
+    out_path = ctx.child_path(new_id, ".mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(src.path),
+        *cmd_input_extra,
+        *vf_arg,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        str(out_path),
+    ]
+    await run_ffmpeg_with_progress(cmd, total_seconds=duration, progress=ctx.emit_progress)
+    summary = f"added {label} to {asset_id}"
+    lineage = [asset_id]
+    if kind == "image":
+        lineage.append(str(args["overlay_asset_id"]))
+    record = ctx.registry.register_output(
+        new_id, kind="video", path=out_path, summary=summary, lineage=lineage
+    )
+    return {
+        "asset_id": new_id,
+        "summary": record.summary,
+        "metadata": {
+            "kind": kind,
+            "position": position,
+            "start_sec": start,
+            "end_sec": end,
+            "duration_sec": duration,
+        },
+    }
+
+
+__all__ = ["dispatch"]
