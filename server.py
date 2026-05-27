@@ -3686,16 +3686,22 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, _health_payload())
             return
         # Lumeri v3 SSE event stream from gemia.transport.sse.REGISTRY.
+        # Reads Last-Event-ID header (or last_event_id query arg) for replay.
         if path.startswith("/sessions/") and path.endswith("/stream"):
             session_id = path[len("/sessions/"):-len("/stream")]
             from gemia.transport.sse import iter_events
+            last_id_raw = self.headers.get("Last-Event-ID") or parse_qs(parsed_url.query).get("last_event_id", [None])[0]
+            try:
+                last_id = int(last_id_raw) if last_id_raw is not None else None
+            except (TypeError, ValueError):
+                last_id = None
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
             if body:
-                for chunk in iter_events(session_id):
+                for chunk in iter_events(session_id, last_event_id=last_id):
                     self.wfile.write(chunk)
                     self.wfile.flush()
             return
