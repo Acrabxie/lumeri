@@ -3690,6 +3690,16 @@ class _Handler(BaseHTTPRequestHandler):
             from gemia.v3_routes import try_handle as _v3_try
             if _v3_try(self, method=("GET" if body else "HEAD")):
                 return
+        # Lumeri v3 frontend (vanilla HTML/JS at static/v3/).
+        if path == "/v3" or path == "/v3/" or path.startswith("/v3/"):
+            rel = "index.html" if path in ("/v3", "/v3/") else path[len("/v3/"):]
+            v3_root = (Path(__file__).resolve().parent / "static" / "v3").resolve()
+            target = (v3_root / rel).resolve()
+            if not str(target).startswith(str(v3_root)) or not target.exists():
+                _json_response(self, 404, {"error": "v3 asset not found"})
+                return
+            _file_response(self, target, body=body)
+            return
 
         # Config status (for first-run key check). Network topology fields
         # (bind host, port, LAN URLs) are gated behind a signed-in account so
