@@ -120,6 +120,9 @@ class AssetRegistry:
                 f"asset_id not in session registry: {asset_id!r}. Known: {known}"
             ) from None
 
+    def contains(self, asset_id: str) -> bool:
+        return asset_id in self._records
+
     def list_records(self) -> list[AssetRecord]:
         return list(self._records.values())
 

@@ -1,0 +1,531 @@
+"""Lumeri v3 agent loop.
+
+Contract — what this loop is and what it is NOT:
+
+  - It streams from Gemini through the v3 OpenRouter client and forwards
+    every real chunk to the SSE transport. ``model_text_delta`` events
+    ONLY come from real Gemini text chunks. The host does not synthesize
+    any "thinking…", "executing…", or other status narration. If the
+    model is silent, the user-facing stream stays silent.
+
+  - It accumulates function-calling tool_call args across stream
+    chunks, then dispatches each call via ``gemia.tools.DISPATCHER``.
+    Errors raised by a dispatcher are caught here, surfaced as
+    ``tool_exec_error`` events, fed back to the model as a tool_result,
+    and the loop continues. We do not swallow errors — every except
+    block emits an event and appends a structured tool_result for the
+    model to read.
+
+  - It bounds turn cost with TWO INDEPENDENT counters:
+      * ``tool_steps_this_turn``           — capped at ``max_tool_steps``
+        (every dispatch increments it, no matter the tool).
+      * ``visual_inspections_this_turn``   — capped at
+        ``max_visual_inspections`` (incremented ONLY when an
+        ``analyze_media`` call actually produces a thumbnail for the
+        next user message).
+    These two counters never share storage; each is its own local
+    variable in ``_drive_turn``.
+
+  - It implements Plan-B visual feedback: when a dispatcher returns
+    ``thumbnail_for_next_message=True``, the loop appends a multimodal
+    user message with the thumbnail image_url before the next model
+    call. This path is ONLY triggered by a dispatcher-flagged result,
+    which today only ``analyze_media`` produces. There is no keyword
+    detection. The host never decides to show the model a thumbnail
+    because the user "seemed to want it"; the model has to ask via
+    ``analyze_media`` explicitly.
+
+  - When the model emits no tool_calls and the stream ends, the loop
+    emits ``turn_complete`` with the asset_ids produced during this
+    turn and returns. It does not retry, does not "ask the user", does
+    not synthesize a follow-up.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from gemia.budget_guard import BudgetGuard
+from gemia.gemini_client import GeminiClientV3
+from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
+from gemia.tools._context import ProgressUpdate
+from gemia.transport.sse import REGISTRY as SSE_REGISTRY
+
+
+_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_v3.md"
+_ROLLING_USER_TURNS = 8
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Stream accumulators (one stream = one model call)
+# ──────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class _ToolCallAccumulator:
+    """One tool call accumulated across many stream chunks."""
+
+    index: int
+    id: str
+    name: str
+    args_buf: list[str] = field(default_factory=list)
+
+    @property
+    def args(self) -> str:
+        return "".join(self.args_buf)
+
+
+@dataclass
+class _StreamAccumulator:
+    """Everything collected from one model stream until it ends."""
+
+    text_buf: list[str] = field(default_factory=list)
+    tool_calls_by_index: dict[int, _ToolCallAccumulator] = field(default_factory=dict)
+    finish_reason: str | None = None
+
+    @property
+    def text(self) -> str:
+        return "".join(self.text_buf)
+
+    @property
+    def tool_calls(self) -> list[_ToolCallAccumulator]:
+        return [self.tool_calls_by_index[k] for k in sorted(self.tool_calls_by_index)]
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Pure helpers
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _load_system_template() -> str:
+    return _PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _parse_args(raw: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse JSON tool-call args. Returns (parsed, None) or (None, error_message)."""
+    text = (raw or "").strip()
+    if not text:
+        return {}, None
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return None, f"JSONDecodeError: {exc}"
+    if not isinstance(value, dict):
+        return None, f"tool args must be a JSON object, got {type(value).__name__}"
+    return value, None
+
+
+def _thumbnail_user_content(paths: list[Path]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": "Thumbnails for the analyze_media call(s) you just made are attached below.",
+        }
+    ]
+    for p in paths:
+        data = Path(p).read_bytes()
+        b64 = base64.b64encode(data).decode("ascii")
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{b64}"},
+            }
+        )
+    return parts
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Main loop
+# ──────────────────────────────────────────────────────────────────────
+
+
+EventSink = Callable[[dict[str, Any]], None]
+
+
+class AgentLoopV3:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        output_dir: Path,
+        max_tool_steps: int = 8,
+        max_visual_inspections: int = 3,
+        budget_max_usd: float = 5.0,
+        budget_max_seconds: float = 600.0,
+        gemini_client: GeminiClientV3 | None = None,
+        emit_event: EventSink | None = None,
+    ) -> None:
+        self.session_id = session_id
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._max_tool_steps = int(max_tool_steps)
+        self._max_visual_inspections = int(max_visual_inspections)
+
+        self.registry = AssetRegistry()
+        self.budget = BudgetGuard(max_usd=budget_max_usd, max_seconds=budget_max_seconds)
+        self.client = gemini_client or GeminiClientV3()
+
+        self._messages: list[dict[str, Any]] = []
+        self._pinned_intent: str | None = None
+        self._pending_thumbnails: list[Path] = []
+        self._system_template = _load_system_template()
+        self._emit: EventSink = emit_event or self._emit_via_sse_registry
+
+        self._tool_ctx = ToolContext(
+            session_id=session_id,
+            output_dir=self.output_dir,
+            registry=self.registry,
+            emit_progress=lambda _u: None,
+        )
+
+    # ── plumbing ─────────────────────────────────────────────────────
+
+    def _emit_via_sse_registry(self, event: dict[str, Any]) -> None:
+        SSE_REGISTRY.emit(self.session_id, event)
+
+    def add_external_asset(self, path: Path, *, summary: str = "") -> str:
+        record = self.registry.add_external(Path(path), summary=summary or None)
+        return record.asset_id
+
+    def render_messages(self) -> list[dict[str, Any]]:
+        """Build the messages list for the next model call.
+
+        System prompt = ``system_v3.md`` with two placeholders filled in:
+        ``{{asset_registry}}`` from the live AssetRegistry compact text,
+        and ``{{pinned_intent}}`` from the user's first message in this
+        session. After the system message comes the rolling
+        user/assistant/tool window in chronological order.
+        """
+        system_filled = (
+            self._system_template
+            .replace("{{asset_registry}}", self.registry.compact_text())
+            .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
+        )
+        return [{"role": "system", "content": system_filled}, *self._messages]
+
+    def _append_tool_result(self, call_id: str, payload: Any) -> None:
+        if isinstance(payload, str):
+            content = payload
+        else:
+            content = json.dumps(payload, ensure_ascii=False, default=str)
+        self._messages.append(
+            {"role": "tool", "tool_call_id": call_id, "content": content}
+        )
+
+    def _trim_rolling_window(self) -> None:
+        user_idx = [i for i, m in enumerate(self._messages) if m.get("role") == "user"]
+        if len(user_idx) <= _ROLLING_USER_TURNS:
+            return
+        cutoff = user_idx[-_ROLLING_USER_TURNS]
+        self._messages = self._messages[cutoff:]
+
+    # ── public entrypoint ────────────────────────────────────────────
+
+    async def run_turn(self, user_message: str) -> None:
+        """Run one user turn until the model stops calling tools."""
+        if self._pinned_intent is None:
+            self._pinned_intent = user_message
+        self._messages.append({"role": "user", "content": user_message})
+        self._trim_rolling_window()
+        await self._drive_turn()
+
+    # ── the loop ─────────────────────────────────────────────────────
+
+    async def _drive_turn(self) -> None:
+        """One turn: stream → dispatch any tool_calls → repeat → emit turn_complete.
+
+        Two independent counters bound the work done per turn:
+        ``tool_steps_this_turn`` (every dispatch) and
+        ``visual_inspections_this_turn`` (only successful analyze_media
+        thumbnails). They live in this function and are never merged.
+        """
+        pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
+        tool_steps_this_turn = 0
+        visual_inspections_this_turn = 0
+
+        self._emit({"kind": "turn_start"})
+
+        while True:
+            if tool_steps_this_turn >= self._max_tool_steps:
+                self._emit(
+                    {
+                        "kind": "turn_error",
+                        "error": (
+                            f"max_tool_steps={self._max_tool_steps} reached this turn; "
+                            f"stopping without further model calls."
+                        ),
+                    }
+                )
+                return
+
+            accum = _StreamAccumulator()
+            messages = self.render_messages()
+
+            # ---- stream from model ---------------------------------
+            async for delta in self.client.stream_turn(messages, tools=TOOL_SCHEMAS):
+                kind = delta["kind"]
+                if kind == "text_delta":
+                    accum.text_buf.append(delta["text"])
+                    self._emit({"kind": "model_text_delta", "delta": delta["text"]})
+                elif kind == "tool_call_start":
+                    tc = _ToolCallAccumulator(
+                        index=int(delta["index"]),
+                        id=str(delta["id"] or f"call_{delta['index']}"),
+                        name=str(delta["name"]),
+                    )
+                    accum.tool_calls_by_index[tc.index] = tc
+                    self._emit(
+                        {
+                            "kind": "model_tool_call_start",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                        }
+                    )
+                elif kind == "tool_call_args_delta":
+                    tc = accum.tool_calls_by_index.get(int(delta["index"]))
+                    if tc is not None:
+                        tc.args_buf.append(str(delta["delta"]))
+                elif kind == "finish":
+                    accum.finish_reason = str(delta["reason"])
+                elif kind == "error":
+                    self._emit({"kind": "turn_error", "error": str(delta["error"])})
+                    return
+
+            # ---- persist the assistant message ---------------------
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": accum.text if accum.text else None,
+            }
+            if accum.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.name, "arguments": tc.args},
+                    }
+                    for tc in accum.tool_calls
+                ]
+            self._messages.append(assistant_msg)
+
+            # ---- model called no tools → turn ends ------------------
+            if not accum.tool_calls:
+                final_ids = [
+                    r.asset_id
+                    for r in self.registry.list_records()
+                    if r.asset_id not in pre_asset_ids
+                ]
+                self._emit(
+                    {"kind": "turn_complete", "final_asset_ids": final_ids}
+                )
+                return
+
+            # ---- dispatch each tool call sequentially --------------
+            for tc in accum.tool_calls:
+                tool_steps_this_turn += 1
+                parsed_args, parse_error = _parse_args(tc.args)
+
+                self._emit(
+                    {
+                        "kind": "model_tool_call_ready",
+                        "call_id": tc.id,
+                        "tool_name": tc.name,
+                        "args": (
+                            parsed_args
+                            if parse_error is None
+                            else {"_raw": tc.args, "_parse_error": parse_error}
+                        ),
+                    }
+                )
+
+                if parse_error is not None:
+                    self._emit(
+                        {
+                            "kind": "tool_exec_error",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "error": f"tool args not valid JSON object: {parse_error}",
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id,
+                        {
+                            "error": "arguments were not a valid JSON object",
+                            "parse_error": parse_error,
+                            "raw_arguments": tc.args,
+                        },
+                    )
+                    continue
+
+                # Budget gate (cost + time). Model decides what to do.
+                decision = self.budget.check(tc.name)
+                if not decision.ok:
+                    self._emit(
+                        {
+                            "kind": "budget_gate",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "reason": decision.reason,
+                            "alternatives": decision.alternatives,
+                            "estimated_cost_usd": decision.estimated_cost_usd,
+                            "estimated_eta_sec": decision.estimated_eta_sec,
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id,
+                        {
+                            "needs_approval": True,
+                            "reason": decision.reason,
+                            "alternatives": decision.alternatives,
+                            "estimated_cost_usd": decision.estimated_cost_usd,
+                            "estimated_eta_sec": decision.estimated_eta_sec,
+                        },
+                    )
+                    continue
+
+                # Independent visual_inspections cap. Only enforced for
+                # analyze_media — does NOT share storage with
+                # tool_steps_this_turn.
+                if (
+                    tc.name == "analyze_media"
+                    and visual_inspections_this_turn >= self._max_visual_inspections
+                ):
+                    cap_reason = (
+                        f"max_visual_inspections={self._max_visual_inspections} "
+                        f"already reached in this turn; no further thumbnails "
+                        f"will be attached."
+                    )
+                    self._emit(
+                        {
+                            "kind": "budget_gate",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "reason": cap_reason,
+                            "alternatives": [],
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id, {"needs_approval": True, "reason": cap_reason}
+                    )
+                    continue
+
+                # Real dispatch ------------------------------------------------
+                self._emit(
+                    {
+                        "kind": "tool_exec_start",
+                        "call_id": tc.id,
+                        "tool_name": tc.name,
+                        "est_cost_usd": decision.estimated_cost_usd,
+                        "eta_seconds": decision.estimated_eta_sec,
+                    }
+                )
+                self._tool_ctx.emit_progress = self._make_progress_cb(tc.id, tc.name)
+
+                start_ts = time.monotonic()
+                try:
+                    result = await DISPATCHER[tc.name](parsed_args, self._tool_ctx)
+                except Exception as exc:
+                    elapsed = time.monotonic() - start_ts
+                    err = f"{type(exc).__name__}: {exc}"
+                    self.budget.commit(tc.name, actual_seconds=elapsed)
+                    self._emit(
+                        {
+                            "kind": "tool_exec_error",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "error": err,
+                            "elapsed_seconds": elapsed,
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id, {"error": err, "tool_name": tc.name}
+                    )
+                    continue
+
+                elapsed = time.monotonic() - start_ts
+                self.budget.commit(tc.name, actual_seconds=elapsed)
+
+                # Model-facing tool_result: strip thumbnail_path (file
+                # path leakage), keep thumbnail_for_next_message=False
+                # in the model copy too (the thumbnail itself is going
+                # in a separate user message; the model doesn't need a
+                # flag).
+                model_result = {
+                    k: v
+                    for k, v in result.items()
+                    if k not in {"thumbnail_path", "thumbnail_for_next_message"}
+                }
+                # SSE result also strips file paths; replaces with a
+                # preview_uri pointing at the produced asset's on-disk
+                # path so the frontend can render a preview.
+                event_result = dict(model_result)
+                produced_id = result.get("asset_id")
+                if produced_id and self.registry.contains(str(produced_id)):
+                    event_result["preview_uri"] = str(
+                        self.registry.get(str(produced_id)).path
+                    )
+
+                self._emit(
+                    {
+                        "kind": "tool_exec_result",
+                        "call_id": tc.id,
+                        "tool_name": tc.name,
+                        "result": event_result,
+                        "elapsed_seconds": elapsed,
+                    }
+                )
+                self._append_tool_result(tc.id, model_result)
+
+                # Plan-B visual feedback. ONLY triggered by a
+                # dispatcher-flagged result — there is no keyword
+                # detection here. Today this is exclusively
+                # analyze_media; the host does not auto-decide to show
+                # thumbnails for any other tool.
+                if result.get("thumbnail_for_next_message") and result.get(
+                    "thumbnail_path"
+                ):
+                    visual_inspections_this_turn += 1
+                    self._pending_thumbnails.append(Path(result["thumbnail_path"]))
+
+            # After the dispatch sub-loop, inject queued thumbnails as
+            # a multimodal user message before the next model call.
+            if self._pending_thumbnails:
+                self._messages.append(
+                    {
+                        "role": "user",
+                        "content": _thumbnail_user_content(self._pending_thumbnails),
+                    }
+                )
+                self._pending_thumbnails = []
+
+            # Loop: call the model again with updated messages.
+
+    # ── progress callback factory ────────────────────────────────────
+
+    def _make_progress_cb(
+        self, call_id: str, tool_name: str
+    ) -> Callable[[ProgressUpdate], None]:
+        emit = self._emit
+
+        def cb(update: ProgressUpdate) -> None:
+            event: dict[str, Any] = {
+                "kind": "tool_exec_progress",
+                "call_id": call_id,
+                "tool_name": tool_name,
+            }
+            if update.percent is not None:
+                event["percent"] = update.percent
+            if update.message:
+                event["message"] = update.message
+            if update.eta_sec is not None:
+                event["eta_seconds"] = update.eta_sec
+            emit(event)
+
+        return cb
+
+
+__all__ = ["AgentLoopV3"]
