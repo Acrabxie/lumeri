@@ -3685,6 +3685,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/health":
             _json_response(self, 200, _health_payload())
             return
+        # Lumeri v3 SSE event stream from gemia.transport.sse.REGISTRY.
+        if path.startswith("/sessions/") and path.endswith("/stream"):
+            session_id = path[len("/sessions/"):-len("/stream")]
+            from gemia.transport.sse import iter_events
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            if body:
+                for chunk in iter_events(session_id):
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            return
 
         # Config status (for first-run key check). Network topology fields
         # (bind host, port, LAN URLs) are gated behind a signed-in account so

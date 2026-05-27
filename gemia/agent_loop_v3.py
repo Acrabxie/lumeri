@@ -4,9 +4,9 @@ Contract — what this loop is and what it is NOT:
 
   - It streams from Gemini through the v3 OpenRouter client and forwards
     every real chunk to the SSE transport. ``model_text_delta`` events
-    ONLY come from real Gemini text chunks. The host does not synthesize
-    any "thinking…", "executing…", or other status narration. If the
-    model is silent, the user-facing stream stays silent.
+    ONLY come from real Gemini text chunks. The host never fabricates
+    status narration of its own. If the model is silent, the user-facing
+    stream stays silent.
 
   - It accumulates function-calling tool_call args across stream
     chunks, then dispatches each call via ``gemia.tools.DISPATCHER``.
@@ -47,6 +47,7 @@ import base64
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -159,6 +160,7 @@ class AgentLoopV3:
         budget_max_seconds: float = 600.0,
         gemini_client: GeminiClientV3 | None = None,
         emit_event: EventSink | None = None,
+        sessions_root: Path | None = None,
     ) -> None:
         self.session_id = session_id
         self.output_dir = Path(output_dir)
@@ -173,6 +175,7 @@ class AgentLoopV3:
         self._messages: list[dict[str, Any]] = []
         self._pinned_intent: str | None = None
         self._pending_thumbnails: list[Path] = []
+        self._turn_count = 0
         self._system_template = _load_system_template()
         self._emit: EventSink = emit_event or self._emit_via_sse_registry
 
@@ -181,6 +184,32 @@ class AgentLoopV3:
             output_dir=self.output_dir,
             registry=self.registry,
             emit_progress=lambda _u: None,
+        )
+
+        self.sessions_root = Path(sessions_root) if sessions_root else None
+        if self.sessions_root is not None:
+            self._write_session_meta(turn_count=0)
+
+    def _write_session_meta(self, *, turn_count: int) -> None:
+        """Write a v2-SessionStore-compatible meta.json so legacy loaders can read it."""
+        sdir = self.sessions_root / self.session_id
+        sdir.mkdir(parents=True, exist_ok=True)
+        (sdir / "turns").mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
+        meta = {
+            "session_id": self.session_id,
+            "project_id": "v3-session",
+            "goal": self._pinned_intent or "",
+            "max_turns": self._max_tool_steps,
+            "ai_model": self.client.model,
+            "created_at": now,
+            "updated_at": now,
+            "status": "running",
+            "turn_count": int(turn_count),
+            "loop_version": "v3",
+        }
+        (sdir / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
     # ── plumbing ─────────────────────────────────────────────────────
@@ -232,7 +261,12 @@ class AgentLoopV3:
             self._pinned_intent = user_message
         self._messages.append({"role": "user", "content": user_message})
         self._trim_rolling_window()
-        await self._drive_turn()
+        try:
+            await self._drive_turn()
+        finally:
+            self._turn_count += 1
+            if self.sessions_root is not None:
+                self._write_session_meta(turn_count=self._turn_count)
 
     # ── the loop ─────────────────────────────────────────────────────
 
