@@ -270,9 +270,13 @@
       if (!t) return;
       t.streaming = false;
       t.complete = true;
+      // final_asset_ids is every asset produced this turn. Mark only the
+      // last one as the user-facing deliverable so the asset grid does
+      // not visually shout "FINAL" on every intermediate step.
       const finals = ev.final_asset_ids || [];
-      for (const aid of finals) {
-        const existing = state.assets.find((a) => a.asset_id === aid);
+      const deliverable = finals.length ? finals[finals.length - 1] : null;
+      if (deliverable) {
+        const existing = state.assets.find((a) => a.asset_id === deliverable);
         if (existing) existing.final = true;
       }
     },
@@ -288,6 +292,8 @@
   };
 
   function dispatch(ev) {
+    // Debug hook: raw event log accessible from DevTools console and test harnesses.
+    (window.__lumeriEvents = window.__lumeriEvents || []).push(ev);
     const handler = handlers[ev.kind];
     if (!handler) {
       const t = state.currentTurn;
