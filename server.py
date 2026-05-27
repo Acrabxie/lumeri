@@ -3685,26 +3685,11 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/health":
             _json_response(self, 200, _health_payload())
             return
-        # Lumeri v3 SSE event stream from gemia.transport.sse.REGISTRY.
-        # Reads Last-Event-ID header (or last_event_id query arg) for replay.
-        if path.startswith("/sessions/") and path.endswith("/stream"):
-            session_id = path[len("/sessions/"):-len("/stream")]
-            from gemia.transport.sse import iter_events
-            last_id_raw = self.headers.get("Last-Event-ID") or parse_qs(parsed_url.query).get("last_event_id", [None])[0]
-            try:
-                last_id = int(last_id_raw) if last_id_raw is not None else None
-            except (TypeError, ValueError):
-                last_id = None
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Accel-Buffering", "no")
-            self.end_headers()
-            if body:
-                for chunk in iter_events(session_id, last_event_id=last_id):
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-            return
+        # Lumeri v3 session HTTP surface (sessions / turn / assets / stream).
+        if path == "/sessions" or path.startswith("/sessions/"):
+            from gemia.v3_routes import try_handle as _v3_try
+            if _v3_try(self, method=("GET" if body else "HEAD")):
+                return
 
         # Config status (for first-run key check). Network topology fields
         # (bind host, port, LAN URLs) are gated behind a signed-in account so
@@ -4204,6 +4189,11 @@ class _Handler(BaseHTTPRequestHandler):
         if self._security_gate(mutating=True):
             return
         route = unquote(urlparse(self.path).path).rstrip("/")
+        # Lumeri v3 session HTTP surface.
+        if route == "/sessions" or route.startswith("/sessions/"):
+            from gemia.v3_routes import try_handle as _v3_try
+            if _v3_try(self, method="POST"):
+                return
         if route == "/auth/google/start":
             try:
                 _json_response(self, 200, accounts.start_google_oauth())
