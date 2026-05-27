@@ -360,6 +360,31 @@ class AgentLoopV3:
 
             # ---- dispatch each tool call sequentially --------------
             for tc in accum.tool_calls:
+                # Cap also enforced inside the for-loop so a single
+                # assistant message returning N tool_calls cannot
+                # bypass max_tool_steps. Remaining calls in this batch
+                # get a needs_approval tool_result so the model sees
+                # exactly what was skipped on the next turn (continue,
+                # not break — silent drop would mislead the model).
+                if tool_steps_this_turn >= self._max_tool_steps:
+                    cap_reason = (
+                        f"max_tool_steps={self._max_tool_steps} reached during "
+                        f"this turn's batched dispatch; remaining tool_calls in "
+                        f"this assistant message will not be executed."
+                    )
+                    self._emit(
+                        {
+                            "kind": "budget_gate",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "reason": cap_reason,
+                            "alternatives": [],
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id, {"needs_approval": True, "reason": cap_reason}
+                    )
+                    continue
                 tool_steps_this_turn += 1
                 parsed_args, parse_error = _parse_args(tc.args)
 
