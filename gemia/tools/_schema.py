@@ -304,6 +304,36 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["asset_id", "format", "quality"],
     ),
+    _tool(
+        "fetch",
+        "Download a file from an https:// URL into the session workspace. Returns asset_id (if media), path, size_bytes, content_type, summary. Enforces https-only; blocks http://, file://, and other schemes. Network access is restricted to the host; the sandbox has no internet. Supports optional filename customization.",
+        {
+            "url": {
+                "type": "string",
+                "description": "https:// URL to download from. Must be https (no http, file://, etc.).",
+            },
+            "dest_name": {
+                "type": "string",
+                "description": "Optional: target filename in the workspace (default: url basename). Sanitized to prevent path traversal.",
+            },
+        },
+        ["url"],
+    ),
+    _tool(
+        "run_shell",
+        "Execute a bash command in an isolated sandbox. Workspace directory is fully readable/writable. Outside workspace: files can only be created, not modified/deleted. Credentials (~/.ssh, ~/.config/gcloud, ~/.gemia/config.json) are not readable. Network access denied. Wraps command with sandbox-exec for M1 isolation. Returns exit_code, stdout_tail, stderr_tail, timed_out, sandbox_enforced, workspace_dir.",
+        {
+            "command": {
+                "type": "string",
+                "description": "Bash command string to execute.",
+            },
+            "timeout_sec": {
+                "type": "number",
+                "description": "Timeout in seconds (default 30, max 120). Command killed if it exceeds this duration.",
+            },
+        },
+        ["command"],
+    ),
 ]
 
 

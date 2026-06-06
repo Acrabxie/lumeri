@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from gemia.tools._context import ToolContext
-from gemia.tools._ffmpeg import ffprobe_duration, run_ffmpeg_with_progress
+from gemia.tools._ffmpeg import audio_stream, ffprobe_duration, ffprobe_metadata, run_ffmpeg_with_progress
 
 
 async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
@@ -105,16 +105,28 @@ async def _reverse(args, ctx: ToolContext, src_path: Path, src_id: str) -> dict[
     duration = ffprobe_duration(src_path)
     new_id = ctx.registry.allocate_id("video")
     out_path = ctx.child_path(new_id, ".mp4")
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(src_path),
-        "-vf", "reverse",
-        "-af", "areverse",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k",
-        "-movflags", "+faststart",
-        str(out_path),
-    ]
+    has_audio = audio_stream(ffprobe_metadata(src_path)) is not None
+    if has_audio:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(src_path),
+            "-vf", "reverse",
+            "-af", "areverse",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(src_path),
+            "-vf", "reverse",
+            "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
     await run_ffmpeg_with_progress(cmd, total_seconds=duration, progress=ctx.emit_progress)
     summary = f"reversed {src_id} ({duration:.2f}s, video+audio reversed)"
     record = ctx.registry.register_output(
@@ -135,18 +147,30 @@ async def _speed(args, ctx: ToolContext, src_path: Path, src_id: str) -> dict[st
     new_duration = src_duration / factor
     new_id = ctx.registry.allocate_id("video")
     out_path = ctx.child_path(new_id, ".mp4")
-    atempo_chain = _atempo_chain(factor)
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(src_path),
-        "-filter_complex",
-        f"[0:v]setpts=PTS/{factor}[v];[0:a]{atempo_chain}[a]",
-        "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k",
-        "-movflags", "+faststart",
-        str(out_path),
-    ]
+    has_audio = audio_stream(ffprobe_metadata(src_path)) is not None
+    if has_audio:
+        atempo_chain = _atempo_chain(factor)
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(src_path),
+            "-filter_complex",
+            f"[0:v]setpts=PTS/{factor}[v];[0:a]{atempo_chain}[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(src_path),
+            "-vf", f"setpts=PTS/{factor}",
+            "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
     await run_ffmpeg_with_progress(cmd, total_seconds=new_duration, progress=ctx.emit_progress)
     summary = f"sped {src_id} by {factor}x ({src_duration:.2f}s -> {new_duration:.2f}s)"
     record = ctx.registry.register_output(
