@@ -52,6 +52,13 @@ def video_stream(metadata: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def audio_stream(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    for stream in metadata.get("streams") or []:
+        if stream.get("codec_type") == "audio":
+            return stream
+    return None
+
+
 def short_summary(metadata: dict[str, Any]) -> str:
     """Compact human-readable description of a media file."""
     fmt = metadata.get("format") or {}
@@ -129,29 +136,36 @@ async def run_ffmpeg_with_progress(
 
     stderr_task = asyncio.create_task(drain_stderr())
 
-    assert proc.stdout is not None
-    while True:
-        line = await loop.run_in_executor(None, proc.stdout.readline)
-        if not line:
-            break
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("out_time_us="):
-            try:
-                us = int(line.split("=", 1)[1])
-            except (ValueError, IndexError):
+    try:
+        assert proc.stdout is not None
+        while True:
+            line = await loop.run_in_executor(None, proc.stdout.readline)
+            if not line:
+                break
+            line = line.strip()
+            if not line:
                 continue
-            secs = us / 1_000_000.0
-            if total_seconds and total_seconds > 0:
-                pct = max(0.0, min(100.0, 100.0 * secs / total_seconds))
-                progress(ProgressUpdate(percent=pct, message=f"{secs:.1f}s / {total_seconds:.1f}s"))
-            else:
-                progress(ProgressUpdate(percent=None, message=f"{secs:.1f}s processed"))
-        elif line == "progress=end":
-            if total_seconds and total_seconds > 0:
-                progress(ProgressUpdate(percent=100.0, message="finalizing"))
-            break
+            if line.startswith("out_time_us="):
+                try:
+                    us = int(line.split("=", 1)[1])
+                except (ValueError, IndexError):
+                    continue
+                secs = us / 1_000_000.0
+                if total_seconds and total_seconds > 0:
+                    pct = max(0.0, min(100.0, 100.0 * secs / total_seconds))
+                    progress(ProgressUpdate(percent=pct, message=f"{secs:.1f}s / {total_seconds:.1f}s"))
+                else:
+                    progress(ProgressUpdate(percent=None, message=f"{secs:.1f}s processed"))
+            elif line == "progress=end":
+                if total_seconds and total_seconds > 0:
+                    progress(ProgressUpdate(percent=100.0, message="finalizing"))
+                break
+    except asyncio.CancelledError:
+        proc.kill()
+        raise
+    finally:
+        if proc.poll() is None and asyncio.current_task() is not None and asyncio.current_task().cancelled():
+            proc.kill()
 
     rc = await loop.run_in_executor(None, proc.wait)
     await stderr_task
@@ -164,6 +178,7 @@ __all__ = [
     "ffprobe_metadata",
     "ffprobe_duration",
     "video_stream",
+    "audio_stream",
     "short_summary",
     "run_ffmpeg_with_progress",
 ]

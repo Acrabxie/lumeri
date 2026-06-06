@@ -39,6 +39,18 @@ _POSITIONS: dict[str, tuple[str, str]] = {
     "bottom_right":  ("w-text_w-20",              "h-text_h-20"),
 }
 
+_OVERLAY_POSITIONS: dict[str, tuple[str, str]] = {
+    "top_left":      ("20",             "20"),
+    "top_center":    ("(W-w)/2",        "20"),
+    "top_right":     ("W-w-20",         "20"),
+    "center_left":   ("20",             "(H-h)/2"),
+    "center":        ("(W-w)/2",        "(H-h)/2"),
+    "center_right":  ("W-w-20",         "(H-h)/2"),
+    "bottom_left":   ("20",             "H-h-20"),
+    "bottom_center": ("(W-w)/2",        "H-h-40"),
+    "bottom_right":  ("W-w-20",         "H-h-20"),
+}
+
 
 def _drawtext_filter(text: str, position: str, start: float, end: float, size: int, color: str) -> str:
     if position not in _POSITIONS:
@@ -104,7 +116,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             raise ValueError(
                 f"overlay_asset_id {overlay_id} is {overlay_rec.kind!r}, expected image"
             )
-        x, y = _POSITIONS.get(position, _POSITIONS["bottom_center"])
+        x, y = _OVERLAY_POSITIONS.get(position, _OVERLAY_POSITIONS["bottom_center"])
         cmd_input_extra = ["-i", str(overlay_rec.path)]
         vf_arg = [
             "-filter_complex",

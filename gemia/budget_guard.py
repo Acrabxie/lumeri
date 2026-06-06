@@ -16,9 +16,13 @@ from typing import Any
 
 
 _TOOL_COSTS: dict[str, dict[str, float]] = {
-    "generate_image":     {"usd": 0.04, "eta_sec": 8.0},
-    "generate_video":     {"usd": 0.50, "eta_sec": 90.0},
-    "generate_audio":     {"usd": 0.10, "eta_sec": 30.0},
+    # Provider-backed (real money). Numbers verified in doc 07 from
+    # Google's public pricing pages (2026-05-30 snapshot).
+    "generate_image":     {"usd": 0.101, "eta_sec": 10.0},   # Nano Banana 2, 2K
+    "generate_video":     {"usd": 2.80,  "eta_sec": 120.0},  # Veo 3.1 fast, 8s
+    "generate_audio":     {"usd": 0.00,  "eta_sec": 45.0},   # Lyria 3 clip — preview, currently free
+    "analyze_media":      {"usd": 0.01,  "eta_sec": 4.0},    # rough Gemini text estimate
+    # Local ffmpeg (zero money, time only).
     "edit_image":         {"usd": 0.00, "eta_sec": 4.0},
     "edit_video":         {"usd": 0.00, "eta_sec": 10.0},
     "composite":          {"usd": 0.00, "eta_sec": 8.0},
@@ -28,9 +32,11 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "mix_audio":          {"usd": 0.00, "eta_sec": 6.0},
     "transform_geometry": {"usd": 0.00, "eta_sec": 5.0},
     "extract_frame":      {"usd": 0.00, "eta_sec": 1.0},
-    "analyze_media":      {"usd": 0.01, "eta_sec": 4.0},
     "search_library":     {"usd": 0.00, "eta_sec": 0.5},
     "export":             {"usd": 0.00, "eta_sec": 20.0},
+    # M3 verbs (networking + sandbox bash).
+    "fetch":              {"usd": 0.00, "eta_sec": 5.0},     # Host-side https download
+    "run_shell":          {"usd": 0.00, "eta_sec": 10.0},    # Sandboxed bash execution
 }
 
 
@@ -71,8 +77,10 @@ class BudgetGuard:
     def check(self, tool_name: str) -> BudgetDecision:
         cost, eta = self.estimate(tool_name)
         projected_usd = self.spent_usd + cost
-        elapsed = time.monotonic() - self._started_at
-        projected_sec = elapsed + eta
+        # Use cumulative tool-execution time (spent_seconds), not wall-clock elapsed time.
+        # This is symmetric with cost accounting: both measure actual committed resources,
+        # not idle/streaming/waiting time. Idle time is borne by the host, not the session.
+        projected_sec = self.spent_seconds + eta
         if projected_usd > self.max_usd:
             return BudgetDecision(
                 ok=False,
@@ -112,6 +120,13 @@ class BudgetGuard:
         }
 
 
+def tool_cost_usd(tool_name: str) -> float:
+    """Module-level cost lookup for callers that need the estimate without a
+    BudgetGuard instance (e.g. the generate_image dispatcher's audit record)."""
+    entry = _TOOL_COSTS.get(tool_name)
+    return float(entry["usd"]) if entry else 0.0
+
+
 def _cheaper(tool_name: str) -> list[str]:
     if tool_name == "generate_video":
         return ["search_library", "generate_image"]
@@ -120,4 +135,4 @@ def _cheaper(tool_name: str) -> list[str]:
     return []
 
 
-__all__ = ["BudgetGuard", "BudgetDecision"]
+__all__ = ["BudgetGuard", "BudgetDecision", "tool_cost_usd"]

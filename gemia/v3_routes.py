@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from gemia.session_manager import SessionRunner, get_manager
+from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
 
@@ -63,7 +63,10 @@ def try_handle(handler, *, method: str) -> bool:
         if method in {"GET", "HEAD"}:
             return _route_get(handler, path, query, body=(method == "GET"))
     except Exception as exc:
-        _json_error(handler, 500, f"{type(exc).__name__}: {exc}")
+        if os.environ.get("LUMERI_V3_DEBUG_ERRORS") in {"1", "true", "TRUE"}:
+            _json_error(handler, 500, f"{type(exc).__name__}: {exc}")
+        else:
+            _json_error(handler, 500, "internal server error")
         return True
 
     _json_error(handler, 405, f"method {method} not allowed on {path}")
@@ -119,7 +122,11 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
 
 
 def _create_session(handler) -> bool:
-    runner = get_manager().create_session()
+    try:
+        runner = get_manager().create_session()
+    except SessionLimitError as exc:
+        _json_error(handler, 503, str(exc))
+        return True
     sid = runner.session_id
     _json_response(handler, 201, {
         "session_id": sid,
@@ -139,13 +146,19 @@ def _submit_turn(handler, runner: SessionRunner) -> bool:
     if not isinstance(message, str) or not message.strip():
         _json_error(handler, 400, "request body must include non-empty 'message' string")
         return True
-    runner.submit_turn(message)
+    if not runner.submit_turn(message):
+        _json_error(handler, 409, "turn already in progress for this session")
+        return True
     _json_response(handler, 202, {"session_id": runner.session_id, "accepted": True})
     return True
 
 
 def _upload_asset(handler, runner: SessionRunner) -> bool:
-    length = int(handler.headers.get("Content-Length") or "0")
+    try:
+        length = int(handler.headers.get("Content-Length") or "0")
+    except ValueError:
+        _json_error(handler, 400, "Content-Length must be an integer")
+        return True
     if length <= 0:
         _json_error(handler, 400, "Content-Length required and must be > 0")
         return True
@@ -153,6 +166,12 @@ def _upload_asset(handler, runner: SessionRunner) -> bool:
     if length > cap:
         _json_error(handler, 413, f"upload too large: {length} > {cap} bytes")
         return True
+    conn = getattr(handler, "connection", None)
+    if conn is not None and hasattr(conn, "settimeout"):
+        try:
+            conn.settimeout(float(os.environ.get("LUMERI_V3_UPLOAD_TIMEOUT_SEC") or 60))
+        except Exception:
+            pass
 
     filename_raw = handler.headers.get("X-Filename") or "upload.bin"
     filename = Path(unquote(filename_raw)).name or "upload.bin"
@@ -269,32 +288,48 @@ def _serve_file_with_range(handler, path: Path, *, body: bool) -> None:
     mime, _ = mimetypes.guess_type(str(path))
     mime = mime or "application/octet-stream"
 
-    range_header = handler.headers.get("Range")
+    range_header = (handler.headers.get("Range") or "").strip()
     start: int
     end: int
     use_range = False
     if range_header and range_header.startswith("bytes="):
         spec = range_header[len("bytes="):]
         if "," in spec:
-            handler.send_response(416)
-            handler.send_header("Content-Range", f"bytes */{file_size}")
-            handler.end_headers()
-            return
+            # HTTP servers may ignore multi-range requests instead of
+            # generating multipart/byteranges. Serving the full body keeps
+            # media playback compatible without pretending the range failed.
+            spec = ""
         try:
-            start_s, end_s = spec.split("-", 1)
-            start = int(start_s) if start_s else 0
-            end = int(end_s) if end_s else file_size - 1
+            if spec:
+                start_s, end_s = spec.split("-", 1)
+                if start_s:
+                    start = int(start_s)
+                    end = int(end_s) if end_s else file_size - 1
+                elif end_s:
+                    suffix = int(end_s)
+                    if suffix <= 0:
+                        raise ValueError
+                    start = max(0, file_size - suffix)
+                    end = file_size - 1
+                else:
+                    raise ValueError
+            else:
+                start = 0
+                end = file_size - 1
         except ValueError:
             handler.send_response(416)
             handler.send_header("Content-Range", f"bytes */{file_size}")
+            handler.send_header("Accept-Ranges", "bytes")
             handler.end_headers()
             return
-        if start >= file_size or end >= file_size or start > end:
+        if file_size <= 0 or start < 0 or start >= file_size or start > end:
             handler.send_response(416)
             handler.send_header("Content-Range", f"bytes */{file_size}")
+            handler.send_header("Accept-Ranges", "bytes")
             handler.end_headers()
             return
-        use_range = True
+        end = min(end, file_size - 1)
+        use_range = bool(spec)
     else:
         start = 0
         end = file_size - 1
@@ -322,7 +357,11 @@ def _serve_file_with_range(handler, path: Path, *, body: bool) -> None:
 
 
 def _read_json_body(handler) -> dict[str, Any] | None:
-    length = int(handler.headers.get("Content-Length") or "0")
+    try:
+        length = int(handler.headers.get("Content-Length") or "0")
+    except ValueError:
+        _json_error(handler, 400, "Content-Length must be an integer")
+        return None
     if length <= 0:
         _json_error(handler, 400, "missing JSON body")
         return None

@@ -55,6 +55,11 @@ notes/
 # Logs
 *.log
 
+# Editor / migration backups (local only — never commit point-in-time snapshots)
+*.bak
+*.bak-*
+*.orig
+
 # Dev debug (local only)
 dev_feedback.txt
 
