@@ -839,6 +839,19 @@ def _web_asset_path(rel: str) -> Path | None:
     return candidate
 
 
+def _safe_child_path(root: Path, rel: str) -> Path | None:
+    """Return a resolved file below root, or None when rel escapes root."""
+    try:
+        if "\x00" in rel:
+            return None
+        resolved_root = Path(root).resolve()
+        candidate = (resolved_root / rel.lstrip("/")).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
+    return candidate if candidate.exists() and candidate.is_file() else None
+
+
 def _task_file(task_id: str) -> Path:
     return _TASKS_DIR / f"{task_id}.json"
 
@@ -3694,8 +3707,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/v3" or path == "/v3/" or path.startswith("/v3/"):
             rel = "index.html" if path in ("/v3", "/v3/") else path[len("/v3/"):]
             v3_root = (Path(__file__).resolve().parent / "static" / "v3").resolve()
-            target = (v3_root / rel).resolve()
-            if not str(target).startswith(str(v3_root)) or not target.exists():
+            target = _safe_child_path(v3_root, rel)
+            if target is None:
                 _json_response(self, 404, {"error": "v3 asset not found"})
                 return
             _file_response(self, target, body=body)

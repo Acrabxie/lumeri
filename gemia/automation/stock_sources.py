@@ -32,6 +32,15 @@ STOPWORDS = {
 }
 
 
+# Some stock APIs (notably Pexels behind Cloudflare) reject requests whose
+# client signature is not browser-like, returning HTTP 403 "error code: 1010".
+# Send a browser User-Agent so these requests are accepted.
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+
 class StockSourceError(RuntimeError):
     pass
 
@@ -61,7 +70,7 @@ def stock_query(prompt: str) -> str:
 
 
 def _read_json_url(url: str, *, headers: dict[str, str] | None = None, timeout: int = 20) -> dict[str, Any]:
-    request_headers = {"User-Agent": "Gemia-Automation/1.0", **(headers or {})}
+    request_headers = {"User-Agent": _BROWSER_USER_AGENT, "Accept": "application/json", **(headers or {})}
     req = urllib.request.Request(url, headers=request_headers)
     with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -69,7 +78,7 @@ def _read_json_url(url: str, *, headers: dict[str, str] | None = None, timeout: 
 
 def _download_url(url: str, output_path: Path, *, headers: dict[str, str] | None = None) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    request_headers = {"User-Agent": "Gemia-Automation/1.0", **(headers or {})}
+    request_headers = {"User-Agent": _BROWSER_USER_AGENT, **(headers or {})}
     req = urllib.request.Request(url, headers=request_headers)
     tmp_path = output_path.with_suffix(output_path.suffix + ".part")
     with urllib.request.urlopen(req, timeout=120) as response, tmp_path.open("wb") as fh:

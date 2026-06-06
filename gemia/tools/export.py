@@ -72,7 +72,8 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     profile = _QUALITY_PROFILES[quality]
     tuning = _FORMAT_TUNING[fmt]
     duration = ffprobe_duration(src.path)
-    new_id = ctx.registry.allocate_id("video")
+    output_kind = "image" if fmt == "gif" else "video"
+    new_id = ctx.registry.allocate_id(output_kind)
     out_path = ctx.child_path(new_id, f".{fmt}")
 
     scale_filter = f"scale=-2:{profile['height']}"
@@ -96,10 +97,11 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         f"platform={platform}) -> {out_path.name}"
     )
     record = ctx.registry.register_output(
-        new_id, kind="video", path=out_path, summary=summary, lineage=[asset_id]
+        new_id, kind=output_kind, path=out_path, summary=summary, lineage=[asset_id]
     )
     return {
         "asset_id": new_id,
+        "kind": record.kind,
         "summary": record.summary,
         "metadata": {
             "format": fmt,
@@ -107,7 +109,6 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             "platform": platform,
             "height_target": profile["height"],
             "duration_sec": duration,
-            "output_path": str(out_path),
         },
     }
 

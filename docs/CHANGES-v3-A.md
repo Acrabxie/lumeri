@@ -30,9 +30,10 @@ What you can do today: upload a video, type a Chinese prompt, watch
 the model pick verbs and execute them, see real ffmpeg progress,
 play the resulting MP4 in-browser. What you cannot do: use the 10
 not-yet-implemented verbs (generate_image / generate_video / etc.),
-resume a session after a process restart, or rely on automatic
-session cleanup. The v2 Tauri UI at `/` is untouched and still
-works; v3 lives at `/v3` as a parallel surface.
+resume a session after a process restart, or expose this directly to
+the public internet without auth/quota/monitoring. The v2 Tauri UI
+at `/` is untouched and still works; v3 lives at `/v3` as a parallel
+surface.
 
 ---
 
@@ -93,16 +94,17 @@ gemia/agent_loop_v3.AgentLoopV3.drive_turn()
               ▼
 gemia/transport/sse.REGISTRY.emit(session_id, event)
    monotonic per-session event_id, append to 200-entry ring buffer,
-   put on a queue.
+   notify the stream condition variable.
               │
               ▼ consumed by
 iter_events(session_id, last_event_id=N) in /sessions/{id}/stream
-   replays buffer (id > N), then drains queue.
+   replays buffer (id > N), emits replay_gap if N fell off the ring,
+   then waits for new events.
               │
               ▼ SSE chunks back to Browser EventSource
               │
-              ▼ browser tracks lastEventId; reconnect sends it as
-                Last-Event-ID header automatically.
+              ▼ browser persists lastEventId and reconnects with
+                ?last_event_id=N.
 ```
 
 ### What's different in one sentence
@@ -123,7 +125,7 @@ important):
 | `gemia/tools/__init__.py` | Maps verb name → async dispatcher. 5 real, 10 stub. | **core** |
 | `gemia/tools/_schema.py` | All 15 verb schemas (JSON sent to Gemini). Pure data. | **core** |
 | `gemia/tools/_context.py` | `AssetRegistry` (per-session, asset_id → path), `ToolContext`, `ProgressUpdate`. | **core** |
-| `gemia/transport/sse.py` | Per-session event queues + 200-entry ring buffer for reconnect. | **core** |
+| `gemia/transport/sse.py` | Per-session 200-entry ring buffer + condition-backed SSE replay. | **core** |
 | `gemia/gemini_client.py` | Streams from OpenRouter with `stream:true`, reassembles fragmented tool-call args. | **core** |
 | `gemia/budget_guard.py` | Per-session $ and time cap. Returns `needs_approval`; model decides. | **core** |
 | `gemia/session_manager.py` | `SessionRunner` (thread + asyncio loop per session) and `SessionManager` (process-wide dict). | **core** |
@@ -232,65 +234,67 @@ whole pipeline is healthy.
 | `OPENROUTER_PROXY` | (config file) | HTTP proxy. |
 | `LUMERI_V3_OUTPUT_ROOT` | `/tmp/lumeri-v3` | Where session workdirs + meta live. |
 | `LUMERI_V3_UPLOAD_MAX_BYTES` | `524288000` (500 MiB) | Upload size cap. |
+| `LUMERI_V3_UPLOAD_TIMEOUT_SEC` | `60` | Socket read timeout while receiving an upload. |
+| `LUMERI_V3_MAX_SESSIONS` | `20` | Process-wide active or creating v3 session cap. |
+| `LUMERI_V3_IDLE_TIMEOUT_SEC` | `7200` | Idle session TTL; `0` disables idle cleanup. |
+| `LUMERI_V3_SWEEP_INTERVAL_SEC` | `60` | Background idle sweeper interval; `0` disables the sweeper thread. |
+| `LUMERI_V3_KEEP_CLOSED_WORKDIRS` | unset | Set to `1` to keep idle-closed workdirs for debugging. |
 | `LUMERI_PORT` / `GEMIA_PORT` | `7788` | Server port. |
 
 ---
 
 ## 已知问题
 
-### Carried over from v3-alive backlog (`docs/v3-todo.md`)
+### Fixed in Codex post-review hardening
 
-- **F2** `edit_video` `speed` crashes on silent videos (`gemia/tools/edit_video.py:142-144`)
-- **F3** `add_overlay` `image` kind reuses `_POSITIONS` text-w/text-h
-  expressions; overlay filter needs `W/H/w/h`
-  (`gemia/tools/add_overlay.py:107-111`)
+These were found during `codex exec review --base main` plus a manual pass,
+then fixed in this branch before handoff:
 
-### New, surfaced during A.M1–M3 implementation
+- **F4 [P1]** Session OOM/disk leak: fixed with
+  `LUMERI_V3_MAX_SESSIONS`, `last_used_at`, idle sweeper, optional
+  workdir cleanup, and 503 when the cap is reached.
+- **F5 [P1]** Overlapping turns in one session: fixed with a per-session
+  in-progress guard; direct concurrent `/turn` calls now get 409.
+- **F6 [P2]** Silent SSE replay overflow: fixed with `replay_gap`.
+  The frontend refreshes `/sessions/{id}` and reconnects with
+  `?last_event_id=N`.
+- **F7 [P2]** Range boundaries: fixed for suffix ranges, open-ended
+  ranges, EOF clamping, invalid ranges, and multi-range full-body fallback.
+- **F8 [P2]** `/v3` static path guard: fixed with resolved
+  `relative_to()` containment, not string-prefix checks.
+- **F9 [P2]** Local path leakage: fixed by scrubbing `*_path`, `path`,
+  and `preview_uri` from model/SSE-visible tool results; frontend uses
+  `/sessions/{id}/assets/{asset_id}` only.
+- **F10 [P2]** Malformed `Content-Length` 500: fixed with 400 responses
+  and a socket read timeout for uploads. The 500 MiB cap still rejects
+  oversized honest uploads before reading the body.
+- **F11 [P2]** Silent-video speed/reverse: fixed by probing for audio and
+  using video-only FFmpeg graphs with `-an` when needed.
+- **F12 [P2]** Image overlay coordinates: fixed by using overlay
+  `W/H/w/h` variables instead of drawtext `text_w/text_h`.
+- **F13 [P2]** Multi-output final semantics: fixed by emitting
+  `deliverable_asset_ids` and `intermediate_asset_ids`; frontend marks
+  every deliverable final.
+- **F14 [P2]** GIF export kind: fixed by registering GIF exports as
+  `kind="image"` and rendering from result/registry kind.
+- **F15 [P2]** `color_grade` schema mismatch: fixed by narrowing the
+  schema description to video until image grading exists.
 
-- **A1** Sessions are never auto-collected. `SessionManager._runners` grows
-  monotonically. For a single user this is fine for hours; for a
-  long-running daemon it's a leak. Fix idea: idle-timeout sweeper
-  thread.
-- **A2** SSE replay buffer is 200 events per session. Long turns
-  (many tool calls + lots of model text deltas) can exceed this. A
-  reconnecting client that missed > 200 events will silently get
-  only the most recent 200; there is no "you missed events" signal
-  to the client. Fix idea: at reconnect, if `last_event_id <
-  oldest_in_buffer`, emit a synthetic `replay_gap` event so the
-  client can re-fetch from POST-restart context. (Don't auto-emit
-  fake events without flagging — that violates the no-fake-event
-  invariant.)
-- **A3** `SessionRunner.close()` does `loop.stop()` then `thread.join(timeout=5)`.
-  If the agent loop is mid-FFmpeg and FFmpeg takes > 5s, the thread
-  outlives the join. Process exit reaps it (daemon thread) but a
-  hot restart could leak file handles temporarily.
-- **A4** EventSource auto-reconnect on browser network blips was
-  tested only with `http.client` from Python (`integration_v3_m1.py`).
-  The browser path *should* work because we emit `id:` lines and
-  EventSource auto-sends `Last-Event-ID`, but it wasn't deliberately
-  triggered with a real browser dropping connection mid-stream.
-- **A5** The 10 stub verbs are visible to the model. If the model
-  calls e.g. `generate_video`, the dispatcher raises
-  `NotImplementedError` and the user sees a red `tool_exec_error`
-  card. Not a bug but the UX is alarming. Either implement them
-  (option B from earlier) or hide them from the schema (changes
-  model behavior).
-- **A6** Frontend's `final_asset_ids` semantics. The backend emits
-  every newly-created asset in a turn as "final". The frontend
-  *now* only marks the *last* one as the user-visible deliverable
-  (fixed in M3). But this is a frontend convention; backend still
-  reports the full list. Two-place truth.
-- **A7** The `/v3` page auto-creates a session on every page load.
-  If the user refreshes mid-task, they lose conversational state
-  (the agent backend keeps the old session alive in memory until
-  process exit, but the new page can't reach it). No "resume
-  session" UX.
-- **A8** No way to start a v3 session from the existing Tauri main
-  UI at `/`. The user has to know to navigate to `/v3` manually.
-  This is the #1 usability gap from Acrab's perspective.
+### Still open
 
-(F4+ findings from Codex review of this batch will be appended to
-`docs/v3-todo.md` as they come.)
+- **A3** `SessionRunner.close()` cancels pending loop tasks and then joins
+  the daemon thread for up to 5s. That is acceptable for local dev, but a
+  production daemon still needs process-level job supervision for stuck
+  FFmpeg children.
+- **A5** The 10 stub verbs are still visible to the model. If Gemini calls
+  `generate_video`, the user sees a real red tool error. Decide next
+  whether to hide stub schemas or implement the verbs.
+- **A7** `/v3` still auto-creates a fresh session on page load. Session
+  cleanup now exists, but there is no "resume existing live session" UX.
+- **A8** There is still no entry point from the main Tauri UI at `/` into
+  `/v3`. Acrab has to know the URL.
+- **Production hardening** Auth, per-user quota, durable session store,
+  request logging, and external process supervision are still absent.
 
 ---
 
@@ -303,10 +307,10 @@ git checkout main
 python3 server.py
 ```
 
-The `claude/jolly-clarke-JO7E3` branch is purely additive on the
-codebase side. `server.py` net diff vs main: +24 lines, no removals
-of existing routes. Every v2 file in the "kept untouched" table
-above is byte-identical to main.
+The `claude/jolly-clarke-JO7E3` branch is additive on the codebase
+side: it adds `/sessions` and `/v3` routing without removing the old
+v2 routes. Every v2 file in the "kept untouched" table above is
+intended to remain behaviorally unchanged.
 
 ### Read a v3 session file using v2 code
 
@@ -371,25 +375,25 @@ Specifically:
    ~5 lines of edit in the Tauri main app — not a milestone, just
    a wiring fix. Do this before anything else.
 
-2. **A4 (EventSource browser reconnect not actually verified).**
-   Test it for real, with the browser, by killing the SSE
-   connection mid-turn. 10 minutes of work. If it doesn't work,
-   you find out now instead of when Acrab's Wi-Fi blips during a
-   long export.
+2. **A7 (no live-session resume UX) is next.** The backend now has
+   caps and idle cleanup, but refresh still creates a new session.
+   Add a session picker or "reconnect to last session" path before
+   asking Acrab to run long jobs.
 
-3. **F2 and F3 from the existing backlog.** They're both <15 lines
-   each. Both will hit real usage soon (silent screen-recording
-   videos and image overlays are common). Cheap to fix preemptively.
+3. **A5 (stub verbs) should be decided explicitly.** Either hide the
+   10 unimplemented schemas for the first user test, or implement the
+   cheap ones first. Letting the model call red-card stubs makes the
+   product feel broken even when the transport is healthy.
 
-That's a 1-2 hour batch. Call it "A.M3.5", not "M4". Open it before
-you tell Acrab to start using the thing.
+That is not M4 polish. It is "make the entry path usable enough to
+collect real feedback."
 
 ### After Acrab starts using it
 
 Then wait for feedback. The first real-use bugs will tell you what
-M4 should be. My guess based on the code: it'll be about A1
-(session leak), A5 (stub verb UX is alarming), or A7 (lose state on
-refresh). Don't guess; let him tell you.
+M4 should be. My guess based on the code: it'll be about stub-verb
+expectations, missing live-session resume, or the gap between `/v3`
+and the mature `/` editing UI. Don't guess; let him tell you.
 
 ### When (eventually) doing milestone B (15-verb expansion)
 
@@ -407,5 +411,5 @@ you break the rollback path that keeps you sleeping at night.
 
 ---
 
-*Generated on 2026-05-27 after A.M3 passed. Branch state:
-`claude/jolly-clarke-JO7E3` at commit `bdf9078`.*
+*Generated on 2026-05-27 after A.M3 passed. Last reviewed and hardened
+by Codex at commit `ee3c433` plus the current uncommitted fix batch.*

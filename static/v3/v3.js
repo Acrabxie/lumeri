@@ -4,7 +4,7 @@
  *   POST /sessions                              create session
  *   POST /sessions/{id}/assets                  raw body + X-Filename
  *   POST /sessions/{id}/turn                    {"message": "..."} (202)
- *   GET  /sessions/{id}/stream                  EventSource (auto Last-Event-ID)
+ *   GET  /sessions/{id}/stream                  EventSource + last_event_id replay
  *   GET  /sessions/{id}/assets/{aid}            preview URL for the asset
  *   POST /sessions/{id}/close                   teardown
  *
@@ -13,9 +13,8 @@
  *     banner — never silent drop.
  *   - tool_exec_progress shows real percent when present, indeterminate
  *     spinner when omitted. We never fabricate progress.
- *   - All asset previews load from /sessions/{id}/assets/{aid}. The
- *     preview_uri field in tool_exec_result.result is the on-disk path
- *     and is IGNORED for fetching; we use asset_id only.
+ *   - All asset previews load from /sessions/{id}/assets/{aid}. Tool
+ *     results expose asset_id/kind/asset_url, never local filesystem paths.
  */
 
 (function () {
@@ -49,6 +48,8 @@
     /** @type {string[]} */
     errors: [],
     uploadStatus: null,
+    lastEventId: null,
+    reconnectTimer: null,
   };
 
   function newTurn(userMessage) {
@@ -69,6 +70,33 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[c]));
+  }
+
+  function lastEventStorageKey(sessionId) {
+    return `lumeri:v3:last-event:${sessionId}`;
+  }
+
+  function loadLastEventId(sessionId) {
+    if (!sessionId) return null;
+    try {
+      return window.localStorage.getItem(lastEventStorageKey(sessionId));
+    } catch {
+      return null;
+    }
+  }
+
+  function saveLastEventId(sessionId, eventId) {
+    if (!sessionId || !eventId) return;
+    state.lastEventId = String(eventId);
+    try {
+      window.localStorage.setItem(lastEventStorageKey(sessionId), state.lastEventId);
+    } catch {}
+  }
+
+  function clearReconnectTimer() {
+    if (!state.reconnectTimer) return;
+    window.clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
   }
 
   function render() {
@@ -169,7 +197,9 @@
       const url = `/sessions/${state.sessionId}/assets/${a.asset_id}`;
       const playerHtml = a.kind === "image"
         ? `<img src="${url}" alt="${a.asset_id}" />`
-        : `<video src="${url}" controls preload="metadata"${a.final ? " autoplay muted" : ""}></video>`;
+        : a.kind === "audio"
+          ? `<audio src="${url}" controls preload="metadata"></audio>`
+          : `<video src="${url}" controls preload="metadata"${a.final ? " autoplay muted" : ""}></video>`;
       return `
         <div class="asset-card${a.final ? " final" : ""}">
           ${playerHtml}
@@ -239,7 +269,7 @@
       if (tc.previewAssetId) {
         state.assets.push({
           asset_id: tc.previewAssetId,
-          kind: "video",   // milestone 1: all tool outputs are video
+          kind: ev.result?.kind || inferKindFromAssetId(tc.previewAssetId),
           summary: ev.result?.summary || "",
           source: "tool",
           final: false,
@@ -264,18 +294,38 @@
         sub: alt ? `alternatives: ${alt}` : "",
       });
     },
+    replay_gap: (ev) => {
+      const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
+      const banner = {
+        kind: "unknown",
+        text,
+        sub: `requested=${ev.requested_last_event_id}, oldest=${ev.oldest_available_event_id}, latest=${ev.latest_event_id}`,
+      };
+      if (state.currentTurn) state.currentTurn.banners.push(banner);
+      state.errors.push(text);
+      state.turnInProgress = false;
+      const sessionId = state.sessionId;
+      if (state.eventSource) {
+        state.eventSource.close();
+        state.eventSource = null;
+      }
+      refreshSessionState().then(() => {
+        if (state.sessionId === sessionId) connectSse(sessionId);
+      }).catch((err) => {
+        state.errors.push(`session refresh failed: ${err.message}`);
+        scheduleReconnect(1000);
+      }).finally(render);
+    },
     turn_complete: (ev) => {
       const t = state.currentTurn;
       state.turnInProgress = false;
       if (!t) return;
       t.streaming = false;
       t.complete = true;
-      // final_asset_ids is every asset produced this turn. Mark only the
-      // last one as the user-facing deliverable so the asset grid does
-      // not visually shout "FINAL" on every intermediate step.
-      const finals = ev.final_asset_ids || [];
-      const deliverable = finals.length ? finals[finals.length - 1] : null;
-      if (deliverable) {
+      // Backend now sends only user-facing deliverables in final_asset_ids
+      // (usually export outputs). Mark every listed deliverable as final.
+      const finals = ev.deliverable_asset_ids || ev.final_asset_ids || [];
+      for (const deliverable of finals) {
         const existing = state.assets.find((a) => a.asset_id === deliverable);
         if (existing) existing.final = true;
       }
@@ -306,6 +356,12 @@
     handler(ev);
   }
 
+  function inferKindFromAssetId(assetId) {
+    if (String(assetId).startsWith("img_")) return "image";
+    if (String(assetId).startsWith("aud_")) return "audio";
+    return "video";
+  }
+
   // ── SSE connection ──────────────────────────────────────────────────
 
   function setConnPill(text, cls) {
@@ -313,16 +369,33 @@
     els.connPill.className = `status-pill ${cls}`;
   }
 
+  function scheduleReconnect(delayMs = 1000) {
+    clearReconnectTimer();
+    state.reconnectTimer = window.setTimeout(() => {
+      state.reconnectTimer = null;
+      if (state.sessionId) connectSse(state.sessionId);
+    }, delayMs);
+  }
+
   function connectSse(sessionId) {
     if (state.eventSource) {
       state.eventSource.close();
       state.eventSource = null;
     }
-    const es = new EventSource(`/sessions/${sessionId}/stream`);
-    es.onopen = () => setConnPill("live", "live");
-    es.onerror = () => setConnPill("reconnecting", "reconnecting");
+    const lastId = state.lastEventId || loadLastEventId(sessionId);
+    const qs = lastId ? `?last_event_id=${encodeURIComponent(lastId)}` : "";
+    const es = new EventSource(`/sessions/${sessionId}/stream${qs}`);
+    es.onopen = () => {
+      clearReconnectTimer();
+      setConnPill("live", "live");
+    };
+    es.onerror = () => {
+      setConnPill("reconnecting", "reconnecting");
+      scheduleReconnect(1500);
+    };
     es.onmessage = (e) => {
       try {
+        if (e.lastEventId) saveLastEventId(sessionId, e.lastEventId);
         const ev = JSON.parse(e.data);
         dispatch(ev);
         render();
@@ -338,6 +411,7 @@
   // ── API calls ───────────────────────────────────────────────────────
 
   async function createSession() {
+    clearReconnectTimer();
     if (state.eventSource) {
       try { await fetch(`/sessions/${state.sessionId}/close`, { method: "POST" }); } catch {}
       state.eventSource.close();
@@ -352,8 +426,27 @@
     state.assets = [];
     state.errors = [];
     state.turnInProgress = false;
+    state.lastEventId = null;
     connectSse(state.sessionId);
     render();
+  }
+
+  async function refreshSessionState() {
+    if (!state.sessionId) return;
+    const r = await fetch(`/sessions/${state.sessionId}`);
+    if (!r.ok) throw new Error(`GET /sessions/${state.sessionId} failed: ${r.status}`);
+    const data = await r.json();
+    const finalIds = new Set(state.assets.filter((a) => a.final).map((a) => a.asset_id));
+    state.assets = (data.assets || []).map((a) => ({
+      asset_id: a.asset_id,
+      kind: a.kind || inferKindFromAssetId(a.asset_id),
+      summary: a.summary || "",
+      source: "tool",
+      final: finalIds.has(a.asset_id),
+    }));
+    if (data.latest_event_id !== null && data.latest_event_id !== undefined) {
+      saveLastEventId(state.sessionId, data.latest_event_id);
+    }
   }
 
   async function uploadFile(file) {
@@ -374,7 +467,11 @@
     const data = await r.json();
     state.assets.push({
       asset_id: data.asset_id,
-      kind: file.type?.startsWith("image/") ? "image" : "video",
+      kind: file.type?.startsWith("image/")
+        ? "image"
+        : file.type?.startsWith("audio/")
+          ? "audio"
+          : "video",
       summary: `uploaded ${data.filename} (${(data.size_bytes / 1024).toFixed(1)} KB)`,
       source: "user",
       final: false,
