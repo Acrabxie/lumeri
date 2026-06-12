@@ -123,7 +123,13 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
 
 def _create_session(handler) -> bool:
     try:
-        runner = get_manager().create_session()
+        from gemia import accounts
+
+        account_id = accounts.current_account_id()
+    except Exception:
+        account_id = None
+    try:
+        runner = get_manager().create_session(account_id=account_id)
     except SessionLimitError as exc:
         _json_error(handler, 503, str(exc))
         return True

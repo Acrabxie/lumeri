@@ -497,12 +497,12 @@ def test_dispatcher_registers_all_six_batch1_verbs() -> None:
         )
 
 
-def test_dispatcher_keeps_stubs_for_unimplemented_batches() -> None:
+def test_provider_media_dispatchers_are_real() -> None:
     from gemia.tools import DISPATCHER
 
-    # generate_image moved to real in batch 2.1; remaining stubs are
-    # async (batch 2.2 generate_video / 2.3 generate_audio) + search_library.
-    for name in ("generate_video", "generate_audio", "search_library"):
-        assert DISPATCHER[name].__name__.startswith("stub_"), (
-            f"{name} should still be a stub before batches 2.2/2.3/3"
+    # generate_image, generate_video, and generate_audio all use Vertex now.
+    # search_library moved to a real cheap lookup in v4 M3.
+    for name in ("generate_image", "generate_video", "generate_audio", "search_library"):
+        assert not DISPATCHER[name].__name__.startswith("stub_"), (
+            f"{name} dispatcher should not be a stub"
         )

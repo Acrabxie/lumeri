@@ -12,6 +12,7 @@ Acrab's required probe matrix (must show DENIED, not a verbal "it's wired"):
   * run_shell overwrite / delete out-of-zone file   → DENIED, original byte-intact
   * run_shell create new file under ~/.ssh          → DENIED (validates M1 half-step)
   * run_shell workspace write (control)             → OK (didn't break legit use)
+  * web_search / web_open return compact text only  → no raw HTML reaches SSE
   * fetch return payload never carries raw bytes    → only path/metadata reach SSE
 """
 from __future__ import annotations
@@ -28,6 +29,7 @@ import pytest
 from gemia.creative_sandbox_runner import _sandbox_exec_usable
 from gemia.tools import fetch as fetch_mod
 from gemia.tools import run_shell as run_shell_mod
+from gemia.tools import web_search as web_search_mod
 from gemia.tools._context import AssetRegistry, ToolContext
 
 _SANDBOX_EXEC = shutil.which("sandbox-exec")
@@ -156,6 +158,102 @@ def test_run_shell_workspace_is_writable_control(tmp_path: Path) -> None:
     assert r["stdout_tail"].strip() == "ok"
     assert (ws / "out.txt").read_text(encoding="utf-8").strip() == "ok"
     assert r["sandbox_enforced"] is True
+
+
+# --------------------------------------------------------------------------- #
+# web_search / web_open: host-side internet, no raw HTML in return dict        #
+# --------------------------------------------------------------------------- #
+
+def test_web_search_return_dict_never_carries_raw_html(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    html = b"""
+    <html><body>
+      <!-- RAW_HTML_ONLY_MARKER -->
+      <a class="result__a" href="https://example.com/current">Current facts</a>
+      <div class="result__snippet">One useful snippet.</div>
+    </body></html>
+    """
+
+    class _Headers:
+        def get(self, k, default=None):
+            return "text/html" if k == "Content-Type" else default
+
+    class _Resp:
+        def read(self, *_a, **_k):
+            return html
+
+        headers = _Headers()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    class _Opener:
+        def open(self, _req, timeout=None):
+            return _Resp()
+
+    monkeypatch.setattr(web_search_mod.urllib.request, "build_opener", lambda *a, **k: _Opener())
+
+    ws = tmp_path / "ws"
+    ctx = _ctx(ws)
+    result = asyncio.run(web_search_mod.dispatch({"query": "current facts"}, ctx))
+    blob = json.dumps(result, default=str)
+
+    assert result["result_count"] == 1
+    assert "RAW_HTML_ONLY_MARKER" not in blob
+    assert "result__a" not in blob
+    assert "<html" not in blob
+    assert not any(isinstance(v, (bytes, bytearray)) for v in result.values())
+
+
+def test_web_open_return_dict_never_carries_raw_html(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    html = b"""
+    <html><head><title>Readable</title><script>RAW_SCRIPT_MARKER</script></head>
+    <body><h1>Visible title</h1><p>Readable paragraph.</p></body></html>
+    """
+
+    class _Headers:
+        def get(self, k, default=None):
+            return "text/html" if k == "Content-Type" else default
+
+    class _Resp:
+        def read(self, *_a, **_k):
+            return html
+
+        headers = _Headers()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    class _Opener:
+        def open(self, _req, timeout=None):
+            return _Resp()
+
+    monkeypatch.setattr(web_search_mod.urllib.request, "build_opener", lambda *a, **k: _Opener())
+
+    ws = tmp_path / "ws"
+    ctx = _ctx(ws)
+    result = asyncio.run(
+        web_search_mod.dispatch_open({"url": "https://example.com/readable"}, ctx)
+    )
+    blob = json.dumps(result, default=str)
+
+    assert "Visible title" in result["content"]
+    assert "Readable paragraph." in result["content"]
+    assert "RAW_SCRIPT_MARKER" not in blob
+    assert "<html" not in blob
+    assert "<h1>" not in blob
+    assert not any(isinstance(v, (bytes, bytearray)) for v in result.values())
 
 
 # --------------------------------------------------------------------------- #

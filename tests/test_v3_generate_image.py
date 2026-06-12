@@ -1,4 +1,4 @@
-"""Smoke + integration tests for generate_image (Nano Banana 2 via AI Studio).
+"""Smoke + integration tests for generate_image (Nano Banana 2 via Vertex).
 
 Two layers:
   - **Mocked**: stub `GoogleGenAIClient.generate_image` so we exercise the
@@ -21,11 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from gemia.ai.google_genai_client import (
-    GoogleGenAIClient,
-    StudioAPIError,
-    StudioAuthMissingError,
-)
+from gemia.ai.google_genai_client import GoogleGenAIClient, VertexAPIError, VertexAuthMissingError
 from gemia.budget_guard import BudgetGuard, _TOOL_COSTS
 from gemia.tools import DISPATCHER
 from gemia.tools import generate_image as generate_image_tool
@@ -89,12 +85,13 @@ def _stub_client(monkeypatch, *, image_bytes: bytes = _TINY_PNG_BYTES,
             },
         }
 
-    # Side-step the auth check by injecting a non-empty api_key at construction.
-    original_init = GoogleGenAIClient.__init__
-
     def fake_init(self, **kwargs):
-        kwargs.setdefault("api_key", "TEST-NOT-A-REAL-KEY")
-        original_init(self, **kwargs)
+        self.project = "test-project"
+        self.location = kwargs.get("location", "global")
+        self.api_version = "v1beta1"
+        self.base_url = "https://example.invalid/v1beta1/projects/test/locations/global/publishers/google/models"
+        self.proxy = None
+        self.timeout_sec = 60.0
 
     monkeypatch.setattr(GoogleGenAIClient, "__init__", fake_init)
     monkeypatch.setattr(GoogleGenAIClient, "generate_image", fake_generate_image)
@@ -125,7 +122,7 @@ def test_dispatcher_decodes_base64_and_writes_png_to_workdir(
     # Args passed through correctly
     assert seen["prompt"] == "a cyberpunk city skyline at night"
     assert seen["aspect_ratio"] == "16:9"
-    assert seen["model"] == "gemini-3.1-flash-image"
+    assert seen["model"] == "gemini-3.1-flash-image-preview"
     assert seen["image_size"] == "2K"
 
 
@@ -214,36 +211,31 @@ def test_dispatcher_rejects_empty_prompt(monkeypatch, tmp_path: Path) -> None:
         asyncio.run(generate_image_tool.dispatch({"prompt": "   "}, ctx))
 
 
-def test_dispatcher_propagates_studio_auth_missing(monkeypatch, tmp_path: Path) -> None:
+def test_dispatcher_propagates_vertex_auth_missing(monkeypatch, tmp_path: Path) -> None:
     def fake_init(self, **kwargs):
-        raise StudioAuthMissingError("gemini_studio_api_key is not set.")
+        raise VertexAuthMissingError("VERTEX_PROJECT is not set.")
     monkeypatch.setattr(GoogleGenAIClient, "__init__", fake_init)
     ctx = _ctx(tmp_path)
-    with pytest.raises(StudioAuthMissingError, match="gemini_studio_api_key"):
+    with pytest.raises(VertexAuthMissingError, match="VERTEX_PROJECT"):
         asyncio.run(generate_image_tool.dispatch({"prompt": "x"}, ctx))
 
 
-def test_dispatcher_propagates_studio_5xx_unchanged(monkeypatch, tmp_path: Path) -> None:
+def test_dispatcher_propagates_vertex_5xx_unchanged(monkeypatch, tmp_path: Path) -> None:
     """Provider 5xx must not be retried or hidden — model gets the traceback."""
     async def fake_call(self, **_kwargs):
-        raise StudioAPIError("AI Studio HTTP 503 on generateContent",
+        raise VertexAPIError("Vertex HTTP 503 on generateContent",
                              status=503, body_tail="server overloaded")
 
-    def fake_init(self, **kwargs):
-        kwargs.setdefault("api_key", "TEST")
-        GoogleGenAIClient.__init__.__wrapped__(self, **kwargs) if hasattr(
-            GoogleGenAIClient.__init__, "__wrapped__"
-        ) else None
-
     monkeypatch.setattr(GoogleGenAIClient, "__init__",
-                        lambda self, **kw: setattr(self, "api_key", "TEST")
+                        lambda self, **kw: setattr(self, "project", "test")
+                        or setattr(self, "location", "global")
                         or setattr(self, "proxy", None)
                         or setattr(self, "timeout_sec", 60.0)
                         or setattr(self, "base_url", "https://x"))
     monkeypatch.setattr(GoogleGenAIClient, "generate_image", fake_call)
 
     ctx = _ctx(tmp_path)
-    with pytest.raises(StudioAPIError, match="503"):
+    with pytest.raises(VertexAPIError, match="503"):
         asyncio.run(generate_image_tool.dispatch({"prompt": "x"}, ctx))
 
 
@@ -272,14 +264,14 @@ def test_budget_guard_allows_generate_image_when_under_cap() -> None:
 
 
 @pytest.mark.skipif(
-    os.environ.get("LUMERI_RUN_LIVE_STUDIO") != "1",
-    reason="live AI Studio call disabled; set LUMERI_RUN_LIVE_STUDIO=1 to enable",
+    os.environ.get("LUMERI_RUN_LIVE_VERTEX") != "1",
+    reason="live Vertex call disabled; set LUMERI_RUN_LIVE_VERTEX=1 to enable",
 )
 def test_live_generate_image_writes_real_png(tmp_path: Path) -> None:
-    """Real call against AI Studio Nano Banana 2.
+    """Real call against Vertex Nano Banana 2.
 
     Costs ~$0.10 per run. Gated by env var so CI/test suite stays cheap.
-    Requires ``gemini_studio_api_key`` in ``~/.gemia/config.json``."""
+    Requires Vertex ADC + ``vertex_project`` in ``~/.gemia/config.json``."""
     ctx = _ctx(tmp_path)
     result = asyncio.run(
         generate_image_tool.dispatch(
