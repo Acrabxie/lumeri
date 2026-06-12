@@ -57,10 +57,12 @@ class SessionRunner:
         session_id: str,
         output_dir: Path,
         sessions_root: Path,
+        account_id: str | None = None,
     ) -> None:
         self.session_id = session_id
         self.output_dir = Path(output_dir)
         self.sessions_root = Path(sessions_root)
+        self.account_id = str(account_id or "").strip()
 
         self._loop = asyncio.new_event_loop()
         self._ready = threading.Event()
@@ -108,6 +110,7 @@ class SessionRunner:
             session_id=self.session_id,
             output_dir=self.output_dir,
             sessions_root=self.sessions_root,
+            extra={"account_id": self.account_id} if self.account_id else None,
         )
 
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
@@ -244,7 +247,7 @@ class SessionManager:
             )
             self._sweeper.start()
 
-    def create_session(self) -> SessionRunner:
+    def create_session(self, *, account_id: str | None = None) -> SessionRunner:
         self.cleanup_idle()
         session_id = f"v3-{uuid.uuid4().hex[:12]}"
         with self._lock:
@@ -266,6 +269,7 @@ class SessionManager:
                 session_id=session_id,
                 output_dir=self._workdirs_root / session_id,
                 sessions_root=self._sessions_root,
+                account_id=account_id,
             )
             created = True
         except Exception:

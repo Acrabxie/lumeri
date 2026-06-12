@@ -34,7 +34,9 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "extract_frame":      {"usd": 0.00, "eta_sec": 1.0},
     "search_library":     {"usd": 0.00, "eta_sec": 0.5},
     "export":             {"usd": 0.00, "eta_sec": 20.0},
-    # M3 verbs (networking + sandbox bash).
+    # M3 verbs (host-side internet + sandbox bash).
+    "web_search":         {"usd": 0.00, "eta_sec": 3.0},     # Host-side search, compact results
+    "web_open":           {"usd": 0.00, "eta_sec": 5.0},     # Host-side page text extraction
     "fetch":              {"usd": 0.00, "eta_sec": 5.0},     # Host-side https download
     "run_shell":          {"usd": 0.00, "eta_sec": 10.0},    # Sandboxed bash execution
 }
