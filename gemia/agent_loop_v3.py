@@ -243,6 +243,7 @@ class AgentLoopV3:
 
         System prompt = ``system_v3.md`` with two placeholders filled in:
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
+        ``{{pending_jobs}}`` from the live JobRegistry compact text,
         and ``{{pinned_intent}}`` from the user's first message in this
         session. After the system message comes the rolling
         user/assistant/tool window in chronological order.
@@ -250,6 +251,7 @@ class AgentLoopV3:
         system_filled = (
             self._system_template
             .replace("{{asset_registry}}", self.registry.compact_text())
+            .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )
         return [{"role": "system", "content": system_filled}, *self._messages]

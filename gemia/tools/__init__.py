@@ -36,6 +36,7 @@ from gemia.tools._schema import TOOL_NAMES, TOOL_SCHEMAS
 from gemia.tools import add_overlay as _add_overlay
 from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import arrange_timeline as _arrange_timeline
+from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
 from gemia.tools import edit_image as _edit_image
@@ -87,6 +88,10 @@ _REAL: dict[str, Dispatcher] = {
     "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
     "run_shell":          _run_shell.dispatch,
+    "build":              _build.dispatch,
+    "check_job":          _build.dispatch_check,
+    "wait_for_job":       _build.dispatch_wait,
+    "save_skill":         _build.dispatch_save_skill,
 }
 
 
