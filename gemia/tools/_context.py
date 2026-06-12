@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from gemia.tools._jobs import JobRegistry
+
 
 _KIND_PREFIX = {"video": "v", "image": "img", "audio": "aud"}
 _VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -153,6 +155,7 @@ class ToolContext:
     registry: AssetRegistry
     emit_progress: ProgressCallback
     extra: dict[str, Any] = field(default_factory=dict)
+    jobs: JobRegistry = field(default_factory=JobRegistry)
 
     def child_path(self, asset_id: str, ext: str) -> Path:
         ext = ext if ext.startswith(".") else f".{ext}"
