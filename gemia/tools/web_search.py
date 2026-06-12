@@ -27,8 +27,12 @@ _SEARCH_ENGINE = "duckduckgo_lite"
 _SEARCH_URL = "https://lite.duckduckgo.com/lite/"
 _MAX_SEARCH_BYTES = 2 * 1024 * 1024
 _MAX_PAGE_BYTES = 3 * 1024 * 1024
-_DEFAULT_SEARCH_LIMIT = 5
+# DuckDuckGo Lite returns ~10 results per page. Default to a full page (the
+# previous default of 5 silently discarded half of it). Going past one page
+# would require following the Lite "next page" form (extra round-trips), so
+# the single-page maximum is the ceiling here.
 _MAX_SEARCH_LIMIT = 10
+_DEFAULT_SEARCH_LIMIT = _MAX_SEARCH_LIMIT
 _DEFAULT_PAGE_CHARS = 6000
 _MAX_PAGE_CHARS = 12000
 

@@ -16,15 +16,17 @@ Contract — what this loop is and what it is NOT:
     block emits an event and appends a structured tool_result for the
     model to read.
 
-  - It bounds turn cost with TWO INDEPENDENT counters:
-      * ``tool_steps_this_turn``           — capped at ``max_tool_steps``
-        (every dispatch increments it, no matter the tool).
+  - It does NOT cap the total number of tool steps per turn. A research
+    or see→modify→rerun build loop legitimately needs many steps, so the
+    only runaway guard is a per-tool circuit breaker: if the SAME tool
+    fails to dispatch ``_MAX_CONSECUTIVE_TOOL_FAILURES`` times in a row
+    (error, bad-JSON args, or budget/visual gate), the turn stops. A
+    successful dispatch of that tool resets its streak. Real cost/time
+    stay bounded by ``BudgetGuard`` ($ + execution seconds).
       * ``visual_inspections_this_turn``   — capped at
         ``max_visual_inspections`` (incremented ONLY when an
         ``analyze_media`` call actually produces a thumbnail for the
-        next user message).
-    These two counters never share storage; each is its own local
-    variable in ``_drive_turn``.
+        next user message). Independent of the failure breaker.
 
   - It implements Plan-B visual feedback: when a dispatcher returns
     ``thumbnail_for_next_message=True``, the loop appends a multimodal
@@ -60,6 +62,14 @@ from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_v3.md"
 _ROLLING_USER_TURNS = 8
+
+# Circuit breaker: there is no cap on the TOTAL number of tool steps in a turn
+# (a research + see→modify→rerun build loop legitimately needs many). Instead,
+# if the SAME tool fails to produce a successful dispatch this many times in a
+# row, we stop the turn — that is the real runaway signature (the model stuck
+# hammering a broken/over-budget tool). A successful dispatch of that tool
+# resets its counter. Genuine cost/time is still bounded by BudgetGuard.
+_MAX_CONSECUTIVE_TOOL_FAILURES = 5
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -169,7 +179,6 @@ class AgentLoopV3:
         *,
         session_id: str,
         output_dir: Path,
-        max_tool_steps: int = 8,
         max_visual_inspections: int = 3,
         budget_max_usd: float = 5.0,
         budget_max_seconds: float = 600.0,
@@ -181,7 +190,6 @@ class AgentLoopV3:
         self.session_id = session_id
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._max_tool_steps = int(max_tool_steps)
         self._max_visual_inspections = int(max_visual_inspections)
 
         self.registry = AssetRegistry()
@@ -217,7 +225,7 @@ class AgentLoopV3:
             "session_id": self.session_id,
             "project_id": "v3-session",
             "goal": self._pinned_intent or "",
-            "max_turns": self._max_tool_steps,
+            "max_turns": None,  # no fixed per-turn tool-step cap (failure breaker instead)
             "ai_model": self.client.model,
             "created_at": now,
             "updated_at": now,
@@ -265,6 +273,24 @@ class AgentLoopV3:
             {"role": "tool", "tool_call_id": call_id, "content": content}
         )
 
+    def _note_tool_failure(self, fail_counts: dict[str, int], name: str) -> bool:
+        """Record a non-successful tool call (error, parse failure, or gate)
+        and return True when ``name`` has reached the consecutive-failure
+        circuit-breaker threshold for this turn."""
+        fail_counts[name] = fail_counts.get(name, 0) + 1
+        return fail_counts[name] >= _MAX_CONSECUTIVE_TOOL_FAILURES
+
+    def _emit_tool_breaker(self, name: str, count: int) -> None:
+        self._emit(
+            {
+                "kind": "turn_error",
+                "error": (
+                    f"tool '{name}' failed {count} times in a row this turn; "
+                    f"stopping. Adjust the inputs or use a different tool."
+                ),
+            }
+        )
+
     def _trim_rolling_window(self) -> None:
         user_idx = [i for i, m in enumerate(self._messages) if m.get("role") == "user"]
         if len(user_idx) <= _ROLLING_USER_TURNS:
@@ -292,30 +318,19 @@ class AgentLoopV3:
     async def _drive_turn(self) -> None:
         """One turn: stream → dispatch any tool_calls → repeat → emit turn_complete.
 
-        Two independent counters bound the work done per turn:
-        ``tool_steps_this_turn`` (every dispatch) and
-        ``visual_inspections_this_turn`` (only successful analyze_media
-        thumbnails). They live in this function and are never merged.
+        There is no fixed cap on the total number of tool steps in a turn.
+        ``visual_inspections_this_turn`` still caps analyze_media thumbnails,
+        and ``tool_fail_counts`` drives the per-tool consecutive-failure
+        circuit breaker (see ``_MAX_CONSECUTIVE_TOOL_FAILURES``). Genuine
+        cost/time stay bounded by BudgetGuard.
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
-        tool_steps_this_turn = 0
         visual_inspections_this_turn = 0
+        tool_fail_counts: dict[str, int] = {}
 
         self._emit({"kind": "turn_start"})
 
         while True:
-            if tool_steps_this_turn >= self._max_tool_steps:
-                self._emit(
-                    {
-                        "kind": "turn_error",
-                        "error": (
-                            f"max_tool_steps={self._max_tool_steps} reached this turn; "
-                            f"stopping without further model calls."
-                        ),
-                    }
-                )
-                return
-
             accum = _StreamAccumulator()
             messages = self.render_messages()
 
@@ -380,32 +395,6 @@ class AgentLoopV3:
 
             # ---- dispatch each tool call sequentially --------------
             for tc in accum.tool_calls:
-                # Cap also enforced inside the for-loop so a single
-                # assistant message returning N tool_calls cannot
-                # bypass max_tool_steps. Remaining calls in this batch
-                # get a needs_approval tool_result so the model sees
-                # exactly what was skipped on the next turn (continue,
-                # not break — silent drop would mislead the model).
-                if tool_steps_this_turn >= self._max_tool_steps:
-                    cap_reason = (
-                        f"max_tool_steps={self._max_tool_steps} reached during "
-                        f"this turn's batched dispatch; remaining tool_calls in "
-                        f"this assistant message will not be executed."
-                    )
-                    self._emit(
-                        {
-                            "kind": "budget_gate",
-                            "call_id": tc.id,
-                            "tool_name": tc.name,
-                            "reason": cap_reason,
-                            "alternatives": [],
-                        }
-                    )
-                    self._append_tool_result(
-                        tc.id, {"needs_approval": True, "reason": cap_reason}
-                    )
-                    continue
-                tool_steps_this_turn += 1
                 parsed_args, parse_error = _parse_args(tc.args)
 
                 self._emit(
@@ -438,6 +427,9 @@ class AgentLoopV3:
                             "raw_arguments": tc.args,
                         },
                     )
+                    if self._note_tool_failure(tool_fail_counts, tc.name):
+                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                        return
                     continue
 
                 # Budget gate (cost + time). Model decides what to do.
@@ -464,11 +456,15 @@ class AgentLoopV3:
                             "estimated_eta_sec": decision.estimated_eta_sec,
                         },
                     )
+                    # A gate is a non-dispatch: count it so the model cannot
+                    # spin forever re-requesting an over-budget tool.
+                    if self._note_tool_failure(tool_fail_counts, tc.name):
+                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                        return
                     continue
 
                 # Independent visual_inspections cap. Only enforced for
-                # analyze_media — does NOT share storage with
-                # tool_steps_this_turn.
+                # analyze_media.
                 if (
                     tc.name == "analyze_media"
                     and visual_inspections_this_turn >= self._max_visual_inspections
@@ -490,6 +486,9 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {"needs_approval": True, "reason": cap_reason}
                     )
+                    if self._note_tool_failure(tool_fail_counts, tc.name):
+                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                        return
                     continue
 
                 # Real dispatch ------------------------------------------------
@@ -523,10 +522,15 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {"error": err, "tool_name": tc.name}
                     )
+                    if self._note_tool_failure(tool_fail_counts, tc.name):
+                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                        return
                     continue
 
                 elapsed = time.monotonic() - start_ts
                 self.budget.commit(tc.name, actual_seconds=elapsed)
+                # Successful dispatch — clear this tool's failure streak.
+                tool_fail_counts[tc.name] = 0
 
                 # Model-facing tool_result: strip thumbnail_path (file
                 # path leakage), keep thumbnail_for_next_message=False
