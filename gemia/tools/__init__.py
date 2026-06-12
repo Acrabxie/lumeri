@@ -12,16 +12,10 @@ Implemented:
       transform_geometry, edit_image, extract_frame
     - batch 2.1 (sync provider, real money): generate_image (Nano Banana 2
       via Vertex)
-    - batch 3 (v4 build): fetch (host-side networking), run_shell (sandboxed
-      bash via the M1 two-tier sandbox-exec boundary)
-
-Still registered as stubs (raise NotImplementedError):
-
-    - generate_video, generate_audio  — async LRO (Veo / Lyria), batch 2.2/2.3
-    - search_library                  — needs embedding / index, batch 3
-
-Schemas stay exposed so the model can see the full action vocabulary;
-the host will not pretend to execute work it can't do.
+    - batch 2.2/2.3 (provider media): generate_video (Veo LRO via Vertex),
+      generate_audio (Lyria predict via Vertex)
+    - batch 3 (v4 build): web_search / web_open / fetch (host-side internet),
+      run_shell (sandboxed bash via the M1 two-tier sandbox-exec boundary)
 
 Dispatchers must NOT swallow errors. The agent loop wraps each call in
 try/except and emits a ``tool_exec_error`` event on exception.
@@ -49,19 +43,19 @@ from gemia.tools import edit_video as _edit_video
 from gemia.tools import export as _export
 from gemia.tools import extract_frame as _extract_frame
 from gemia.tools import fetch as _fetch
+from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
+from gemia.tools import generate_video as _generate_video
 from gemia.tools import mix_audio as _mix_audio
 from gemia.tools import run_shell as _run_shell
+from gemia.tools import search_library as _search_library
 from gemia.tools import transform_geometry as _transform_geometry
+from gemia.tools import web_search as _web_search
 
 Dispatcher = Callable[[dict[str, Any], ToolContext], Awaitable[dict[str, Any]]]
 
 
-_STUB_REASONS: dict[str, str] = {
-    "generate_video": "needs Veo 3.1 LRO + JobRegistry (doc 08 async); deferred to batch 2.2",
-    "generate_audio": "needs Lyria 3 LRO + JobRegistry (doc 08 async); deferred to batch 2.3",
-    "search_library": "needs an asset library + embedding index; deferred to batch 3",
-}
+_STUB_REASONS: dict[str, str] = {}
 
 
 def _make_stub(name: str) -> Dispatcher:
@@ -86,6 +80,11 @@ _REAL: dict[str, Dispatcher] = {
     "edit_image":         _edit_image.dispatch,
     "extract_frame":      _extract_frame.dispatch,
     "generate_image":     _generate_image.dispatch,
+    "generate_video":     _generate_video.dispatch,
+    "generate_audio":     _generate_audio.dispatch,
+    "search_library":     _search_library.dispatch,
+    "web_search":         _web_search.dispatch,
+    "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
     "run_shell":          _run_shell.dispatch,
 }

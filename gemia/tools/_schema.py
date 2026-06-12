@@ -1,6 +1,6 @@
 """Lumeri v3 verb schemas.
 
-Pure data. Defines the 15 creative-action tools the model can call. Each
+Pure data. Defines the creative-action tools the model can call. Each
 schema follows the OpenAI function-calling shape OpenRouter accepts for
 Gemini 3.1 Pro:
 
@@ -74,22 +74,26 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "generate_video",
-        "Create a new video clip from a text prompt (Veo). Expensive and slow; prefer search_library or generate_image when possible.",
+        "Create a new video clip from a text prompt using Vertex AI Veo. This is an expensive slow tool: it submits a Vertex long-running operation, waits for completion, writes the MP4 to the session workspace, and returns a video asset_id. Prefer search_library or local editing when existing footage can satisfy the task.",
         {
             "prompt": {"type": "string", "description": "What the clip should show."},
             "duration_sec": {"type": "number", "description": "Target duration in seconds (max 8)."},
             "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"]},
             "reference_asset_id": {"type": "string", "description": "Optional starting image for image-to-video."},
             "camera": {"type": "string", "description": "Optional motion hint (e.g. 'slow dolly in')."},
+            "max_wait_sec": {
+                "type": "number",
+                "description": "Optional maximum time to wait for the Vertex LRO. Default 300, clamped to 30..900.",
+            },
         },
         ["prompt"],
     ),
     _tool(
         "generate_audio",
-        "Create new music or sound from a text prompt (Lyria).",
+        "Create new music or sound from a text prompt using Vertex AI Lyria. Returns an audio asset_id after writing the generated WAV to the session workspace. Lyria currently returns a fixed short clip; use edit/mix tools afterward for timeline placement.",
         {
             "prompt": {"type": "string", "description": "What the audio should sound like."},
-            "duration_sec": {"type": "number", "description": "Target duration in seconds."},
+            "duration_sec": {"type": "number", "description": "Requested duration hint. Vertex Lyria may ignore this and return its fixed clip length."},
             "mood": {"type": "string", "description": "Optional mood (e.g. 'tense, low')."},
             "bpm": {"type": "number", "description": "Optional tempo target."},
         },
@@ -303,6 +307,36 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
         ["asset_id", "format", "quality"],
+    ),
+    _tool(
+        "web_search",
+        "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned.",
+        {
+            "query": {
+                "type": "string",
+                "description": "Search query, e.g. 'current YouTube Shorts safe zone dimensions'.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max results to return. Default 5; clamped to 1..10.",
+            },
+        },
+        ["query"],
+    ),
+    _tool(
+        "web_open",
+        "Read an https:// web page from the host side and return cleaned text, title, source, and a saved JSON path. Use fetch instead for binary/media downloads. The sandbox remains network-denied; raw HTML is not returned.",
+        {
+            "url": {
+                "type": "string",
+                "description": "https:// page URL to read as text.",
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": "Maximum cleaned text characters to return. Default 6000; clamped to 500..12000.",
+            },
+        },
+        ["url"],
     ),
     _tool(
         "fetch",

@@ -16,7 +16,7 @@ import pytest
 from gemia.ai import google_genai_client as gc
 from gemia.ai.google_genai_client import (
     GoogleGenAIClient,
-    StudioAPIError,
+    VertexAPIError,
     find_suspected_leaks,
     read_api_calls,
 )
@@ -45,7 +45,14 @@ def _ok_response() -> dict:
 
 
 def _client() -> GoogleGenAIClient:
-    return GoogleGenAIClient(api_key="TEST-NOT-REAL")
+    client = GoogleGenAIClient.__new__(GoogleGenAIClient)
+    client.project = "test-project"
+    client.location = "global"
+    client.api_version = "v1beta1"
+    client.base_url = "https://example.invalid/v1beta1/projects/test/locations/global/publishers/google/models"
+    client.proxy = None
+    client.timeout_sec = 60.0
+    return client
 
 
 def test_audit_submitted_then_completed_on_success(monkeypatch, tmp_path: Path) -> None:
@@ -72,7 +79,7 @@ def test_audit_submitted_then_completed_on_success(monkeypatch, tmp_path: Path) 
     sub, comp = records
     assert sub["status"] == "submitted"
     assert sub["verb"] == "generate_image"
-    assert sub["provider"] == "ai_studio"
+    assert sub["provider"] == "vertex"
     assert sub["estimated_cost_usd"] == pytest.approx(0.101)
     assert comp["status"] == "completed"
     assert comp["actual_asset_id"] == "img_001"
@@ -88,11 +95,11 @@ def test_audit_submitted_then_failed_on_transport_error(monkeypatch, tmp_path: P
     monkeypatch.setenv("GEMIA_V3_API_AUDIT", str(audit))
 
     async def boom(self, path, body):
-        raise StudioAPIError("AI Studio HTTP 0 SSL EOF", status=None, body_tail="")
+        raise VertexAPIError("Vertex HTTP 0 SSL EOF", status=None, body_tail="")
 
     monkeypatch.setattr(GoogleGenAIClient, "_post_json", boom)
 
-    with pytest.raises(StudioAPIError, match="SSL EOF"):
+    with pytest.raises(VertexAPIError, match="SSL EOF"):
         asyncio.run(
             _client().generate_image(prompt="x", estimated_cost_usd=0.101, asset_id="img_001")
         )

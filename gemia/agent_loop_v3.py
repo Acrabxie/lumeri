@@ -74,6 +74,7 @@ class _ToolCallAccumulator:
     index: int
     id: str
     name: str
+    extra_content: Any | None = None
     args_buf: list[str] = field(default_factory=list)
 
     @property
@@ -121,6 +122,20 @@ def _parse_args(raw: str) -> tuple[dict[str, Any] | None, str | None]:
     return value, None
 
 
+def _tool_call_message(tc: _ToolCallAccumulator) -> dict[str, Any]:
+    message = {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.name, "arguments": tc.args},
+    }
+    if tc.extra_content is not None:
+        # Gemini/OpenRouter tool calls can carry provider metadata such as
+        # thought_signature. The follow-up request must echo it on the
+        # assistant tool_call part, or Gemini rejects the next model call.
+        message["extra_content"] = tc.extra_content
+    return message
+
+
 def _thumbnail_user_content(paths: list[Path]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = [
         {
@@ -161,6 +176,7 @@ class AgentLoopV3:
         gemini_client: GeminiClientV3 | None = None,
         emit_event: EventSink | None = None,
         sessions_root: Path | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         self.session_id = session_id
         self.output_dir = Path(output_dir)
@@ -184,6 +200,7 @@ class AgentLoopV3:
             output_dir=self.output_dir,
             registry=self.registry,
             emit_progress=lambda _u: None,
+            extra=dict(extra or {}),
         )
 
         self.sessions_root = Path(sessions_root) if sessions_root else None
@@ -311,6 +328,7 @@ class AgentLoopV3:
                         index=int(delta["index"]),
                         id=str(delta["id"] or f"call_{delta['index']}"),
                         name=str(delta["name"]),
+                        extra_content=delta.get("extra_content"),
                     )
                     accum.tool_calls_by_index[tc.index] = tc
                     self._emit(
@@ -324,6 +342,10 @@ class AgentLoopV3:
                     tc = accum.tool_calls_by_index.get(int(delta["index"]))
                     if tc is not None:
                         tc.args_buf.append(str(delta["delta"]))
+                elif kind == "tool_call_extra":
+                    tc = accum.tool_calls_by_index.get(int(delta["index"]))
+                    if tc is not None:
+                        tc.extra_content = delta.get("extra_content")
                 elif kind == "finish":
                     accum.finish_reason = str(delta["reason"])
                 elif kind == "error":
@@ -337,11 +359,7 @@ class AgentLoopV3:
             }
             if accum.tool_calls:
                 assistant_msg["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": tc.args},
-                    }
+                    _tool_call_message(tc)
                     for tc in accum.tool_calls
                 ]
             self._messages.append(assistant_msg)

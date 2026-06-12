@@ -29,8 +29,9 @@ The host does NOT auto-retry a paid generation (a retry after a charged-but-
 dropped response would double-bill); the money-leak audit below makes any
 submitted-without-completed call visible instead.
 
-Only ``generate_image`` is implemented today (batch 2.1). Veo + Lyria live
-in their own clients.
+``generate_image`` uses ``:generateContent``. Veo and Lyria share the same
+transport/auth helpers: Lyria uses ``:predict`` and Veo uses
+``:predictLongRunning`` + ``:fetchPredictOperation``.
 """
 from __future__ import annotations
 
@@ -313,6 +314,114 @@ class GoogleGenAIClient:
         )
         payload["request_id"] = request_id
         return payload
+
+    async def predict(
+        self,
+        *,
+        model: str,
+        instances: list[dict[str, Any]],
+        parameters: dict[str, Any] | None = None,
+        verb: str,
+        estimated_cost_usd: float = 0.0,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Call Vertex model ``:predict`` for synchronous media models.
+
+        Used by Lyria. The response JSON is returned to the dispatcher, which
+        is responsible for decoding/writing bytes and scrubbing event payloads.
+        """
+        request_id = request_id or uuid.uuid4().hex
+        _append_audit(
+            {
+                "request_id": request_id,
+                "verb": verb,
+                "provider": "vertex",
+                "model": model,
+                "location": self.location,
+                "estimated_cost_usd": float(estimated_cost_usd),
+                "status": "submitted",
+            }
+        )
+        body: dict[str, Any] = {"instances": instances}
+        if parameters:
+            body["parameters"] = parameters
+        try:
+            response_json = await self._post_json(f"{model}:predict", body)
+        except Exception as exc:
+            _append_audit(
+                {
+                    "request_id": request_id,
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}"[:500],
+                }
+            )
+            raise
+        _append_audit({"request_id": request_id, "status": "completed"})
+        response_json["_lumeri_request_id"] = request_id
+        return response_json
+
+    async def predict_long_running(
+        self,
+        *,
+        model: str,
+        instances: list[dict[str, Any]],
+        parameters: dict[str, Any] | None = None,
+        verb: str,
+        estimated_cost_usd: float = 0.0,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a Vertex ``:predictLongRunning`` operation.
+
+        Used by Veo. This audits the paid submission request only. Polling the
+        operation is separate and not charged as a new generation.
+        """
+        request_id = request_id or uuid.uuid4().hex
+        _append_audit(
+            {
+                "request_id": request_id,
+                "verb": verb,
+                "provider": "vertex",
+                "model": model,
+                "location": self.location,
+                "estimated_cost_usd": float(estimated_cost_usd),
+                "status": "submitted",
+            }
+        )
+        body: dict[str, Any] = {"instances": instances}
+        if parameters:
+            body["parameters"] = parameters
+        try:
+            response_json = await self._post_json(f"{model}:predictLongRunning", body)
+        except Exception as exc:
+            _append_audit(
+                {
+                    "request_id": request_id,
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}"[:500],
+                }
+            )
+            raise
+        _append_audit(
+            {
+                "request_id": request_id,
+                "status": "completed",
+                "operation_name": response_json.get("name"),
+            }
+        )
+        response_json["_lumeri_request_id"] = request_id
+        return response_json
+
+    async def fetch_predict_operation(
+        self,
+        *,
+        model: str,
+        operation_name: str,
+    ) -> dict[str, Any]:
+        """Poll a Vertex ``:predictLongRunning`` operation."""
+        return await self._post_json(
+            f"{model}:fetchPredictOperation",
+            {"operationName": operation_name},
+        )
 
     # ── transport ─────────────────────────────────────────────────────
 

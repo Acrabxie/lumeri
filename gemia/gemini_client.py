@@ -372,6 +372,12 @@ def _parse_chunk(chunk: dict[str, Any]) -> Iterator[dict[str, Any]]:
                 if extra is not None:
                     start_event["extra_content"] = extra
                 yield start_event
+            elif tc.get("extra_content") is not None:
+                yield {
+                    "kind": "tool_call_extra",
+                    "index": idx,
+                    "extra_content": tc.get("extra_content"),
+                }
             if isinstance(args_delta, str) and args_delta:
                 yield {"kind": "tool_call_args_delta", "index": idx, "delta": args_delta}
     finish_reason = choice.get("finish_reason")
