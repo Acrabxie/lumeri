@@ -318,7 +318,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
             "limit": {
                 "type": "integer",
-                "description": "Max results to return. Default 5; clamped to 1..10.",
+                "description": "Max results to return. Defaults to a full result page (10); clamped to 1..10.",
             },
         },
         ["query"],
