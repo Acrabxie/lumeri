@@ -368,6 +368,83 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["command"],
     ),
+    _tool(
+        "build",
+        "Async submit Python code to a sandboxed subprocess. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
+        {
+            "code": {
+                "type": "string",
+                "description": "Python source code to execute in sandbox.",
+            },
+            "filename": {
+                "type": "string",
+                "description": "Output script filename (default 'script.py'). Must be a simple name without path separators.",
+            },
+            "args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Command-line arguments to pass to the script.",
+            },
+            "timeout_sec": {
+                "type": "number",
+                "description": "Timeout in seconds (default 120, clamped to (0, 600]). Process killed if exceeded.",
+            },
+            "note": {
+                "type": "string",
+                "description": "Optional human-readable description for the job.",
+            },
+        },
+        ["code"],
+    ),
+    _tool(
+        "check_job",
+        "Poll a pending build job by job_id. Inexpensive. Returns current status, exit code, and log tails (last ~4000 chars of stdout/stderr). Kill process on timeout. Use this to inspect job state without blocking.",
+        {
+            "job_id": {
+                "type": "string",
+                "description": "Job identifier returned by build.",
+            },
+        },
+        ["job_id"],
+    ),
+    _tool(
+        "wait_for_job",
+        "Async wait for a build job to complete or exceed max_wait_sec. Polls every 1 second. Returns same result shape as check_job plus waited_sec and timed_out flag. Use when you need blocking semantics.",
+        {
+            "job_id": {
+                "type": "string",
+                "description": "Job identifier returned by build.",
+            },
+            "max_wait_sec": {
+                "type": "number",
+                "description": "Maximum seconds to wait (default 60, clamped to (0, 300]).",
+            },
+        },
+        ["job_id"],
+    ),
+    _tool(
+        "save_skill",
+        "Persist a workspace artifact (e.g., debugged script, utility library) as a reusable skill for future sessions. Validates path containment, slugifies name, writes metadata JSON. Host-side only (no sandbox). Use after iterating/debugging code via build+check_job.",
+        {
+            "source": {
+                "type": "string",
+                "description": "Workspace-relative path to source file (e.g. 'builds/build_abc/script.py').",
+            },
+            "name": {
+                "type": "string",
+                "description": "Human-readable skill name (slugified to lowercase/hyphens).",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional skill description.",
+            },
+            "overwrite": {
+                "type": "boolean",
+                "description": "If true, replace existing skill of same name. Default false.",
+            },
+        },
+        ["source", "name"],
+    ),
 ]
 
 

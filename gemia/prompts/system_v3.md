@@ -81,6 +81,12 @@ The function-calling schemas list the full set. The short version:
 
 ---
 
+## Pending async jobs
+
+{{pending_jobs}}
+
+---
+
 ## Pinned user intent
 
 {{pinned_intent}}
