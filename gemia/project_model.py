@@ -15,7 +15,8 @@ DEFAULT_HEIGHT = 1080
 DEFAULT_FPS = 30.0
 IMAGE_DURATION = 3.0
 
-MEDIA_KINDS = {"video", "image", "audio"}
+MEDIA_KINDS = {"video", "image", "audio", "text"}
+TRACK_KINDS = {"video", "overlay", "audio"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 AUDIO_EXTENSIONS = {".flac", ".wav", ".mp3", ".m4a", ".aac"}
 
@@ -324,6 +325,8 @@ def _timeline_clip_from_legacy(clip: dict[str, Any], asset: dict[str, Any], *, s
         "summary": clip.get("summary") if isinstance(clip.get("summary"), dict) else None,
         "thumbnails": clip.get("thumbnailStrip") if isinstance(clip.get("thumbnailStrip"), list) else [],
         "waveform_peaks": clip.get("waveformPeaks") if isinstance(clip.get("waveformPeaks"), list) else [],
+        "keyframes": clip.get("keyframes") if isinstance(clip.get("keyframes"), list) else [],
+        "text_config": None,
         "provenance": clip.get("provenance") if isinstance(clip.get("provenance"), dict) else None,
     }
 
@@ -332,14 +335,28 @@ def _normalize_timeline_clip(clip: dict[str, Any]) -> dict[str, Any]:
     media_kind = str(clip.get("media_kind") or "video")
     if media_kind not in MEDIA_KINDS:
         media_kind = "video"
-    duration = IMAGE_DURATION if media_kind == "image" else max(_float_or(clip.get("duration"), 0.1), 0.1)
-    source_in = _float_or(clip.get("source_in"), 0.0)
-    source_out = _float_or(clip.get("source_out"), source_in + duration)
     if media_kind == "image":
+        # Respect an explicit positive duration; only fall back to the legacy
+        # forced IMAGE_DURATION when duration is missing or <= 0.
+        explicit = _float_or(clip.get("duration"), 0.0)
+        duration = explicit if explicit > 0 else IMAGE_DURATION
+        source_in = max(_float_or(clip.get("source_in"), 0.0), 0.0)
+        source_out = _float_or(clip.get("source_out"), 0.0)
+        if source_out <= source_in + 1e-3:
+            source_out = source_in + duration
+    elif media_kind == "text":
+        # Text clips carry no source media: duration defaults like images and
+        # the source range is pinned to [0, duration].
+        explicit = _float_or(clip.get("duration"), 0.0)
+        duration = explicit if explicit > 0 else IMAGE_DURATION
         source_in = 0.0
-        source_out = IMAGE_DURATION
-    elif source_in <= 0.01 and source_out < source_in + duration - 0.01:
-        source_out = source_in + duration
+        source_out = duration
+    else:
+        duration = max(_float_or(clip.get("duration"), 0.1), 0.1)
+        source_in = _float_or(clip.get("source_in"), 0.0)
+        source_out = _float_or(clip.get("source_out"), source_in + duration)
+        if source_in <= 0.01 and source_out < source_in + duration - 0.01:
+            source_out = source_in + duration
     return {
         "id": str(clip.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),
         "asset_id": str(clip.get("asset_id") or ""),
@@ -356,7 +373,29 @@ def _normalize_timeline_clip(clip: dict[str, Any]) -> dict[str, Any]:
         "summary": clip.get("summary") if isinstance(clip.get("summary"), dict) else None,
         "thumbnails": clip.get("thumbnails") if isinstance(clip.get("thumbnails"), list) else [],
         "waveform_peaks": clip.get("waveform_peaks") if isinstance(clip.get("waveform_peaks"), list) else [],
+        "keyframes": clip.get("keyframes") if isinstance(clip.get("keyframes"), list) else [],
+        "text_config": _normalize_text_config(clip.get("text_config")) if media_kind == "text" else None,
         "provenance": clip.get("provenance") if isinstance(clip.get("provenance"), dict) else None,
+    }
+
+
+def _normalize_text_config(value: Any) -> dict[str, Any]:
+    """Normalize the text clip payload described in Timeline v1 §2.3."""
+    config = value if isinstance(value, dict) else {}
+    position = config.get("position")
+    if isinstance(position, dict):
+        position = {"x": _float_or(position.get("x"), 0.0), "y": _float_or(position.get("y"), 0.0)}
+    else:
+        position = None
+    align = str(config.get("align") or "center")
+    if align not in {"left", "center", "right"}:
+        align = "center"
+    return {
+        "content": str(config.get("content") or ""),
+        "font_size": _float_or(config.get("font_size"), 64.0),
+        "color": str(config.get("color") or "#ffffff"),
+        "position": position,
+        "align": align,
     }
 
 
@@ -367,14 +406,23 @@ def _normalize_tracks(value: Any) -> list[dict[str, Any]]:
     for index, raw in enumerate(value):
         if not isinstance(raw, dict):
             continue
-        kind = str(raw.get("kind") or ("audio" if str(raw.get("id", "")).startswith("A") else "video"))
-        if kind not in {"video", "audio"}:
+        raw_id = str(raw.get("id", ""))
+        if raw_id.startswith("OV"):
+            inferred = "overlay"
+        elif raw_id.startswith("A"):
+            inferred = "audio"
+        else:
+            inferred = "video"
+        kind = str(raw.get("kind") or inferred)
+        if kind not in TRACK_KINDS:
             kind = "video"
+        prefix = {"audio": "A", "overlay": "OV"}.get(kind, "V")
+        default_name = {"audio": "Audio", "overlay": "Overlay"}.get(kind, "Video")
         tracks.append(
             {
-                "id": str(raw.get("id") or f"{'A' if kind == 'audio' else 'V'}{index + 1}"),
+                "id": str(raw.get("id") or f"{prefix}{index + 1}"),
                 "kind": kind,
-                "name": str(raw.get("name") or ("Audio" if kind == "audio" else "Video")),
+                "name": str(raw.get("name") or default_name),
                 "index": int(_float_or(raw.get("index"), index)),
                 "locked": bool(raw.get("locked", False)),
                 "muted": bool(raw.get("muted", False)),

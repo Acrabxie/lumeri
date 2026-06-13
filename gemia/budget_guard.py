@@ -44,6 +44,19 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "check_job":          {"usd": 0.00, "eta_sec": 0.5},     # Job status poll
     "wait_for_job":       {"usd": 0.00, "eta_sec": 30.0},    # Blocking job wait
     "save_skill":         {"usd": 0.00, "eta_sec": 0.5},     # Skill file copy + metadata
+    # Timeline v1 verbs (document mutation = pure in-process patch; near-free).
+    "get_timeline":             {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_insert_clip":     {"usd": 0.00, "eta_sec": 0.5},
+    "timeline_delete_clip":     {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_move_clip":       {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_trim_clip":       {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_split_clip":      {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_set_clip_time":   {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_add_transition":  {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_set_clip_effects": {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_add_track":       {"usd": 0.00, "eta_sec": 0.2},
+    "timeline_undo":            {"usd": 0.00, "eta_sec": 0.2},
+    "render_preview":           {"usd": 0.00, "eta_sec": 20.0},  # ffmpeg low-res proxy
 }
 
 

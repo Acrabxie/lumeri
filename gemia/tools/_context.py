@@ -14,9 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from gemia.tools._jobs import JobRegistry
+
+if TYPE_CHECKING:  # runtime-free: only the loop constructs the handle
+    from gemia.project_store import ProjectHandle
 
 
 _KIND_PREFIX = {"video": "v", "image": "img", "audio": "aud"}
@@ -156,6 +159,7 @@ class ToolContext:
     emit_progress: ProgressCallback
     extra: dict[str, Any] = field(default_factory=dict)
     jobs: JobRegistry = field(default_factory=JobRegistry)
+    project: ProjectHandle | None = None  # timeline document handle (None in legacy tests)
 
     def child_path(self, asset_id: str, ext: str) -> Path:
         ext = ext if ext.startswith(".") else f".{ext}"
