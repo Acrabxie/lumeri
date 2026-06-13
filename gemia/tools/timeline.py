@@ -1,0 +1,353 @@
+"""timeline_*: fine-grained verbs over the session's persistent timeline document.
+
+Design contract (docs/timeline-v1/01-op-vocabulary.md, user-approved 2026-06-13):
+
+- Every verb compiles to exactly ONE TimelinePatch (one or two ops) applied
+  through ``ctx.project`` — so each model step is auditable in the patch log,
+  undoable via ``timeline_undo``, and visible to the UI as a ``timeline_op``
+  SSE event. No big apply-patch(json) black box.
+- ``ripple`` defaults to False everywhere: ops never shift other clips unless
+  the model explicitly opts in.
+- v1 surface: video tracks + overlay (image/text) tracks. Audio tracks and
+  keyframes are reserved; the patch layer rejects them.
+- Mutation verbs return the post-state compact summary so the model does not
+  need a follow-up ``get_timeline`` call.
+
+Errors: ``TimelinePatchError`` (typed ``E_*`` codes) propagates — the agent
+loop renders it as ``tool_exec_error`` and the model can read the code.
+"""
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from gemia.tools._context import ToolContext
+from gemia.tools._ffmpeg import ffprobe_duration
+
+
+_TEXT_DEFAULT_DURATION = 3.0
+
+
+def _project(ctx: ToolContext):
+    if ctx.project is None:
+        raise ValueError(
+            "timeline verbs need a project-backed session (ctx.project is None)"
+        )
+    return ctx.project
+
+
+def _new_clip_id() -> str:
+    return f"clip_{uuid.uuid4().hex[:8]}"
+
+
+def _summary(ctx: ToolContext, result: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    out = {
+        "applied": True,
+        "seq": result.get("patch_seq_end"),
+        "timeline": _project(ctx).compact_text(),
+    }
+    out.update(extra)
+    return out
+
+
+def _float_arg(args: dict[str, Any], name: str, *, required: bool = False) -> float | None:
+    value = args.get(name)
+    if value is None:
+        if required:
+            raise ValueError(f"missing required argument: {name}")
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"argument {name} must be a number, got {value!r}") from None
+
+
+# ── read ────────────────────────────────────────────────────────────────
+
+
+async def dispatch_get(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    history = int(args.get("history") or 0)
+    return _project(ctx).inspect(history=max(0, min(history, 20)))
+
+
+# ── insert ──────────────────────────────────────────────────────────────
+
+
+async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    project = _project(ctx)
+    text = args.get("text") if isinstance(args.get("text"), dict) else None
+    asset_id = str(args.get("asset_id") or "")
+    if not text and not asset_id:
+        raise ValueError("timeline_insert_clip needs asset_id (media) or text (title/caption)")
+    if text and asset_id:
+        raise ValueError("pass either asset_id or text, not both")
+
+    ops: list[dict[str, Any]] = []
+    state = project.load()
+    tracks = state.get("timeline", {}).get("tracks") or []
+
+    if text:
+        content = str(text.get("content") or "").strip()
+        if not content:
+            raise ValueError("text.content must be a non-empty string")
+        media_kind = "text"
+        asset_payload = None
+        duration = _float_arg(args, "duration") or _TEXT_DEFAULT_DURATION
+        clip: dict[str, Any] = {
+            "id": _new_clip_id(),
+            "asset_id": "",
+            "media_kind": "text",
+            "name": content[:24] or "text",
+            "duration": round(duration, 6),
+            "source_in": 0.0,
+            "source_out": round(duration, 6),
+            "text_config": {
+                "content": content,
+                "font_size": float(text.get("font_size") or 64.0),
+                "color": str(text.get("color") or "#ffffff"),
+                "position": text.get("position") if isinstance(text.get("position"), dict) else None,
+                "align": str(text.get("align") or "center"),
+            },
+        }
+    else:
+        record = ctx.registry.get(asset_id)
+        if record.kind == "audio":
+            raise ValueError(
+                "audio tracks are reserved in timeline v1 — mix audio with mix_audio instead"
+            )
+        media_kind = record.kind
+        probe_duration = 0.0
+        if record.kind == "video":
+            probe_duration = float(ffprobe_duration(record.path))
+        asset_payload = {
+            "id": record.asset_id,
+            "asset_id": record.asset_id,
+            "name": record.path.name,
+            "media_kind": record.kind,
+            "source_path": str(record.path),
+            "duration": probe_duration,
+        }
+        source_in = _float_arg(args, "source_in") or 0.0
+        source_out = _float_arg(args, "source_out")
+        if record.kind == "video":
+            if source_out is None:
+                source_out = probe_duration or source_in + 0.1
+            duration = max(round(source_out - source_in, 6), 0.1)
+        else:  # image
+            duration = _float_arg(args, "duration") or _TEXT_DEFAULT_DURATION
+            source_in, source_out = 0.0, duration
+        clip = {
+            "id": _new_clip_id(),
+            "asset_id": record.asset_id,
+            "media_kind": media_kind,
+            "name": record.path.name,
+            "duration": round(duration, 6),
+            "source_in": round(source_in, 6),
+            "source_out": round(source_out, 6),
+        }
+
+    # Resolve target track; auto-create OV1 for the first overlay clip.
+    track_id = str(args.get("track_id") or "")
+    if media_kind in {"image", "text"}:
+        overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
+        if not track_id:
+            track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"
+        if not any(str(t.get("id")) == track_id for t in tracks):
+            ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id})
+    else:
+        track_id = track_id or "V1"
+    clip["track_id"] = track_id
+
+    at_time = _float_arg(args, "at_time")
+    at_index = args.get("at_index")
+    if at_time is not None and at_index is not None:
+        raise ValueError("pass either at_time or at_index, not both")
+    at: Any = "append"
+    if at_time is not None:
+        at = {"time": round(at_time, 6)}
+    elif at_index is not None:
+        at = {"index": int(at_index)}
+
+    insert_op: dict[str, Any] = {
+        "op": "insert_clip",
+        "data": ({"asset": asset_payload, "clip": clip} if asset_payload else {"clip": clip}),
+        "track_id": track_id,
+        "at": at,
+        "ripple": bool(args.get("ripple", False)),
+        "provenance": {"verb": "timeline_insert_clip", "session_id": ctx.session_id},
+    }
+    ops.append(insert_op)
+
+    result = project.apply_ops(ops, label="timeline_insert_clip")
+    placed = next(
+        (
+            c
+            for c in (project.load().get("timeline", {}).get("clips") or [])
+            if str(c.get("id")) == clip["id"]
+        ),
+        clip,
+    )
+    return _summary(
+        ctx,
+        result,
+        clip_id=clip["id"],
+        track_id=track_id,
+        start=placed.get("start"),
+        duration=placed.get("duration"),
+    )
+
+
+# ── single-clip mutations ───────────────────────────────────────────────
+
+
+async def dispatch_delete(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    op = {"op": "delete_clip", "clip_id": clip_id, "ripple": bool(args.get("ripple", False))}
+    result = _project(ctx).apply_ops([op], label="timeline_delete_clip")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_move(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    op: dict[str, Any] = {
+        "op": "move_clip",
+        "clip_id": clip_id,
+        "ripple": bool(args.get("ripple", False)),
+    }
+    start = _float_arg(args, "start")
+    if start is not None:
+        op["start"] = start
+    if args.get("track_id"):
+        op["track_id"] = str(args["track_id"])
+    result = _project(ctx).apply_ops([op], label="timeline_move_clip")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_trim(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    op: dict[str, Any] = {
+        "op": "trim_clip",
+        "clip_id": clip_id,
+        "ripple": bool(args.get("ripple", False)),
+    }
+    for key in ("source_in", "source_out"):
+        value = _float_arg(args, key)
+        if value is not None:
+            op[key] = value
+    result = _project(ctx).apply_ops([op], label="timeline_trim_clip")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_split(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    new_clip_id = _new_clip_id()
+    op = {
+        "op": "split_clip",
+        "clip_id": clip_id,
+        "at_time": _float_arg(args, "at_time", required=True),
+        "new_clip_id": new_clip_id,
+        "provenance": {"verb": "timeline_split_clip", "session_id": ctx.session_id},
+    }
+    result = _project(ctx).apply_ops([op], label="timeline_split_clip")
+    return _summary(ctx, result, clip_id=clip_id, new_clip_id=new_clip_id)
+
+
+async def dispatch_set_time(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    op: dict[str, Any] = {
+        "op": "set_clip_time",
+        "clip_id": clip_id,
+        "ripple": bool(args.get("ripple", False)),
+    }
+    for key in ("start", "duration"):
+        value = _float_arg(args, key)
+        if value is not None:
+            op[key] = value
+    result = _project(ctx).apply_ops([op], label="timeline_set_clip_time")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_transition(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    op: dict[str, Any] = {
+        "op": "add_transition",
+        "clip_id": clip_id,
+        "kind": str(args.get("kind") or "cut"),
+    }
+    duration_sec = _float_arg(args, "duration_sec")
+    if duration_sec is not None:
+        op["duration_sec"] = duration_sec
+    result = _project(ctx).apply_ops([op], label="timeline_add_transition")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_effects(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    clip_id = str(args.get("clip_id") or "")
+    effects = args.get("effects")
+    if not isinstance(effects, dict) or not effects:
+        raise ValueError("timeline_set_clip_effects needs a non-empty effects object")
+    op = {"op": "set_clip_effects", "clip_id": clip_id, "effects": effects}
+    result = _project(ctx).apply_ops([op], label="timeline_set_clip_effects")
+    return _summary(ctx, result, clip_id=clip_id)
+
+
+async def dispatch_add_track(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    op: dict[str, Any] = {"op": "add_track", "kind": str(args.get("kind") or "")}
+    if args.get("track_id"):
+        op["track_id"] = str(args["track_id"])
+    if args.get("name"):
+        op["name"] = str(args["name"])
+    result = _project(ctx).apply_ops([op], label="timeline_add_track")
+    return _summary(ctx, result)
+
+
+# ── undo ────────────────────────────────────────────────────────────────
+
+
+async def dispatch_undo(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    steps = int(args.get("steps") or 1)
+    if steps < 1 or steps > 10:
+        raise ValueError(f"undo steps must be in 1..10, got {steps}")
+    project = _project(ctx)
+    result = project.undo(steps)
+    return {
+        "applied": True,
+        "from_seq": result.get("from_seq"),
+        "to_seq": result.get("to_seq"),
+        "timeline": project.compact_text(),
+    }
+
+
+# ── preview render ──────────────────────────────────────────────────────
+
+
+async def dispatch_render_preview(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    from gemia.project_render import render_project_preview  # heavy import kept lazy
+
+    project = _project(ctx)
+    label = str(args.get("label") or "preview")[:40]
+    result = render_project_preview(
+        project.store,
+        project.project_id,
+        output_root=ctx.output_dir,
+        label=label,
+    )
+    preview_path = result.get("preview_path")
+    asset_id = None
+    if preview_path:
+        asset_id = ctx.registry.allocate_id("video")
+        ctx.registry.register_output(
+            asset_id,
+            kind="video",
+            path=preview_path,
+            summary=f"timeline preview ({label}, seq={result.get('patch_seq')})",
+        )
+    resolution = result.get("resolution") if isinstance(result.get("resolution"), dict) else {}
+    return {
+        "asset_id": asset_id,
+        "render_id": result.get("render_id"),
+        "duration": result.get("duration"),
+        "width": resolution.get("width"),
+        "height": resolution.get("height"),
+        "note": "low-res proxy preview of the timeline document; use analyze_media to look at it",
+    }

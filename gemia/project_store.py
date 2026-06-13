@@ -18,7 +18,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from gemia.project_model import empty_project, normalize_project
 from lumerai.patches import apply_timeline_patches
@@ -260,3 +260,96 @@ class ProjectStore:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         tmp.replace(path)
+
+
+class ProjectHandle:
+    """Session-scoped binding of one project to the v3 agent loop.
+
+    The loop owns exactly one handle per session; every timeline mutation in
+    that session flows through ``apply_ops`` so it lands in the append-only
+    patch log (undo/audit for free). ``on_patch`` lets the loop surface each
+    applied patch as an SSE event without this module knowing about SSE.
+    """
+
+    def __init__(
+        self,
+        store: ProjectStore,
+        project_id: str,
+        *,
+        session_id: str,
+        on_patch: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        self.store = store
+        self.project_id = project_id
+        self.session_id = session_id
+        self.on_patch = on_patch
+
+    @classmethod
+    def open(
+        cls,
+        root: str | Path,
+        project_id: str,
+        *,
+        session_id: str,
+        on_patch: Callable[[dict[str, Any]], None] | None = None,
+    ) -> "ProjectHandle":
+        """Open (creating if needed) the project backing this session.
+
+        ``project_id`` values that don't satisfy the store's id rule are
+        mapped to a stable ``p_<hash>`` so any session id is acceptable.
+        """
+        if not _PROJECT_ID_RE.match(project_id or ""):
+            import hashlib
+
+            project_id = "p_" + hashlib.sha1((project_id or "session").encode("utf-8")).hexdigest()[:12]
+        store = ProjectStore(root)
+        if not store.exists(project_id):
+            store.create(project_id)
+        return cls(store, project_id, session_id=session_id, on_patch=on_patch)
+
+    def load(self) -> dict[str, Any]:
+        return self.store.load(self.project_id)
+
+    def apply_ops(self, ops: list[dict[str, Any]], *, label: str = "v3-verb") -> dict[str, Any]:
+        """Apply one patch of ``ops`` atomically; returns the store result."""
+        patch = {"version": 1, "ops": ops}
+        result = self.store.apply_patches(
+            self.project_id, [patch], session_id=self.session_id, script_hash=label
+        )
+        if self.on_patch is not None:
+            timeline = (result.get("project_state") or {}).get("timeline") or {}
+            info = {
+                "project_id": self.project_id,
+                "seq": result.get("patch_seq_end"),
+                "ops": [str(op.get("op") or "") for op in ops if isinstance(op, dict)],
+                "label": label,
+                "duration": timeline.get("duration"),
+                "clip_count": len(timeline.get("clips") or []),
+            }
+            try:
+                self.on_patch(info)
+            except Exception:
+                pass  # an SSE hiccup must never fail a timeline mutation
+        return result
+
+    def undo(self, steps: int = 1) -> dict[str, Any]:
+        """Rewind the last ``steps`` patches (verb calls)."""
+        if steps < 1:
+            raise ProjectStoreError(f"undo steps must be >= 1, got {steps}")
+        meta = self.store.load_meta(self.project_id)
+        current = int(meta.get("patch_seq") or 0)
+        return self.store.undo_to_seq(self.project_id, max(0, current - steps))
+
+    def inspect(self, *, history: int = 0) -> dict[str, Any]:
+        from gemia.project_inspect import inspect_project  # local: avoids import cycle
+
+        return inspect_project(self.store, self.project_id, history=history)
+
+    def compact_text(self) -> str:
+        """Prompt-ready one-screen timeline summary; degrades, never raises."""
+        from gemia.project_inspect import inspect_project, render_text  # local: avoids import cycle
+
+        try:
+            return render_text(inspect_project(self.store, self.project_id)).rstrip("\n")
+        except Exception as exc:
+            return f"(timeline unavailable: {exc})"

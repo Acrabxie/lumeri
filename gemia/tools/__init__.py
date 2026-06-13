@@ -16,6 +16,8 @@ Implemented:
       generate_audio (Lyria predict via Vertex)
     - batch 3 (v4 build): web_search / web_open / fetch (host-side internet),
       run_shell (sandboxed bash via the M1 two-tier sandbox-exec boundary)
+    - timeline v1: get_timeline + fine-grained timeline_* document verbs +
+      render_preview (persistent per-session timeline, logged + undoable)
 
 Dispatchers must NOT swallow errors. The agent loop wraps each call in
 try/except and emits a ``tool_exec_error`` event on exception.
@@ -50,6 +52,7 @@ from gemia.tools import generate_video as _generate_video
 from gemia.tools import mix_audio as _mix_audio
 from gemia.tools import run_shell as _run_shell
 from gemia.tools import search_library as _search_library
+from gemia.tools import timeline as _timeline
 from gemia.tools import transform_geometry as _transform_geometry
 from gemia.tools import web_search as _web_search
 
@@ -92,6 +95,18 @@ _REAL: dict[str, Dispatcher] = {
     "check_job":          _build.dispatch_check,
     "wait_for_job":       _build.dispatch_wait,
     "save_skill":         _build.dispatch_save_skill,
+    "get_timeline":             _timeline.dispatch_get,
+    "timeline_insert_clip":     _timeline.dispatch_insert,
+    "timeline_delete_clip":     _timeline.dispatch_delete,
+    "timeline_move_clip":       _timeline.dispatch_move,
+    "timeline_trim_clip":       _timeline.dispatch_trim,
+    "timeline_split_clip":      _timeline.dispatch_split,
+    "timeline_set_clip_time":   _timeline.dispatch_set_time,
+    "timeline_add_transition":  _timeline.dispatch_transition,
+    "timeline_set_clip_effects": _timeline.dispatch_effects,
+    "timeline_add_track":       _timeline.dispatch_add_track,
+    "timeline_undo":            _timeline.dispatch_undo,
+    "render_preview":           _timeline.dispatch_render_preview,
 }
 
 
