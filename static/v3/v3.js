@@ -33,6 +33,7 @@
     uploadBtn: $("#upload-btn"),
     promptInput: $("#prompt-input"),
     sendBtn: $("#send-btn"),
+    sandboxBtn: $("#sandbox-toggle-btn"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -117,7 +118,7 @@
   }
 
   function renderTurn(turn, idx) {
-    const callsHtml = turn.orderedCallIds.map((cid) => renderToolCall(turn.toolCalls.get(cid))).join("");
+    const callsHtml = buildCallGroups(turn).map(renderCallGroup).join("");
     const bannersHtml = turn.banners.map(renderBanner).join("");
     const assistantHtml = (turn.assistantText || turn.streaming)
       ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${escapeHTML(turn.assistantText)}</div>`
@@ -131,22 +132,84 @@
     `;
   }
 
+  // A failed call whose recovery is one of these can be "fixed" by a later
+  // call — so a success that follows it closes a self-correction arc.
+  const RECOVERABLE_RECOVERY = new Set(["fix_args", "switch_tool", "transient_retry"]);
+
+  /** Group a turn's tool calls so a run of recoverable failures followed by a
+   *  success renders as one "self-corrected" arc, not scattered cards. */
+  function buildCallGroups(turn) {
+    const groups = [];
+    let openFailures = [];
+    const flushSingles = () => {
+      for (const f of openFailures) groups.push({ type: "single", tc: f });
+      openFailures = [];
+    };
+    for (const cid of turn.orderedCallIds) {
+      const tc = turn.toolCalls.get(cid);
+      if (!tc) continue;
+      if (tc.status === "failed" && RECOVERABLE_RECOVERY.has(tc.recovery)) {
+        openFailures.push(tc);
+      } else if (tc.status === "done" && openFailures.length) {
+        groups.push({ type: "arc", calls: [...openFailures, tc] });
+        openFailures = [];
+      } else {
+        flushSingles();
+        groups.push({ type: "single", tc });
+      }
+    }
+    flushSingles();  // trailing unresolved failures render on their own
+    return groups;
+  }
+
+  function renderCallGroup(group) {
+    if (group.type === "single") return renderToolCall(group.tc);
+    return `
+      <div class="self-correct-arc">
+        <div class="self-correct-badge">⟳ self-corrected</div>
+        ${group.calls.map(renderToolCall).join("")}
+      </div>
+    `;
+  }
+
+  function renderTypedError(tc) {
+    if (!tc.error) return "";
+    const codeChip = tc.errorCode
+      ? `<span class="err-chip err-code">${escapeHTML(tc.errorCode)}</span>` : "";
+    const recoveryChip = tc.recovery
+      ? `<span class="err-chip err-recovery">${escapeHTML(tc.recovery)}</span>` : "";
+    const optsHtml = (tc.validOptions && tc.validOptions.length)
+      ? `<div class="err-options">options: ${tc.validOptions.map((o) => `<code>${escapeHTML(o)}</code>`).join(" ")}</div>`
+      : "";
+    const hintHtml = tc.hint
+      ? `<div class="err-hint">${escapeHTML(tc.hint)}</div>` : "";
+    return `
+      <div class="tool-error">
+        <div class="err-head">${codeChip}${recoveryChip}<span class="err-msg">${escapeHTML(tc.error)}</span></div>
+        ${optsHtml}
+        ${hintHtml}
+      </div>
+    `;
+  }
+
   function renderToolCall(tc) {
+    const reasoningHtml = tc.reasoning
+      ? `<div class="tool-reasoning">${escapeHTML(tc.reasoning)}</div>`
+      : "";
     const argsHtml = tc.args
       ? `<div class="tool-args">${escapeHTML(JSON.stringify(tc.args, null, 2))}</div>`
       : "";
     const summaryHtml = tc.summary
       ? `<div class="tool-summary">${escapeHTML(tc.summary)}</div>`
       : "";
-    const errorHtml = tc.error
-      ? `<div class="tool-error">${escapeHTML(tc.error)}</div>`
-      : "";
+    const errorHtml = renderTypedError(tc);
     const progressHtml = renderProgress(tc);
     const previewHtml = tc.previewAssetId && state.sessionId
       ? `<a class="tool-preview-link" href="/sessions/${state.sessionId}/assets/${tc.previewAssetId}" target="_blank" rel="noopener">open ${tc.previewAssetId} ↗</a>`
       : "";
     return `
-      <div class="tool-card">
+      ${reasoningHtml}
+      <div class="tool-card${tc.status === "failed" ? " failed" : ""}">
         <div class="tool-card-head">
           <span class="tool-name">${escapeHTML(tc.tool_name)}</span>
           <span class="tool-status ${tc.status}">${tc.status}</span>
@@ -230,6 +293,13 @@
     model_tool_call_start: (ev) => {
       const t = state.currentTurn;
       if (!t) return;
+      // Text the model streamed right before this call is its lead-in
+      // reasoning — for a corrective retry, this is the "diagnosis" line.
+      // Move it off the trailing bubble and onto the card so a self-correction
+      // reads as one arc (reason → fix) instead of a detached paragraph.
+      const reasoning = (t.assistantText || "").trim();
+      t.assistantText = "";
+      t.streaming = false;
       t.toolCalls.set(ev.call_id, {
         call_id: ev.call_id,
         tool_name: ev.tool_name,
@@ -238,6 +308,11 @@
         progress: null,
         summary: null,
         error: null,
+        errorCode: null,
+        recovery: null,
+        validOptions: null,
+        hint: null,
+        reasoning: reasoning || null,
         previewAssetId: null,
       });
       t.orderedCallIds.push(ev.call_id);
@@ -281,6 +356,12 @@
       if (tc) {
         tc.status = "failed";
         tc.error = ev.error || "unknown error";
+        // Typed-error fields (present when the host raised a GemiaError/ToolError).
+        // These are what turn a dead-end into a fixable, visible diagnosis.
+        tc.errorCode = ev.error_code || null;
+        tc.recovery = ev.recovery || null;
+        tc.validOptions = Array.isArray(ev.valid_options) ? ev.valid_options : null;
+        tc.hint = ev.hint || null;
       }
     },
     budget_gate: (ev) => {
@@ -293,6 +374,11 @@
         text: `budget gate on ${ev.tool_name}: ${ev.reason}`,
         sub: alt ? `alternatives: ${alt}` : "",
       });
+    },
+    timeline_op: () => {
+      // Timeline-document patches surface through get_timeline / render_preview
+      // outputs, not the event log. Handled explicitly (no-op) so a stream of
+      // timeline edits is never flagged as an unknown event kind.
     },
     replay_gap: (ev) => {
       const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
@@ -548,6 +634,34 @@
       els.sendBtn.click();
     }
   });
+
+  // ── sandbox toggle ──────────────────────────────────────────────────
+  function renderSandbox(disabled) {
+    els.sandboxBtn.classList.toggle("off", disabled);
+    els.sandboxBtn.textContent = disabled ? "沙盒关闭" : "沙盒";
+    els.sandboxBtn.title = disabled ? "沙盒已关闭，代码可访问完整系统（点击重新开启）" : "沙盒已开启（点击关闭）";
+  }
+  async function syncSandbox() {
+    try {
+      const r = await fetch("/settings/sandbox");
+      if (r.ok) renderSandbox(!!(await r.json()).sandbox_disabled);
+    } catch {}
+  }
+  els.sandboxBtn.addEventListener("click", async () => {
+    const next = !els.sandboxBtn.classList.contains("off");
+    try {
+      const r = await fetch("/settings/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: next }),
+      });
+      if (r.ok) renderSandbox(!!(await r.json()).sandbox_disabled);
+    } catch (err) {
+      state.errors.push(`sandbox toggle failed: ${err.message}`);
+      render();
+    }
+  });
+  syncSandbox();
 
   // boot
   createSession().catch((err) => {

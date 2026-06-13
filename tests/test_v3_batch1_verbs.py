@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from gemia.errors import ToolError
 from gemia.tools import (
     arrange_timeline as arrange_timeline_tool,
     composite as composite_tool,
@@ -405,23 +406,27 @@ def test_edit_image_denoise_uses_nlmeans(monkeypatch, tmp_path: Path) -> None:
 def test_edit_image_remove_background_raises_not_implemented(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     asset = _make_image(ctx, tmp_path, "src")
-    with pytest.raises(NotImplementedError, match="ML model"):
+    # Honest typed failure (recovery=switch_tool) rather than a fake cut-out.
+    with pytest.raises(ToolError, match="ML model") as exc_info:
         asyncio.run(
             edit_image_tool.dispatch(
                 {"asset_id": asset, "operation": "remove_background", "params": {}}, ctx
             )
         )
+    assert exc_info.value.code == "E_NOT_IMPLEMENTED"
+    assert exc_info.value.recovery == "switch_tool"
 
 
 def test_edit_image_rejects_video_input(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     asset = _make_video(ctx, tmp_path, "src")
-    with pytest.raises(ValueError, match="image asset"):
+    with pytest.raises(ToolError, match="image asset") as exc_info:
         asyncio.run(
             edit_image_tool.dispatch(
                 {"asset_id": asset, "operation": "blur", "params": {"radius": 3.0}}, ctx
             )
         )
+    assert exc_info.value.code == "E_UNSUPPORTED"
 
 
 # ───────────────────────────── extract_frame ─────────────────────────────

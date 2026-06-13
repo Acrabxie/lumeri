@@ -106,7 +106,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "asset_id": _ASSET_ID,
             "operation": {
                 "type": "string",
-                "enum": ["crop", "rotate", "resize", "blur", "denoise", "remove_background"],
+                "enum": ["crop", "rotate", "resize", "blur", "denoise"],
             },
             "params": {
                 "type": "object",
@@ -163,12 +163,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "color_grade",
-        "Apply a color look to an image or video. Returns a new asset_id.",
+        "Apply one of the named color looks to a video. Returns a new asset_id.",
         {
             "asset_id": _ASSET_ID,
             "look": {
                 "type": "string",
-                "description": "Named look (warm, cool, vintage, cinematic, teal_orange, neutral) or a free-form description.",
+                "enum": ["warm", "cool", "vintage", "cinematic", "teal_orange", "neutral"],
+                "description": "The color look to apply. color_grade does color looks only — there is no grayscale/black-and-white and no mirror/flip.",
             },
             "intensity": {
                 "type": "number",
