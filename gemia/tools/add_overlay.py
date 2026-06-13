@@ -5,6 +5,7 @@ import glob
 from pathlib import Path
 from typing import Any
 
+from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_SWITCH_TOOL, ToolError
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration, run_ffmpeg_with_progress
 
@@ -77,20 +78,33 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     kind = str(args["kind"])
     src = ctx.registry.get(asset_id)
     if src.kind != "video":
-        raise ValueError(f"add_overlay requires a video asset, got {src.kind!r}")
+        raise ToolError(
+            f"add_overlay burns onto video; {asset_id} is a {src.kind}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_SWITCH_TOOL,
+            hint="To layer onto a still image, use composite. To caption an image, place it on the timeline as a clip first.",
+        )
 
     duration = ffprobe_duration(src.path)
     start = float(args.get("start_sec", 0.0))
     end_raw = args.get("end_sec")
     end = duration if end_raw is None else float(end_raw)
     if end <= start:
-        raise ValueError(f"end_sec ({end}) must be > start_sec ({start})")
+        raise ToolError(
+            f"end_sec ({end}) must be greater than start_sec ({start}).",
+            code="E_BAD_ARG",
+            recovery=RECOVERY_FIX_ARGS,
+        )
     position = str(args.get("position", "bottom_center"))
 
     if kind == "text":
         text = str(args.get("text") or "")
         if not text:
-            raise ValueError("add_overlay kind=text requires non-empty text")
+            raise ToolError(
+                "add_overlay kind=text requires non-empty text.",
+                code="E_BAD_ARG",
+                recovery=RECOVERY_FIX_ARGS,
+            )
         size = int(args.get("font_size", 32))
         color = str(args.get("font_color", "white"))
         filter_str = _drawtext_filter(text, position, start, end, size, color)
@@ -100,7 +114,11 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     elif kind == "subtitle":
         text = str(args.get("text") or "")
         if not text:
-            raise ValueError("add_overlay kind=subtitle requires non-empty text")
+            raise ToolError(
+                "add_overlay kind=subtitle requires non-empty text.",
+                code="E_BAD_ARG",
+                recovery=RECOVERY_FIX_ARGS,
+            )
         size = int(args.get("font_size", 28))
         color = str(args.get("font_color", "white"))
         filter_str = _drawtext_filter(text, "bottom_center", start, end, size, color)
@@ -110,11 +128,18 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     elif kind == "image":
         overlay_id = args.get("overlay_asset_id")
         if not overlay_id:
-            raise ValueError("add_overlay kind=image requires overlay_asset_id")
+            raise ToolError(
+                "add_overlay kind=image requires overlay_asset_id.",
+                code="E_BAD_ARG",
+                recovery=RECOVERY_FIX_ARGS,
+                hint="Pass the image asset_id to overlay via overlay_asset_id.",
+            )
         overlay_rec = ctx.registry.get(str(overlay_id))
         if overlay_rec.kind != "image":
-            raise ValueError(
-                f"overlay_asset_id {overlay_id} is {overlay_rec.kind!r}, expected image"
+            raise ToolError(
+                f"overlay_asset_id {overlay_id} is a {overlay_rec.kind}, expected an image.",
+                code="E_BAD_ARG",
+                recovery=RECOVERY_FIX_ARGS,
             )
         x, y = _OVERLAY_POSITIONS.get(position, _OVERLAY_POSITIONS["bottom_center"])
         cmd_input_extra = ["-i", str(overlay_rec.path)]
@@ -124,7 +149,12 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         ]
         label = f"image overlay {overlay_id} {position} {start:.2f}-{end:.2f}s"
     else:
-        raise ValueError(f"unknown overlay kind: {kind!r}. Known: text, image, subtitle")
+        raise ToolError(
+            f"unknown overlay kind: {kind!r}.",
+            code="E_BAD_ARG",
+            recovery=RECOVERY_FIX_ARGS,
+            valid_options=["text", "image", "subtitle"],
+        )
 
     new_id = ctx.registry.allocate_id("video")
     out_path = ctx.child_path(new_id, ".mp4")

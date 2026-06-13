@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_SWITCH_TOOL, ToolError
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import run_ffmpeg_with_progress
 
@@ -27,16 +28,28 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     operation = str(args["operation"])
     params = args.get("params") or {}
     if not isinstance(params, dict):
-        raise ValueError(f"params must be an object, got {type(params).__name__}")
+        raise ToolError(
+            f"params must be an object, got {type(params).__name__}.",
+            code="E_BAD_ARG",
+            recovery=RECOVERY_FIX_ARGS,
+        )
 
     src = ctx.registry.get(asset_id)
     if src.kind != "image":
-        raise ValueError(f"edit_image requires an image asset, got {src.kind!r}")
+        raise ToolError(
+            f"edit_image works on image assets; {asset_id} is a {src.kind}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_SWITCH_TOOL,
+            hint="For video use edit_video, color_grade, or transform_geometry. Extract a frame first if you need to edit a still.",
+        )
 
     handler = _OPS.get(operation)
     if handler is None:
-        raise ValueError(
-            f"unknown edit_image operation: {operation!r}. Known: {', '.join(_OPS.keys())}"
+        raise ToolError(
+            f"unknown edit_image operation: {operation!r}.",
+            code="E_BAD_ARG",
+            recovery=RECOVERY_FIX_ARGS,
+            valid_options=[op for op in _OPS if op != "remove_background"],
         )
 
     vf, label, metadata = handler(params)
@@ -118,13 +131,18 @@ def _op_denoise(params: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
 
 
 def _op_remove_background(_params: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
-    raise NotImplementedError(
-        "remove_background requires an ML model (rembg / U2Net / SAM) that batch 1 "
-        "deliberately excludes. Workarounds: (a) if the background is a known solid "
-        "color, use a future chroma_key verb; (b) provide a pre-cut PNG with alpha "
-        "and use composite. This op is registered so the schema doesn't lie about it "
-        "being available, but the host honestly raises rather than producing a fake "
-        "background-removed image."
+    # Honest typed failure rather than a fake background-removed image.
+    # remove_background needs an ML model (rembg / U2Net / SAM) that batch 1
+    # deliberately excludes. recovery=switch_tool tells the model to stop
+    # retrying this op and reach for a workaround instead.
+    raise ToolError(
+        "remove_background is not available — it needs an ML model that this build excludes.",
+        code="E_NOT_IMPLEMENTED",
+        recovery=RECOVERY_SWITCH_TOOL,
+        hint=(
+            "Workarounds: if the background is a solid known color, key it out; or "
+            "supply a pre-cut PNG with alpha and use composite to layer it."
+        ),
     )
 
 

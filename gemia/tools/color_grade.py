@@ -1,9 +1,11 @@
-"""color_grade: apply a named look or free-form look description.
+"""color_grade: apply one of the named color looks to a video.
 
-Named looks map to deterministic ffmpeg filter strings. Free-form looks
-(any string not in the named list) fall through to a curves+eq mapping
-that the model can describe later via analyze_media if it wants to check
-the result.
+Named looks map to deterministic ffmpeg filter strings. A look that is not
+in the named set raises a typed ``ToolError`` listing the valid options —
+there is deliberately no silent fallback. Applying a different look than the
+one asked for and reporting success is the worst failure mode for a
+self-correcting agent: the model never learns it was wrong (see RULES
+"黑白静默套暖色"). Failing honestly is what lets it self-correct.
 
 intensity (0..1) blends the graded result with the original via a
 split + blend filter graph. intensity=1.0 (default) applies the look
@@ -14,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from gemia.errors import RECOVERY_FIX_ARGS, ToolError
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration, run_ffmpeg_with_progress
 
@@ -56,8 +59,11 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
 
     src = ctx.registry.get(asset_id)
     if src.kind != "video":
-        raise ValueError(
-            f"color_grade in milestone 1 supports video assets only, got {src.kind!r}"
+        raise ToolError(
+            f"color_grade applies to video assets; {asset_id} is a {src.kind}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_FIX_ARGS,
+            hint="Pass a video asset_id. To grade a still image, place it on the timeline as a clip first.",
         )
 
     filter_str, look_label = _resolve_look(look)
@@ -110,10 +116,20 @@ def _resolve_look(look: str) -> tuple[str, str]:
     key = look.lower().strip().replace(" ", "_").replace("-", "_")
     if key in _NAMED_LOOKS:
         return _NAMED_LOOKS[key], key
-    # Free-form look — apply the generic warm-shifted curve so the result
-    # is visibly different from the source. The model can describe what it
-    # actually wanted via analyze_media on the result.
-    return _NAMED_LOOKS["warm"], f"freeform:{look}"
+    # No silent fallback. Fail honestly with the real options so the model can
+    # fix the call or tell the user the limitation. color_grade does color
+    # looks only — there is no grayscale/black-and-white, no mirror/flip.
+    raise ToolError(
+        f"{look!r} is not an available look.",
+        code="E_UNSUPPORTED",
+        recovery=RECOVERY_FIX_ARGS,
+        valid_options=list(_NAMED_LOOKS),
+        hint=(
+            "Pick one of the named looks. There is no grayscale / black-and-white "
+            "look — color_grade only applies the listed color looks; lower "
+            "`intensity` for a subtler version."
+        ),
+    )
 
 
 __all__ = ["dispatch"]

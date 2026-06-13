@@ -40,6 +40,7 @@ rerunnable isolation probe.
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -51,7 +52,49 @@ __all__ = [
     "DEFAULT_CREDENTIAL_DENY",
     "build_two_tier_profile",
     "build_v4_sandbox_command",
+    "ensure_packages",
+    "set_sandbox_disabled",
+    "is_sandbox_disabled",
 ]
+
+# Sandbox kill switch. When True, run_shell/build run commands WITHOUT the
+# sandbox-exec wrapper (raw system access — e.g. so Blender can reach the GPU).
+# Toggled by the server's POST /settings/sandbox endpoint.
+#
+# A plain module global (not a ContextVar) so it is visible across the v3
+# SessionRunner worker threads, which run their own asyncio loops. The value is
+# persisted per-machine to ``~/.gemia/sandbox_state.json`` and reloaded on
+# import, so the choice survives server restarts.
+_SANDBOX_STATE_PATH = Path.home() / ".gemia" / "sandbox_state.json"
+
+
+def _load_sandbox_disabled() -> bool:
+    try:
+        import json as _json
+        data = _json.loads(_SANDBOX_STATE_PATH.read_text(encoding="utf-8"))
+        return bool(data.get("disabled", False))
+    except (OSError, ValueError):
+        return False
+
+
+_SANDBOX_DISABLED: bool = _load_sandbox_disabled()
+
+
+def set_sandbox_disabled(value: bool) -> None:
+    global _SANDBOX_DISABLED
+    _SANDBOX_DISABLED = bool(value)
+    try:
+        import json as _json
+        _SANDBOX_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SANDBOX_STATE_PATH.write_text(
+            _json.dumps({"disabled": _SANDBOX_DISABLED}), encoding="utf-8"
+        )
+    except OSError:
+        pass  # in-memory toggle still works even if persistence fails
+
+
+def is_sandbox_disabled() -> bool:
+    return _SANDBOX_DISABLED
 
 # Acrab decision #2 (2026-06-07): out-of-zone create roots.
 # $HOME + /private/tmp + /Volumes/Extreme SSD (Acrab's external-disk output habit).
@@ -94,6 +137,8 @@ def build_two_tier_profile(
     outside_create_roots: Sequence[str | Path] = DEFAULT_OUTSIDE_CREATE_ROOTS,
     credential_deny: Sequence[str | Path] = DEFAULT_CREDENTIAL_DENY,
     allow_network: bool = False,
+    allow_network_outbound_only: bool = False,
+    allow_gpu: bool = False,
 ) -> str:
     """Build the two-tier SBPL profile string.
 
@@ -108,9 +153,12 @@ def build_two_tier_profile(
         "(version 1)",
         "(deny default)",
         "",
-        "; ---- process / system basics (mirrors creative_sandbox_runner) ----",
+        "; ---- process / system basics ----",
         "(allow process*)",
         "(allow sysctl*)",
+        "; mach-lookup is required for macOS frameworks (Quartz, CoreGraphics) to",
+        "; resolve WindowServer — without it CGMainDisplayID() returns 0 (invalid).",
+        "(allow mach-lookup)",
         "",
         "; ---- read: everything readable EXCEPT credentials ----",
         "; deny MUST follow the broad allow (SBPL last-match-wins).",
@@ -150,10 +198,47 @@ def build_two_tier_profile(
         "; emitted LAST so it wins over the create-only rule for paths under $HOME.",
         f'(allow file-write* (subpath "{_escape_profile_path(workspace)}"))',
         "",
-        "; ---- network: denied inside sandbox; fetch runs on host ----",
-        "(allow network*)" if allow_network else "(deny network*)",
+        "; ---- network ----",
+        "; allow_network=True  → full bidirectional (legacy flag)",
+        "; allow_network_outbound_only=True → outbound-only (safer, enough for pip/curl)",
+        "(allow network*)" if allow_network else (
+            "(allow network-outbound)" if allow_network_outbound_only else "(deny network*)"
+        ),
     ]
+
+    if allow_gpu:
+        lines += [
+            "",
+            "; ---- GPU / Metal: allow IOKit so Blender / Metal apps can init GPU ----",
+            "; Risk: sandboxed code can use GPU (crypto mining, GPU mem reads).",
+            "; Only enable for trusted callers that explicitly pass allow_gpu=True.",
+            "(allow iokit-open)",
+            "(allow iokit-get-properties)",
+        ]
+
     return "\n".join(lines)
+
+
+def ensure_packages(
+    workspace_dir: str | Path,
+    packages: Sequence[str],
+    *,
+    quiet: bool = True,
+) -> Path:
+    """Host-side pip install into workspace/.site-packages.
+
+    Runs outside the sandbox so network is available. The installed path is
+    automatically picked up by lumerai/sandbox.py _child_env via PYTHONPATH.
+    Returns the site-packages directory path.
+    """
+    site = Path(workspace_dir) / ".site-packages"
+    site.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "pip", "install", "--target", str(site)]
+    if quiet:
+        cmd.append("--quiet")
+    cmd.extend(packages)
+    subprocess.run(cmd, check=True)
+    return site
 
 
 def build_v4_sandbox_command(
@@ -163,6 +248,8 @@ def build_v4_sandbox_command(
     outside_create_roots: Sequence[str | Path] = DEFAULT_OUTSIDE_CREATE_ROOTS,
     credential_deny: Sequence[str | Path] = DEFAULT_CREDENTIAL_DENY,
     allow_network: bool = False,
+    allow_network_outbound_only: bool = False,
+    allow_gpu: bool = False,
 ) -> tuple[list[str], bool]:
     """Wrap ``args`` with ``sandbox-exec -p <two-tier profile>``.
 
@@ -180,5 +267,7 @@ def build_v4_sandbox_command(
         outside_create_roots=outside_create_roots,
         credential_deny=credential_deny,
         allow_network=allow_network,
+        allow_network_outbound_only=allow_network_outbound_only,
+        allow_gpu=allow_gpu,
     )
     return [sandbox_exec, "-p", profile, *argv], True
