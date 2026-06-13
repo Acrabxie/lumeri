@@ -308,6 +308,8 @@ from gemia.stability import (
 )
 from gemia.orchestrator import GemiaOrchestrator, get_assets, get_task, run_skill, plan_from_primitives
 from gemia.ai.sub_agents import SubAgentRegistry
+from lumerai.sandbox import sandbox_ctx as _sandbox_ctx
+from gemia.sandbox_v4 import set_sandbox_disabled as _set_v4_sandbox_disabled, is_sandbox_disabled as _is_v4_sandbox_disabled
 
 # In-memory store for pending ask sessions. Each entry MUST carry account_id
 # and created_at so that account-switch cannot let user B answer user A's ask.
@@ -1502,6 +1504,7 @@ def _run_agent_workflow_live_task(
     execution_scope: str,
     agent: str | None,
 ) -> None:
+    _sandbox_ctx.set(_is_v4_sandbox_disabled())
     events: list[dict] = []
 
     def publish(status: str = "running", result: dict | None = None, pending_ask: dict | None = None) -> None:
@@ -3698,6 +3701,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/health":
             _json_response(self, 200, _health_payload())
             return
+
+        if path == "/settings/sandbox":
+            _json_response(self, 200, {"sandbox_disabled": _is_v4_sandbox_disabled()})
+            return
         # Lumeri v3 session HTTP surface (sessions / turn / assets / stream).
         if path == "/sessions" or path.startswith("/sessions/"):
             from gemia.v3_routes import try_handle as _v3_try
@@ -4806,6 +4813,13 @@ class _Handler(BaseHTTPRequestHandler):
                     context="/merge-clips",
                 )
                 _json_response(self, 200, {"task_id": task_id})
+            return
+
+        if route == "/settings/sandbox":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length) if length else b"{}")
+            _set_v4_sandbox_disabled(bool(body.get("disabled", False)))
+            _json_response(self, 200, {"sandbox_disabled": _is_v4_sandbox_disabled()})
             return
 
         if route not in ("/accounts/switch", "/run-skill", "/run-prompt") \

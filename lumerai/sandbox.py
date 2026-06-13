@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import contextvars
 import hashlib
 import json
 import os
@@ -10,6 +11,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Set to True (via sandbox_ctx.set) to bypass AST validation and import allowlist.
+# Only set by trusted server-side code when the user explicitly disables the sandbox.
+sandbox_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar("sandbox_disabled", default=False)
 
 
 ALLOWED_IMPORT_ROOTS = {"lumerai", "json", "math", "re", "datetime", "pathlib", "typing"}
@@ -68,7 +73,7 @@ class SandboxResult:
     error: str | None = None
 
 
-def validate_script(script: str) -> None:
+def validate_script(script: str, *, extra_allowed: frozenset[str] = frozenset()) -> None:
     try:
         tree = ast.parse(script)
     except SyntaxError as exc:
@@ -76,9 +81,9 @@ def validate_script(script: str) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                _validate_import(alias.name, node.lineno)
+                _validate_import(alias.name, node.lineno, extra_allowed=extra_allowed)
         elif isinstance(node, ast.ImportFrom):
-            _validate_import(node.module or "", node.lineno)
+            _validate_import(node.module or "", node.lineno, extra_allowed=extra_allowed)
         elif isinstance(node, ast.Call):
             _validate_call(node)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
@@ -87,6 +92,24 @@ def validate_script(script: str) -> None:
         elif isinstance(node, ast.Attribute):
             if node.attr in BLOCKED_ATTRS or node.attr.startswith("__"):
                 raise SandboxViolation(f"Blocked attribute at line {node.lineno}: {node.attr}")
+
+
+def _parse_deps(script: str) -> list[str]:
+    """Extract packages from ``# DEPS: pkg1, pkg2`` lines at the top of a script.
+
+    Scanning stops at the first non-comment, non-blank line so the directive
+    stays a documentation convention rather than executable code.
+    """
+    deps: list[str] = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            if stripped.upper().startswith("# DEPS:"):
+                raw = stripped[len("# DEPS:"):].strip()
+                deps.extend(p.strip() for p in raw.split(",") if p.strip())
+        else:
+            break
+    return deps
 
 
 def execute_script(
@@ -102,19 +125,24 @@ def execute_script(
     dry_run: bool = False,
 ) -> SandboxResult:
     script_hash = hashlib.sha256(script.encode("utf-8")).hexdigest()
-    try:
-        validate_script(script)
-    except SandboxViolation as exc:
-        return SandboxResult(
-            ok=False,
-            returncode=2,
-            patches=[],
-            stdout="",
-            stderr=str(exc),
-            script_hash=script_hash,
-            error=str(exc),
-        )
+    deps = _parse_deps(script)
+
+    # Validate import allowlist AFTER installing deps so we can derive the real
+    # module names from what pip actually put in .site-packages (package names
+    # don't reliably map to module names, e.g. "python-slugify" → "slugify").
+    # Validation happens below once workspace and site-packages are ready.
+
+    sandbox_off = sandbox_ctx.get()
+
     if dry_run:
+        if not sandbox_off:
+            try:
+                validate_script(script)
+            except SandboxViolation as exc:
+                return SandboxResult(
+                    ok=False, returncode=2, patches=[], stdout="", stderr=str(exc),
+                    script_hash=script_hash, error=str(exc),
+                )
         return SandboxResult(ok=True, returncode=0, patches=[], stdout="", stderr="", script_hash=script_hash)
 
     project_root = Path(project_root).resolve()
@@ -127,6 +155,39 @@ def execute_script(
         raise ValueError(f"workspace_dir must stay under {workspace_root}") from exc
     output_dir.mkdir(parents=True, exist_ok=True)
     workspace.mkdir(parents=True, exist_ok=True)
+
+    site = workspace / ".site-packages"
+    if deps:
+        safe_deps = [d for d in deps if d.split("[")[0].replace("-", "_") not in BLOCKED_IMPORT_ROOTS]
+        if safe_deps:
+            site.mkdir(exist_ok=True)
+            pip_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet", "--target", str(site), *safe_deps],
+            )
+            if pip_result.returncode != 0:
+                err = f"pip install failed for: {safe_deps}"
+                return SandboxResult(
+                    ok=False, returncode=pip_result.returncode, patches=[],
+                    stdout="", stderr=err, script_hash=script_hash, error=err,
+                )
+
+    # Derive allowed module roots from the actual installed top-level names.
+    extra_allowed: frozenset[str] = frozenset()
+    if site.exists():
+        extra_allowed = frozenset(
+            p.name.split(".")[0]
+            for p in site.iterdir()
+            if not p.name.endswith((".dist-info", ".data"))
+        )
+
+    if not sandbox_off:
+        try:
+            validate_script(script, extra_allowed=extra_allowed)
+        except SandboxViolation as exc:
+            return SandboxResult(
+                ok=False, returncode=2, patches=[], stdout="", stderr=str(exc),
+                script_hash=script_hash, error=str(exc),
+            )
     sandbox_root = Path(os.environ.get("LUMERAI_SANDBOX_TMP") or project_root / "temp" / "lumerai-sandbox")
     sandbox_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="run-", dir=str(sandbox_root)) as td:
@@ -190,9 +251,11 @@ def _summarize_stderr(stderr: str, returncode: int) -> str:
     return f"Script exited with {returncode}"
 
 
-def _validate_import(module: str, lineno: int) -> None:
+def _validate_import(module: str, lineno: int, *, extra_allowed: frozenset[str] = frozenset()) -> None:
     root = (module or "").split(".", 1)[0]
-    if root in BLOCKED_IMPORT_ROOTS or root not in ALLOWED_IMPORT_ROOTS:
+    if root in BLOCKED_IMPORT_ROOTS:
+        raise SandboxViolation(f"Blocked import at line {lineno}: {module}")
+    if root not in ALLOWED_IMPORT_ROOTS and root not in extra_allowed:
         raise SandboxViolation(f"Blocked import at line {lineno}: {module}")
 
 
@@ -222,8 +285,14 @@ def _child_env(
     workspace_dir: Path,
 ) -> dict[str, str]:
     package_root = Path(__file__).resolve().parent.parent
+    site_pkg = workspace_dir / ".site-packages"
     python_path = os.pathsep.join(
-        part for part in [str(project_root), str(package_root), os.environ.get("PYTHONPATH", "")] if part
+        part for part in [
+            str(site_pkg) if site_pkg.exists() else "",
+            str(project_root),
+            str(package_root),
+            os.environ.get("PYTHONPATH", ""),
+        ] if part
     )
     env = {
         "PATH": os.environ.get("PATH", ""),

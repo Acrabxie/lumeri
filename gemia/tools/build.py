@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from gemia.sandbox_v4 import build_v4_sandbox_command
+from gemia.sandbox_v4 import build_v4_sandbox_command, is_sandbox_disabled
 from gemia.tools._context import ToolContext
 from gemia.tools.run_shell import _minimal_env
 
@@ -138,17 +138,22 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     stdout_log = job_dir / "stdout.log"
     stderr_log = job_dir / "stderr.log"
 
-    # Build sandboxed command
-    cmd, enforced = build_v4_sandbox_command(
-        ["/usr/bin/env", "python3", str(script_path), *script_args],
-        workspace_dir=ctx.output_dir,
-    )
-
-    if not enforced:
-        raise RuntimeError(
-            "sandbox-exec unavailable or failed on this host; refusing to run "
-            "code without sandbox enforcement"
+    # Build sandboxed command. When the user has explicitly disabled the
+    # sandbox (POST /settings/sandbox), run the raw command with full system
+    # access and report enforced=False honestly — do NOT raise.
+    if is_sandbox_disabled():
+        cmd = ["/usr/bin/env", "python3", str(script_path), *script_args]
+        enforced = False
+    else:
+        cmd, enforced = build_v4_sandbox_command(
+            ["/usr/bin/env", "python3", str(script_path), *script_args],
+            workspace_dir=ctx.output_dir,
         )
+        if not enforced:
+            raise RuntimeError(
+                "sandbox-exec unavailable or failed on this host; refusing to run "
+                "code without sandbox enforcement"
+            )
 
     # Start process with new session (process group isolation)
     deadline = time.monotonic() + timeout_sec
@@ -178,7 +183,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "script_path": str(script_path.relative_to(ctx.output_dir)),
         "stdout_log": str(stdout_log.relative_to(ctx.output_dir)),
         "stderr_log": str(stderr_log.relative_to(ctx.output_dir)),
-        "sandbox_enforced": True,
+        "sandbox_enforced": enforced,
         "summary": note,
     }
 

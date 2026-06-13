@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface Props {
@@ -17,6 +18,28 @@ const ACTIONS = [
 
 export default function QuickActions({ serverVideoPath, isRunning, onTaskStart, onError }: Props) {
   const disabled = !serverVideoPath || isRunning;
+  const [sandboxDisabled, setSandboxDisabled] = useState(false);
+
+  useEffect(() => {
+    invoke<{ status: number; body: string }>("api_call", { method: "GET", path: "/settings/sandbox", body: null })
+      .then(r => { const d = JSON.parse(r.body); setSandboxDisabled(!!d.sandbox_disabled); })
+      .catch(() => {});
+  }, []);
+
+  async function toggleSandbox() {
+    const next = !sandboxDisabled;
+    try {
+      const raw = await invoke<{ status: number; body: string }>("api_call", {
+        method: "POST",
+        path: "/settings/sandbox",
+        body: JSON.stringify({ disabled: next }),
+      });
+      const d = JSON.parse(raw.body);
+      setSandboxDisabled(!!d.sandbox_disabled);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function handleAction(action: string) {
     if (disabled) return;
@@ -86,6 +109,34 @@ export default function QuickActions({ serverVideoPath, isRunning, onTaskStart, 
           <span>{label}</span>
         </button>
       ))}
+
+      {/* Sandbox toggle — always visible, independent of video selection */}
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, opacity: 1 }}>
+        <div style={{ width: 1, height: 16, background: "var(--border)", flexShrink: 0 }} />
+        <button
+          title={sandboxDisabled ? "沙盒已关闭（点击开启）" : "沙盒已开启（点击关闭）"}
+          onClick={toggleSandbox}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            background: sandboxDisabled ? "rgba(255,80,80,0.12)" : "transparent",
+            border: `1px solid ${sandboxDisabled ? "rgba(255,80,80,0.45)" : "transparent"}`,
+            borderRadius: "var(--r-sm)",
+            color: sandboxDisabled ? "#ff5050" : "var(--text3)",
+            padding: "3px 8px",
+            cursor: "pointer",
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.02em",
+            transition: "all 0.15s",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <ShieldIcon size={12} off={sandboxDisabled} />
+          <span>{sandboxDisabled ? "沙盒关" : "沙盒"}</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -136,6 +187,15 @@ function FlipVIcon({ size = 14 }: { size?: number }) {
       <path d="M3 12h18" strokeDasharray="2 2" />
       <path d="M7 3l3 9-3 9H7V3z" fill="currentColor" strokeWidth="0" opacity="0.5" />
       <path d="M17 3l-3 9 3 9h0V3z" />
+    </svg>
+  );
+}
+
+function ShieldIcon({ size = 14, off = false }: { size?: number; off?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      {off && <line x1="4" y1="4" x2="20" y2="20" strokeWidth="1.8" />}
     </svg>
   );
 }

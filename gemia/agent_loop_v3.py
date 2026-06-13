@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from gemia.budget_guard import BudgetGuard
+from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
@@ -66,11 +67,17 @@ _ROLLING_USER_TURNS = 8
 
 # Circuit breaker: there is no cap on the TOTAL number of tool steps in a turn
 # (a research + see→modify→rerun build loop legitimately needs many). Instead,
-# if the SAME tool fails to produce a successful dispatch this many times in a
-# row, we stop the turn — that is the real runaway signature (the model stuck
-# hammering a broken/over-budget tool). A successful dispatch of that tool
-# resets its counter. Genuine cost/time is still bounded by BudgetGuard.
+# we trip only when the SAME (tool, error-class) repeats this many times in a
+# row — that is the real runaway signature (the model stuck hammering the
+# identical broken/over-budget call). A model that reads a typed error and
+# ADAPTS — a different error_code, or switching tools — is treated as progress,
+# not runaway: its streak soft-resets. A successful dispatch clears the streak
+# entirely. Genuine cost/time stays bounded by BudgetGuard.
 _MAX_CONSECUTIVE_TOOL_FAILURES = 5
+# Transient failures (recovery="transient_retry", e.g. a flaky network blip)
+# get more headroom, because re-issuing the identical call is the *correct*
+# move for them — they are not a logic error the model needs to fix.
+_MAX_TRANSIENT_RETRIES = 8
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -284,20 +291,34 @@ class AgentLoopV3:
             {"role": "tool", "tool_call_id": call_id, "content": content}
         )
 
-    def _note_tool_failure(self, fail_counts: dict[str, int], name: str) -> bool:
-        """Record a non-successful tool call (error, parse failure, or gate)
-        and return True when ``name`` has reached the consecutive-failure
-        circuit-breaker threshold for this turn."""
-        fail_counts[name] = fail_counts.get(name, 0) + 1
-        return fail_counts[name] >= _MAX_CONSECUTIVE_TOOL_FAILURES
+    def _note_tool_failure(
+        self,
+        fail_state: dict[str, tuple[str, int]],
+        name: str,
+        code: str,
+        *,
+        limit: int,
+    ) -> tuple[bool, int]:
+        """Record a non-successful call of ``name`` with failure class ``code``
+        (error, parse failure, or gate).
+
+        Counts only CONSECUTIVE failures of the same ``(name, code)``: if the
+        code differs from this tool's last failure, the model is adapting, so
+        the streak resets to 1 rather than climbing toward the breaker. Returns
+        ``(tripped, streak)`` where ``tripped`` is True once ``streak`` reaches
+        ``limit``."""
+        last_code, streak = fail_state.get(name, ("", 0))
+        streak = streak + 1 if code == last_code else 1
+        fail_state[name] = (code, streak)
+        return streak >= limit, streak
 
     def _emit_tool_breaker(self, name: str, count: int) -> None:
         self._emit(
             {
                 "kind": "turn_error",
                 "error": (
-                    f"tool '{name}' failed {count} times in a row this turn; "
-                    f"stopping. Adjust the inputs or use a different tool."
+                    f"tool '{name}' hit the same failure {count} times in a row this "
+                    f"turn; stopping. Change the approach or use a different tool."
                 ),
             }
         )
@@ -337,7 +358,8 @@ class AgentLoopV3:
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
         visual_inspections_this_turn = 0
-        tool_fail_counts: dict[str, int] = {}
+        # name → (last_failure_code, consecutive_streak) for the circuit breaker.
+        tool_fail_counts: dict[str, tuple[str, int]] = {}
 
         self._emit({"kind": "turn_start"})
 
@@ -428,18 +450,26 @@ class AgentLoopV3:
                             "call_id": tc.id,
                             "tool_name": tc.name,
                             "error": f"tool args not valid JSON object: {parse_error}",
+                            "error_code": "E_BAD_ARG",
+                            "recovery": RECOVERY_FIX_ARGS,
                         }
                     )
                     self._append_tool_result(
                         tc.id,
                         {
                             "error": "arguments were not a valid JSON object",
+                            "error_code": "E_BAD_ARG",
+                            "recovery": RECOVERY_FIX_ARGS,
                             "parse_error": parse_error,
                             "raw_arguments": tc.args,
                         },
                     )
-                    if self._note_tool_failure(tool_fail_counts, tc.name):
-                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                    tripped, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, "E_BAD_ARG",
+                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                    )
+                    if tripped:
+                        self._emit_tool_breaker(tc.name, streak)
                         return
                     continue
 
@@ -469,8 +499,12 @@ class AgentLoopV3:
                     )
                     # A gate is a non-dispatch: count it so the model cannot
                     # spin forever re-requesting an over-budget tool.
-                    if self._note_tool_failure(tool_fail_counts, tc.name):
-                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                    tripped, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, "E_BUDGET",
+                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                    )
+                    if tripped:
+                        self._emit_tool_breaker(tc.name, streak)
                         return
                     continue
 
@@ -497,8 +531,12 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {"needs_approval": True, "reason": cap_reason}
                     )
-                    if self._note_tool_failure(tool_fail_counts, tc.name):
-                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                    tripped, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, "E_VISUAL_CAP",
+                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                    )
+                    if tripped:
+                        self._emit_tool_breaker(tc.name, streak)
                         return
                     continue
 
@@ -519,29 +557,52 @@ class AgentLoopV3:
                     result = await DISPATCHER[tc.name](parsed_args, self._tool_ctx)
                 except Exception as exc:
                     elapsed = time.monotonic() - start_ts
-                    err = f"{type(exc).__name__}: {exc}"
                     self.budget.commit(tc.name, actual_seconds=elapsed)
+                    # Surface the failure with its structure intact. A GemiaError
+                    # (incl. ToolError) carries error_code / recovery / valid_options
+                    # / hint — exactly the material that lets the model self-correct
+                    # precisely. Anything else falls back to a flat
+                    # "TypeName: message" under error_code E_UNCAUGHT.
+                    if isinstance(exc, GemiaError):
+                        err_payload = exc.to_payload()
+                        err_code = exc.code
+                        recovery = getattr(exc, "recovery", None)
+                    else:
+                        err_payload = {
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "error_code": "E_UNCAUGHT",
+                        }
+                        err_code = "E_UNCAUGHT"
+                        recovery = None
                     self._emit(
                         {
                             "kind": "tool_exec_error",
                             "call_id": tc.id,
                             "tool_name": tc.name,
-                            "error": err,
                             "elapsed_seconds": elapsed,
+                            **err_payload,
                         }
                     )
                     self._append_tool_result(
-                        tc.id, {"error": err, "tool_name": tc.name}
+                        tc.id, {**err_payload, "tool_name": tc.name}
                     )
-                    if self._note_tool_failure(tool_fail_counts, tc.name):
-                        self._emit_tool_breaker(tc.name, tool_fail_counts[tc.name])
+                    limit = (
+                        _MAX_TRANSIENT_RETRIES
+                        if recovery == RECOVERY_TRANSIENT_RETRY
+                        else _MAX_CONSECUTIVE_TOOL_FAILURES
+                    )
+                    tripped, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, err_code, limit=limit
+                    )
+                    if tripped:
+                        self._emit_tool_breaker(tc.name, streak)
                         return
                     continue
 
                 elapsed = time.monotonic() - start_ts
                 self.budget.commit(tc.name, actual_seconds=elapsed)
-                # Successful dispatch — clear this tool's failure streak.
-                tool_fail_counts[tc.name] = 0
+                # Successful dispatch — clear this tool's failure streak entirely.
+                tool_fail_counts.pop(tc.name, None)
 
                 # Model-facing tool_result: strip thumbnail_path (file
                 # path leakage), keep thumbnail_for_next_message=False

@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from gemia.sandbox_v4 import build_v4_sandbox_command
+from gemia.sandbox_v4 import build_v4_sandbox_command, is_sandbox_disabled
 from gemia.tools._context import ToolContext
 
 
@@ -71,17 +72,23 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     if timeout_sec <= 0 or timeout_sec > 120:
         raise ValueError(f"timeout_sec must be in (0, 120], got {timeout_sec}")
 
-    # Build sandbox command using M1 isolation layer
-    cmd, enforced = build_v4_sandbox_command(
-        ["/bin/bash", "-c", command],
-        workspace_dir=ctx.output_dir,
-    )
-
-    if not enforced:
-        raise RuntimeError(
-            "sandbox-exec unavailable or failed on this host; refusing to run "
-            "command without sandbox enforcement"
+    # Build sandbox command using M1 isolation layer.
+    # When the user has explicitly disabled the sandbox (POST /settings/sandbox),
+    # run the raw command with full system access and report enforced=False
+    # honestly — do NOT raise.
+    if is_sandbox_disabled():
+        cmd = ["/bin/bash", "-c", command]
+        enforced = False
+    else:
+        cmd, enforced = build_v4_sandbox_command(
+            ["/bin/bash", "-c", command],
+            workspace_dir=ctx.output_dir,
         )
+        if not enforced:
+            raise RuntimeError(
+                "sandbox-exec unavailable or failed on this host; refusing to run "
+                "command without sandbox enforcement"
+            )
 
     # Run in subprocess with minimal environment
     exit_code = None
@@ -118,7 +125,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
         "timed_out": timed_out,
-        "sandbox_enforced": True,
+        "sandbox_enforced": enforced,
         "workspace_dir": str(ctx.output_dir),
     }
 

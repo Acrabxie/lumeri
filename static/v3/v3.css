@@ -69,6 +69,30 @@ button.primary {
 button.primary:disabled { background: var(--panel-soft); color: var(--text-dim); border-color: var(--border); cursor: not-allowed; font-weight: normal; }
 button:disabled { cursor: not-allowed; opacity: 0.6; }
 
+/* Sandbox toggle: subtle when on, loud red when off (unsafe). */
+.sandbox-toggle {
+  font-size: 12px;
+  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sandbox-toggle::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
+.sandbox-toggle.off {
+  color: var(--err);
+  border-color: var(--err);
+  background: rgba(255, 80, 80, 0.12);
+}
+.sandbox-toggle.off::before { background: var(--err); }
+.sandbox-toggle.off:hover { border-color: var(--err); }
+
 .app-main {
   flex: 1;
   display: grid;
@@ -169,6 +193,69 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   border-radius: 4px;
   white-space: pre-wrap;
 }
+.tool-error .err-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.err-chip {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid currentColor;
+  flex-shrink: 0;
+}
+.err-code { color: var(--err); }
+.err-recovery { color: var(--warn); }
+.err-msg { color: var(--err); flex: 1; min-width: 120px; }
+.tool-error .err-options,
+.tool-error .err-hint { margin-top: 6px; color: var(--text-dim); }
+.tool-error .err-hint { color: var(--text); }
+.tool-error .err-options code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin: 0 4px 4px 0;
+  color: var(--text);
+  display: inline-block;
+}
+
+/* Self-correction arc: a recoverable failure (or a run of them) that a later
+   call resolved. Renders the ✗ → ✓ progression as one connected unit so the
+   "caught it → fixed it" moment is legible at a glance. */
+.self-correct-arc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px;
+  background: rgba(77, 208, 125, 0.05);
+}
+.self-correct-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--ok);
+  background: rgba(77, 208, 125, 0.12);
+  border: 1px solid var(--ok);
+  border-radius: 100px;
+  padding: 2px 10px;
+}
+.self-correct-arc .tool-card { background: var(--panel); }
+
+/* The model's lead-in reasoning before a call — for a retry, this is the
+   diagnosis line ("that came out warm, switching to cool"). */
+.tool-reasoning {
+  color: var(--text-dim);
+  font-style: italic;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  padding: 2px 2px 0 12px;
+  border-left: 2px solid var(--accent-soft);
+}
+
+.tool-card.failed { border-color: rgba(239, 108, 108, 0.5); }
 
 .progress-block { display: flex; align-items: center; gap: 8px; }
 .progress-bar {
