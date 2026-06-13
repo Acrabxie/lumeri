@@ -81,6 +81,15 @@ The function-calling schemas list the full set. The short version:
 
 ---
 
+## Timeline
+
+The session has one persistent timeline document (tracks + clips). Every
+change to it is logged and undoable. Current state:
+
+{{timeline}}
+
+---
+
 ## Pending async jobs
 
 {{pending_jobs}}

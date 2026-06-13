@@ -445,6 +445,158 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["source", "name"],
     ),
+    # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
+    # The session owns ONE persistent timeline (tracks + clips). These verbs
+    # are fine-grained on purpose: each call = one logged, undoable patch.
+    # Times are seconds. clip_ids come from the Timeline section / get_timeline.
+    _tool(
+        "get_timeline",
+        "Inspect the session timeline document: tracks, clips (id, track, start/end, source range, effects), duration, and optionally recent patch history. Use when the prompt's Timeline section is not detailed enough.",
+        {
+            "history": {
+                "type": "integer",
+                "description": "How many recent patches to include (0-20). Default 0.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "timeline_insert_clip",
+        "Place a clip on the timeline. Video assets go on video tracks (V1...); image assets and text titles go on overlay tracks (OV1..., auto-created). Default position appends to the end of the track. Returns the new clip_id plus the updated timeline.",
+        {
+            "asset_id": {
+                "type": "string",
+                "description": "Asset to place (video or image). Omit when inserting text.",
+            },
+            "text": {
+                "type": "object",
+                "description": "Text title/caption clip instead of an asset. {content (required), font_size, color '#rrggbb', position {x,y} px top-left (default centered), align}.",
+                "properties": {
+                    "content": {"type": "string"},
+                    "font_size": {"type": "number"},
+                    "color": {"type": "string"},
+                    "position": {"type": "object"},
+                    "align": {"type": "string", "enum": ["left", "center", "right"]},
+                },
+            },
+            "track_id": {
+                "type": "string",
+                "description": "Target track (e.g. V1, OV1). Default: V1 for video, first overlay track for image/text.",
+            },
+            "at_time": {
+                "type": "number",
+                "description": "Place at this timeline second. Overlap on the track is an error unless ripple=true (then later clips shift right).",
+            },
+            "at_index": {
+                "type": "integer",
+                "description": "Insert before the Nth clip of the track (0-based); later clips shift right. Mutually exclusive with at_time.",
+            },
+            "source_in": {"type": "number", "description": "Video only: source trim-in second. Default 0."},
+            "source_out": {"type": "number", "description": "Video only: source trim-out second. Default full asset."},
+            "duration": {"type": "number", "description": "Image/text only: how long it stays on screen. Default 3s."},
+            "ripple": {"type": "boolean", "description": "Default false: never shifts other clips unless you set true."},
+        },
+        [],
+    ),
+    _tool(
+        "timeline_delete_clip",
+        "Remove a clip from the timeline. ripple=true closes the gap by shifting later clips on the same track left.",
+        {
+            "clip_id": {"type": "string", "description": "Clip to delete."},
+            "ripple": {"type": "boolean", "description": "Default false (leaves a gap)."},
+        },
+        ["clip_id"],
+    ),
+    _tool(
+        "timeline_move_clip",
+        "Move a clip to a new start time and/or another compatible track. The destination must be free (no overlap). ripple=true closes the gap left at the origin.",
+        {
+            "clip_id": {"type": "string"},
+            "start": {"type": "number", "description": "New timeline start second."},
+            "track_id": {"type": "string", "description": "Optional destination track of the same kind."},
+            "ripple": {"type": "boolean", "description": "Default false."},
+        },
+        ["clip_id"],
+    ),
+    _tool(
+        "timeline_trim_clip",
+        "Change which part of the source media a video/image clip shows (source_in/source_out, seconds). Clip duration follows the new range. ripple=true shifts later clips on the track by the duration change.",
+        {
+            "clip_id": {"type": "string"},
+            "source_in": {"type": "number"},
+            "source_out": {"type": "number"},
+            "ripple": {"type": "boolean", "description": "Default false: extending into a neighbour is an error instead."},
+        },
+        ["clip_id"],
+    ),
+    _tool(
+        "timeline_split_clip",
+        "Cut a clip in two at a timeline second strictly inside it. The first half keeps the clip_id; the new second-half clip_id is returned. Both halves keep the same asset.",
+        {
+            "clip_id": {"type": "string"},
+            "at_time": {"type": "number", "description": "Timeline second to cut at (inside the clip)."},
+        },
+        ["clip_id", "at_time"],
+    ),
+    _tool(
+        "timeline_set_clip_time",
+        "Set a clip's start (any clip) and/or on-screen duration (image/text clips only — trim video clips with timeline_trim_clip instead).",
+        {
+            "clip_id": {"type": "string"},
+            "start": {"type": "number"},
+            "duration": {"type": "number", "description": "Image/text clips only."},
+            "ripple": {"type": "boolean", "description": "Default false."},
+        },
+        ["clip_id"],
+    ),
+    _tool(
+        "timeline_add_transition",
+        "Set the transition from a clip into the NEXT adjacent clip on the same track. kind=cut removes any transition. Non-cut kinds need the two clips to touch (no gap) — align them first.",
+        {
+            "clip_id": {"type": "string", "description": "The earlier clip of the pair."},
+            "kind": {"type": "string", "enum": ["cut", "dissolve", "wipe", "fade"]},
+            "duration_sec": {"type": "number", "description": "Transition length, default 0.5. Must fit inside both clips."},
+        },
+        ["clip_id", "kind"],
+    ),
+    _tool(
+        "timeline_set_clip_effects",
+        "Merge effects onto one clip. Allowed keys: rotation (0/90/180/270), mirrored, muted, speed (reserved), blur_radius, opacity (0-1), x, y (px, overlay placement), scale. Set a key to null to clear it.",
+        {
+            "clip_id": {"type": "string"},
+            "effects": {
+                "type": "object",
+                "description": "Subset of allowed effect keys to merge.",
+            },
+        },
+        ["clip_id", "effects"],
+    ),
+    _tool(
+        "timeline_add_track",
+        "Add a video or overlay track (audio is reserved in v1). track_id defaults to the next free V<n>/OV<n>.",
+        {
+            "kind": {"type": "string", "enum": ["video", "overlay"]},
+            "track_id": {"type": "string"},
+            "name": {"type": "string"},
+        },
+        ["kind"],
+    ),
+    _tool(
+        "timeline_undo",
+        "Rewind the last N timeline changes (each timeline_* call is one step). Discarded patches are kept for audit.",
+        {
+            "steps": {"type": "integer", "description": "1-10, default 1."},
+        },
+        [],
+    ),
+    _tool(
+        "render_preview",
+        "Render the current timeline document into a low-res proxy MP4 and register it as a new video asset. Use after a batch of timeline edits, then analyze_media to look at it. Final quality comes from export.",
+        {
+            "label": {"type": "string", "description": "Short label for the render manifest (default 'preview')."},
+        },
+        [],
+    ),
 ]
 
 

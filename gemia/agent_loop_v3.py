@@ -55,6 +55,7 @@ from typing import Any, Callable
 
 from gemia.budget_guard import BudgetGuard
 from gemia.gemini_client import GeminiClientV3
+from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
 from gemia.tools._context import ProgressUpdate
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
@@ -203,12 +204,20 @@ class AgentLoopV3:
         self._system_template = _load_system_template()
         self._emit: EventSink = emit_event or self._emit_via_sse_registry
 
+        self.project = ProjectHandle.open(
+            self.output_dir / "project",
+            session_id,
+            session_id=session_id,
+            on_patch=lambda info: self._emit({"kind": "timeline_op", **info}),
+        )
+
         self._tool_ctx = ToolContext(
             session_id=session_id,
             output_dir=self.output_dir,
             registry=self.registry,
             emit_progress=lambda _u: None,
             extra=dict(extra or {}),
+            project=self.project,
         )
 
         self.sessions_root = Path(sessions_root) if sessions_root else None
@@ -249,9 +258,10 @@ class AgentLoopV3:
     def render_messages(self) -> list[dict[str, Any]]:
         """Build the messages list for the next model call.
 
-        System prompt = ``system_v3.md`` with two placeholders filled in:
+        System prompt = ``system_v3.md`` with the placeholders filled in:
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
+        ``{{timeline}}`` from the session project's compact timeline summary,
         and ``{{pinned_intent}}`` from the user's first message in this
         session. After the system message comes the rolling
         user/assistant/tool window in chronological order.
@@ -260,6 +270,7 @@ class AgentLoopV3:
             self._system_template
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
+            .replace("{{timeline}}", self.project.compact_text())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )
         return [{"role": "system", "content": system_filled}, *self._messages]
