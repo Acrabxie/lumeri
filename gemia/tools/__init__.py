@@ -107,6 +107,7 @@ _REAL: dict[str, Dispatcher] = {
     "timeline_add_track":       _timeline.dispatch_add_track,
     "timeline_undo":            _timeline.dispatch_undo,
     "render_preview":           _timeline.dispatch_render_preview,
+    "project_export":           _timeline.dispatch_project_export,
 }
 
 

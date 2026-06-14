@@ -598,6 +598,19 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         [],
     ),
+    _tool(
+        "project_export",
+        "Export the full project timeline as a final-quality MP4. Composes video track clips in timeline order and overlays image/text clips on top. Returns a registered asset_id for the output file.",
+        {
+            "quality": {
+                "type": "string",
+                "enum": ["4k", "1080p", "720p", "480p", "draft"],
+                "description": "Output quality preset. Default '1080p'.",
+            },
+            "label": {"type": "string", "description": "Short label for the export manifest (default 'export')."},
+        },
+        [],
+    ),
 ]
 
 
