@@ -51,6 +51,8 @@
     uploadStatus: null,
     lastEventId: null,
     reconnectTimer: null,
+    projectTimeline: null,      // fetched from /sessions/{id}/timeline
+    timelinePollTimer: null,
   };
 
   function newTurn(userMessage) {
@@ -376,9 +378,9 @@
       });
     },
     timeline_op: () => {
-      // Timeline-document patches surface through get_timeline / render_preview
-      // outputs, not the event log. Handled explicitly (no-op) so a stream of
-      // timeline edits is never flagged as an unknown event kind.
+      // Timeline patch landed: refresh the project timeline panel immediately
+      // rather than waiting for the next poll interval.
+      fetchProjectTimeline();
     },
     replay_gap: (ev) => {
       const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
@@ -494,10 +496,91 @@
     state.eventSource = es;
   }
 
+  // ── Project timeline ────────────────────────────────────────────────
+
+  async function fetchProjectTimeline() {
+    if (!state.sessionId) return;
+    try {
+      const r = await fetch(`/sessions/${state.sessionId}/timeline`);
+      if (!r.ok) return;
+      const data = await r.json();
+      state.projectTimeline = data;
+      renderProjectTimeline(data);
+    } catch { /* ignore network errors */ }
+  }
+
+  function startTimelinePoll() {
+    stopTimelinePoll();
+    state.timelinePollTimer = setInterval(fetchProjectTimeline, 3000);
+    fetchProjectTimeline();
+  }
+
+  function stopTimelinePoll() {
+    if (state.timelinePollTimer) {
+      clearInterval(state.timelinePollTimer);
+      state.timelinePollTimer = null;
+    }
+  }
+
+  function renderProjectTimeline(data) {
+    const panel = document.getElementById("project-timeline-panel");
+    const tracksEl = document.getElementById("project-timeline-tracks");
+    const metaEl = document.getElementById("project-timeline-meta");
+    if (!panel || !tracksEl || !metaEl) return;
+
+    const tracks = (data.tracks || []).filter(t => t.clips && t.clips.length > 0);
+    if (tracks.length === 0 && (!data.duration || data.duration <= 0)) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    const dur = data.duration || 0;
+    metaEl.textContent = [
+      `${data.width || 1920}×${data.height || 1080}`,
+      `${data.fps || 30}fps`,
+      dur > 0 ? fmtSec(dur) : "",
+      `seq ${data.patch_seq || 0}`,
+    ].filter(Boolean).join(" · ");
+
+    if (tracks.length === 0) {
+      tracksEl.innerHTML = `<div style="font-size:10px;color:var(--text-dim);padding:4px 0">No clips yet</div>`;
+      return;
+    }
+
+    tracksEl.innerHTML = tracks.map(track => {
+      const isOverlay = track.kind === "overlay";
+      const clipHtml = track.clips.map(clip => {
+        if (!dur) return "";
+        const left = (clip.start / dur) * 100;
+        const width = Math.max((clip.duration / dur) * 100, 0.3);
+        const cls = `pt-clip ${clip.media_kind}`;
+        const label = clip.media_kind === "text"
+          ? (clip.text_config?.content?.slice(0, 20) || clip.name)
+          : clip.name;
+        const title = `${clip.name} (${clip.media_kind}) ${fmtSec(clip.start)}–${fmtSec(clip.start + clip.duration)}`;
+        return `<div class="${cls}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"><span>${label}</span></div>`;
+      }).join("");
+      const bodyCls = `pt-track-body${isOverlay ? " overlay" : ""}`;
+      return `<div class="pt-track-row">
+        <div class="pt-track-label"><span>${track.id}</span></div>
+        <div class="${bodyCls}">${clipHtml}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function fmtSec(s) {
+    if (!isFinite(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${String(sec).padStart(2, "0")}`;
+  }
+
   // ── API calls ───────────────────────────────────────────────────────
 
   async function createSession() {
     clearReconnectTimer();
+    stopTimelinePoll();
     if (state.eventSource) {
       try { await fetch(`/sessions/${state.sessionId}/close`, { method: "POST" }); } catch {}
       state.eventSource.close();
@@ -513,7 +596,9 @@
     state.errors = [];
     state.turnInProgress = false;
     state.lastEventId = null;
+    state.projectTimeline = null;
     connectSse(state.sessionId);
+    startTimelinePoll();
     render();
   }
 
@@ -672,6 +757,7 @@
 
   // teardown on page hide
   window.addEventListener("beforeunload", () => {
+    stopTimelinePoll();
     if (state.sessionId) {
       navigator.sendBeacon?.(`/sessions/${state.sessionId}/close`);
     }
