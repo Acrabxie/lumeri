@@ -15,7 +15,7 @@ from typing import Any
 
 from gemia.ai.google_genai_client import GoogleGenAIClient, VertexAPIError
 from gemia.budget_guard import tool_cost_usd
-from gemia.tools._context import ToolContext
+from gemia.tools._context import ToolContext, ProgressUpdate
 
 
 _DEFAULT_MODEL = "lyria-002"
@@ -34,6 +34,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     client = _client_from_ctx(ctx)
     model = _model()
     new_id = ctx.registry.allocate_id("audio")
+    ctx.emit_progress(ProgressUpdate(percent=5, message="calling Lyria API", eta_sec=30))
 
     response = await client.predict(
         model=model,
@@ -42,6 +43,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         verb="generate_audio",
         estimated_cost_usd=tool_cost_usd("generate_audio"),
     )
+    ctx.emit_progress(ProgressUpdate(percent=80, message="decoding Lyria audio", eta_sec=2))
     audio_bytes, mime_type = _extract_audio_payload(response, model=model)
     ext = _extension_for_mime(mime_type)
     out_path = ctx.child_path(new_id, ext)
