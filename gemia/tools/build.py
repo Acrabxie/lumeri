@@ -274,27 +274,31 @@ def _check_job_impl(job_id: str, ctx: ToolContext) -> dict[str, Any]:
 
 
 async def dispatch_check(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Poll a pending build job by job_id.
+    """Poll a pending job by job_id (build or Veo video job).
 
     Args:
-        job_id: required, job identifier
+        job_id: required, job identifier returned by build or generate_video
 
-    Returns:
-        {
-            job_id: str,
-            status: "submitted" | "running" | "done" | "failed",
-            stdout_tail: str (last ~4000 chars),
-            stderr_tail: str (last ~4000 chars),
-            exit_code: int or None,
-            summary: str
-        }
+    Returns for build jobs:
+        { job_id, status, stdout_tail, stderr_tail, exit_code, summary }
+    Returns for video jobs:
+        { job_id, status, summary } + asset_id/metadata when done
 
     Raises:
-        KeyError: if job_id not found
+        KeyError: if job_id not found in any registry
     """
     job_id = str(args.get("job_id") or "").strip()
     if not job_id:
         raise ValueError("check_job requires 'job_id' argument")
+
+    # Dispatch by job kind: video jobs use Veo LRO polling via JobRegistry.
+    try:
+        record = ctx.jobs.get(job_id)
+        if record.kind == "video":
+            from gemia.tools import generate_video as _gv
+            return await _gv.resolve_veo_job(job_id, ctx)
+    except KeyError:
+        pass  # Not a JobRegistry job; fall through to build/_PROCESSES path.
 
     return _check_job_impl(job_id, ctx)
 
@@ -305,23 +309,14 @@ async def dispatch_check(args: dict[str, Any], ctx: ToolContext) -> dict[str, An
 
 
 async def dispatch_wait(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Wait for a build job to complete or timeout.
+    """Wait for a job to complete or timeout (build or Veo video job).
 
     Args:
-        job_id: required, job identifier
-        max_wait_sec: optional, default 60, clamped to (0, 300]
+        job_id: required, job identifier returned by build or generate_video
+        max_wait_sec: optional, default 60 for build / 300 for video,
+                      clamped to (0, 300]
 
-    Returns:
-        {
-            job_id: str,
-            status: "submitted" | "running" | "done" | "failed",
-            stdout_tail: str,
-            stderr_tail: str,
-            exit_code: int or None,
-            summary: str,
-            waited_sec: float,
-            timed_out: bool
-        }
+    Returns: same shape as check_job plus waited_sec and timed_out fields.
 
     Raises:
         KeyError: if job_id not found
@@ -339,26 +334,42 @@ async def dispatch_wait(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
     if max_wait_sec <= 0 or max_wait_sec > 300:
         raise ValueError(f"max_wait_sec must be in (0, 300], got {max_wait_sec}")
 
-    start = time.monotonic()
-    timed_out = False
+    # Dispatch by job kind: Veo video jobs poll via resolve_veo_job.
+    try:
+        record = ctx.jobs.get(job_id)
+        if record.kind == "video":
+            from gemia.tools import generate_video as _gv
+            start = time.monotonic()
+            while True:
+                result = await _gv.resolve_veo_job(job_id, ctx)
+                elapsed = time.monotonic() - start
+                if result["status"] in ("done", "failed"):
+                    result["waited_sec"] = elapsed
+                    result["timed_out"] = False
+                    return result
+                if elapsed >= max_wait_sec:
+                    result["waited_sec"] = elapsed
+                    result["timed_out"] = True
+                    return result
+                await asyncio.sleep(10.0)  # Veo operations change slowly
+    except KeyError:
+        pass  # Not a JobRegistry job; fall through to build/_PROCESSES path.
 
+    start = time.monotonic()
     while True:
         result = _check_job_impl(job_id, ctx)
         elapsed = time.monotonic() - start
 
-        # Terminal state?
         if result["status"] in ("done", "failed"):
             result["waited_sec"] = elapsed
             result["timed_out"] = False
             return result
 
-        # Timeout?
         if elapsed >= max_wait_sec:
             result["waited_sec"] = elapsed
             result["timed_out"] = True
             return result
 
-        # Sleep before next poll
         await asyncio.sleep(1)
 
 

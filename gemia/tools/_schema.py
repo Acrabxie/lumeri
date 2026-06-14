@@ -74,17 +74,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "generate_video",
-        "Create a new video clip from a text prompt using Vertex AI Veo. This is an expensive slow tool: it submits a Vertex long-running operation, waits for completion, writes the MP4 to the session workspace, and returns a video asset_id. Prefer search_library or local editing when existing footage can satisfy the task.",
+        "Submit a Vertex AI Veo video generation job. Returns a job_id immediately (non-blocking). Use check_job(job_id) to poll or wait_for_job(job_id) to block until the video asset is ready. Expensive — prefer search_library or local editing when existing footage can satisfy the task.",
         {
             "prompt": {"type": "string", "description": "What the clip should show."},
             "duration_sec": {"type": "number", "description": "Target duration in seconds (max 8)."},
             "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"]},
             "reference_asset_id": {"type": "string", "description": "Optional starting image for image-to-video."},
             "camera": {"type": "string", "description": "Optional motion hint (e.g. 'slow dolly in')."},
-            "max_wait_sec": {
-                "type": "number",
-                "description": "Optional maximum time to wait for the Vertex LRO. Default 300, clamped to 30..900.",
-            },
         },
         ["prompt"],
     ),
@@ -399,26 +395,26 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "check_job",
-        "Poll a pending build job by job_id. Inexpensive. Returns current status, exit code, and log tails (last ~4000 chars of stdout/stderr). Kill process on timeout. Use this to inspect job state without blocking.",
+        "Poll a pending job by job_id. Works for build jobs (status + log tails) and Veo video jobs (status → asset_id when done). Inexpensive. Use to inspect job state without blocking.",
         {
             "job_id": {
                 "type": "string",
-                "description": "Job identifier returned by build.",
+                "description": "Job identifier returned by build or generate_video.",
             },
         },
         ["job_id"],
     ),
     _tool(
         "wait_for_job",
-        "Async wait for a build job to complete or exceed max_wait_sec. Polls every 1 second. Returns same result shape as check_job plus waited_sec and timed_out flag. Use when you need blocking semantics.",
+        "Block until a job completes or max_wait_sec is exceeded. Works for build jobs (polls every 1s) and Veo video jobs (polls every 10s). Returns same shape as check_job plus waited_sec and timed_out flag.",
         {
             "job_id": {
                 "type": "string",
-                "description": "Job identifier returned by build.",
+                "description": "Job identifier returned by build or generate_video.",
             },
             "max_wait_sec": {
                 "type": "number",
-                "description": "Maximum seconds to wait (default 60, clamped to (0, 300]).",
+                "description": "Maximum seconds to wait (default 60, clamped to (0, 300]). For Veo jobs use 300.",
             },
         },
         ["job_id"],
