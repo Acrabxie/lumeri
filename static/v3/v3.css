@@ -429,3 +429,32 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   pointer-events: none;
 }
 .pt-track-body.empty-track { background: linear-gradient(180deg,#1a2a1a 0%,#0d1a0d 100%); border-color: #2a3a2a; }
+
+/* Quick-action verb shortcuts in the timeline panel */
+.pt-quick-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.pt-action-btn {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font: 11px/1 ui-monospace, SF Mono, Menlo, monospace;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.pt-action-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pt-action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
