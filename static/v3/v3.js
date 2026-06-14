@@ -104,8 +104,10 @@
 
   function render() {
     els.sessionLabel.textContent = state.sessionId || "—";
-    els.sendBtn.disabled = !state.sessionId || state.turnInProgress;
-    els.uploadBtn.disabled = !state.sessionId || state.turnInProgress;
+    const busy = !state.sessionId || state.turnInProgress;
+    els.sendBtn.disabled = busy;
+    els.uploadBtn.disabled = busy;
+    document.querySelectorAll(".pt-action-btn").forEach((b) => { b.disabled = busy; });
 
     if (!state.turns.length) {
       els.timeline.hidden = true;
@@ -417,6 +419,9 @@
         const existing = state.assets.find((a) => a.asset_id === deliverable);
         if (existing) existing.final = true;
       }
+      // Refresh timeline after every completed turn — verb results may have
+      // updated the project even if no timeline_op event was fired this turn.
+      fetchProjectTimeline();
     },
     turn_error: (ev) => {
       state.turnInProgress = false;
@@ -718,6 +723,17 @@
       e.preventDefault();
       els.sendBtn.click();
     }
+  });
+
+  // ── timeline quick-action buttons ──────────────────────────────────
+  // Any .pt-action-btn with a data-cmd attribute pre-fills the prompt and sends.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pt-action-btn[data-cmd]");
+    if (!btn || !state.sessionId || state.turnInProgress) return;
+    const cmd = btn.dataset.cmd;
+    if (!cmd) return;
+    els.promptInput.value = cmd;
+    els.sendBtn.click();
   });
 
   // ── sandbox toggle ──────────────────────────────────────────────────
