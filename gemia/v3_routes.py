@@ -103,6 +103,10 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
     if m:
         return _sse_stream(handler, m.group(1), query, body=body)
 
+    m = re.match(r"^/sessions/([^/]+)/timeline$", path)
+    if m:
+        return _session_timeline(handler, m.group(1))
+
     m = re.match(r"^/sessions/([^/]+)/assets/([^/]+)$", path)
     if m:
         return _serve_asset(handler, m.group(1), m.group(2), body=body)
@@ -235,6 +239,74 @@ def _session_info(handler, session_id: str) -> bool:
         "session_id": session_id,
         "assets": runner.list_assets(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
+    })
+    return True
+
+
+def _session_timeline(handler, session_id: str) -> bool:
+    """Return the current project timeline as a JSON payload for the frontend."""
+    runner = get_manager().get(session_id)
+    if runner is None:
+        _json_error(handler, 404, f"unknown session: {session_id}")
+        return True
+    try:
+        project = runner.agent.project.load()
+        meta = runner.agent.project.store.load_meta(runner.agent.project.project_id)
+    except Exception as exc:
+        _json_error(handler, 500, f"could not load project: {exc}")
+        return True
+
+    timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
+    assets_list = project.get("assets") or []
+    asset_map = {
+        str(a.get("id") or a.get("asset_id") or ""): a
+        for a in assets_list
+        if isinstance(a, dict)
+    }
+    tracks_raw = timeline.get("tracks") or []
+    clips_raw = timeline.get("clips") or []
+    clips_by_track: dict[str, list[dict]] = {}
+    for clip in clips_raw:
+        if not isinstance(clip, dict):
+            continue
+        tid = str(clip.get("track_id") or "")
+        asset = asset_map.get(str(clip.get("asset_id") or "")) or {}
+        clips_by_track.setdefault(tid, []).append({
+            "id": str(clip.get("id") or ""),
+            "name": str(clip.get("name") or asset.get("name") or "clip"),
+            "start": float(clip.get("start") or 0.0),
+            "duration": float(clip.get("duration") or 0.1),
+            "media_kind": str(clip.get("media_kind") or "video"),
+            "track_id": tid,
+            "enabled": bool(clip.get("enabled", True)),
+            "effects": clip.get("effects") if isinstance(clip.get("effects"), dict) else {},
+            "text_config": clip.get("text_config") if isinstance(clip.get("text_config"), dict) else None,
+            "transition": clip.get("transition") if isinstance(clip.get("transition"), dict) else None,
+        })
+    for clips in clips_by_track.values():
+        clips.sort(key=lambda c: float(c.get("start") or 0.0))
+
+    tracks = []
+    for track in tracks_raw:
+        if not isinstance(track, dict):
+            continue
+        tid = str(track.get("id") or "")
+        tracks.append({
+            "id": tid,
+            "kind": str(track.get("kind") or "video"),
+            "name": str(track.get("name") or tid),
+            "clips": clips_by_track.get(tid, []),
+        })
+
+    _json_response(handler, 200, {
+        "session_id": session_id,
+        "project_id": runner.agent.project.project_id,
+        "patch_seq": int(meta.get("patch_seq") or 0),
+        "duration": float(timeline.get("duration") or 0.0),
+        "fps": float(timeline.get("fps") or 30.0),
+        "width": int(timeline.get("width") or 1920),
+        "height": int(timeline.get("height") or 1080),
+        "tracks": tracks,
     })
     return True
 

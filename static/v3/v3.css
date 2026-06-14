@@ -340,3 +340,92 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .composer textarea:focus { outline: none; border-color: var(--accent); }
 .composer-btn { white-space: nowrap; align-self: stretch; padding: 0 18px; }
 .upload-status { font-size: 11px; color: var(--text-dim); margin-right: 6px; align-self: center; }
+
+/* ── Project timeline panel ──────────────────────────────────────────── */
+.project-timeline-panel {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 6px 16px 10px;
+  user-select: none;
+}
+.project-timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.project-timeline-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.project-timeline-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+}
+.project-timeline-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pt-track-row {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+}
+.pt-track-label {
+  width: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 3px 0 0 3px;
+}
+.pt-track-label span {
+  font-size: 9px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-track-body {
+  flex: 1;
+  position: relative;
+  background: rgba(0,255,100,0.03);
+  border: 1px solid var(--border);
+  border-radius: 0 3px 3px 0;
+  overflow: hidden;
+}
+.pt-track-body.overlay { background: rgba(100,100,255,0.03); }
+.pt-clip {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  min-width: 2px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+.pt-clip.video   { background: rgba(0,200,100,0.25); border: 1px solid #0a7a40; }
+.pt-clip.image   { background: rgba(100,100,255,0.25); border: 1px solid #3030aa; }
+.pt-clip.text    { background: rgba(255,150,50,0.25); border: 1px solid #aa5500; }
+.pt-clip span {
+  font-size: 8px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  padding: 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255,255,255,0.7);
+  pointer-events: none;
+}
+.pt-track-body.empty-track { background: linear-gradient(180deg,#1a2a1a 0%,#0d1a0d 100%); border-color: #2a3a2a; }
