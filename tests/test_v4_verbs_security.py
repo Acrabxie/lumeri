@@ -37,6 +37,16 @@ _USABLE = bool(_SANDBOX_EXEC) and sys.platform == "darwin" and _sandbox_exec_usa
 _needs_sandbox = pytest.mark.skipif(not _USABLE, reason="sandbox-exec not usable on this host")
 
 
+@pytest.fixture(autouse=True)
+def _force_sandbox_enabled():
+    """Security tests always need the real sandbox, regardless of POST /settings/sandbox toggle."""
+    from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+    was_disabled = is_sandbox_disabled()
+    set_sandbox_disabled(False)
+    yield
+    set_sandbox_disabled(was_disabled)
+
+
 def _ctx(workspace: Path) -> ToolContext:
     workspace.mkdir(parents=True, exist_ok=True)
     return ToolContext(
