@@ -574,6 +574,15 @@ class TestFetchDestName:
 class TestRunShellBasic:
     """Basic run_shell functionality."""
 
+    @pytest.fixture(autouse=True)
+    def _force_sandbox_enabled(self):
+        """These tests verify sandbox behavior; force-enable regardless of user toggle."""
+        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        was_disabled = is_sandbox_disabled()
+        set_sandbox_disabled(False)
+        yield
+        set_sandbox_disabled(was_disabled)
+
     @pytest.mark.skipif(
         not shutil.which("sandbox-exec"),
         reason="sandbox-exec not available (non-macOS or missing)",
@@ -713,6 +722,15 @@ class TestRunShellWorkspace:
 
 class TestRunShellSandboxEnforcement:
     """Sandbox enforcement checks."""
+
+    @pytest.fixture(autouse=True)
+    def _force_sandbox_enabled(self):
+        """These tests verify sandbox behavior; force-enable regardless of user toggle."""
+        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        was_disabled = is_sandbox_disabled()
+        set_sandbox_disabled(False)
+        yield
+        set_sandbox_disabled(was_disabled)
 
     @pytest.mark.skipif(
         not shutil.which("sandbox-exec"),
