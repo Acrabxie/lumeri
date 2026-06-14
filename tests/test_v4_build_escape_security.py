@@ -42,6 +42,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _force_sandbox_enabled():
+    """Security tests must verify real sandbox isolation; force-enable sandbox regardless of user toggle."""
+    from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+    was_disabled = is_sandbox_disabled()
+    set_sandbox_disabled(False)
+    yield
+    set_sandbox_disabled(was_disabled)
+
+
 def _ctx(tmp_path: Path) -> ToolContext:
     return ToolContext(
         session_id="escape_probe",

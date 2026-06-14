@@ -49,6 +49,15 @@ class TestBuildDispatcher:
                 pass
         build._PROCESSES.clear()
 
+    @pytest.fixture(autouse=True)
+    def _force_sandbox_enabled(self):
+        """Build tests verify sandbox behavior; force-enable regardless of user toggle."""
+        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        was_disabled = is_sandbox_disabled()
+        set_sandbox_disabled(False)
+        yield
+        set_sandbox_disabled(was_disabled)
+
     def test_build_happy_path(self, tmp_path: Path) -> None:
         """Test successful build submission and execution."""
         ctx = ToolContext(
@@ -534,6 +543,15 @@ class TestSandboxEnforcement:
             except:
                 pass
         build._PROCESSES.clear()
+
+    @pytest.fixture(autouse=True)
+    def _force_sandbox_enabled(self):
+        """These tests verify sandbox enforcement behavior; force-enable regardless of user toggle."""
+        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        was_disabled = is_sandbox_disabled()
+        set_sandbox_disabled(False)
+        yield
+        set_sandbox_disabled(was_disabled)
 
     def test_build_no_sandbox_enforced_raises(self, tmp_path: Path) -> None:
         """Test that build raises RuntimeError if sandbox not enforced."""
