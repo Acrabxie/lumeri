@@ -1,9 +1,12 @@
 """generate_video — Veo via Vertex AI.
 
-Host-side slow tool. It submits ``:predictLongRunning``, polls
-``:fetchPredictOperation`` until completion, decodes the resulting video bytes,
-writes them into the session workspace, registers a video asset, and returns
-metadata only. Raw base64/video bytes never enter the tool result/SSE.
+Host-side async tool. It submits ``:predictLongRunning``, registers the LRO in
+the session's JobRegistry, and returns a ``job_id`` **immediately** — no blocking
+poll. The model then uses ``check_job(job_id)`` or ``wait_for_job(job_id)`` to
+poll or block; the host resolves the Vertex operation, decodes bytes, and
+registers the final video asset only when the LRO is done.
+
+Raw base64/video bytes never enter the tool result/SSE.
 """
 from __future__ import annotations
 
@@ -76,42 +79,124 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             body_tail=json.dumps(_scrub_bytes(submit), ensure_ascii=False)[:1200],
         )
 
-    response = await _poll_until_done(
-        client,
-        model=model,
-        operation_name=operation_name,
-        max_wait_sec=_max_wait_sec(args),
-        poll_interval_sec=_poll_interval_sec(args),
-        ctx=ctx,
-    )
-    video_bytes, mime_type = _extract_video_payload(response, model=model)
-    ext = _extension_for_mime(mime_type)
-    out_path = ctx.child_path(new_id, ext)
-    out_path.write_bytes(video_bytes)
-
+    # Register in JobRegistry and return immediately (no blocking poll).
+    # The model uses check_job(job_id) or wait_for_job(job_id) to get the result.
     lineage = [reference_asset_id] if reference_asset_id else []
-    record = ctx.registry.register_output(
-        new_id,
+    job_summary = f"Veo {model}: {_short(prompt)!r}"
+    job_record = ctx.jobs.submit(
         kind="video",
-        path=out_path,
-        summary=f"generated video via {model}: {_short(prompt)!r}",
-        lineage=lineage,
+        provider=f"vertex:{model}",
+        operation_name=operation_name,
+        pending_asset_id=new_id,
+        estimated_eta_sec=120.0,
+        summary=job_summary,
     )
+    # Stash lineage in extra for use when the job completes.
+    if isinstance(ctx.extra, dict):
+        ctx.extra[f"_veo_lineage_{job_record.job_id}"] = lineage
+
     return {
-        "asset_id": new_id,
-        "summary": record.summary,
+        "job_id": job_record.job_id,
+        "status": "submitted",
+        "pending_asset_id": new_id,
+        "summary": job_summary,
         "metadata": {
             "model": model,
             "provider": "vertex",
             "operation_name": operation_name,
-            "mime_type": mime_type,
-            "size_bytes": len(video_bytes),
             "duration_sec": duration_sec,
             "aspect_ratio": aspect_ratio,
             "location": client.location,
             "request_id": submit.get("_lumeri_request_id"),
             "reference_asset_id": reference_asset_id or None,
         },
+        "note": "Use check_job(job_id) to poll or wait_for_job(job_id) to block.",
+    }
+
+
+async def resolve_veo_job(job_id: str, ctx: ToolContext) -> dict[str, Any]:
+    """Poll one step of a pending Veo LRO job. Called by check_job / wait_for_job.
+
+    Returns a dict with keys:
+      - job_id, status ("submitted"|"running"|"done"|"failed"), summary
+      - On done: asset_id, metadata {mime_type, size_bytes, operation_name}
+      - On failed: error
+      - While pending: pending_asset_id
+    """
+    record = ctx.jobs.get(job_id)
+
+    # Already resolved — return cached result without hitting Vertex again.
+    if record.last_polled_status == "done" and record.final_path is not None:
+        return {
+            "job_id": job_id,
+            "status": "done",
+            "asset_id": record.pending_asset_id,
+            "summary": record.summary,
+        }
+    if record.last_polled_status == "failed":
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": record.final_error or "unknown error",
+            "summary": record.summary,
+        }
+
+    # Poll the Vertex LRO.
+    client = _client_from_ctx(ctx)
+    model = _model()
+    response = await client.fetch_predict_operation(
+        model=model,
+        operation_name=record.operation_name,
+    )
+
+    if response.get("done") is True:
+        error = response.get("error")
+        if error:
+            ctx.jobs.update_from_poll(job_id, "failed", error=str(error))
+            return {
+                "job_id": job_id,
+                "status": "failed",
+                "error": str(error),
+                "summary": record.summary,
+            }
+
+        # Decode video bytes, write to disk, register asset.
+        video_bytes, mime_type = _extract_video_payload(response, model=model)
+        ext = _extension_for_mime(mime_type)
+        out_path = ctx.child_path(record.pending_asset_id, ext)
+        out_path.write_bytes(video_bytes)
+        ctx.jobs.update_from_poll(job_id, "done", final_path=out_path)
+
+        lineage = []
+        if isinstance(ctx.extra, dict):
+            lineage = ctx.extra.pop(f"_veo_lineage_{job_id}", [])
+
+        out_record = ctx.registry.register_output(
+            record.pending_asset_id,
+            kind="video",
+            path=out_path,
+            summary=record.summary,
+            lineage=lineage,
+        )
+        return {
+            "job_id": job_id,
+            "status": "done",
+            "asset_id": out_record.asset_id,
+            "summary": out_record.summary,
+            "metadata": {
+                "mime_type": mime_type,
+                "size_bytes": len(video_bytes),
+                "operation_name": record.operation_name,
+            },
+        }
+
+    # Still running — update status and return.
+    ctx.jobs.update_from_poll(job_id, "running")
+    return {
+        "job_id": job_id,
+        "status": "running",
+        "pending_asset_id": record.pending_asset_id,
+        "summary": record.summary,
     }
 
 
@@ -303,4 +388,4 @@ def _short(text: str, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "..."
 
 
-__all__ = ["dispatch"]
+__all__ = ["dispatch", "resolve_veo_job"]

@@ -135,15 +135,14 @@ class TestVertexGenerateAudio:
 
 
 class TestVertexGenerateVideo:
-    """Veo tool submits LRO, polls, writes workspace asset, and scrubs output."""
+    """Veo tool submits LRO async and returns job_id; resolve_veo_job finalises."""
 
-    def test_generate_video_lro_writes_mp4(
+    def test_generate_video_submits_lro_and_returns_job_id(
         self,
         tool_context: ToolContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        mp4 = b"\x00\x00\x00\x18ftypmp42"
-        video_b64 = base64.b64encode(mp4).decode("ascii")
+        """dispatch() should return job_id immediately without polling."""
         seen: dict[str, Any] = {}
 
         def fake_init(self, **kwargs):
@@ -153,23 +152,8 @@ class TestVertexGenerateVideo:
             seen["submit"] = kwargs
             return {"name": "operations/veo-test", "_lumeri_request_id": "req_video"}
 
-        async def fake_fetch(self, **kwargs):
-            seen["fetch"] = kwargs
-            return {
-                "done": True,
-                "response": {
-                    "videos": [
-                        {
-                            "bytesBase64Encoded": video_b64,
-                            "mimeType": "video/mp4",
-                        }
-                    ]
-                },
-            }
-
         monkeypatch.setattr(_generate_video.GoogleGenAIClient, "__init__", fake_init)
         monkeypatch.setattr(_generate_video.GoogleGenAIClient, "predict_long_running", fake_submit)
-        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "fetch_predict_operation", fake_fetch)
 
         result = asyncio.run(
             _generate_video.dispatch(
@@ -177,8 +161,6 @@ class TestVertexGenerateVideo:
                     "prompt": "kinetic title animation",
                     "duration_sec": 4,
                     "aspect_ratio": "16:9",
-                    "max_wait_sec": 30,
-                    "poll_interval_sec": 0.1,
                 },
                 tool_context,
             )
@@ -187,14 +169,89 @@ class TestVertexGenerateVideo:
         assert seen["submit"]["model"] == "veo-3.1-fast-generate-preview"
         assert seen["submit"]["verb"] == "generate_video"
         assert seen["submit"]["parameters"]["durationSeconds"] == 4
-        assert seen["fetch"]["operation_name"] == "operations/veo-test"
-        asset = tool_context.registry.get(result["asset_id"])
+        # New async shape: job_id + status, no asset_id yet
+        assert "job_id" in result
+        assert result["status"] == "submitted"
+        assert "pending_asset_id" in result
+        assert result["metadata"]["operation_name"] == "operations/veo-test"
+        assert result["metadata"]["request_id"] == "req_video"
+        # Byte payload must not leak
+        assert "base64" not in json.dumps(result).lower()
+
+    def test_resolve_veo_job_writes_mp4_when_lro_done(
+        self,
+        tool_context: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """resolve_veo_job() decodes video and registers asset when operation is done."""
+        mp4 = b"\x00\x00\x00\x18ftypmp42"
+        video_b64 = base64.b64encode(mp4).decode("ascii")
+        seen: dict[str, Any] = {}
+
+        def fake_init(self, **kwargs):
+            self.location = kwargs.get("location", "us-central1")
+
+        async def fake_submit(self, **kwargs):
+            return {"name": "operations/veo-done", "_lumeri_request_id": "req_v"}
+
+        async def fake_fetch(self, **kwargs):
+            seen["fetch"] = kwargs
+            return {
+                "done": True,
+                "response": {
+                    "videos": [{"bytesBase64Encoded": video_b64, "mimeType": "video/mp4"}]
+                },
+            }
+
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "__init__", fake_init)
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "predict_long_running", fake_submit)
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "fetch_predict_operation", fake_fetch)
+
+        # Step 1: submit → get job_id
+        submit_result = asyncio.run(
+            _generate_video.dispatch({"prompt": "smoke test"}, tool_context)
+        )
+        job_id = submit_result["job_id"]
+        assert submit_result["status"] == "submitted"
+
+        # Step 2: resolve → LRO done, video written and registered
+        resolve_result = asyncio.run(
+            _generate_video.resolve_veo_job(job_id, tool_context)
+        )
+        assert resolve_result["status"] == "done"
+        asset_id = resolve_result["asset_id"]
+        asset = tool_context.registry.get(asset_id)
         assert asset.kind == "video"
         assert asset.path.suffix == ".mp4"
         assert asset.path.read_bytes() == mp4
-        assert result["metadata"]["operation_name"] == "operations/veo-test"
-        assert result["metadata"]["request_id"] == "req_video"
-        assert video_b64 not in json.dumps(result)
+        assert seen["fetch"]["operation_name"] == "operations/veo-done"
+        assert video_b64 not in json.dumps(resolve_result)
+
+    def test_resolve_veo_job_returns_running_when_not_done(
+        self,
+        tool_context: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """resolve_veo_job() returns status=running when LRO is still in progress."""
+        def fake_init(self, **kwargs):
+            self.location = "us-central1"
+
+        async def fake_submit(self, **kwargs):
+            return {"name": "operations/veo-running"}
+
+        async def fake_fetch(self, **kwargs):
+            return {"done": False}
+
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "__init__", fake_init)
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "predict_long_running", fake_submit)
+        monkeypatch.setattr(_generate_video.GoogleGenAIClient, "fetch_predict_operation", fake_fetch)
+
+        submit = asyncio.run(_generate_video.dispatch({"prompt": "test"}, tool_context))
+        job_id = submit["job_id"]
+
+        result = asyncio.run(_generate_video.resolve_veo_job(job_id, tool_context))
+        assert result["status"] == "running"
+        assert "pending_asset_id" in result
 
 
 # ============================================================================
