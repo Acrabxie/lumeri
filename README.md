@@ -22,9 +22,9 @@ gemia.audio.frequency.eq(audio, bands={...})
 
 Picture functions automatically work on video — the engine extracts frames, applies the operation per-frame, and re-encodes with original audio. The AI doesn't need to know this; it just picks the right function.
 
-## GPT Image 2 — AI Image Generation
+## AI Image Generation — Vertex AI
 
-Lumeri integrates GPT Image 2 through the Sisyphus/OpenAI-compatible image API as native primitives. The AI planner can call these the same way it calls any other primitive.
+Lumeri integrates AI image generation via Vertex AI (Gemini image models) as native primitives. The AI planner can call these the same way it calls any other primitive.
 
 | Function | Description |
 |----------|-------------|
@@ -35,7 +35,7 @@ Lumeri integrates GPT Image 2 through the Sisyphus/OpenAI-compatible image API a
 
 When applied to a video, `style_transfer` and `edit_image` are automatically applied per-frame (same auto-bridge as other picture primitives).
 
-Requires `SISYPHUS_API_KEY` or `~/.gemia/config.json` field `sisyphus_api_key`.
+Requires Google Cloud credentials. Run `gcloud auth application-default login` — no extra key needed if you already use Vertex for the orchestrator.
 
 ### Example
 
@@ -47,7 +47,7 @@ python3 -m gemia run --video input.mp4 --prompt "把每一帧做成赛博朋克�
 
 ## Veo 3.1 — AI Video Generation
 
-Generate and extend video clips with Veo 3.1 via laozhang.ai.
+Generate and extend video clips with Veo 3.1 via Vertex AI (Veo on Google Cloud).
 
 | Function | Description |
 |----------|-------------|
@@ -55,7 +55,7 @@ Generate and extend video clips with Veo 3.1 via laozhang.ai.
 | `generate_video_from_image(image_path, prompt, duration)` | Image → video |
 | `extend_video(video_path, prompt, duration)` | Extend video end |
 
-Requires `LAOZHANG_API_KEY`.
+Requires Google Cloud credentials. Run `gcloud auth application-default login` — no extra key needed if you already use Vertex for the orchestrator.
 
 ### Example
 
@@ -105,8 +105,12 @@ git clone https://github.com/Acrabxie/lumeri.git && cd lumeri
 # Python 3.12+, ffmpeg required
 pip install -e .
 
-# API key (Gemini via OpenRouter)
-export OPENROUTER_API_KEY="sk-or-..."
+# API key (Gemini via Google AI Studio)
+export GEMINI_API_KEY="AIza..."   # Google AI Studio: aistudio.google.com/apikey (free tier available)
+
+# Advanced: Vertex AI ADC also works with:
+# gcloud auth application-default login
+# No extra key is needed when using Vertex for the orchestrator.
 ```
 
 Verify:
@@ -229,7 +233,7 @@ User prompt
     │
     ▼
 ┌──────────────────────┐
-│  Gemini (OpenRouter)  │  sees all 88+ function docstrings
+│  Gemini (Google AI Studio / Vertex) │  sees all 88+ function docstrings
 └──────────┬───────────┘
            │ Plan v2 JSON
            ▼
@@ -241,8 +245,8 @@ User prompt
 ┌──────────────────────────────────────────────────────────┐
 │  gemia.picture    gemia.audio    gemia.video              │
 │  (OpenCV/numpy)   (librosa)      (ffmpeg)                 │
-│  + GPT Image 2    —              + Veo 3.1                │
-│  (Sisyphus API)                  (laozhang.ai)            │
+│  + Vertex AI     —              + Veo 3.1                 │
+│  image models                   (Vertex AI)               │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
@@ -253,8 +257,8 @@ User prompt
 
 ## Roadmap
 
-- ✅ **GPT Image 2** — image generation/editing integrated as primitives through Sisyphus
-- ✅ **Veo integration** — AI-generated video clips via laozhang.ai (Veo 3.1)
+- ✅ **Vertex AI image generation** — image generation/editing integrated as primitives
+- ✅ **Veo integration** — AI-generated video clips via Vertex AI (Veo 3.1)
 - ✅ **Skills v2** — model tracking, parameterization, `parameters` field
 - **Skills UI** — visual skill browser in the web interface
 - **Desktop app** — standalone macOS / Windows app via Tauri
@@ -265,19 +269,14 @@ User prompt
 
 - Python 3.12+
 - ffmpeg / ffprobe in PATH
-- `OPENROUTER_API_KEY` (required for AI planning)
-- `SISYPHUS_API_KEY` (required for GPT Image 2 image generation/editing)
-- `LAOZHANG_API_KEY` (required for Veo video generation)
-- `OPENROUTER_MODEL` (optional, default `google/gemini-2.5-flash`)
+- `GEMINI_API_KEY` (required for AI planning through Google AI Studio)
+- `GEMINI_MODEL` (optional, default `gemini-2.5-flash`)
 
 ## Contributors
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 - Acrabxie
-- Claude
-- chatgpt（codex）
-- Gemini
 
 ## License
 
