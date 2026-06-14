@@ -351,3 +351,44 @@ async def dispatch_render_preview(args: dict[str, Any], ctx: ToolContext) -> dic
         "height": resolution.get("height"),
         "note": "low-res proxy preview of the timeline document; use analyze_media to look at it",
     }
+
+
+# ── project export ──────────────────────────────────────────────────────
+
+
+async def dispatch_project_export(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    from gemia.project_export import export_project  # heavy import kept lazy
+
+    project = _project(ctx)
+    quality = str(args.get("quality") or "1080p")
+    label = str(args.get("label") or "export")[:40]
+    result = export_project(
+        project.store,
+        project.project_id,
+        output_root=ctx.output_dir,
+        quality=quality,
+        label=label,
+    )
+    export_path = result.get("export_path")
+    asset_id = None
+    if export_path:
+        asset_id = ctx.registry.allocate_id("video")
+        ctx.registry.register_output(
+            asset_id,
+            kind="video",
+            path=export_path,
+            summary=f"project export ({quality}, seq={result.get('patch_seq')})",
+        )
+    resolution = result.get("resolution") if isinstance(result.get("resolution"), dict) else {}
+    return {
+        "asset_id": asset_id,
+        "export_id": result.get("export_id"),
+        "duration": result.get("duration"),
+        "width": resolution.get("width"),
+        "height": resolution.get("height"),
+        "quality": quality,
+        "video_clips": result.get("video_clips_rendered"),
+        "overlay_clips": result.get("overlay_clips_rendered"),
+        "export_path": export_path,
+        "note": "full-quality export; use analyze_media to inspect, or deliver the file directly",
+    }
