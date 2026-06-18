@@ -108,6 +108,8 @@ _REAL: dict[str, Dispatcher] = {
     "timeline_undo":            _timeline.dispatch_undo,
     "render_preview":           _timeline.dispatch_render_preview,
     "project_export":           _timeline.dispatch_project_export,
+    "project_export_otio":      _timeline.dispatch_export_otio,
+    "project_import_otio":      _timeline.dispatch_import_otio,
 }
 
 

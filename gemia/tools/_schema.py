@@ -607,6 +607,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         [],
     ),
+    _tool(
+        "project_export_otio",
+        "Export the current project timeline as an OpenTimelineIO (.otio) file for use in DaVinci Resolve, Final Cut Pro, Premiere Pro, and other NLEs. Returns the path to the written .otio file.",
+        {
+            "label": {"type": "string", "description": "Base filename label (without extension). Default 'project'."},
+        },
+        [],
+    ),
+    _tool(
+        "project_import_otio",
+        "Import an OpenTimelineIO (.otio) file and replace the current session project's timeline. The prior state can be restored with timeline_undo.",
+        {
+            "otio_path": {"type": "string", "description": "Absolute path to the .otio file to import."},
+        },
+        ["otio_path"],
+    ),
 ]
 
 
