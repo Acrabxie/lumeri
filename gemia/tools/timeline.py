@@ -392,3 +392,84 @@ async def dispatch_project_export(args: dict[str, Any], ctx: ToolContext) -> dic
         "export_path": export_path,
         "note": "full-quality export; use analyze_media to inspect, or deliver the file directly",
     }
+
+
+async def dispatch_export_otio(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Export the current project as an .otio file into the session workspace."""
+    from lumerai.otio_adapter import project_to_otio_json
+
+    project = _project(ctx)
+    p = project.load()
+    otio_str = project_to_otio_json(p)
+    label = str(args.get("label") or "project")[:40]
+    out_path = ctx.output_dir / f"{label}.otio"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(otio_str, encoding="utf-8")
+    asset_id = ctx.registry.allocate_id("otio")
+    ctx.registry.register_output(
+        asset_id,
+        kind="otio",
+        path=str(out_path),
+        summary=f"OTIO export of project {project.project_id}",
+    )
+    return {
+        "asset_id": asset_id,
+        "otio_path": str(out_path),
+        "project_id": project.project_id,
+        "clip_count": len((p.get("timeline") or {}).get("clips") or []),
+        "note": "OTIO file written; compatible with DaVinci Resolve, Final Cut Pro, and other NLEs",
+    }
+
+
+async def dispatch_import_otio(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Import an .otio file and replace the current project timeline."""
+    from lumerai.otio_adapter import otio_json_to_project
+    from lumerai.patches import apply_timeline_patches
+
+    otio_path_str = str(args.get("otio_path") or "")
+    if not otio_path_str:
+        raise ValueError("import_otio requires 'otio_path'")
+    from pathlib import Path as _Path
+    otio_path = _Path(otio_path_str)
+    if not otio_path.exists():
+        raise FileNotFoundError(f"OTIO file not found: {otio_path}")
+    otio_str = otio_path.read_text(encoding="utf-8")
+    imported = otio_json_to_project(otio_str)
+
+    project = _project(ctx)
+    # Apply the imported project as a full replace via a single patch.
+    patch = {
+        "version": 1,
+        "ops": [
+            {
+                "op": "set_timeline_format",
+                "fps": imported["timeline"]["fps"],
+                "width": imported["timeline"]["width"],
+                "height": imported["timeline"]["height"],
+            }
+        ],
+    }
+    project.apply_ops([patch])
+    # Now insert all clips from the imported project.
+    insert_ops = []
+    for clip in imported["timeline"].get("clips") or []:
+        insert_ops.append({
+            "op": "insert_clip",
+            "track_id": clip.get("track_id", "V1"),
+            "at": clip.get("start", 0.0),
+            "clip": clip,
+        })
+    if insert_ops:
+        project.apply_ops([{"version": 1, "ops": insert_ops}])
+
+    final = project.load()
+    tl = final.get("timeline") or {}
+    return {
+        "project_id": project.project_id,
+        "title": imported.get("title"),
+        "clip_count": len(tl.get("clips") or []),
+        "track_count": len(tl.get("tracks") or []),
+        "duration": tl.get("duration"),
+        "fps": tl.get("fps"),
+        "note": "OTIO timeline imported; original project replaced. Use timeline_undo to revert.",
+    }
