@@ -621,17 +621,27 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "project_export_otio",
-        "Export the current project timeline as an OpenTimelineIO (.otio) file for use in DaVinci Resolve, Final Cut Pro, Premiere Pro, and other NLEs. Returns the path to the written .otio file.",
+        "Export the current project timeline to an OpenTimelineIO-family interchange file for DaVinci Resolve, Premiere, Final Cut and other NLEs. format defaults to 'otio' (lossless JSON). otioz/otiod also bundle the media; edl/fcp7/fcpx are lossy and need the optional interop plugins. Returns the written file as a registered asset_id.",
         {
+            "format": {
+                "type": "string",
+                "enum": ["otio", "otioz", "otiod", "edl", "fcp7", "fcpx"],
+                "description": "Interchange format. otio=lossless JSON (default); otioz/otiod=lossless bundle with media; edl/fcp7/fcpx=lossy NLE formats (need lumeri[interop]).",
+            },
             "label": {"type": "string", "description": "Base filename label (without extension). Default 'project'."},
         },
         [],
     ),
     _tool(
         "project_import_otio",
-        "Import an OpenTimelineIO (.otio) file and replace the current session project's timeline. The prior state can be restored with timeline_undo.",
+        "Import an OpenTimelineIO-family interchange file and replace the current session project's timeline. format defaults to 'otio'; use the same token the file was written with. The prior state can be restored with timeline_undo.",
         {
-            "otio_path": {"type": "string", "description": "Absolute path to the .otio file to import."},
+            "otio_path": {"type": "string", "description": "Absolute path to the interchange file to import."},
+            "format": {
+                "type": "string",
+                "enum": ["otio", "otioz", "otiod", "edl", "fcp7", "fcpx"],
+                "description": "Interchange format of the file (default 'otio').",
+            },
         },
         ["otio_path"],
     ),
