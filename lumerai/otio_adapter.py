@@ -119,6 +119,7 @@ def project_to_otio(project: dict[str, Any]) -> otio_schema.Timeline:
                     "locked": bool(track_def.get("locked", False)),
                     "muted": bool(track_def.get("muted", False)),
                     "index": track_def.get("index", 0),
+                    "duck_under": track_def.get("duck_under"),
                 }
             },
         )
@@ -267,6 +268,7 @@ def otio_to_project(tl: otio_schema.Timeline, *, account_id: str | None = None) 
                 "index": int(_float_or(track_meta.get("index"), len(gemia_tracks))),
                 "locked": bool(track_meta.get("locked", False)),
                 "muted": bool(track_meta.get("muted", False)),
+                "duck_under": str(track_meta.get("duck_under")) if track_meta.get("duck_under") else None,
             }
         )
 
@@ -464,8 +466,8 @@ def _build_asset(
 
 def _default_tracks_fallback() -> list[dict[str, Any]]:
     return [
-        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False},
-        {"id": "A1", "kind": "audio", "name": "Audio 1", "index": 1, "locked": False, "muted": False},
+        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False, "duck_under": None},
+        {"id": "A1", "kind": "audio", "name": "Audio 1", "index": 1, "locked": False, "muted": False, "duck_under": None},
     ]
 
 
