@@ -109,7 +109,7 @@
     const busy = !state.sessionId || state.turnInProgress;
     els.sendBtn.disabled = busy;
     els.uploadBtn.disabled = busy;
-    document.querySelectorAll(".pt-action-btn").forEach((b) => { b.disabled = busy; });
+    document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
 
     if (!state.turns.length) {
       els.timeline.hidden = true;
@@ -630,6 +630,27 @@
     document.querySelectorAll("#project-timeline-tracks .pt-clip").forEach((el) => {
       el.classList.toggle("selected", el.dataset.clipId === clipId);
     });
+    updateEditHint();
+  }
+
+  function selectedClip() {
+    const tl = state.projectTimeline;
+    if (!tl || !state.selectedClipId) return null;
+    for (const tr of tl.tracks || []) {
+      for (const c of (tr.clips || [])) {
+        if (c.id === state.selectedClipId) return c;
+      }
+    }
+    return null;
+  }
+
+  function updateEditHint() {
+    const hint = document.getElementById("pt-edit-hint");
+    if (!hint) return;
+    const c = selectedClip();
+    hint.textContent = c
+      ? `${c.id} · ${fmtSec(c.start)}–${fmtSec(c.start + c.duration)}`
+      : "select a clip to edit";
   }
 
   function setupTimelineDirectEdit() {
@@ -697,6 +718,31 @@
     };
     root.addEventListener("pointerup", finish);
     root.addEventListener("pointercancel", finish);
+
+    // DE-C: split / delete / undo controls + Delete key (all via /timeline/op).
+    document.getElementById("pt-split-btn")?.addEventListener("click", () => {
+      const c = selectedClip();
+      if (!c || !editingEnabled()) return;
+      postTimelineOp({ op: "split", clip_id: c.id, at_time: +(c.start + c.duration / 2).toFixed(6) });
+    });
+    document.getElementById("pt-delete-btn")?.addEventListener("click", () => {
+      const c = selectedClip();
+      if (!c || !editingEnabled()) return;
+      postTimelineOp({ op: "delete", clip_id: c.id }).then(() => { state.selectedClipId = null; updateEditHint(); });
+    });
+    document.getElementById("pt-undo-btn")?.addEventListener("click", () => {
+      if (!editingEnabled()) return;
+      postTimelineOp({ op: "undo", steps: 1 });
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Delete" && ev.key !== "Backspace") return;
+      const t = ev.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const c = selectedClip();
+      if (!c || !editingEnabled()) return;
+      ev.preventDefault();
+      postTimelineOp({ op: "delete", clip_id: c.id }).then(() => { state.selectedClipId = null; updateEditHint(); });
+    });
   }
 
   // px→seconds positioning; DE-D overrides snapping behaviour. Base: clamp >= 0.
