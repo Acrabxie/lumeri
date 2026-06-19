@@ -208,3 +208,48 @@ def test_lossy_degrades_gracefully(fmt: str, tmp_path: Path) -> None:
     # No text clip should survive a lossy NLE export (defined degradation).
     assert all(c.get("media_kind") != "text" for c in rclips)
 
+
+# ── M8-B regression: the export/import_otio VERBS (M5 left both broken) ───────
+
+
+def test_export_import_otio_verbs_roundtrip(tmp_path: Path) -> None:
+    """Drive project_export_otio + project_import_otio through the DISPATCHER.
+
+    M5 left export crashing on allocate_id('otio') and import double-wrapping the
+    patch with a wrong insert shape; both were untested. This locks the M8-B fix
+    and the format arg end to end.
+    """
+    import asyncio
+
+    from gemia.project_store import ProjectHandle
+    from gemia.tools import DISPATCHER
+    from gemia.tools._context import AssetRegistry, ToolContext
+
+    def _ctx(session: str) -> ToolContext:
+        reg = AssetRegistry()
+        handle = ProjectHandle.open(tmp_path / session, session, session_id=session)
+        return ToolContext(session_id=session, output_dir=tmp_path, registry=reg,
+                           emit_progress=lambda _u: None, project=handle)
+
+    def _call(verb: str, args: dict, ctx: ToolContext) -> dict:
+        return asyncio.run(DISPATCHER[verb](args, ctx))
+
+    src = _ctx("m8verb_src")
+    vid = _real_video(tmp_path, "v.mp4", 2.0)
+    aid = src.registry.add_external(vid, summary="v").asset_id
+    _call("timeline_insert_clip", {"asset_id": aid}, src)
+
+    out = _call("project_export_otio", {"label": "viaverb", "format": "otio"}, src)
+    assert str(out["asset_id"]).startswith("otio")  # allocate_id('otio') no longer crashes
+    assert out["format"] == "otio"
+    assert out["clip_count"] == 1
+    assert Path(out["otio_path"]).exists()
+
+    dst = _ctx("m8verb_dst")
+    imp = _call("project_import_otio", {"otio_path": out["otio_path"], "format": "otio"}, dst)
+    assert imp["format"] == "otio"
+    assert imp["clip_count"] == 1
+    clips = dst.project.load()["timeline"]["clips"]
+    assert len(clips) == 1 and clips[0]["media_kind"] == "video"
+
+
