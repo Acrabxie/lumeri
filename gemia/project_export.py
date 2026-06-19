@@ -105,6 +105,13 @@ def export_project(
     work_dir = store.renders_dir(project_id) / f"{export_id}.export-work"
     _reset_dir(work_dir)
 
+    # The audio-inclusive master length (lumerai.patches._recompute_duration
+    # already folds audio clips into timeline.duration). The composited video
+    # is padded with black to reach it, so a music tail that runs past the last
+    # video clip plays over black instead of an undefined over-run. For no-audio
+    # / audio-shorter projects this equals the video end, so nothing changes.
+    master_duration = _pos(timeline.get("duration"), 0.0)
+
     try:
         base_video = _render_base_video(
             video_clips, assets,
@@ -112,6 +119,7 @@ def export_project(
             width=width, height=height, fps=fps,
             quality=quality,
             timeout_sec=timeout_sec,
+            min_duration=master_duration,
         )
 
         # Pass 3 input: gather every audio source first. When there is none
@@ -192,12 +200,20 @@ def _render_base_video(
     fps: float,
     quality: str,
     timeout_sec: int,
+    min_duration: float = 0.0,
 ) -> Path:
-    """Render the base video track to an intermediate file."""
+    """Render the base video track to an intermediate file.
+
+    ``min_duration`` is the audio-inclusive master length: when it exceeds the
+    last video clip's end, the segment list gains a trailing black gap so the
+    composited video reaches the timeline end (a music tail then plays over
+    black instead of running past a frozen frame).
+    """
     profile = _QUALITY_PROFILES[quality]
-    timeline_duration = max(
+    video_end = max(
         _pos(c["clip"].get("start"), 0.0) + _clip_duration(c["clip"]) for c in video_clips
     )
+    timeline_duration = max(video_end, _pos(min_duration, 0.0))
     segments: list[dict[str, Any]] = _timeline_segments(video_clips, timeline_duration)
     segment_paths: list[Path] = []
 
