@@ -426,6 +426,7 @@ def _normalize_tracks(value: Any) -> list[dict[str, Any]]:
                 "index": int(_float_or(raw.get("index"), index)),
                 "locked": bool(raw.get("locked", False)),
                 "muted": bool(raw.get("muted", False)),
+                "duck_under": _optional_str(raw.get("duck_under")),
             }
         )
     return tracks or _default_tracks()
@@ -433,8 +434,8 @@ def _normalize_tracks(value: Any) -> list[dict[str, Any]]:
 
 def _default_tracks() -> list[dict[str, Any]]:
     return [
-        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False},
-        {"id": "A1", "kind": "audio", "name": "Audio 1", "index": 1, "locked": False, "muted": False},
+        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False, "duck_under": None},
+        {"id": "A1", "kind": "audio", "name": "Audio 1", "index": 1, "locked": False, "muted": False, "duck_under": None},
     ]
 
 
