@@ -276,6 +276,8 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
             "name": str(clip.get("name") or asset.get("name") or "clip"),
             "start": float(clip.get("start") or 0.0),
             "duration": float(clip.get("duration") or 0.1),
+            "source_in": float(clip.get("source_in") or 0.0),
+            "source_out": float(clip.get("source_out") or 0.0),
             "media_kind": str(clip.get("media_kind") or "video"),
             "track_id": tid,
             "enabled": bool(clip.get("enabled", True)),
