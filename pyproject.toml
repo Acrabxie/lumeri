@@ -31,6 +31,14 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
 ]
+# Optional NLE interchange adapters (OTIO spun these out of core). Opt in with
+# `pip install lumeri[interop]` to enable EDL / FCP7 XML / FCPX export+import.
+# Core install stays light; otio_json/otioz/otiod ship with opentimelineio.
+interop = [
+    "otio-cmx3600-adapter>=1.0",
+    "otio-fcp-adapter>=1.0",
+    "otio-fcpx-xml-adapter>=1.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

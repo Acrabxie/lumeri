@@ -398,6 +398,94 @@ def otio_json_to_project(otio_json: str, *, account_id: str | None = None) -> di
 
 
 # ---------------------------------------------------------------------------
+# Interchange file formats (M8): route to OTIO file adapters
+# ---------------------------------------------------------------------------
+
+# Stable Lumeri format token -> (OTIO adapter name, file extension).
+_FORMAT_ADAPTERS: dict[str, tuple[str, str]] = {
+    "otio": ("otio_json", ".otio"),
+    "otioz": ("otioz", ".otioz"),
+    "otiod": ("otiod", ".otiod"),
+    "edl": ("cmx_3600", ".edl"),
+    "fcp7": ("fcp_xml", ".xml"),
+    "fcpx": ("fcpx_xml", ".fcpxml"),
+}
+
+# Non-core adapters ship as optional pip plugins (the `interop` extra). Names
+# are used purely for honest, actionable "not installed" errors.
+_ADAPTER_PACKAGES: dict[str, str] = {
+    "cmx_3600": "otio-cmx3600-adapter",
+    "fcp_xml": "otio-fcp-adapter",
+    "fcpx_xml": "otio-fcpx-xml-adapter",
+}
+
+# Lossy interchange formats — callers should flag reduced fidelity.
+LOSSY_FORMATS = frozenset({"edl", "fcp7", "fcpx"})
+
+
+class OtioFormatError(ValueError):
+    """Unknown interchange format token, or a required OTIO adapter is missing."""
+
+
+def format_extension(fmt: str) -> str:
+    try:
+        return _FORMAT_ADAPTERS[fmt][1]
+    except KeyError:
+        raise OtioFormatError(
+            f"unknown OTIO format {fmt!r}; valid: {', '.join(sorted(_FORMAT_ADAPTERS))}"
+        ) from None
+
+
+def available_formats() -> list[str]:
+    """Format tokens whose underlying OTIO adapter is importable right now."""
+    have = set(otio.adapters.available_adapter_names())
+    return [fmt for fmt, (adapter, _ext) in _FORMAT_ADAPTERS.items() if adapter in have]
+
+
+def _adapter_for(fmt: str) -> str:
+    entry = _FORMAT_ADAPTERS.get(fmt)
+    if entry is None:
+        raise OtioFormatError(
+            f"unknown OTIO format {fmt!r}; valid: {', '.join(sorted(_FORMAT_ADAPTERS))}"
+        )
+    adapter_name = entry[0]
+    if adapter_name not in set(otio.adapters.available_adapter_names()):
+        pkg = _ADAPTER_PACKAGES.get(adapter_name)
+        hint = f"; install the optional plugin `pip install {pkg}`" if pkg else ""
+        raise OtioFormatError(
+            f"{fmt!r} needs the OTIO adapter {adapter_name!r}, which is not installed{hint} "
+            f"(or `pip install lumeri[interop]`)"
+        )
+    return adapter_name
+
+
+def write_project_to_file(project: dict[str, Any], path: str | Path, fmt: str = "otio") -> str:
+    """Write a Gemia project to ``path`` in interchange format ``fmt``.
+
+    otioz/otiod bundle the referenced media; media that is missing or not a
+    local file is dropped (MissingIfNotFile) rather than crashing the export.
+    Raises OtioFormatError for unknown tokens or uninstalled adapters.
+    """
+    adapter_name = _adapter_for(fmt)
+    tl = project_to_otio(project)
+    kwargs: dict[str, Any] = {}
+    if adapter_name in {"otioz", "otiod"}:
+        from opentimelineio.adapters.otioz import utils as _bundle_utils
+        kwargs["media_policy"] = _bundle_utils.MediaReferencePolicy.MissingIfNotFile
+    otio.adapters.write_to_file(tl, str(path), adapter_name=adapter_name, **kwargs)
+    return str(path)
+
+
+def read_project_from_file(
+    path: str | Path, fmt: str = "otio", *, account_id: str | None = None
+) -> dict[str, Any]:
+    """Read an interchange file in format ``fmt`` into a canonical project dict."""
+    adapter_name = _adapter_for(fmt)
+    tl = otio.adapters.read_from_file(str(path), adapter_name=adapter_name)
+    return otio_to_project(tl, account_id=account_id)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -501,4 +589,10 @@ __all__ = [
     "otio_to_project",
     "project_to_otio",
     "project_to_otio_json",
+    "write_project_to_file",
+    "read_project_from_file",
+    "available_formats",
+    "format_extension",
+    "LOSSY_FORMATS",
+    "OtioFormatError",
 ]
