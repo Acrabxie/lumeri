@@ -1,15 +1,20 @@
 """Full-quality multi-track export from ProjectStore state.
 
-Reads the current project (video + overlay tracks) and produces a final
-H.264 MP4 via a two-pass strategy:
+Reads the current project (video + overlay + audio tracks) and produces a
+final H.264/AAC MP4 via a three-pass strategy:
   pass 1 — render base video track (all enabled video clips concatenated,
             full resolution, no overlay)
   pass 2 — apply overlay track clips (image overlays + text captions) via
             a complex ffmpeg filtergraph on top of the base video
+  pass 3 — build the final audio and mux it onto the composited video:
+            every audio source — audio-track clips plus the embedded audio
+            of video-track clips (unless the clip is muted) — is trimmed to
+            its source range, gained (dB->linear), faded, positioned on the
+            timeline via adelay, and mixed with amix (mirrors mix_audio).
 
-This module is deliberately conservative for v1: only video and overlay
-tracks are composited; audio and marker tracks are reserved for a future
-pass.
+Backward compatible: a project with no audio anywhere (no audio clips and
+no video clip carrying a real, unmuted audio stream) keeps the silent
+``-an`` path and exports exactly as before.
 """
 from __future__ import annotations
 
@@ -84,6 +89,7 @@ def export_project(
     assets = _build_asset_map(project)
     video_clips = _enabled_video_clips(project, assets)
     overlay_clips = _enabled_overlay_clips(project, assets)
+    audio_clips = _enabled_audio_clips(project, assets)
 
     if not video_clips:
         raise ProjectExportError(
@@ -108,22 +114,40 @@ def export_project(
             timeout_sec=timeout_sec,
         )
 
+        # Pass 3 input: gather every audio source first. When there is none
+        # (no audio clips and no unmuted video clip with a real audio stream),
+        # we keep the exact silent path below — backward compatible.
+        audio_sources = _collect_audio_sources(video_clips, audio_clips, assets)
+
+        # The composited (silent) video either goes straight to export_path
+        # (no audio → current behaviour) or to a work intermediate we then mux.
+        composited = (work_dir / "composited.mp4") if audio_sources else export_path
         if overlay_clips:
             _apply_overlays(
                 base_video, overlay_clips, assets,
-                output=export_path,
+                output=composited,
                 width=width, height=height, fps=fps,
                 quality=quality,
                 timeout_sec=timeout_sec,
             )
+        elif audio_sources:
+            # Reuse the silent base directly as the video to mux against.
+            composited = base_video
         else:
-            # No overlays — just copy the base video to final location.
+            # No overlays, no audio — copy the base video to final location.
             _run_ffmpeg(
                 ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                  "-i", str(base_video),
                  "-c", "copy",
                  "-movflags", "+faststart",
                  str(export_path)],
+                output=export_path,
+                timeout_sec=timeout_sec,
+            )
+
+        if audio_sources:
+            _mux_audio_onto_video(
+                composited, audio_sources,
                 output=export_path,
                 timeout_sec=timeout_sec,
             )
@@ -145,6 +169,9 @@ def export_project(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "video_clips_rendered": len(video_clips),
         "overlay_clips_rendered": len(overlay_clips),
+        "audio_clips_rendered": len(audio_clips),
+        "audio_sources_rendered": len(audio_sources),
+        "has_audio": bool(audio_sources),
     }
     manifest_path = store.renders_dir(project_id) / f"{export_id}.manifest.json"
     _write_json(manifest_path, manifest)
@@ -425,6 +452,150 @@ def _apply_overlays(
     _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
 
 
+# ── pass 3: audio mix + mux ──────────────────────────────────────────────────
+
+
+def _collect_audio_sources(
+    video_clips: list[dict[str, Any]],
+    audio_clips: list[dict[str, Any]],
+    assets: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build the positioned audio sources for the final mix.
+
+    Two origins, mirroring an NLE: (a) every enabled audio-track clip, and
+    (b) the embedded audio of each enabled video-track clip — kept by default
+    so a talking-head clip keeps its voice — unless that clip is ``muted`` or
+    its source carries no audio stream. The latter is what keeps no-audio
+    projects (silent renders / testsrc2) on the silent ``-an`` path.
+
+    Each source is ``{path, source_in, source_out, start, gain_db, fade_in,
+    fade_out}`` (seconds as floats). Returns ``[]`` when there is no audio.
+    """
+    sources: list[dict[str, Any]] = []
+
+    # (a) audio-track clips.
+    for clip in audio_clips:
+        asset = assets.get(str(clip.get("asset_id") or ""))
+        if not isinstance(asset, dict):
+            continue
+        source = Path(str(asset.get("source_path") or "")).expanduser()
+        if not source.exists():
+            continue
+        src = _audio_source_from_clip(clip, source)
+        if src is not None:
+            sources.append(src)
+
+    # (b) embedded audio of video-track clips (default-on; muted opts out).
+    probe_cache: dict[str, bool] = {}
+    for item in video_clips:
+        clip = item["clip"]
+        effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
+        if bool(effects.get("muted", False)):
+            continue
+        asset = item["asset"]
+        source = Path(str(asset.get("source_path") or "")).expanduser()
+        if not source.exists():
+            continue
+        key = str(source)
+        if key not in probe_cache:
+            probe_cache[key] = _source_has_audio(source)
+        if not probe_cache[key]:
+            continue
+        src = _audio_source_from_clip(clip, source)
+        if src is not None:
+            sources.append(src)
+
+    return sources
+
+
+def _audio_source_from_clip(clip: dict[str, Any], source: Path) -> dict[str, Any] | None:
+    source_in = _pos(clip.get("source_in"), 0.0)
+    source_out = _pos(clip.get("source_out"), source_in + _clip_duration(clip))
+    if source_out - source_in <= 0.001:
+        return None
+    effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
+    return {
+        "path": source,
+        "source_in": source_in,
+        "source_out": source_out,
+        "start": _pos(clip.get("start"), 0.0),
+        "gain_db": _float(effects.get("gain_db"), 0.0),
+        "fade_in": max(_float(effects.get("fade_in"), 0.0), 0.0),
+        "fade_out": max(_float(effects.get("fade_out"), 0.0), 0.0),
+    }
+
+
+def _source_has_audio(source: Path) -> bool:
+    for stream in _ffprobe(source).get("streams") or []:
+        if isinstance(stream, dict) and stream.get("codec_type") == "audio":
+            return True
+    return False
+
+
+def _mux_audio_onto_video(
+    video: Path,
+    audio_sources: list[dict[str, Any]],
+    *,
+    output: Path,
+    timeout_sec: int,
+) -> None:
+    """Mix all positioned audio sources and mux onto the (silent) video.
+
+    Mirrors gemia/tools/mix_audio.py: per-source gain via ``volume`` (dB ->
+    linear), ``afade`` in/out, timeline placement via ``adelay``, then
+    ``amix=...:duration=longest:dropout_transition=0``. Each source is
+    normalized to fltp/48k/stereo so amix never trips on mismatched layouts.
+    Video is stream-copied (already final-encoded); audio is AAC.
+    """
+    cmd: list[str] = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video)]
+    for src in audio_sources:
+        cmd += ["-i", str(src["path"])]
+
+    filter_parts: list[str] = []
+    labels: list[str] = []
+    for i, src in enumerate(audio_sources):
+        in_idx = i + 1  # input 0 is the silent video
+        dur = src["source_out"] - src["source_in"]
+        chain = (
+            f"[{in_idx}:a]atrim=start={src['source_in']:.6f}:end={src['source_out']:.6f},"
+            f"asetpts=PTS-STARTPTS"
+        )
+        if abs(src["gain_db"]) > 1e-6:
+            chain += f",volume={_db_to_linear(src['gain_db']):.6f}"
+        fade_in = min(src["fade_in"], dur)
+        if fade_in > 1e-3:
+            chain += f",afade=t=in:st=0:d={fade_in:.6f}"
+        fade_out = min(src["fade_out"], dur)
+        if fade_out > 1e-3:
+            chain += f",afade=t=out:st={max(dur - fade_out, 0.0):.6f}:d={fade_out:.6f}"
+        chain += ",aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+        start_ms = int(round(src["start"] * 1000.0))
+        if start_ms > 0:
+            chain += f",adelay={start_ms}:all=1"
+        label = f"[a{i}]"
+        filter_parts.append(f"{chain}{label}")
+        labels.append(label)
+
+    if len(labels) == 1:
+        # amix needs >= 2 inputs; a lone source just passes through to [aout].
+        filter_parts.append(f"{labels[0]}anull[aout]")
+    else:
+        filter_parts.append(
+            "".join(labels)
+            + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0[aout]"
+        )
+
+    cmd += [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", "0:v", "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-movflags", "+faststart",
+        str(output),
+    ]
+    _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
+
+
 # ── clip / asset helpers ─────────────────────────────────────────────────────
 
 
@@ -464,6 +635,24 @@ def _enabled_overlay_clips(
             continue
         media_kind = str(clip.get("media_kind") or "")
         if media_kind not in {"image", "text"}:
+            continue
+        result.append(clip)
+    result.sort(key=lambda c: _pos(c.get("start"), 0.0))
+    return result
+
+
+def _enabled_audio_clips(
+    project: dict[str, Any], assets: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Enabled audio-track clips (media_kind == 'audio') with a resolvable asset."""
+    timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
+    result: list[dict[str, Any]] = []
+    for clip in timeline.get("clips") or []:
+        if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
+            continue
+        if str(clip.get("media_kind") or "") != "audio":
+            continue
+        if not isinstance(assets.get(str(clip.get("asset_id") or "")), dict):
             continue
         result.append(clip)
     result.sort(key=lambda c: _pos(c.get("start"), 0.0))
@@ -567,6 +756,19 @@ def _pos(value: Any, default: float) -> float:
     if not math.isfinite(n) or n < 0:
         return float(default)
     return n
+
+
+def _float(value: Any, default: float) -> float:
+    """Like _pos but allows negatives (e.g. gain_db can be < 0)."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return n if math.isfinite(n) else float(default)
+
+
+def _db_to_linear(db: float) -> float:
+    return 10.0 ** (db / 20.0)
 
 
 def _clip_duration(clip: dict[str, Any]) -> float:
