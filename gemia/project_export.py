@@ -154,10 +154,16 @@ def export_project(
             )
 
         if audio_sources:
+            duck_map = {
+                str(t.get("id")): str(t.get("duck_under"))
+                for t in (timeline.get("tracks") or [])
+                if isinstance(t, dict) and t.get("duck_under")
+            }
             _mux_audio_onto_video(
                 composited, audio_sources,
                 output=export_path,
                 timeout_sec=timeout_sec,
+                duck_map=duck_map,
             )
     finally:
         _cleanup_dir(work_dir)
@@ -532,6 +538,7 @@ def _audio_source_from_clip(clip: dict[str, Any], source: Path) -> dict[str, Any
     effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
     return {
         "path": source,
+        "track_id": str(clip.get("track_id") or ""),
         "source_in": source_in,
         "source_out": source_out,
         "start": _pos(clip.get("start"), 0.0),
@@ -548,58 +555,87 @@ def _source_has_audio(source: Path) -> bool:
     return False
 
 
+def _audio_source_chain(i: int, src: dict[str, Any]) -> str:
+    """One positioned-source filter chain ending in label ``[a{i}]``.
+
+    atrim -> (volume gain) -> (afade in/out) -> aformat fltp/48k/stereo ->
+    (adelay to the clip's timeline start). Mirrors gemia/tools/mix_audio.py.
+    """
+    in_idx = i + 1  # input 0 is the silent video
+    dur = src["source_out"] - src["source_in"]
+    chain = (
+        f"[{in_idx}:a]atrim=start={src['source_in']:.6f}:end={src['source_out']:.6f},"
+        f"asetpts=PTS-STARTPTS"
+    )
+    if abs(src["gain_db"]) > 1e-6:
+        chain += f",volume={_db_to_linear(src['gain_db']):.6f}"
+    fade_in = min(src["fade_in"], dur)
+    if fade_in > 1e-3:
+        chain += f",afade=t=in:st=0:d={fade_in:.6f}"
+    fade_out = min(src["fade_out"], dur)
+    if fade_out > 1e-3:
+        chain += f",afade=t=out:st={max(dur - fade_out, 0.0):.6f}:d={fade_out:.6f}"
+    chain += ",aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+    start_ms = int(round(src["start"] * 1000.0))
+    if start_ms > 0:
+        chain += f",adelay={start_ms}:all=1"
+    return f"{chain}[a{i}]"
+
+
+def _resolve_duck_map(
+    duck_map: dict[str, str] | None, audio_sources: list[dict[str, Any]]
+) -> dict[str, str]:
+    """Keep only bed->trigger pairs where both tracks actually have audio."""
+    if not duck_map:
+        return {}
+    have = {str(s.get("track_id") or "") for s in audio_sources if s.get("track_id")}
+    return {
+        bed: trigger
+        for bed, trigger in duck_map.items()
+        if bed in have and trigger in have and bed != trigger
+    }
+
+
+def _label(track_id: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in str(track_id)) or "x"
+
+
 def _mux_audio_onto_video(
     video: Path,
     audio_sources: list[dict[str, Any]],
     *,
     output: Path,
     timeout_sec: int,
+    duck_map: dict[str, str] | None = None,
 ) -> None:
     """Mix all positioned audio sources and mux onto the (silent) video.
 
-    Mirrors gemia/tools/mix_audio.py: per-source gain via ``volume`` (dB ->
-    linear), ``afade`` in/out, timeline placement via ``adelay``, then
-    ``amix=...:duration=longest:dropout_transition=0``. Each source is
-    normalized to fltp/48k/stereo so amix never trips on mismatched layouts.
-    Video is stream-copied (already final-encoded); audio is AAC.
+    Without an active ducking relationship the graph is a flat
+    ``amix=...:duration=longest`` over every source (identical to M6). With
+    ducking, sources are grouped into per-track submixes; a bed track's submix
+    is sidechain-compressed by its trigger track's submix
+    (``sidechaincompress``, mirroring gemia/tools/mix_audio.py duck mode), then
+    all track submixes are amix'd. Video is stream-copied; audio is AAC.
     """
     cmd: list[str] = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video)]
     for src in audio_sources:
         cmd += ["-i", str(src["path"])]
 
-    filter_parts: list[str] = []
-    labels: list[str] = []
-    for i, src in enumerate(audio_sources):
-        in_idx = i + 1  # input 0 is the silent video
-        dur = src["source_out"] - src["source_in"]
-        chain = (
-            f"[{in_idx}:a]atrim=start={src['source_in']:.6f}:end={src['source_out']:.6f},"
-            f"asetpts=PTS-STARTPTS"
-        )
-        if abs(src["gain_db"]) > 1e-6:
-            chain += f",volume={_db_to_linear(src['gain_db']):.6f}"
-        fade_in = min(src["fade_in"], dur)
-        if fade_in > 1e-3:
-            chain += f",afade=t=in:st=0:d={fade_in:.6f}"
-        fade_out = min(src["fade_out"], dur)
-        if fade_out > 1e-3:
-            chain += f",afade=t=out:st={max(dur - fade_out, 0.0):.6f}:d={fade_out:.6f}"
-        chain += ",aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-        start_ms = int(round(src["start"] * 1000.0))
-        if start_ms > 0:
-            chain += f",adelay={start_ms}:all=1"
-        label = f"[a{i}]"
-        filter_parts.append(f"{chain}{label}")
-        labels.append(label)
+    filter_parts: list[str] = [_audio_source_chain(i, src) for i, src in enumerate(audio_sources)]
+    active = _resolve_duck_map(duck_map, audio_sources)
 
-    if len(labels) == 1:
-        # amix needs >= 2 inputs; a lone source just passes through to [aout].
-        filter_parts.append(f"{labels[0]}anull[aout]")
+    if not active:
+        # Flat path — byte-for-behaviour identical to M6 (no ducking configured).
+        labels = [f"[a{i}]" for i in range(len(audio_sources))]
+        if len(labels) == 1:
+            filter_parts.append(f"{labels[0]}anull[aout]")
+        else:
+            filter_parts.append(
+                "".join(labels)
+                + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0[aout]"
+            )
     else:
-        filter_parts.append(
-            "".join(labels)
-            + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0[aout]"
-        )
+        _append_ducked_mix(filter_parts, audio_sources, active)
 
     cmd += [
         "-filter_complex", ";".join(filter_parts),
@@ -610,6 +646,60 @@ def _mux_audio_onto_video(
         str(output),
     ]
     _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
+
+
+def _append_ducked_mix(
+    filter_parts: list[str],
+    audio_sources: list[dict[str, Any]],
+    active: dict[str, str],
+) -> None:
+    """Per-track submix -> sidechain beds under triggers -> amix to [aout]."""
+    # Group source indices by track (insertion order preserved).
+    by_track: dict[str, list[int]] = {}
+    for i, src in enumerate(audio_sources):
+        by_track.setdefault(str(src.get("track_id") or ""), []).append(i)
+
+    # Per-track raw submix -> [raw_<t>].
+    for tid, idxs in by_track.items():
+        raw = f"[raw_{_label(tid)}]"
+        if len(idxs) == 1:
+            filter_parts.append(f"[a{idxs[0]}]anull{raw}")
+        else:
+            filter_parts.append(
+                "".join(f"[a{j}]" for j in idxs)
+                + f"amix=inputs={len(idxs)}:duration=longest:dropout_transition=0{raw}"
+            )
+
+    # Split each trigger submix into a mix copy and a sidechain copy.
+    triggers = set(active.values())
+    premix: dict[str, str] = {}
+    for tid in by_track:
+        if tid in triggers:
+            mix_l, sc_l = f"[mix_{_label(tid)}]", f"[sc_{_label(tid)}]"
+            filter_parts.append(f"[raw_{_label(tid)}]asplit=2{mix_l}{sc_l}")
+            premix[tid] = mix_l
+        else:
+            premix[tid] = f"[raw_{_label(tid)}]"
+
+    # Beds: compress the bed's premix against its trigger's sidechain copy.
+    final: dict[str, str] = dict(premix)
+    for bed, trigger in active.items():
+        duck_l = f"[duck_{_label(bed)}]"
+        filter_parts.append(
+            f"{premix[bed]}[sc_{_label(trigger)}]"
+            "sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400"
+            f"{duck_l}"
+        )
+        final[bed] = duck_l
+
+    final_labels = [final[tid] for tid in by_track]
+    if len(final_labels) == 1:
+        filter_parts.append(f"{final_labels[0]}anull[aout]")
+    else:
+        filter_parts.append(
+            "".join(final_labels)
+            + f"amix=inputs={len(final_labels)}:duration=longest:dropout_transition=0[aout]"
+        )
 
 
 # ── clip / asset helpers ─────────────────────────────────────────────────────
