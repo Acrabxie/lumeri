@@ -691,11 +691,13 @@
       if (!d) return;
       const deltaSec = ((ev.clientX - d.startX) / d.bodyW) * d.dur;
       if (d.mode === "right") {
-        const newDur = Math.max(0.1, d.origDur + deltaSec);
+        // Snap the trailing edge to neighbour edges / grid, derive duration.
+        const newEnd = snapSeconds(d.origStart + d.origDur + deltaSec, d);
+        const newDur = Math.max(0.1, newEnd - d.origStart);
         d.pendingDur = newDur;
         d.el.style.width = `${Math.max((newDur / d.dur) * 100, 0.3).toFixed(2)}%`;
       } else {
-        const newStart = posSeconds(d.origStart + deltaSec, d.dur, d.bodyW, d.clipId);
+        const newStart = snapSeconds(d.origStart + deltaSec, d);
         d.pendingStart = newStart;
         d.el.style.left = `${((newStart / d.dur) * 100).toFixed(2)}%`;
       }
@@ -745,9 +747,24 @@
     });
   }
 
-  // px→seconds positioning; DE-D overrides snapping behaviour. Base: clamp >= 0.
-  function posSeconds(sec, _dur, _bodyW, _excludeClipId) {
-    return Math.max(0, sec);
+  // DE-D snapping: snap a timeline second to nearby edges of OTHER clips
+  // (within ~6px) and otherwise to a coarse 0.1s grid; clamp >= 0.
+  function snapSeconds(sec, d) {
+    sec = Math.max(0, sec);
+    if (!d || d.dur <= 0 || d.bodyW <= 0) return sec;
+    const tolSec = (6 / d.bodyW) * d.dur;
+    let best = sec, bestDist = tolSec;
+    document.querySelectorAll("#project-timeline-tracks .pt-clip").forEach((el) => {
+      if (el.dataset.clipId === d.clipId) return;
+      const s = parseFloat(el.dataset.start) || 0;
+      const e = s + (parseFloat(el.dataset.duration) || 0);
+      for (const edge of [s, e]) {
+        const dist = Math.abs(sec - edge);
+        if (dist < bestDist) { best = edge; bestDist = dist; }
+      }
+    });
+    if (bestDist === tolSec) best = Math.round(sec * 10) / 10;   // no edge → 0.1s grid
+    return Math.max(0, best);
   }
 
   // ── API calls ───────────────────────────────────────────────────────
