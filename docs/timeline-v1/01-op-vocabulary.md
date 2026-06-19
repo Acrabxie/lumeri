@@ -3,6 +3,13 @@
 > 拍板依据（2026-06-13，Acrab）：细粒度 verb、overlay-as-clip、ripple 默认关、
 > v1 = 视频轨 + overlay/text 轨（音频轨与关键帧仅预留字段）。
 > 本文是 `lumerai/patches.py` 与 `gemia/project_model.py` 扩展的实现契约。
+>
+> **M6 修订（2026-06-19）：音频轨进入执行面。** 音频不再是预留字段：`add_track
+> kind=audio`、音频 clip 的 insert/move/delete/trim、以及 `gain_db`/`fade_in`/
+> `fade_out`/`muted` 音频属性（经 `set_clip_effects`）全部可用，渲染器（`project_export`）
+> 第三遍把音频混音并 mux 进导出。下文凡标 “预留/reserved” 的音频条目均以本节修订为准
+> （§2.5、§3.4、§3.9、§3.10、§4、§5 已就地更新）。**仍推迟**：轨级 ducking 关系
+> （音乐轨自动避让人声轨）与 `render_preview` 预览音频——见 §4。
 
 ## 0. 范围与不变量
 
@@ -49,7 +56,11 @@ class TimelinePatchError(ValueError):
    - `media_kind == "image"`：**仅当 duration 缺失或 ≤0 时**才强制 `IMAGE_DURATION`，
      显式 duration 必须尊重（旧行为是无条件强制——放宽；若全量测试有依赖旧行为的用例，
      修测试并在报告里逐条列出）。
-5. 音频轨为**预留**：任何 op 以 audio 轨为目标 → `E_TRACK_KIND`。
+5. ~~音频轨为**预留**：任何 op 以 audio 轨为目标 → `E_TRACK_KIND`。~~
+   **M6：音频轨可执行。** 媒体/轨匹配规则：audio clip ⇒ audio 轨；audio 轨拒绝
+   video/image/text（`E_TRACK_KIND`）。音频 clip 走 `media_kind == "audio"` 的常规
+   normalize（duration、source_in/out 语义同 video）。`gain_db`/`fade_in`/`fade_out`
+   作为 effects 键（见 §3.9）。
 
 ## 3. Op 词汇表
 
@@ -88,7 +99,8 @@ class TimelinePatchError(ValueError):
 
 ### 3.4 `trim_clip`
 `{op:"trim_clip", clip_id, source_in?, source_out?, ripple?:bool=false}`
-- 仅 video/image clip（text → `E_BAD_ARG`，text 用 `set_clip_time` 改时长）。
+- 仅 video/image/audio clip（text → `E_BAD_ARG`，text 用 `set_clip_time` 改时长）。
+  **M6**：audio clip 的 source_in/source_out 语义与 video 完全一致。
 - 不变量：`duration = source_out - source_in`（v1 不把 effects.speed 折进时长；
   speed 属预留语义，渲染层后续处理）。
 - `0 <= source_in < source_out`；资产 duration 已知（>0）时
@@ -129,13 +141,18 @@ class TimelinePatchError(ValueError):
 - **merge** 进 clip.effects（不整体替换）；显式传 `null` 值表示删除该 key。
 - v1 允许 key 白名单：`rotation(0|90|180|270), mirrored(bool), muted(bool),
   speed(float>0, 预留——本层只存值), blur_radius(float>=0), opacity(0..1),
-  x(float), y(float), scale(float>0)`；白名单外 key → `E_BAD_ARG`。
+  x(float), y(float), scale(float>0)`；
+  **M6 新增音频键**：`gain_db(float，dB，可负，默认 0)`、`fade_in(float secs>=0，默认 0)`、
+  `fade_out(float secs>=0，默认 0)`；`muted(bool)` 复用既有键（音频 clip：true=不输出该
+  clip 声音）。白名单外 key → `E_BAD_ARG`。
 - `x/y/scale/opacity` 主要服务 overlay clip（像素坐标，x/y 为左上角，缺省居中）。
 
 ### 3.10 `add_track` / `remove_track`
-- `{op:"add_track", kind:"video"|"overlay", track_id?, name?}`
-  - kind=audio → `E_TRACK_KIND`（预留）；track_id 缺省自动 `V<n>`/`OV<n>` 取最小未占用序号；
-    重复 track_id → `E_BAD_ARG`。新轨 index 排在同 kind 末尾、audio 轨之前。
+- `{op:"add_track", kind:"video"|"overlay"|"audio", track_id?, name?}`
+  - **M6**：`kind=audio` 现已支持（曾 `E_TRACK_KIND` 预留）。track_id 缺省自动
+    `V<n>`/`OV<n>`/`A<n>` 取最小未占用序号；默认轨已含 `A1`，故首个显式
+    `add_track kind=audio` 通常落 `A2`。重复 track_id → `E_BAD_ARG`。新 video/overlay
+    轨排在同 kind 末尾、audio 之前；新 audio 轨排在最末。
 - `{op:"remove_track", track_id}`：仅空轨可删（有 clip → `E_BAD_ARG`）；`V1` 不可删。
 
 ### 3.11 `set_timeline_format`
@@ -152,18 +169,22 @@ class TimelinePatchError(ValueError):
 
 ## 4. 不做的事（v1 明确排除）
 
-- 音频轨执行面（任何 audio 轨 op 一律 `E_TRACK_KIND`）。
+- ~~音频轨执行面（任何 audio 轨 op 一律 `E_TRACK_KIND`）。~~ **M6 已落地**（见顶部修订）。
+- **音频 ducking 关系（推迟，M6 文档化 follow-up）**：让音乐轨在人声轨之上自动避让，
+  需要轨级关系状态（新字段或新 verb）+ 渲染 `sidechaincompress` 分支。渲染器现以
+  `amix` 干净混音；ducking 用户可暂用 `mix_audio` 工具的 `duck` 模式预混后再插入。
+- **`render_preview` 预览音频（推迟）**：低清代理仍为纯视频（静音），避免破坏 proxy 契约；
+  最终音频以 `project_export` 为准。
 - keyframes 解释/插值（仅 normalize 保留字段）。
 - 画中画（video clip 上 overlay 轨）。
 - 目的地推挤式 move、自动吸附、磁性时间线。
-- OTIO 导入导出。
 
 ## 5. 整体校验 `validate_project(project) -> None`
 
 apply 全部 ops 后执行；违反任一条抛 `TimelinePatchError`：
 - 同轨无重叠（按 track 分组排序后两两比较，EPSILON 容差）；
 - 每个 clip 的 track_id 存在于 timeline.tracks；
-- video/image clip：`source_out - source_in` 与 duration 偏差 ≤ EPSILON
+- video/image/audio clip：`source_out - source_in` 与 duration 偏差 ≤ EPSILON
   （image 的 legacy 强制时长豁免：source 区间 == [0, IMAGE_DURATION] 时不查）；
 - text clip：text_config.content 非空。
 
