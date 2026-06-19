@@ -579,6 +579,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["kind"],
     ),
     _tool(
+        "timeline_set_track",
+        "Set track-level options. Ducking: pass duck_under=<audio track id> to make this audio track a music bed that automatically ducks (lowers) whenever the trigger track (e.g. a voiceover track) is loud; pass duck_under=null to clear it. Both tracks must be audio; no self-reference or cycles.",
+        {
+            "track_id": {"type": "string", "description": "The audio track to configure."},
+            "duck_under": {
+                "type": ["string", "null"],
+                "description": "Audio track id whose loudness ducks this track (sidechain trigger). null clears the relationship.",
+            },
+        },
+        ["track_id"],
+    ),
+    _tool(
         "timeline_undo",
         "Rewind the last N timeline changes (each timeline_* call is one step). Discarded patches are kept for audit.",
         {

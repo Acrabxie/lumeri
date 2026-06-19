@@ -186,3 +186,21 @@ def test_render_preview_registers_video_asset(sample_video_path: str, tmp_path: 
     assert out["asset_id"] is not None
     assert ctx.registry.contains(out["asset_id"])
     assert out["duration"] == pytest.approx(2.0, abs=0.3)
+
+
+# ── M7: track-level ducking verb ─────────────────────────────────────────
+
+
+def test_set_track_duck_under_via_verb(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path)
+    _call("timeline_add_track", {"kind": "audio"}, ctx)  # A2 (A1 is default)
+
+    out = _call("timeline_set_track", {"track_id": "A1", "duck_under": "A2"}, ctx)
+    assert out["applied"] is True
+    tracks = {t["id"]: t for t in ctx.project.load()["timeline"]["tracks"]}
+    assert tracks["A1"]["duck_under"] == "A2"
+
+    # Clearing it sets the field back to None.
+    _call("timeline_set_track", {"track_id": "A1", "duck_under": None}, ctx)
+    tracks = {t["id"]: t for t in ctx.project.load()["timeline"]["tracks"]}
+    assert tracks["A1"]["duck_under"] is None
