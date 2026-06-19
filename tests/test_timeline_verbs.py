@@ -86,14 +86,29 @@ def test_insert_text_autocreates_overlay_track(tmp_path: Path) -> None:
     assert "OV1" in tracks and tracks["OV1"]["kind"] == "overlay"
 
 
-def test_insert_audio_asset_is_rejected(tmp_path: Path) -> None:
+def test_insert_audio_asset_lands_on_audio_track(tmp_path: Path) -> None:
+    # M6: audio assets are now first-class — they resolve to the default A1
+    # audio track (auto-created when absent) instead of being rejected.
+    import subprocess
+
     ctx = _ctx(tmp_path)
     wav = tmp_path / "tone.wav"
-    wav.write_bytes(b"RIFF....WAVEfmt ")  # extension-only; registry infers "audio"
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", str(wav)],
+        capture_output=True,
+        check=True,
+    )
     aid = ctx.registry.add_external(wav, summary="audio").asset_id
 
-    with pytest.raises(ValueError, match="audio tracks are reserved"):
-        _call("timeline_insert_clip", {"asset_id": aid}, ctx)
+    out = _call("timeline_insert_clip", {"asset_id": aid}, ctx)
+
+    assert out["applied"] is True
+    assert out["track_id"] == "A1"
+    clips = _clips(ctx)
+    assert len(clips) == 1
+    assert clips[0]["media_kind"] == "audio"
+    assert clips[0]["track_id"] == "A1"
+    assert clips[0]["duration"] == pytest.approx(2.0, abs=0.2)
 
 
 # ── split / trim / move / delete ─────────────────────────────────────────
