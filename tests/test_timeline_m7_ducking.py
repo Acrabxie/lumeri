@@ -107,3 +107,92 @@ def test_export_audio_shorter_than_video_unchanged(tmp_path: Path) -> None:
     meta = _meta(out["export_path"])
     assert audio_stream(meta) is not None
     assert abs(out["duration"] - 4.0) < 0.3
+
+
+# ── M7-D: ducking export path ────────────────────────────────────────────────
+
+
+def test_export_with_duck_under_produces_audio_output(tmp_path: Path) -> None:
+    """A bed track (A2) set to duck_under the voice track (A1) exports without error
+    and the result contains both video and audio streams. Verifies the track_id
+    field flows from clips through _collect_audio_sources into _resolve_duck_map
+    so the sidechain path activates without crashing."""
+    ctx = _make_ctx(tmp_path, "duck1")
+    _call("timeline_insert_clip", {"asset_id": _register(ctx, _silent_video(tmp_path, "v.mp4", 3.0))}, ctx)
+    # Voice on A1
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "voice.wav", 3.0, freq=880)),
+        "track_id": "A1",
+    }, ctx)
+    # Music bed on a second audio track
+    _call("timeline_add_track", {"kind": "audio", "name": "Music"}, ctx)
+    project_state = ctx.project.load()
+    a2_id = next(t["id"] for t in project_state["timeline"]["tracks"] if t.get("kind") == "audio" and t["id"] != "A1")
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "music.wav", 3.0, freq=220)),
+        "track_id": a2_id,
+    }, ctx)
+    # Set the music bed to duck under the voice track
+    _call("timeline_set_track", {"track_id": a2_id, "duck_under": "A1"}, ctx)
+
+    # Verify duck_under is persisted
+    state = ctx.project.load()
+    a2_track = next(t for t in state["timeline"]["tracks"] if t["id"] == a2_id)
+    assert a2_track.get("duck_under") == "A1"
+
+    out = _call("project_export", {"quality": "draft", "label": "duck"}, ctx)
+    meta = _meta(out["export_path"])
+    assert video_stream(meta) is not None
+    assert audio_stream(meta) is not None
+    assert out["duration"] > 0.5
+
+
+def test_export_duck_under_no_active_when_trigger_absent(tmp_path: Path) -> None:
+    """A bed track with duck_under set but the trigger track has no audio clips
+    still exports successfully — the duck pair is silently ignored by _resolve_duck_map
+    because the trigger has no audio sources."""
+    ctx = _make_ctx(tmp_path, "duck2")
+    _call("timeline_insert_clip", {"asset_id": _register(ctx, _silent_video(tmp_path, "v.mp4", 2.0))}, ctx)
+    # Only a music bed on A1, no voice clips on A1
+    _call("timeline_add_track", {"kind": "audio", "name": "Bed"}, ctx)
+    project_state = ctx.project.load()
+    a2_id = next(t["id"] for t in project_state["timeline"]["tracks"] if t.get("kind") == "audio" and t["id"] != "A1")
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "music.wav", 2.0, freq=220)),
+        "track_id": a2_id,
+    }, ctx)
+    # duck_under A1 but A1 has no clips (trigger absent → duck silently skipped)
+    _call("timeline_set_track", {"track_id": a2_id, "duck_under": "A1"}, ctx)
+
+    out = _call("project_export", {"quality": "draft", "label": "noduck"}, ctx)
+    meta = _meta(out["export_path"])
+    assert audio_stream(meta) is not None
+    assert out["duration"] > 0.5
+
+
+def test_export_duck_under_clear_reverts_to_flat_mix(tmp_path: Path) -> None:
+    """Clearing duck_under (set to None) falls back to the flat amix path."""
+    ctx = _make_ctx(tmp_path, "duck3")
+    _call("timeline_insert_clip", {"asset_id": _register(ctx, _silent_video(tmp_path, "v.mp4", 2.0))}, ctx)
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "voice.wav", 2.0, freq=880)),
+        "track_id": "A1",
+    }, ctx)
+    _call("timeline_add_track", {"kind": "audio", "name": "Music"}, ctx)
+    project_state = ctx.project.load()
+    a2_id = next(t["id"] for t in project_state["timeline"]["tracks"] if t.get("kind") == "audio" and t["id"] != "A1")
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "music.wav", 2.0, freq=220)),
+        "track_id": a2_id,
+    }, ctx)
+    _call("timeline_set_track", {"track_id": a2_id, "duck_under": "A1"}, ctx)
+    # Clear it
+    _call("timeline_set_track", {"track_id": a2_id, "duck_under": None}, ctx)
+
+    state = ctx.project.load()
+    a2_track = next(t for t in state["timeline"]["tracks"] if t["id"] == a2_id)
+    assert a2_track.get("duck_under") is None
+
+    out = _call("project_export", {"quality": "draft", "label": "clearduck"}, ctx)
+    meta = _meta(out["export_path"])
+    assert audio_stream(meta) is not None
