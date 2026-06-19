@@ -25,6 +25,7 @@ from gemia.project_model import empty_project, normalize_project
 from lumerai.otio_adapter import (
     available_formats,
     format_extension,
+    read_project_from_file,
     write_project_to_file,
 )
 
@@ -105,3 +106,105 @@ def test_otioz_missing_media_is_graceful(tmp_path: Path) -> None:
         names = zf.namelist()
     assert "content.otio" in names
     assert not any(n.endswith(".mp4") for n in names)
+
+
+# ── M8-D: fidelity matrix ────────────────────────────────────────────────────
+
+
+def _real_audio(tmp_path: Path, name: str, duration: float = 4.0, freq: int = 330) -> Path:
+    out = tmp_path / name
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi",
+         "-i", f"sine=frequency={freq}:duration={duration}", str(out)],
+        capture_output=True, check=True,
+    )
+    return out
+
+
+def _rich_project(tmp_path: Path) -> dict[str, Any]:
+    """Multi video clip + text overlay + music(duck_under voice) + voice."""
+    v1, v2 = _real_video(tmp_path, "a.mp4", 2.0), _real_video(tmp_path, "b.mp4", 2.0)
+    music, voice = _real_audio(tmp_path, "music.wav", 4.0), _real_audio(tmp_path, "voice.wav", 2.0, freq=880)
+    p = empty_project(title="Rich")
+    p["timeline"]["tracks"] = [
+        {"id": "V1", "kind": "video", "name": "V1", "index": 0, "locked": False, "muted": False, "duck_under": None},
+        {"id": "OV1", "kind": "overlay", "name": "OV1", "index": 1, "locked": False, "muted": False, "duck_under": None},
+        {"id": "A1", "kind": "audio", "name": "Music", "index": 2, "locked": False, "muted": False, "duck_under": "A2"},
+        {"id": "A2", "kind": "audio", "name": "Voice", "index": 3, "locked": False, "muted": False, "duck_under": None},
+    ]
+    p["assets"] = [
+        _video_asset("v1", v1), _video_asset("v2", v2),
+        {"id": "mus", "asset_id": "mus", "name": "music.wav", "media_kind": "audio", "source_path": str(music), "duration": 4.0, "metadata": {}},
+        {"id": "voc", "asset_id": "voc", "name": "voice.wav", "media_kind": "audio", "source_path": str(voice), "duration": 2.0, "metadata": {}},
+    ]
+    p["timeline"]["clips"] = [
+        _video_clip("c1", "v1", "a.mp4", start=0.0, duration=2.0),
+        _video_clip("c2", "v2", "b.mp4", start=2.0, duration=2.0),
+        {"id": "t1", "asset_id": "", "track_id": "OV1", "media_kind": "text", "start": 0.5, "duration": 1.5,
+         "source_in": 0.0, "source_out": 1.5, "enabled": True,
+         "text_config": {"content": "Hi", "font_size": 48.0, "color": "#ffffff", "position": None, "align": "center"}},
+        {"id": "m1", "asset_id": "mus", "track_id": "A1", "media_kind": "audio", "start": 0.0, "duration": 4.0,
+         "source_in": 0.0, "source_out": 4.0, "enabled": True, "effects": {"gain_db": -3.0, "fade_in": 0.5, "fade_out": 0.5}},
+        {"id": "vo1", "asset_id": "voc", "track_id": "A2", "media_kind": "audio", "start": 1.0, "duration": 2.0,
+         "source_in": 0.0, "source_out": 2.0, "enabled": True},
+    ]
+    return normalize_project(p)
+
+
+_ALL_FORMATS = ["otio", "otioz", "otiod", "edl", "fcp7", "fcpx"]
+_LOSSLESS = ["otio", "otioz", "otiod"]
+_LOSSY = ["edl", "fcp7", "fcpx"]
+
+
+def _skip_if_absent(fmt: str) -> None:
+    if fmt not in available_formats():
+        pytest.skip(f"{fmt} adapter not installed (optional `lumeri[interop]` extra)")
+
+
+@pytest.mark.parametrize("fmt", _ALL_FORMATS)
+def test_format_exports_and_reopens(fmt: str, tmp_path: Path) -> None:
+    """Every available adapter exports the rich project to a file that OTIO
+    re-reads back into a project with at least the surviving cut points."""
+    _skip_if_absent(fmt)
+    out = tmp_path / f"proj{format_extension(fmt)}"
+    write_project_to_file(_rich_project(tmp_path), out, fmt)
+    assert Path(out).exists()
+    rp = read_project_from_file(out, fmt)
+    assert len(rp.get("timeline", {}).get("clips") or []) >= 1
+
+
+@pytest.mark.parametrize("fmt", _LOSSLESS)
+def test_lossless_roundtrip_preserves_structure(fmt: str, tmp_path: Path) -> None:
+    """otio/otioz/otiod preserve clip count, ids, timing and lumeri metadata
+    (incl. track duck_under)."""
+    _skip_if_absent(fmt)
+    out = tmp_path / f"proj{format_extension(fmt)}"
+    write_project_to_file(_rich_project(tmp_path), out, fmt)
+    rp = read_project_from_file(out, fmt)
+
+    rclips = rp["timeline"]["clips"]
+    assert len(rclips) == 5
+    by_id = {c["id"]: c for c in rclips}
+    assert set(by_id) == {"c1", "c2", "t1", "m1", "vo1"}
+    assert abs(by_id["c2"]["start"] - 2.0) < 1e-3
+    assert abs(by_id["m1"]["duration"] - 4.0) < 1e-3
+    assert abs(by_id["vo1"]["start"] - 1.0) < 1e-3
+
+    duck = {t["id"]: t.get("duck_under") for t in rp["timeline"]["tracks"]}
+    assert duck.get("A1") == "A2"
+
+
+@pytest.mark.parametrize("fmt", _LOSSY)
+def test_lossy_degrades_gracefully(fmt: str, tmp_path: Path) -> None:
+    """edl/fcp7/fcpx export without crashing (project pre-simplified) and OTIO
+    re-reads the result; cut points survive. Full fidelity is NOT asserted."""
+    _skip_if_absent(fmt)
+    out = tmp_path / f"proj{format_extension(fmt)}"
+    write_project_to_file(_rich_project(tmp_path), out, fmt)  # must not raise
+    assert Path(out).exists()
+    rp = read_project_from_file(out, fmt)
+    rclips = rp.get("timeline", {}).get("clips") or []
+    assert len(rclips) >= 1  # at least the video cuts / media clips survive
+    # No text clip should survive a lossy NLE export (defined degradation).
+    assert all(c.get("media_kind") != "text" for c in rclips)
+
