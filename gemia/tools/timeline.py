@@ -304,6 +304,19 @@ async def dispatch_add_track(args: dict[str, Any], ctx: ToolContext) -> dict[str
     return _summary(ctx, result)
 
 
+async def dispatch_set_track(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Set track-level fields. Currently the ducking relationship: pass
+    duck_under=<audio track id> to make this (audio) track duck under that
+    trigger track, or duck_under=null to clear it."""
+    track_id = str(args.get("track_id") or "")
+    op: dict[str, Any] = {"op": "set_track", "track_id": track_id}
+    if "duck_under" in args:
+        duck = args.get("duck_under")
+        op["duck_under"] = str(duck) if duck else None
+    result = _project(ctx).apply_ops([op], label="timeline_set_track")
+    return _summary(ctx, result, track_id=track_id)
+
+
 # ── undo ────────────────────────────────────────────────────────────────
 
 
