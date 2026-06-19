@@ -17,6 +17,15 @@
 > 复用 `mix_audio` duck 参数）。导出时长改为 = `timeline.duration`（含音频的 master）：
 > 合成视频不足处补黑尾，音乐尾巴在黑场上播放而非越界/冻帧。M6 “ducking 推迟” 的表述作废；
 > 仅 `render_preview` 预览音频仍推迟。
+>
+> **M8 修订（2026-06-19）：OTIO 互换文件格式。** `project_export_otio` /
+> `project_import_otio` verb 新增 `format` 参数（默认 `otio`，与 M5 行为一致）：
+> `otio`(JSON 无损) / `otioz`·`otiod`(无损 bundle，含媒体) / `edl`(cmx_3600) /
+> `fcp7`(fcp_xml) / `fcpx`(fcpx_xml)。EDL/FCP 为**有损**且由可选插件提供——
+> `pip install lumeri[interop]`（`otio-cmx3600-adapter` / `otio-fcp-adapter` /
+> `otio-fcpx-xml-adapter`）；未安装时 verb 抛 `OtioFormatError` 指明缺哪个包，绝不伪造输出。
+> 有损导出前会按格式**定义化降级**（见 §9 保真矩阵），不崩溃。这两个 verb 是动作 verb
+> （读出/替换），不产生新 patch op。
 
 ## 0. 范围与不变量
 
@@ -220,3 +229,25 @@ apply 全部 ops 后执行；违反任一条抛 `TimelinePatchError`：
    （调用方拿旧状态重试安全）。
 6. ProjectStore 往返：apply 新 ops → `undo_to_seq` 回退 → 状态与回退点 snapshot 一致。
 7. 全量 `pytest -q` 无新增失败（已知 stock_fill 2 failed 除外）。
+
+## 9. OTIO 互换格式保真矩阵（M8）
+
+格式 token → OTIO adapter / 扩展名，以及往返保真度：
+
+| token | adapter | 扩展名 | 媒体 | 保真度 | 依赖 |
+|---|---|---|---|---|---|
+| `otio` | otio_json | `.otio` | 仅引用 | **无损**：全结构 + `lumeri` 元数据（effects、`duck_under`、text_config…） | 核心 |
+| `otioz` | otioz | `.otioz` | **打包**（zip） | **无损** + 媒体 | 核心 |
+| `otiod` | otiod | `.otiod` | **打包**（目录） | **无损** + 媒体 | 核心 |
+| `edl` | cmx_3600 | `.edl` | 仅引用 | **有损**：单视频轨的剪切点/时码/clip 名；丢 overlay、音频增益/淡入淡出、ducking、effects、文字 | `lumeri[interop]` |
+| `fcp7` | fcp_xml | `.xml` | 仅引用 | **有损**：视频/音频轨 + 基础结构；丢文字(generator)、富元数据 | `lumeri[interop]` |
+| `fcpx` | fcpx_xml | `.fcpxml` | 仅引用 | **有损**：同上 | `lumeri[interop]` |
+
+- **可选 extra**：EDL/FCP adapter 是 OTIO 拆分出的独立 pip 包，非核心。`pip install
+  lumeri[interop]` 启用；未装时 `project_export_otio`/`project_import_otio` 抛
+  `OtioFormatError` 指明缺哪个包，不静默降级、不伪造。
+- **有损前置降级**（`_simplify_for_lossy`，不崩溃）：`edl` 仅保留首条视频轨的视频剪切；
+  `fcp7`/`fcpx` 丢弃文字(generator)clip、保留媒体 clip。富结构请用 `otio`/`otioz`/`otiod`。
+- **媒体打包**：`otioz`/`otiod` 用 `MissingIfNotFile` 策略——存在的媒体打进 bundle，
+  缺失/非本地文件的引用被跳过而非报错。bundle 内 `target_url` 为 host 真实路径，仅存在于
+  host 写出的文件里，对模型/SSE 只暴露 asset_id。
