@@ -679,6 +679,7 @@ def _op_add_track(project: dict[str, Any], op: dict[str, Any]) -> None:
         "index": 0,
         "locked": False,
         "muted": False,
+        "duck_under": None,
     }
     same_kind = [i for i, track in enumerate(tracks) if str(track.get("kind")) == kind]
     if same_kind:
@@ -690,6 +691,54 @@ def _op_add_track(project: dict[str, Any], op: dict[str, Any]) -> None:
         insert_at = first_audio if first_audio is not None else len(tracks)
     tracks.insert(insert_at, new_track)
     _reindex_tracks(tracks)
+
+
+def _op_set_track(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """M7 §set_track — track-level fields (currently the ducking relationship).
+
+    ``duck_under = T`` marks this audio track as a bed that ducks whenever
+    track ``T`` (the sidechain trigger, e.g. a voice track) is loud. ``null``
+    clears it. Validates kind, target existence/kind, self-reference, and that
+    the relationship would not form a cycle.
+    """
+    track_id = str(op.get("track_id") or "")
+    if not track_id:
+        raise TimelinePatchError("E_BAD_ARG", "set_track requires track_id")
+    track = _require_track(project, track_id)
+    if str(track.get("kind")) != "audio":
+        raise TimelinePatchError(
+            "E_TRACK_KIND", f"set_track only supports audio tracks, got {track.get('kind')} ({track_id})"
+        )
+    if "duck_under" not in op:
+        return  # nothing to change (track existence/kind already validated)
+    duck = op.get("duck_under")
+    if duck is None or str(duck) == "":
+        track["duck_under"] = None
+        return
+    duck_id = str(duck)
+    if duck_id == track_id:
+        raise TimelinePatchError("E_BAD_ARG", "duck_under cannot reference the track itself")
+    target = _track_by_id(project, duck_id)
+    if target is None:
+        raise TimelinePatchError("E_NOT_FOUND", f"duck_under target not found: {duck_id}")
+    if str(target.get("kind")) != "audio":
+        raise TimelinePatchError(
+            "E_TRACK_KIND", f"duck_under target must be an audio track: {duck_id}"
+        )
+    # Cycle guard: walk the existing duck_under chain from the proposed target;
+    # if it loops back to this track, the new edge would close a cycle.
+    seen = {track_id}
+    cursor: str | None = duck_id
+    while cursor is not None:
+        if cursor in seen:
+            raise TimelinePatchError(
+                "E_BAD_ARG", f"duck_under would create a cycle through {cursor}"
+            )
+        seen.add(cursor)
+        nxt = _track_by_id(project, cursor)
+        nxt_duck = nxt.get("duck_under") if isinstance(nxt, dict) else None
+        cursor = str(nxt_duck) if nxt_duck else None
+    track["duck_under"] = duck_id
 
 
 def _op_remove_track(project: dict[str, Any], op: dict[str, Any]) -> None:
@@ -771,6 +820,7 @@ _OP_HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], None]] = {
     "set_clip_effects": _op_set_clip_effects,
     "add_track": _op_add_track,
     "remove_track": _op_remove_track,
+    "set_track": _op_set_track,
     "set_timeline_format": _op_set_timeline_format,
     "add_marker": _op_add_marker,
     "upsert_asset": _op_upsert_asset,
