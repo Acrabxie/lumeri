@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
+from lumerai.patches import TimelinePatchError
 
 
 _DEFAULT_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
@@ -79,6 +80,16 @@ def try_handle(handler, *, method: str) -> bool:
 def _route_post(handler, path: str, query: dict) -> bool:
     if path == "/sessions":
         return _create_session(handler)
+
+    # Direct-edit op endpoint (user drag/trim/split/delete) — same patch path
+    # as the model's timeline_* verbs.
+    m = re.match(r"^/sessions/([^/]+)/timeline/op$", path)
+    if m:
+        runner = get_manager().get(m.group(1))
+        if runner is None:
+            _json_error(handler, 404, f"unknown session: {m.group(1)}")
+            return True
+        return _session_timeline_op(handler, runner)
 
     m = re.match(r"^/sessions/([^/]+)/(turn|assets|close)$", path)
     if not m:
@@ -243,19 +254,8 @@ def _session_info(handler, session_id: str) -> bool:
     return True
 
 
-def _session_timeline(handler, session_id: str) -> bool:
-    """Return the current project timeline as a JSON payload for the frontend."""
-    runner = get_manager().get(session_id)
-    if runner is None:
-        _json_error(handler, 404, f"unknown session: {session_id}")
-        return True
-    try:
-        project = runner.agent.project.load()
-        meta = runner.agent.project.store.load_meta(runner.agent.project.project_id)
-    except Exception as exc:
-        _json_error(handler, 500, f"could not load project: {exc}")
-        return True
-
+def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta: dict) -> dict[str, Any]:
+    """Build the compact timeline JSON payload (shared by GET timeline + POST op)."""
     timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
     assets_list = project.get("assets") or []
     asset_map = {
@@ -295,19 +295,136 @@ def _session_timeline(handler, session_id: str) -> bool:
             "id": tid,
             "kind": str(track.get("kind") or "video"),
             "name": str(track.get("name") or tid),
+            "duck_under": track.get("duck_under") if isinstance(track.get("duck_under"), str) else None,
             "clips": clips_by_track.get(tid, []),
         })
 
-    _json_response(handler, 200, {
+    return {
         "session_id": session_id,
-        "project_id": runner.agent.project.project_id,
+        "project_id": project_id,
         "patch_seq": int(meta.get("patch_seq") or 0),
         "duration": float(timeline.get("duration") or 0.0),
         "fps": float(timeline.get("fps") or 30.0),
         "width": int(timeline.get("width") or 1920),
         "height": int(timeline.get("height") or 1080),
         "tracks": tracks,
-    })
+    }
+
+
+def _session_timeline(handler, session_id: str) -> bool:
+    """Return the current project timeline as a JSON payload for the frontend."""
+    runner = get_manager().get(session_id)
+    if runner is None:
+        _json_error(handler, 404, f"unknown session: {session_id}")
+        return True
+    try:
+        project = runner.agent.project.load()
+        meta = runner.agent.project.store.load_meta(runner.agent.project.project_id)
+    except Exception as exc:
+        _json_error(handler, 500, f"could not load project: {exc}")
+        return True
+    _json_response(handler, 200, _timeline_payload_dict(
+        session_id, runner.agent.project.project_id, project, meta,
+    ))
+    return True
+
+
+# User direct-edit op tokens -> the same patches.py ops the model's verbs emit.
+_USER_EDIT_OPS = {"move", "trim", "split", "delete", "set_time", "set_effects"}
+
+
+def _build_user_edit_op(op_name: str, clip_id: str, body: dict) -> dict[str, Any]:
+    """Map a structured user edit to one patches.py op dict.
+
+    Raises ValueError for a malformed request (bad/missing params) -> 400; the
+    op's own E_* validation happens later in apply_ops (TimelinePatchError).
+    """
+    prov = {"source": "user_direct_edit"}
+    ripple = bool(body.get("ripple", False))
+
+    def _num(key: str) -> float:
+        try:
+            return float(body[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"{op_name}.{key} must be a number") from None
+
+    if op_name == "move":
+        op: dict[str, Any] = {"op": "move_clip", "clip_id": clip_id, "ripple": ripple, "provenance": prov}
+        if body.get("start") is not None:
+            op["start"] = _num("start")
+        if body.get("track_id"):
+            op["track_id"] = str(body["track_id"])
+        return op
+    if op_name == "trim":
+        op = {"op": "trim_clip", "clip_id": clip_id, "ripple": ripple, "provenance": prov}
+        if body.get("source_in") is not None:
+            op["source_in"] = _num("source_in")
+        if body.get("source_out") is not None:
+            op["source_out"] = _num("source_out")
+        return op
+    if op_name == "split":
+        if body.get("at_time") is None:
+            raise ValueError("split requires 'at_time'")
+        return {"op": "split_clip", "clip_id": clip_id, "at_time": _num("at_time"), "provenance": prov}
+    if op_name == "delete":
+        return {"op": "delete_clip", "clip_id": clip_id, "ripple": ripple, "provenance": prov}
+    if op_name == "set_time":
+        op = {"op": "set_clip_time", "clip_id": clip_id, "ripple": ripple, "provenance": prov}
+        if body.get("start") is not None:
+            op["start"] = _num("start")
+        if body.get("duration") is not None:
+            op["duration"] = _num("duration")
+        return op
+    if op_name == "set_effects":
+        effects = body.get("effects")
+        if not isinstance(effects, dict):
+            raise ValueError("set_effects requires an 'effects' object")
+        return {"op": "set_clip_effects", "clip_id": clip_id, "effects": effects, "provenance": prov}
+    raise ValueError(f"unhandled op '{op_name}'")
+
+
+def _session_timeline_op(handler, runner: SessionRunner) -> bool:
+    """Apply ONE user direct-edit op through the same ProjectStore/patch path as
+    the model's verbs. Emits a ``timeline_op`` SSE event (via ProjectHandle's
+    on_patch) and returns the post-state in the GET /timeline shape."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    op_name = str(body.get("op") or "")
+    if op_name not in _USER_EDIT_OPS:
+        _json_error(handler, 400, f"unknown op '{op_name}'; valid: {sorted(_USER_EDIT_OPS)}")
+        return True
+    clip_id = str(body.get("clip_id") or "")
+    if not clip_id:
+        _json_error(handler, 400, "timeline op requires 'clip_id'")
+        return True
+    try:
+        patch_op = _build_user_edit_op(op_name, clip_id, body)
+    except ValueError as exc:
+        _json_error(handler, 400, str(exc), code="E_BAD_ARG")
+        return True
+
+    project = runner.agent.project
+    try:
+        # SAME path as the verbs: ProjectStore append-only patch log + undo,
+        # and ProjectHandle.on_patch emits the timeline_op SSE event.
+        project.apply_ops([patch_op], label=f"user_edit:{op_name}")
+    except TimelinePatchError as exc:
+        _json_error(handler, 400, exc.message, code=exc.code)
+        return True
+    except Exception as exc:
+        _json_error(handler, 500, f"failed to apply edit: {exc}")
+        return True
+
+    try:
+        project_state = project.load()
+        meta = project.store.load_meta(project.project_id)
+    except Exception as exc:
+        _json_error(handler, 500, f"applied, but could not reload project: {exc}")
+        return True
+    _json_response(handler, 200, _timeline_payload_dict(
+        runner.session_id, project.project_id, project_state, meta,
+    ))
     return True
 
 
@@ -464,8 +581,11 @@ def _json_response(handler, status: int, payload: dict[str, Any]) -> None:
     handler.wfile.write(data)
 
 
-def _json_error(handler, status: int, message: str) -> None:
-    _json_response(handler, status, {"error": message})
+def _json_error(handler, status: int, message: str, *, code: str | None = None) -> None:
+    payload: dict[str, Any] = {"error": message}
+    if code:
+        payload["code"] = code
+    _json_response(handler, status, payload)
 
 
 __all__ = ["try_handle"]
