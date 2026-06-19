@@ -111,13 +111,10 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
         }
     else:
         record = ctx.registry.get(asset_id)
-        if record.kind == "audio":
-            raise ValueError(
-                "audio tracks are reserved in timeline v1 — mix audio with mix_audio instead"
-            )
         media_kind = record.kind
+        # Video and audio both carry a real, probe-able duration; images don't.
         probe_duration = 0.0
-        if record.kind == "video":
+        if record.kind in {"video", "audio"}:
             probe_duration = float(ffprobe_duration(record.path))
         asset_payload = {
             "id": record.asset_id,
@@ -129,7 +126,7 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
         }
         source_in = _float_arg(args, "source_in") or 0.0
         source_out = _float_arg(args, "source_out")
-        if record.kind == "video":
+        if record.kind in {"video", "audio"}:
             if source_out is None:
                 source_out = probe_duration or source_in + 0.1
             duration = max(round(source_out - source_in, 6), 0.1)
@@ -146,7 +143,7 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
             "source_out": round(source_out, 6),
         }
 
-    # Resolve target track; auto-create OV1 for the first overlay clip.
+    # Resolve target track; auto-create OV1/A1 for the first overlay/audio clip.
     track_id = str(args.get("track_id") or "")
     if media_kind in {"image", "text"}:
         overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
@@ -154,6 +151,12 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
             track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"
         if not any(str(t.get("id")) == track_id for t in tracks):
             ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id})
+    elif media_kind == "audio":
+        audio_tracks = [t for t in tracks if t.get("kind") == "audio"]
+        if not track_id:
+            track_id = str(audio_tracks[0]["id"]) if audio_tracks else "A1"
+        if not any(str(t.get("id")) == track_id for t in tracks):
+            ops.append({"op": "add_track", "kind": "audio", "track_id": track_id})
     else:
         track_id = track_id or "V1"
     clip["track_id"] = track_id
