@@ -10,6 +10,13 @@
 > 第三遍把音频混音并 mux 进导出。下文凡标 “预留/reserved” 的音频条目均以本节修订为准
 > （§2.5、§3.4、§3.9、§3.10、§4、§5 已就地更新）。**仍推迟**：轨级 ducking 关系
 > （音乐轨自动避让人声轨）与 `render_preview` 预览音频——见 §4。
+>
+> **M7 修订（2026-06-19）：轨级 ducking + 导出时长。** 新增 `set_track` op /
+> `timeline_set_track` verb 与轨级字段 `duck_under`（见 §3.14）：标了 `duck_under = T`
+> 的 bed 音频轨，在 trigger 音频轨 `T` 响时自动被压低（渲染器 `sidechaincompress`，
+> 复用 `mix_audio` duck 参数）。导出时长改为 = `timeline.duration`（含音频的 master）：
+> 合成视频不足处补黑尾，音乐尾巴在黑场上播放而非越界/冻帧。M6 “ducking 推迟” 的表述作废；
+> 仅 `render_preview` 预览音频仍推迟。
 
 ## 0. 范围与不变量
 
@@ -167,17 +174,31 @@ class TimelinePatchError(ValueError):
 ### 3.13 `upsert_asset`
 `{op:"upsert_asset", asset: {...}}` — 把现有 `_upsert_asset` 提升为一等 op（行为不变）。
 
+### 3.14 `set_track`（M7）
+`{op:"set_track", track_id, duck_under?:<audio track_id>|null}`
+- 设置轨级选项；当前仅 `duck_under`（轨级 ducking 关系）。
+- 校验：`track_id` 存在且为 **audio** 轨（否则 `E_TRACK_KIND`）；`duck_under` 非空时必须
+  指向一个**存在的 audio 轨**（缺失 → `E_NOT_FOUND`，非音频 → `E_TRACK_KIND`），且 ≠ 自身
+  （`E_BAD_ARG`），并且不得形成环（A→B→A，`E_BAD_ARG`）。`null`/`""` 清除关系。
+- 语义：标了 `duck_under = T` 的轨是 **bed**（如音乐），当 trigger 轨 `T`（如人声）响时被
+  侧链压低。渲染层在导出时按轨分组子混音，对 bed 子混音用 `sidechaincompress`
+  （`threshold=0.05:ratio=8:attack=20:release=400`，复用 `mix_audio` duck 参数）以 trigger
+  子混音为侧链，再 `amix` 所有轨。**无 `duck_under` 配置时导出与 M6 扁平 `amix` 完全一致。**
+
 ## 4. 不做的事（v1 明确排除）
 
 - ~~音频轨执行面（任何 audio 轨 op 一律 `E_TRACK_KIND`）。~~ **M6 已落地**（见顶部修订）。
-- **音频 ducking 关系（推迟，M6 文档化 follow-up）**：让音乐轨在人声轨之上自动避让，
-  需要轨级关系状态（新字段或新 verb）+ 渲染 `sidechaincompress` 分支。渲染器现以
-  `amix` 干净混音；ducking 用户可暂用 `mix_audio` 工具的 `duck` 模式预混后再插入。
-- **`render_preview` 预览音频（推迟）**：低清代理仍为纯视频（静音），避免破坏 proxy 契约；
+- ~~音频 ducking 关系（推迟）。~~ **M7 已落地**：`set_track`/`timeline_set_track` +
+  `duck_under`（见 §3.14）。
+- **`render_preview` 预览音频（仍推迟）**：低清代理仍为纯视频（静音），避免破坏 proxy 契约；
   最终音频以 `project_export` 为准。
 - keyframes 解释/插值（仅 normalize 保留字段）。
 - 画中画（video clip 上 overlay 轨）。
 - 目的地推挤式 move、自动吸附、磁性时间线。
+
+> **M7-A 导出时长契约**：`project_export` 的成片时长 = `timeline.duration`（`_recompute_duration`
+> 已含音频 clip，即 audio-inclusive master）。合成视频短于 master 时补黑尾到 master；音频更短则
+> 自然以静音收尾。无音频 / 音频不超过视频的项目，master == 视频末端，导出与既往逐帧一致。
 
 ## 5. 整体校验 `validate_project(project) -> None`
 
