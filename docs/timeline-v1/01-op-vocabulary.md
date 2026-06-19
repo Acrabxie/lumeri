@@ -251,3 +251,32 @@ apply 全部 ops 后执行；违反任一条抛 `TimelinePatchError`：
 - **媒体打包**：`otioz`/`otiod` 用 `MissingIfNotFile` 策略——存在的媒体打进 bundle，
   缺失/非本地文件的引用被跳过而非报错。bundle 内 `target_url` 为 host 真实路径，仅存在于
   host 写出的文件里，对模型/SSE 只暴露 asset_id。
+
+## 10. 用户直接编辑（Direct-Edit UI v1，DE 里程碑）
+
+用户可在 web 时间线面板直接拖拽/裁剪/分割/删除 clip，与 AI 并列编辑**同一个**文档。
+**架构铁律：用户操作编译成与模型 verb 完全相同的 patches.py op，经同一 ProjectStore 补丁日志
+应用——单一真源，无并行编辑/状态通路。** host 不增加智能（无关键词检测、无计划改写）。
+
+### 端点 `POST /sessions/{id}/timeline/op`
+- 入参：`{op, clip_id, ...params}`，`op ∈ {move, trim, split, delete, set_time, set_effects}`，
+  外加 `{op:"undo", steps?}`。
+- 映射到 §3 的 op：`move`→`move_clip`(start/track_id)、`trim`→`trim_clip`(source_in/out)、
+  `split`→`split_clip`(at_time)、`delete`→`delete_clip`、`set_time`→`set_clip_time`(start/duration)、
+  `set_effects`→`set_clip_effects`(effects)、`undo`→`ProjectStore.undo`（同 `timeline_undo` verb）。
+- 应用方式：`ctx.project.apply_ops([op])`——与 verb 同一调用；因此 `ProjectHandle.on_patch`
+  自动发 `timeline_op` SSE 事件，所有客户端（含 AI 视图）即时刷新。每次用户操作 = 一个
+  TimelinePatch，可经 `timeline_undo` 撤销。
+- 校验：复用 `TimelinePatchError`；非法编辑返回 4xx + 类型化 `E_*` code（如 `E_OVERLAP`/`E_RANGE`），
+  与非法 verb 调用一视同仁。`ripple` 默认 False。
+- 来源标记：op 带 `provenance={"source":"user_direct_edit"}`，补丁日志据此区分用户/模型编辑。
+- 纪律：端点只收 `clip_id`/`track_id`/时间/effects，**不暴露本地文件路径**。
+
+### 前端（static/v3）
+- body 拖拽 = move；右把手 = trim（视频/音频改 source_out，图片/文字改 duration）；
+  点击选中；Delete 键/按钮 = delete；Split 按钮（当前在选中 clip 中点分割）；Undo 按钮。
+- 乐观更新 → POST → 从响应/SSE 对账（reconcile）；吸附到邻接 clip 边缘 + 0.1s 网格。
+- **共存**：AI 回合进行中（`turnInProgress`）禁用直接编辑（select-only），回合结束恢复；
+  补丁日志为串行化裁决者。
+- **推迟（follow-up）**：左把手 trim（需 move+trim 两 op 一补丁 + 重叠安全定序）；
+  split-at-playhead（待面板加 playhead，当前用选中 clip 中点）。
