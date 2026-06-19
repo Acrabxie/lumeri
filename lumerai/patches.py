@@ -13,7 +13,13 @@ EPSILON = 1e-3
 
 _EXTENDED_INSERT_KEYS = {"track_id", "at", "ripple"}
 _TRANSITION_KINDS = {"cut", "dissolve", "wipe", "fade"}
-_EFFECT_KEYS = {"rotation", "mirrored", "muted", "speed", "blur_radius", "opacity", "x", "y", "scale"}
+# Audio attributes ride on the same effects map (M6): gain_db/fade_in/fade_out
+# join the existing `muted` so timeline_set_clip_effects covers the whole audio
+# surface with no extra verb, and they round-trip through OTIO metadata for free.
+_EFFECT_KEYS = {
+    "rotation", "mirrored", "muted", "speed", "blur_radius", "opacity", "x", "y", "scale",
+    "gain_db", "fade_in", "fade_out",
+}
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -138,7 +144,7 @@ def validate_project(project: dict[str, Any]) -> None:
         duration = _as_float(clip.get("duration"))
         source_in = _as_float(clip.get("source_in"))
         source_out = _as_float(clip.get("source_out"))
-        if media_kind in {"video", "image"}:
+        if media_kind in {"video", "image", "audio"}:
             legacy_forced_image = (
                 media_kind == "image"
                 and abs(source_in) <= EPSILON
@@ -215,22 +221,17 @@ def _require_track(project: dict[str, Any], track_id: str) -> dict[str, Any]:
     track = _track_by_id(project, track_id)
     if track is None:
         raise TimelinePatchError("E_NOT_FOUND", f"track not found: {track_id}")
-    if str(track.get("kind")) == "audio":
-        raise TimelinePatchError("E_TRACK_KIND", f"audio tracks are reserved in v1: {track_id}")
     return track
-
-
-def _ensure_clip_track_not_audio(project: dict[str, Any], clip: dict[str, Any]) -> None:
-    track = _track_by_id(project, str(clip.get("track_id") or ""))
-    if track is not None and str(track.get("kind")) == "audio":
-        raise TimelinePatchError(
-            "E_TRACK_KIND", f"audio tracks are reserved in v1: {clip.get('track_id')}"
-        )
 
 
 def _ensure_media_matches_track(media_kind: str, track: dict[str, Any]) -> None:
     kind = str(track.get("kind") or "")
-    if media_kind == "video":
+    if media_kind == "audio":
+        if kind != "audio":
+            raise TimelinePatchError(
+                "E_TRACK_KIND", f"audio clip requires an audio track, got {kind} ({track.get('id')})"
+            )
+    elif media_kind == "video":
         if kind != "video":
             raise TimelinePatchError(
                 "E_TRACK_KIND", f"video clip requires a video track, got {kind} ({track.get('id')})"
@@ -399,7 +400,6 @@ def _op_insert_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_delete_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.2."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     clips = project["timeline"]["clips"]
     clips[:] = [item for item in clips if item is not clip]
     if bool(op.get("ripple", False)):
@@ -414,7 +414,6 @@ def _op_delete_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_move_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.3 — ripple only closes the gap left at the original position."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     has_start = op.get("start") is not None
     has_track = op.get("track_id") is not None
     if not has_start and not has_track:
@@ -441,11 +440,10 @@ def _op_move_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_trim_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.4 — duration = source_out - source_in (speed stays reserved)."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     media_kind = str(clip.get("media_kind") or "video")
-    if media_kind not in {"video", "image"}:
+    if media_kind not in {"video", "image", "audio"}:
         raise TimelinePatchError(
-            "E_BAD_ARG", f"trim_clip only supports video/image clips, got {media_kind}"
+            "E_BAD_ARG", f"trim_clip only supports video/image/audio clips, got {media_kind}"
         )
     if op.get("source_in") is None and op.get("source_out") is None:
         raise TimelinePatchError("E_BAD_ARG", "trim_clip requires source_in and/or source_out")
@@ -489,7 +487,6 @@ def _op_trim_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_split_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.5 — identity rule: both halves keep asset_id; ids stay distinct."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     at_time = _number(op.get("at_time"), "split_clip.at_time")
     start = _as_float(clip.get("start"))
     end = _clip_end(clip)
@@ -526,7 +523,6 @@ def _op_split_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_set_clip_time(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.6 — duration uses trim semantics, start uses move semantics."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     has_start = op.get("start") is not None
     has_duration = op.get("duration") is not None
     if not has_start and not has_duration:
@@ -573,7 +569,6 @@ def _op_set_clip_time(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_add_transition(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.8."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     kind = str(op.get("kind") or "")
     if kind not in _TRANSITION_KINDS:
         raise TimelinePatchError(
@@ -617,7 +612,6 @@ def _op_add_transition(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_set_clip_effects(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.9 — whitelisted merge; explicit null deletes a key."""
     clip = _require_clip(project, op)
-    _ensure_clip_track_not_audio(project, clip)
     effects = op.get("effects")
     if not isinstance(effects, dict):
         raise TimelinePatchError("E_BAD_ARG", "set_clip_effects requires an effects object")
@@ -649,20 +643,24 @@ def _validated_effect_value(key: str, value: Any) -> Any:
         raise TimelinePatchError("E_BAD_ARG", "effects.blur_radius must be >= 0")
     if key == "opacity" and not 0.0 <= number <= 1.0:
         raise TimelinePatchError("E_BAD_ARG", "effects.opacity must be within [0, 1]")
+    # Audio attributes (M6). gain_db is unbounded (dB, may be negative); fades are
+    # non-negative seconds. The renderer reads them off effects at export time.
+    if key in {"fade_in", "fade_out"} and number < 0:
+        raise TimelinePatchError("E_BAD_ARG", f"effects.{key} must be >= 0")
     return number
 
 
 def _op_add_track(project: dict[str, Any], op: dict[str, Any]) -> None:
-    """Spec §3.10 — new track sits at the end of its kind, before audio."""
+    """Spec §3.10 (M6) — video/overlay land before audio; audio sits at the end."""
     kind = str(op.get("kind") or "")
-    if kind == "audio":
-        raise TimelinePatchError("E_TRACK_KIND", "audio tracks are reserved in v1")
-    if kind not in {"video", "overlay"}:
-        raise TimelinePatchError("E_BAD_ARG", f"add_track kind must be video or overlay, got {kind!r}")
+    if kind not in {"video", "overlay", "audio"}:
+        raise TimelinePatchError(
+            "E_BAD_ARG", f"add_track kind must be video, overlay or audio, got {kind!r}"
+        )
     tracks = project["timeline"]["tracks"]
     existing_ids = {str(track.get("id")) for track in tracks if isinstance(track, dict)}
-    prefix = "OV" if kind == "overlay" else "V"
-    label = "Overlay" if kind == "overlay" else "Video"
+    prefix = {"overlay": "OV", "audio": "A"}.get(kind, "V")
+    label = {"overlay": "Overlay", "audio": "Audio"}.get(kind, "Video")
     track_id = str(op.get("track_id") or "")
     if track_id:
         if track_id in existing_ids:

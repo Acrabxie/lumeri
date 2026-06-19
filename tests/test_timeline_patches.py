@@ -214,7 +214,7 @@ def test_insert_clip_extended_unknown_track_is_not_found() -> None:
     _expect_error("E_NOT_FOUND", project, op)
 
 
-def test_insert_clip_extended_audio_track_is_reserved() -> None:
+def test_insert_clip_extended_video_on_audio_track_rejected() -> None:
     project = _project([])
     op = {"op": "insert_clip", "track_id": "A1", "data": {"clip": _video_clip("clip_c", 0.0, 1.0)}}
     _expect_error("E_TRACK_KIND", project, op)
@@ -647,8 +647,16 @@ def test_add_track_video_lands_after_existing_video() -> None:
     assert ids == ["V1", "V2", "A1"]
 
 
-def test_add_track_audio_is_reserved() -> None:
-    _expect_error("E_TRACK_KIND", _project([]), {"op": "add_track", "kind": "audio"})
+def test_add_track_audio_appends_after_existing_audio() -> None:
+    # M6: audio tracks are now executable. The default project is [V1, A1];
+    # adding another audio track lands at the end as A2.
+    project = normalize_project(empty_project(title="tracks"))
+    updated = _apply(project, {"op": "add_track", "kind": "audio"})
+    tracks = updated["timeline"]["tracks"]
+    assert [track["id"] for track in tracks] == ["V1", "A1", "A2"]
+    assert tracks[2]["kind"] == "audio"
+    assert tracks[2]["name"] == "Audio 2"
+    assert [track["index"] for track in tracks] == [0, 1, 2]
 
 
 def test_add_track_duplicate_id_is_bad_arg() -> None:
