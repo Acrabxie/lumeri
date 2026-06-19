@@ -44,6 +44,8 @@
     turnInProgress: false,
     turns: [],                  // array of TurnRecord
     currentTurn: null,          // TurnRecord (also last in turns[])
+    selectedClipId: null,       // direct-edit: currently selected clip
+    ptDrag: null,               // direct-edit: active drag/trim gesture
     /** @type {AssetEntry[]} */
     assets: [],
     /** @type {string[]} */
@@ -559,17 +561,24 @@
         if (!dur) return "";
         const left = (clip.start / dur) * 100;
         const width = Math.max((clip.duration / dur) * 100, 0.3);
-        const cls = `pt-clip ${clip.media_kind}`;
+        const sel = clip.id === state.selectedClipId ? " selected" : "";
+        const cls = `pt-clip ${clip.media_kind}${sel}`;
         const label = clip.media_kind === "text"
           ? (clip.text_config?.content?.slice(0, 20) || clip.name)
           : clip.name;
         const title = `${clip.name} (${clip.media_kind}) ${fmtSec(clip.start)}–${fmtSec(clip.start + clip.duration)}`;
-        return `<div class="${cls}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}"><span>${label}</span></div>`;
+        // data-* carry clip identity + current values so the direct-edit
+        // pointer handlers can compute ops without a re-fetch.
+        return `<div class="${cls}" data-clip-id="${clip.id}" data-track-id="${clip.track_id}"`
+          + ` data-start="${clip.start}" data-duration="${clip.duration}" data-media-kind="${clip.media_kind}"`
+          + ` data-source-in="${clip.source_in ?? 0}" data-source-out="${clip.source_out ?? 0}"`
+          + ` style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}">`
+          + `<span>${label}</span><div class="pt-clip-handle right" data-handle="right"></div></div>`;
       }).join("");
       const bodyCls = `pt-track-body${isOverlay ? " overlay" : ""}`;
       return `<div class="pt-track-row">
         <div class="pt-track-label"><span>${track.id}</span></div>
-        <div class="${bodyCls}">${clipHtml}</div>
+        <div class="${bodyCls}" data-track-id="${track.id}">${clipHtml}</div>
       </div>`;
     }).join("");
   }
@@ -579,6 +588,120 @@
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${String(sec).padStart(2, "0")}`;
+  }
+
+  // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
+  // Every gesture compiles to ONE patches.py op applied through the SAME
+  // ProjectStore path as the model's verbs — no parallel edit state.
+
+  function editingEnabled() {
+    return !!state.sessionId && !state.turnInProgress;
+  }
+
+  async function postTimelineOp(opBody) {
+    if (!state.sessionId) return null;
+    try {
+      const r = await fetch(`/sessions/${state.sessionId}/timeline/op`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opBody),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        // Rejected (E_OVERLAP/E_RANGE/…). Surface the typed code, snap back.
+        state.errors.push(`edit rejected: ${[data.code, data.error].filter(Boolean).join(" ") || r.status}`);
+        await fetchProjectTimeline();
+        render();
+        return null;
+      }
+      state.projectTimeline = data;
+      renderProjectTimeline(data);     // reconcile from authoritative post-state
+      return data;
+    } catch (err) {
+      state.errors.push(`edit failed: ${err.message}`);
+      await fetchProjectTimeline();
+      render();
+      return null;
+    }
+  }
+
+  function selectClip(clipId) {
+    state.selectedClipId = clipId;
+    document.querySelectorAll("#project-timeline-tracks .pt-clip").forEach((el) => {
+      el.classList.toggle("selected", el.dataset.clipId === clipId);
+    });
+  }
+
+  function setupTimelineDirectEdit() {
+    const root = document.getElementById("project-timeline-tracks");
+    if (!root) return;
+
+    root.addEventListener("pointerdown", (ev) => {
+      const clipEl = ev.target.closest(".pt-clip");
+      if (!clipEl) return;
+      selectClip(clipEl.dataset.clipId);            // always select on press
+      if (!editingEnabled()) return;                // busy gate: select only mid-turn
+
+      const body = clipEl.closest(".pt-track-body");
+      const dur = (state.projectTimeline && state.projectTimeline.duration) || 0;
+      if (!body || dur <= 0) return;
+      const rect = body.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const handle = ev.target.closest(".pt-clip-handle");
+      state.ptDrag = {
+        clipId: clipEl.dataset.clipId,
+        mode: handle ? handle.dataset.handle : "move",   // "right" | "move"
+        startX: ev.clientX,
+        bodyW: rect.width,
+        dur,
+        origStart: parseFloat(clipEl.dataset.start) || 0,
+        origDur: parseFloat(clipEl.dataset.duration) || 0,
+        sourceIn: parseFloat(clipEl.dataset.sourceIn) || 0,
+        mediaKind: clipEl.dataset.mediaKind,
+        el: clipEl,
+      };
+      clipEl.classList.add("dragging");
+      try { clipEl.setPointerCapture(ev.pointerId); } catch {}
+      ev.preventDefault();
+    });
+
+    root.addEventListener("pointermove", (ev) => {
+      const d = state.ptDrag;
+      if (!d) return;
+      const deltaSec = ((ev.clientX - d.startX) / d.bodyW) * d.dur;
+      if (d.mode === "right") {
+        const newDur = Math.max(0.1, d.origDur + deltaSec);
+        d.pendingDur = newDur;
+        d.el.style.width = `${Math.max((newDur / d.dur) * 100, 0.3).toFixed(2)}%`;
+      } else {
+        const newStart = posSeconds(d.origStart + deltaSec, d.dur, d.bodyW, d.clipId);
+        d.pendingStart = newStart;
+        d.el.style.left = `${((newStart / d.dur) * 100).toFixed(2)}%`;
+      }
+    });
+
+    const finish = () => {
+      const d = state.ptDrag;
+      if (!d) return;
+      state.ptDrag = null;
+      d.el.classList.remove("dragging");
+      if (d.mode === "right" && d.pendingDur != null) {
+        if (d.mediaKind === "video" || d.mediaKind === "audio") {
+          postTimelineOp({ op: "trim", clip_id: d.clipId, source_out: +(d.sourceIn + d.pendingDur).toFixed(6) });
+        } else {                                  // image/text: duration via set_time
+          postTimelineOp({ op: "set_time", clip_id: d.clipId, duration: +d.pendingDur.toFixed(6) });
+        }
+      } else if (d.mode === "move" && d.pendingStart != null) {
+        postTimelineOp({ op: "move", clip_id: d.clipId, start: +d.pendingStart.toFixed(6) });
+      }
+    };
+    root.addEventListener("pointerup", finish);
+    root.addEventListener("pointercancel", finish);
+  }
+
+  // px→seconds positioning; DE-D overrides snapping behaviour. Base: clamp >= 0.
+  function posSeconds(sec, _dur, _bodyW, _excludeClipId) {
+    return Math.max(0, sec);
   }
 
   // ── API calls ───────────────────────────────────────────────────────
@@ -763,6 +886,7 @@
     }
   });
   syncSandbox();
+  setupTimelineDirectEdit();
 
   // boot
   createSession().catch((err) => {

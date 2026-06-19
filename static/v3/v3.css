@@ -414,7 +414,22 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   display: flex;
   align-items: center;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
 }
+.pt-clip.dragging { cursor: grabbing; opacity: 0.85; z-index: 5; }
+.pt-clip.selected { outline: 1.5px solid #fff; outline-offset: -1px; box-shadow: 0 0 0 1px rgba(255,255,255,0.4); }
+.pt-clip-handle {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: rgba(255,255,255,0.35);
+  opacity: 0;
+}
+.pt-clip:hover .pt-clip-handle { opacity: 1; }
+.pt-clip-handle.right { right: 0; border-radius: 0 2px 2px 0; }
+.pt-clip-handle.left { left: 0; border-radius: 2px 0 0 2px; }
 .pt-clip.video   { background: rgba(0,200,100,0.25); border: 1px solid #0a7a40; }
 .pt-clip.image   { background: rgba(100,100,255,0.25); border: 1px solid #3030aa; }
 .pt-clip.text    { background: rgba(255,150,50,0.25); border: 1px solid #aa5500; }
