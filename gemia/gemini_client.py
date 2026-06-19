@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import ssl
 import threading
@@ -31,6 +32,9 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator
 
 import certifi
+
+
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -56,6 +60,43 @@ def _read_config_key(field: str) -> str:
     except Exception:
         return ""
     return ""
+
+
+def _resolve_orchestration_temperature() -> float:
+    """Temperature for the agent/orchestration (tool-calling) path.
+
+    Verb selection and JSON-arg generation want determinism, not variety, so
+    this defaults LOW. Resolved: env ``LUMERI_V3_TEMPERATURE`` -> config
+    ``lumeri_v3_temperature`` -> 0.2. Parsed to float and clamped to
+    [0.0, 1.0]; any parse failure falls back to 0.2 (never raises). Only this
+    single non-secret field is read from config — nothing else.
+    """
+    raw = (
+        os.environ.get("LUMERI_V3_TEMPERATURE")
+        or _read_config_key("lumeri_v3_temperature")
+        or ""
+    ).strip()
+    if not raw:
+        return 0.2
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.2
+    if value < 0.0:
+        return 0.0
+    if value > 1.0:
+        return 1.0
+    return value
+
+
+def _is_weak_model(model: str) -> bool:
+    """True when ``model`` is a fast/cheap "flash"-tier id or a per-provider
+    flash default — i.e. a silent capability downgrade for the orchestrator
+    (RC6). Used only to emit a startup warning, never to change behavior."""
+    return "flash" in (model or "").lower() or model in {
+        _DEFAULT_VERTEX_MODEL,
+        _DEFAULT_GEMINI_MODEL,
+    }
 
 
 _OPEN_ATTEMPTS = 3
@@ -407,12 +448,34 @@ class GeminiClientV3:
             self.model = model_override or _read_config_key("openrouter_model") or _DEFAULT_OPENROUTER_MODEL
             self.api_url = api_url
 
+        # Orchestration/tool-path temperature (RC5): low by default. The agent
+        # loop passes no temperature, so this becomes the effective default.
+        self.orchestration_temperature = _resolve_orchestration_temperature()
+
+        # Startup visibility (RC5) + flash-tier downgrade guard (RC6). Logs the
+        # RESOLVED provider/model/temperature ONLY — never the api_key, api_url
+        # credentials, or any config.json contents.
+        logger.info(
+            "Lumeri v3 orchestrator resolved: provider=%s model=%s temperature=%s",
+            self.provider,
+            self.model,
+            self.orchestration_temperature,
+        )
+        if _is_weak_model(self.model):
+            logger.warning(
+                "Lumeri v3 orchestrator is using a flash-tier/weak model (%s); "
+                "this is a capability downgrade for the agent loop. Pin a "
+                "pro-tier model via config.json:lumeri_v3_model or env "
+                "LUMERI_V3_MODEL (e.g. google/gemini-3.1-pro-preview).",
+                self.model,
+            )
+
     async def stream_turn(
         self,
         messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream one turn. Yields delta dicts:
 
@@ -422,11 +485,18 @@ class GeminiClientV3:
         - ``{"kind": "finish", "reason": str}``
         - ``{"kind": "error", "error": str}``
         """
+        # None (the loop's default path) -> low orchestration temperature;
+        # an explicit value (a future creative-generation caller) overrides.
+        temp = (
+            self.orchestration_temperature
+            if temperature is None
+            else float(temperature)
+        )
         body: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "stream": True,
-            "temperature": temperature,
+            "temperature": temp,
         }
         if tools:
             body["tools"] = tools
