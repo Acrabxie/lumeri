@@ -392,6 +392,8 @@ async def dispatch_project_export(args: dict[str, Any], ctx: ToolContext) -> dic
         "quality": quality,
         "video_clips": result.get("video_clips_rendered"),
         "overlay_clips": result.get("overlay_clips_rendered"),
+        "audio_clips": result.get("audio_clips_rendered"),
+        "has_audio": bool(result.get("has_audio")),
         "export_path": export_path,
         "note": "full-quality export; use analyze_media to inspect, or deliver the file directly",
     }
