@@ -1,5 +1,15 @@
 # GEMIA Change Log
 
+## 2026-06-19
+
+- Landed modern Lumeri into the mainline: the v3 orchestration rewrite, the v4 sandboxed build layer, and timeline v1 (M1–M8) — 39 model-callable verbs over a persistent, auditable project document.
+- Added the v3 streaming agent loop where the model holds the wheel: fine-grained verbs, typed self-correcting tool errors, a per-tool circuit breaker, honest SSE progress (no fake progress), and `BudgetGuard` as the only host gate — no host keyword detection, no host verify.
+- Added the v4 capability layer: kernel-isolated `sandbox-exec` code execution (`build`/`check_job`/`wait_for_job`/`save_skill`) with a shared async `JobRegistry`, host-side internet (`fetch`/`web_search`/`web_open`), sandboxed `run_shell`, and Vertex media generation (`generate_image`/`generate_video`/`generate_audio`) — credentials unreadable, network denied inside the sandbox, asset bytes never surfaced.
+- Added timeline v1: a persistent multi-track timeline document with 14 patch ops where one verb = exactly one auditable, undoable TimelinePatch; `ripple` defaults off; low-res `render_preview`; and full-quality multi-track `project_export`.
+- Added multi-track audio to export (M6): audio-track clips plus embedded video audio (kept unless the clip is muted), with `gain_db`/`fade_in`/`fade_out`/`muted` on the effects map.
+- Added track-level ducking and a deterministic export length (M7): `timeline_set_track` + `duck_under` sidechain-compress a music bed under a voice trigger; export length is the audio-inclusive timeline master (video padded with black past the last clip).
+- Added OpenTimelineIO interchange (M5/M8): bidirectional `project_export_otio`/`project_import_otio` with a `format` arg — `otio`/`otioz`/`otiod` (lossless, bundles carry media) and lossy `edl`/`fcp7`/`fcpx` via an optional `interop` extra, with a documented fidelity matrix and honest errors for missing adapters.
+
 ## 2026-05-24
 
 - Added a `Copy path` action to the active Creative Runtime agent report card so non-media primary artifacts are actionable even when they cannot be opened as previews.
