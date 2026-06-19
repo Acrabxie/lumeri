@@ -684,6 +684,56 @@ def test_remove_track_missing_is_not_found() -> None:
     _expect_error("E_NOT_FOUND", _project([]), {"op": "remove_track", "track_id": "OV9"})
 
 
+# ── M7 §set_track (track-level ducking relationship) ─────────────────
+
+
+def _two_audio_tracks() -> dict:
+    """Default [V1, A1] plus an appended A2 (M6 add_track audio)."""
+    project = normalize_project(empty_project(title="ducking"))
+    return _apply(project, {"op": "add_track", "kind": "audio"})  # -> A2
+
+
+def _track(project: dict, track_id: str) -> dict:
+    return next(t for t in project["timeline"]["tracks"] if t["id"] == track_id)
+
+
+def test_set_track_duck_under_sets_field() -> None:
+    updated = _apply(_two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "A2"})
+    assert _track(updated, "A1")["duck_under"] == "A2"
+
+
+def test_set_track_clear_duck_under() -> None:
+    project = _apply(_two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "A2"})
+    updated = _apply(project, {"op": "set_track", "track_id": "A1", "duck_under": None})
+    assert _track(updated, "A1")["duck_under"] is None
+
+
+def test_set_track_missing_track_id_is_bad_arg() -> None:
+    _expect_error("E_BAD_ARG", _two_audio_tracks(), {"op": "set_track"})
+
+
+def test_set_track_non_audio_track_is_track_kind() -> None:
+    _expect_error("E_TRACK_KIND", _two_audio_tracks(), {"op": "set_track", "track_id": "V1", "duck_under": "A1"})
+
+
+def test_set_track_self_reference_is_bad_arg() -> None:
+    _expect_error("E_BAD_ARG", _two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "A1"})
+
+
+def test_set_track_missing_target_is_not_found() -> None:
+    _expect_error("E_NOT_FOUND", _two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "A9"})
+
+
+def test_set_track_non_audio_target_is_track_kind() -> None:
+    _expect_error("E_TRACK_KIND", _two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "V1"})
+
+
+def test_set_track_cycle_is_bad_arg() -> None:
+    project = _apply(_two_audio_tracks(), {"op": "set_track", "track_id": "A1", "duck_under": "A2"})
+    # A2 -> A1 would close the cycle A1 -> A2 -> A1.
+    _expect_error("E_BAD_ARG", project, {"op": "set_track", "track_id": "A2", "duck_under": "A1"})
+
+
 # ── §3.11 set_timeline_format ───────────────────────────────────────
 
 
