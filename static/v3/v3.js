@@ -507,6 +507,7 @@
 
   async function fetchProjectTimeline() {
     if (!state.sessionId) return;
+    if (state.ptDrag) return;   // never re-fetch/reconcile mid-drag (would detach the dragged clip)
     try {
       const r = await fetch(`/sessions/${state.sessionId}/timeline`);
       if (!r.ok) return;
@@ -530,6 +531,7 @@
   }
 
   function renderProjectTimeline(data) {
+    if (state.ptDrag) return;   // defensive: don't rebuild the DOM under an active drag
     const panel = document.getElementById("project-timeline-panel");
     const tracksEl = document.getElementById("project-timeline-tracks");
     const metaEl = document.getElementById("project-timeline-meta");
