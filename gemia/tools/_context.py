@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # runtime-free: only the loop constructs the handle
     from gemia.project_store import ProjectHandle
 
 
-_KIND_PREFIX = {"video": "v", "image": "img", "audio": "aud"}
+_KIND_PREFIX = {"video": "v", "image": "img", "audio": "aud", "otio": "otio"}
 _VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 _AUDIO_EXTS = {".wav", ".mp3", ".aac", ".flac", ".ogg", ".m4a"}
