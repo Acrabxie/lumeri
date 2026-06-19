@@ -459,11 +459,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "timeline_insert_clip",
-        "Place a clip on the timeline. Video assets go on video tracks (V1...); image assets and text titles go on overlay tracks (OV1..., auto-created). Default position appends to the end of the track. Returns the new clip_id plus the updated timeline.",
+        "Place a clip on the timeline. Video assets go on video tracks (V1...); image assets and text titles go on overlay tracks (OV1..., auto-created); audio assets go on audio tracks (A1..., auto-created). Default position appends to the end of the track. Returns the new clip_id plus the updated timeline.",
         {
             "asset_id": {
                 "type": "string",
-                "description": "Asset to place (video or image). Omit when inserting text.",
+                "description": "Asset to place (video, image, or audio). Omit when inserting text.",
             },
             "text": {
                 "type": "object",
@@ -488,8 +488,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "type": "integer",
                 "description": "Insert before the Nth clip of the track (0-based); later clips shift right. Mutually exclusive with at_time.",
             },
-            "source_in": {"type": "number", "description": "Video only: source trim-in second. Default 0."},
-            "source_out": {"type": "number", "description": "Video only: source trim-out second. Default full asset."},
+            "source_in": {"type": "number", "description": "Video/audio only: source trim-in second. Default 0."},
+            "source_out": {"type": "number", "description": "Video/audio only: source trim-out second. Default full asset."},
             "duration": {"type": "number", "description": "Image/text only: how long it stays on screen. Default 3s."},
             "ripple": {"type": "boolean", "description": "Default false: never shifts other clips unless you set true."},
         },
@@ -558,7 +558,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "timeline_set_clip_effects",
-        "Merge effects onto one clip. Allowed keys: rotation (0/90/180/270), mirrored, muted, speed (reserved), blur_radius, opacity (0-1), x, y (px, overlay placement), scale. Set a key to null to clear it.",
+        "Merge effects onto one clip. Visual keys: rotation (0/90/180/270), mirrored, blur_radius, opacity (0-1), x, y (px, overlay placement), scale, speed (reserved). Audio keys: gain_db (volume change in dB, +/-), fade_in, fade_out (seconds), muted (drop this clip's audio). Set a key to null to clear it.",
         {
             "clip_id": {"type": "string"},
             "effects": {
@@ -570,9 +570,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "timeline_add_track",
-        "Add a video or overlay track (audio is reserved in v1). track_id defaults to the next free V<n>/OV<n>.",
+        "Add a video, overlay, or audio track. track_id defaults to the next free V<n>/OV<n>/A<n>.",
         {
-            "kind": {"type": "string", "enum": ["video", "overlay"]},
+            "kind": {"type": "string", "enum": ["video", "overlay", "audio"]},
             "track_id": {"type": "string"},
             "name": {"type": "string"},
         },
