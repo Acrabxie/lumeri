@@ -349,3 +349,45 @@ def test_project_id_preserved():
     original_id = p["project_id"]
     p2 = otio_json_to_project(project_to_otio_json(p))
     assert p2["project_id"] == original_id
+
+
+# ---------------------------------------------------------------------------
+# Test 11 (M6): audio track + audio clip attributes round-trip
+# ---------------------------------------------------------------------------
+
+def test_audio_track_and_attributes_roundtrip():
+    """Audio tracks map to TrackKind.Audio and back; gain_db/fade_in/fade_out/
+    muted ride the effects map and survive via metadata.lumeri (M6-D)."""
+    from opentimelineio import schema as os_
+
+    tracks = [
+        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False},
+        {"id": "A1", "kind": "audio", "name": "Audio 1", "index": 1, "locked": False, "muted": False},
+    ]
+    video_clip = _video_clip("vc1", "av1", "scene.mp4", start=0.0, duration=8.0)
+    audio_clip = {
+        **_video_clip("ac1", "aa1", "music.wav", start=2.0, duration=5.0, source_in=1.0, track_id="A1"),
+        "media_kind": "audio",
+        "effects": {"gain_db": -6.0, "fade_in": 0.5, "fade_out": 1.0, "muted": False},
+    }
+    p = _make_project("AudioRT", clips=[video_clip, audio_clip], tracks=tracks)
+
+    # OTIO track kind for the audio track.
+    otio_tracks = list(project_to_otio(p).tracks)
+    assert otio_tracks[1].kind == os_.TrackKind.Audio
+
+    # Full JSON round-trip.
+    p2 = otio_json_to_project(project_to_otio_json(p))
+    kinds = {t["id"]: t["kind"] for t in p2["timeline"]["tracks"]}
+    assert kinds.get("A1") == "audio"
+
+    aud = next(c for c in p2["timeline"]["clips"] if c.get("track_id") == "A1")
+    assert aud["media_kind"] == "audio"
+    assert abs(aud["start"] - 2.0) < 1e-4
+    assert abs(aud["duration"] - 5.0) < 1e-4
+    assert abs(aud["source_in"] - 1.0) < 1e-4
+    assert abs(aud["source_out"] - 6.0) < 1e-4
+    assert abs(aud["effects"]["gain_db"] - (-6.0)) < 1e-6
+    assert abs(aud["effects"]["fade_in"] - 0.5) < 1e-6
+    assert abs(aud["effects"]["fade_out"] - 1.0) < 1e-6
+    assert aud["effects"]["muted"] is False
