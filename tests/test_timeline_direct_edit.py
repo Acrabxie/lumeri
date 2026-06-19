@@ -218,3 +218,15 @@ def test_user_edit_increments_patch_seq(tmp_path) -> None:
     _post(loop, "de-seq", {"op": "move", "clip_id": "c1", "start": 1.0})
     after = int(loop.project.store.load_meta(loop.project.project_id)["patch_seq"])
     assert after == before + 1
+
+
+def test_undo_op_reverts_last_edit(tmp_path) -> None:
+    """The 'undo' op routes through the same ProjectStore.undo as timeline_undo."""
+    loop, _ = _loop(tmp_path, "de-undoop")
+    _seed_video_clip(loop, start=0.0)
+    _post(loop, "de-undoop", {"op": "move", "clip_id": "c1", "start": 4.0})
+    assert abs(_clip(loop, "c1")["start"] - 4.0) < 1e-3
+    h = _post(loop, "de-undoop", {"op": "undo", "steps": 1})
+    assert h.status == 200
+    assert abs(_clip(loop, "c1")["start"] - 0.0) < 1e-3
+

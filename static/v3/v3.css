@@ -430,6 +430,34 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .pt-clip:hover .pt-clip-handle { opacity: 1; }
 .pt-clip-handle.right { right: 0; border-radius: 0 2px 2px 0; }
 .pt-clip-handle.left { left: 0; border-radius: 2px 0 0 2px; }
+
+/* Direct-edit controls (split / delete / undo) */
+.pt-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pt-edit-hint {
+  flex: 1;
+  font-size: 9px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-edit-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+.pt-edit-btn:hover:not(:disabled) { background: rgba(255,255,255,0.10); }
+.pt-edit-btn:disabled { opacity: 0.4; cursor: default; }
 .pt-clip.video   { background: rgba(0,200,100,0.25); border: 1px solid #0a7a40; }
 .pt-clip.image   { background: rgba(100,100,255,0.25); border: 1px solid #3030aa; }
 .pt-clip.text    { background: rgba(255,150,50,0.25); border: 1px solid #aa5500; }

@@ -393,8 +393,10 @@ def _session_timeline_op(handler, runner: SessionRunner) -> bool:
     if body is None:
         return True
     op_name = str(body.get("op") or "")
+    if op_name == "undo":
+        return _apply_user_undo(handler, runner, body)
     if op_name not in _USER_EDIT_OPS:
-        _json_error(handler, 400, f"unknown op '{op_name}'; valid: {sorted(_USER_EDIT_OPS)}")
+        _json_error(handler, 400, f"unknown op '{op_name}'; valid: {sorted(_USER_EDIT_OPS)} or 'undo'")
         return True
     clip_id = str(body.get("clip_id") or "")
     if not clip_id:
@@ -423,6 +425,32 @@ def _session_timeline_op(handler, runner: SessionRunner) -> bool:
         meta = project.store.load_meta(project.project_id)
     except Exception as exc:
         _json_error(handler, 500, f"applied, but could not reload project: {exc}")
+        return True
+    _json_response(handler, 200, _timeline_payload_dict(
+        runner.session_id, project.project_id, project_state, meta,
+    ))
+    return True
+
+
+def _apply_user_undo(handler, runner: SessionRunner, body: dict) -> bool:
+    """Rewind the last N timeline patches via the same path as the timeline_undo
+    verb (ProjectStore.undo_to_seq). Returns the post-state."""
+    try:
+        steps = int(body.get("steps") or 1)
+    except (TypeError, ValueError):
+        _json_error(handler, 400, "undo 'steps' must be an integer")
+        return True
+    project = runner.agent.project
+    try:
+        project.undo(max(1, min(steps, 50)))
+    except Exception as exc:
+        _json_error(handler, 400, f"undo failed: {exc}")
+        return True
+    try:
+        project_state = project.load()
+        meta = project.store.load_meta(project.project_id)
+    except Exception as exc:
+        _json_error(handler, 500, f"undone, but could not reload project: {exc}")
         return True
     _json_response(handler, 200, _timeline_payload_dict(
         runner.session_id, project.project_id, project_state, meta,
