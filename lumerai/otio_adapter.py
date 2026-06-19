@@ -23,6 +23,7 @@ Round-trip fields stored in metadata["lumeri"] per clip
 """
 from __future__ import annotations
 
+import copy
 import mimetypes
 import uuid
 from pathlib import Path
@@ -459,15 +460,46 @@ def _adapter_for(fmt: str) -> str:
     return adapter_name
 
 
+def _simplify_for_lossy(project: dict[str, Any], fmt: str) -> dict[str, Any]:
+    """Reduce a project to what a lossy NLE adapter can represent — defined,
+    non-crashing degradation (the OTIO cmx_3600/fcp adapters raise on richer
+    input).
+
+    - edl  (cmx_3600): a single video track of cuts; overlay/audio/text dropped.
+    - fcp7 (fcp_xml) / fcpx (fcpx_xml): drop text/generator clips (they have no
+      ExternalReference); keep media (video/audio/image) clips and their tracks.
+    """
+    project = copy.deepcopy(normalize_project(project))
+    timeline = project["timeline"]
+    clips = timeline.get("clips") or []
+    tracks = timeline.get("tracks") or []
+    if fmt == "edl":
+        video_tracks = [t for t in tracks if str(t.get("kind")) == "video"]
+        primary = str(video_tracks[0]["id"]) if video_tracks else "V1"
+        timeline["clips"] = [
+            c for c in clips
+            if str(c.get("media_kind")) == "video" and str(c.get("track_id")) == primary
+        ]
+        timeline["tracks"] = [t for t in tracks if str(t.get("id")) == primary]
+    else:  # fcp7 / fcpx
+        timeline["clips"] = [c for c in clips if str(c.get("media_kind")) != "text"]
+        used = {str(c.get("track_id")) for c in timeline["clips"]}
+        timeline["tracks"] = [t for t in tracks if str(t.get("id")) in used]
+    return project
+
+
 def write_project_to_file(project: dict[str, Any], path: str | Path, fmt: str = "otio") -> str:
     """Write a Gemia project to ``path`` in interchange format ``fmt``.
 
     otioz/otiod bundle the referenced media; media that is missing or not a
     local file is dropped (MissingIfNotFile) rather than crashing the export.
+    Lossy formats (edl/fcp7/fcpx) are pre-simplified to what their adapter can
+    represent (see _simplify_for_lossy) so export degrades instead of crashing.
     Raises OtioFormatError for unknown tokens or uninstalled adapters.
     """
     adapter_name = _adapter_for(fmt)
-    tl = project_to_otio(project)
+    src = _simplify_for_lossy(project, fmt) if fmt in LOSSY_FORMATS else project
+    tl = project_to_otio(src)
     kwargs: dict[str, Any] = {}
     if adapter_name in {"otioz", "otiod"}:
         from opentimelineio.adapters.otioz import utils as _bundle_utils
