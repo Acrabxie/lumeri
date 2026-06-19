@@ -391,3 +391,28 @@ def test_audio_track_and_attributes_roundtrip():
     assert abs(aud["effects"]["fade_in"] - 0.5) < 1e-6
     assert abs(aud["effects"]["fade_out"] - 1.0) < 1e-6
     assert aud["effects"]["muted"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test 12 (M7): track-level duck_under survives the round-trip
+# ---------------------------------------------------------------------------
+
+def test_duck_under_roundtrip():
+    """A music track's duck_under (sidechain trigger) survives project<->OTIO
+    via track metadata.lumeri (M7-E)."""
+    tracks = [
+        {"id": "V1", "kind": "video", "name": "Video 1", "index": 0, "locked": False, "muted": False, "duck_under": None},
+        {"id": "A1", "kind": "audio", "name": "Music", "index": 1, "locked": False, "muted": False, "duck_under": "A2"},
+        {"id": "A2", "kind": "audio", "name": "Voice", "index": 2, "locked": False, "muted": False, "duck_under": None},
+    ]
+    video_clip = _video_clip("vc1", "av1", "scene.mp4", start=0.0, duration=8.0)
+    music = {**_video_clip("m1", "am1", "music.wav", start=0.0, duration=8.0, track_id="A1"), "media_kind": "audio"}
+    voice = {**_video_clip("vo1", "av2", "voice.wav", start=1.0, duration=3.0, track_id="A2"), "media_kind": "audio"}
+    p = _make_project("Duck", clips=[video_clip, music, voice], tracks=tracks)
+
+    p2 = otio_json_to_project(project_to_otio_json(p))
+
+    by_id = {t["id"]: t for t in p2["timeline"]["tracks"]}
+    assert by_id["A1"]["duck_under"] == "A2"
+    assert by_id["A2"]["duck_under"] is None
+    assert by_id["V1"]["duck_under"] is None
