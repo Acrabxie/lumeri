@@ -413,81 +413,116 @@ async def dispatch_project_export(args: dict[str, Any], ctx: ToolContext) -> dic
 
 
 async def dispatch_export_otio(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Export the current project as an .otio file into the session workspace."""
-    from lumerai.otio_adapter import project_to_otio_json
+    """Export the current project to an OTIO-family interchange file.
+
+    ``format`` (default "otio"): otio (JSON), otioz / otiod (bundles w/ media),
+    edl (cmx_3600), fcp7 (fcp_xml), fcpx (fcpx_xml). EDL/FCP need the optional
+    `interop` plugins and are lossy.
+    """
+    from lumerai.otio_adapter import LOSSY_FORMATS, format_extension, write_project_to_file
 
     project = _project(ctx)
     p = project.load()
-    otio_str = project_to_otio_json(p)
+    fmt = str(args.get("format") or "otio")
     label = str(args.get("label") or "project")[:40]
-    out_path = ctx.output_dir / f"{label}.otio"
+    ext = format_extension(fmt)  # raises OtioFormatError on an unknown token
+    out_path = ctx.output_dir / f"{label}{ext}"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(otio_str, encoding="utf-8")
+    write_project_to_file(p, out_path, fmt)  # raises OtioFormatError if adapter missing
     asset_id = ctx.registry.allocate_id("otio")
     ctx.registry.register_output(
         asset_id,
         kind="otio",
         path=str(out_path),
-        summary=f"OTIO export of project {project.project_id}",
+        summary=f"{fmt} export of project {project.project_id}",
     )
+    if fmt in LOSSY_FORMATS:
+        note = (
+            f"{fmt} written (LOSSY interchange): cuts, timing, timecode and clip names survive; "
+            "overlays, audio gain/fades, ducking and rich effects are dropped or simplified"
+        )
+    else:
+        bundled = " with bundled media" if fmt in {"otioz", "otiod"} else ""
+        note = (
+            f"{fmt} written (lossless{bundled}); opens in DaVinci Resolve, Premiere, "
+            "Final Cut and other NLEs"
+        )
     return {
         "asset_id": asset_id,
         "otio_path": str(out_path),
+        "format": fmt,
         "project_id": project.project_id,
         "clip_count": len((p.get("timeline") or {}).get("clips") or []),
-        "note": "OTIO file written; compatible with DaVinci Resolve, Final Cut Pro, and other NLEs",
+        "note": note,
     }
 
 
 async def dispatch_import_otio(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Import an .otio file and replace the current project timeline."""
-    from lumerai.otio_adapter import otio_json_to_project
-    from lumerai.patches import apply_timeline_patches
+    """Import an OTIO-family interchange file and replace the current timeline.
+
+    ``format`` (default "otio") matches the export tokens. The imported assets,
+    tracks and clips are applied as one atomic patch (undoable via timeline_undo).
+    """
+    from pathlib import Path as _Path
+
+    from lumerai.otio_adapter import read_project_from_file
 
     otio_path_str = str(args.get("otio_path") or "")
     if not otio_path_str:
         raise ValueError("import_otio requires 'otio_path'")
-    from pathlib import Path as _Path
     otio_path = _Path(otio_path_str)
     if not otio_path.exists():
         raise FileNotFoundError(f"OTIO file not found: {otio_path}")
-    otio_str = otio_path.read_text(encoding="utf-8")
-    imported = otio_json_to_project(otio_str)
+    fmt = str(args.get("format") or "otio")
+    imported = read_project_from_file(otio_path, fmt)  # raises OtioFormatError if unsupported
+    imported_tl = imported.get("timeline") or {}
 
     project = _project(ctx)
-    # Apply the imported project as a full replace via a single patch.
-    patch = {
-        "version": 1,
-        "ops": [
-            {
-                "op": "set_timeline_format",
-                "fps": imported["timeline"]["fps"],
-                "width": imported["timeline"]["width"],
-                "height": imported["timeline"]["height"],
-            }
-        ],
+    existing_ids = {
+        str(t.get("id"))
+        for t in (project.load().get("timeline", {}).get("tracks") or [])
+        if isinstance(t, dict)
     }
-    project.apply_ops([patch])
-    # Now insert all clips from the imported project.
-    insert_ops = []
-    for clip in imported["timeline"].get("clips") or []:
-        insert_ops.append({
+    ops: list[dict[str, Any]] = [
+        {
+            "op": "set_timeline_format",
+            "fps": imported_tl.get("fps", 30.0),
+            "width": imported_tl.get("width", 1920),
+            "height": imported_tl.get("height", 1080),
+        }
+    ]
+    # Carry imported assets so clip media resolves on a later export.
+    for asset in imported.get("assets") or []:
+        if isinstance(asset, dict) and (asset.get("id") or asset.get("asset_id")):
+            ops.append({"op": "upsert_asset", "asset": asset})
+    # Create any non-default tracks before inserting clips onto them.
+    for track in imported_tl.get("tracks") or []:
+        tid = str(track.get("id") or "")
+        kind = str(track.get("kind") or "video")
+        if tid and tid not in existing_ids and kind in {"video", "overlay", "audio"}:
+            ops.append({"op": "add_track", "kind": kind, "track_id": tid, "name": track.get("name")})
+            existing_ids.add(tid)
+    # Insert each imported clip at its timeline start (extended insert form).
+    for clip in imported_tl.get("clips") or []:
+        if not isinstance(clip, dict):
+            continue
+        ops.append({
             "op": "insert_clip",
-            "track_id": clip.get("track_id", "V1"),
-            "at": clip.get("start", 0.0),
-            "clip": clip,
+            "track_id": str(clip.get("track_id") or "V1"),
+            "at": {"time": round(float(clip.get("start") or 0.0), 6)},
+            "data": {"clip": clip},
         })
-    if insert_ops:
-        project.apply_ops([{"version": 1, "ops": insert_ops}])
+    project.apply_ops(ops, label=f"timeline_import_otio:{fmt}")
 
     final = project.load()
     tl = final.get("timeline") or {}
     return {
         "project_id": project.project_id,
+        "format": fmt,
         "title": imported.get("title"),
         "clip_count": len(tl.get("clips") or []),
         "track_count": len(tl.get("tracks") or []),
         "duration": tl.get("duration"),
         "fps": tl.get("fps"),
-        "note": "OTIO timeline imported; original project replaced. Use timeline_undo to revert.",
+        "note": "OTIO timeline imported and applied as one patch; use timeline_undo to revert.",
     }
