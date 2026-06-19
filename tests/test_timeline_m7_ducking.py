@@ -196,3 +196,45 @@ def test_export_duck_under_clear_reverts_to_flat_mix(tmp_path: Path) -> None:
     out = _call("project_export", {"quality": "draft", "label": "clearduck"}, ctx)
     meta = _meta(out["export_path"])
     assert audio_stream(meta) is not None
+
+
+def _mean_volume_db(path: str, ss: float, to: float) -> float | None:
+    """ffmpeg volumedetect mean_volume (dB) over [ss, to], or None if unparsable."""
+    import re
+
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-ss", str(ss), "-to", str(to), "-i", str(path),
+         "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    m = re.search(r"mean_volume:\s*(-?[\d.]+) dB", proc.stderr)
+    return float(m.group(1)) if m else None
+
+
+def test_duck_attenuates_bed_in_trigger_region(tmp_path: Path) -> None:
+    """Music ducked under voice is measurably quieter in the voice region than the
+    same project without ducking — proves sidechaincompress attenuates the bed,
+    not merely that the graph runs."""
+    ctx = _make_ctx(tmp_path, "duckatt")
+    _call("timeline_insert_clip", {"asset_id": _register(ctx, _silent_video(tmp_path, "v.mp4", 4.0))}, ctx)
+    # Music bed on A1, full 0-4s.
+    _call("timeline_insert_clip", {"asset_id": _register(ctx, _wav(tmp_path, "music.wav", 4.0, freq=220))}, ctx)
+    # Voice on A2, 1-3s.
+    _call("timeline_add_track", {"kind": "audio", "name": "Voice"}, ctx)
+    a2_id = next(t["id"] for t in ctx.project.load()["timeline"]["tracks"] if t.get("kind") == "audio" and t["id"] != "A1")
+    _call("timeline_insert_clip", {
+        "asset_id": _register(ctx, _wav(tmp_path, "voice.wav", 2.0, freq=880)),
+        "track_id": a2_id, "at_time": 1.0,
+    }, ctx)
+
+    base = _call("project_export", {"quality": "draft", "label": "base"}, ctx)
+    base_db = _mean_volume_db(base["export_path"], 1.0, 3.0)
+
+    # Music (A1) ducks under the voice track.
+    _call("timeline_set_track", {"track_id": "A1", "duck_under": a2_id}, ctx)
+    ducked = _call("project_export", {"quality": "draft", "label": "ducked"}, ctx)
+    duck_db = _mean_volume_db(ducked["export_path"], 1.0, 3.0)
+
+    assert base_db is not None and duck_db is not None
+    # Observed ~1.5 dB on this ffmpeg; 0.5 dB threshold keeps margin against jitter.
+    assert duck_db < base_db - 0.5, f"expected ducking to lower the voice region: base={base_db} duck={duck_db}"
