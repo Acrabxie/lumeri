@@ -442,6 +442,125 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["source", "name"],
     ),
+    # ── lumenframe layer document verbs ──────────────────────────────────
+    # The session owns ONE lumenframe document (layer tree). These verbs
+    # expose the LayerPatch vocabulary: low-level lumen_patch for raw ops,
+    # or convenience verbs (add_layer, set_transform, etc.) wrapping it.
+    _tool(
+        "get_lumenframe",
+        "Inspect the session lumenframe layer document: layer tree (id, type, name, visibility), selection, and canvas settings.",
+        {
+            "history": {
+                "type": "integer",
+                "description": "Reserved for future patch history (currently 0).",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_patch",
+        "Low-level: apply a raw LayerPatch (one or more ops atomically). Each op names its type (add_layer, set_transform, set_opacity, delete_layer, move_layer, set_visibility, select, etc.) and carries the required arguments. Refer to lumenframe.catalog for the complete op vocabulary.",
+        {
+            "ops": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "List of LayerPatch operations: [{op: 'add_layer', type: 'video', ...}, {op: 'set_transform', layer_id: '...', x: 100}, ...].",
+            },
+        },
+        ["ops"],
+    ),
+    _tool(
+        "lumen_add_layer",
+        "Convenience verb: create a new layer (video/image/text/shape/audio/adjustment/solid/null/composition).",
+        {
+            "type": {
+                "type": "string",
+                "enum": ["video", "image", "text", "shape", "audio", "adjustment", "solid", "null", "composition"],
+                "description": "Layer type.",
+            },
+            "name": {"type": "string", "description": "Optional layer name."},
+            "parent_id": {"type": "string", "description": "Optional parent layer id (default: root)."},
+            "index": {"type": "integer", "description": "Optional insert position (default: end)."},
+            "at_time": {"type": "number", "description": "Optional start time on parent timeline."},
+        },
+        ["type"],
+    ),
+    _tool(
+        "lumen_set_transform",
+        "Convenience verb: move/scale/rotate a layer. Anchor-relative, canvas-centre origin.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to transform."},
+            "x": {"type": "number", "description": "Canvas x offset (px from centre)."},
+            "y": {"type": "number", "description": "Canvas y offset."},
+            "scale": {"type": "number", "description": "Uniform scale (overrides scale_x/scale_y)."},
+            "scale_x": {"type": "number", "description": "Horizontal scale."},
+            "scale_y": {"type": "number", "description": "Vertical scale."},
+            "rotation": {"type": "number", "description": "Rotation in degrees."},
+            "anchor_x": {"type": "number", "description": "Anchor point x (0..1)."},
+            "anchor_y": {"type": "number", "description": "Anchor point y (0..1)."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_set_opacity",
+        "Convenience verb: set layer opacity.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id."},
+            "opacity": {"type": "number", "description": "Opacity value 0..1."},
+        },
+        ["layer_id", "opacity"],
+    ),
+    _tool(
+        "lumen_delete_layer",
+        "Convenience verb: delete one or more layers.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id to delete (or use layer_ids for multiple)."},
+            "layer_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Multiple layer ids to delete.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_move_layer",
+        "Convenience verb: reparent, reorder (z), retime, or relane a layer.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to move."},
+            "parent_id": {"type": "string", "description": "Optional new parent."},
+            "index": {"type": "integer", "description": "Optional new z-order within parent."},
+            "lane": {"type": "string", "description": "Optional new lane hint."},
+            "start": {"type": "number", "description": "Optional new start time on parent."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_set_visibility",
+        "Convenience verb: show or hide a layer.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id."},
+            "visible": {"type": "boolean", "description": "True to show, false to hide."},
+        },
+        ["layer_id", "visible"],
+    ),
+    _tool(
+        "lumen_select",
+        "Convenience verb: change the current selection.",
+        {
+            "layer_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Layer ids to select (empty list + mode='clear' clears selection).",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["replace", "add", "toggle", "clear"],
+                "description": "Selection mode. Default 'replace'.",
+            },
+        },
+        [],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.

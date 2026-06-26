@@ -262,21 +262,68 @@ class AgentLoopV3:
         record = self.registry.add_external(Path(path), summary=summary or None)
         return record.asset_id
 
+    def _get_lumenframe_prompt_text(self) -> str:
+        """Get lumenframe document summary for prompt injection.
+
+        If lumenframe is available, returns a compact summary of the layer
+        tree and selection. Otherwise returns a placeholder.
+        """
+        try:
+            from gemia.tools import layer as _layer
+            # Access the session-local document cache
+            if not hasattr(_layer, "_DOC_CACHE") or self.session_id not in _layer._DOC_CACHE:
+                return "(no lumenframe document in session yet)"
+            doc = _layer._DOC_CACHE[self.session_id]
+            root = doc.get("root", {})
+            selection = doc.get("selection", [])
+            canvas = doc.get("canvas", {})
+
+            lines = []
+            lines.append(f"Canvas: {canvas.get('width')}×{canvas.get('height')} @ {canvas.get('fps')} fps")
+            if root:
+                lines.append("Layer tree:")
+                # Use the compact tree summary function from layer.py
+                tree_summary = _layer._compact_tree_summary(root)
+                lines.append(tree_summary)
+            if selection:
+                lines.append(f"Selection: {', '.join(str(id)[:12] for id in selection)}")
+            return "\n".join(lines) if lines else "(empty document)"
+        except (ImportError, AttributeError, KeyError):
+            return "(lumenframe not available)"
+
+    def _get_lumenframe_ops_catalog(self) -> str:
+        """Get lumenframe operations catalog for prompt injection.
+
+        Returns the complete operation vocabulary from lumenframe.describe_ops(),
+        or a placeholder if lumenframe is unavailable.
+        """
+        try:
+            from lumenframe import describe_ops
+            return describe_ops()
+        except (ImportError, Exception):
+            return "(lumenframe operations not available)"
+
     def render_messages(self) -> list[dict[str, Any]]:
         """Build the messages list for the next model call.
 
         System prompt = ``system_v3.md`` with the placeholders filled in:
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
+        ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
+        ``{{lumenframe}}`` from the session lumenframe document state (if any),
         ``{{timeline}}`` from the session project's compact timeline summary,
         and ``{{pinned_intent}}`` from the user's first message in this
         session. After the system message comes the rolling
         user/assistant/tool window in chronological order.
         """
+        lumenframe_ops = self._get_lumenframe_ops_catalog()
+        lumenframe_text = self._get_lumenframe_prompt_text()
         system_filled = (
             self._system_template
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
+            .replace("{{lumenframe_ops}}", lumenframe_ops)
+            .replace("{{lumenframe}}", lumenframe_text)
             .replace("{{timeline}}", self.project.compact_text())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )

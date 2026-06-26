@@ -49,6 +49,7 @@ from gemia.tools import fetch as _fetch
 from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
+from gemia.tools import layer as _layer
 from gemia.tools import mix_audio as _mix_audio
 from gemia.tools import run_shell as _run_shell
 from gemia.tools import search_library as _search_library
@@ -111,6 +112,15 @@ _REAL: dict[str, Dispatcher] = {
     "project_export":           _timeline.dispatch_project_export,
     "project_export_otio":      _timeline.dispatch_export_otio,
     "project_import_otio":      _timeline.dispatch_import_otio,
+    "get_lumenframe":           _layer.dispatch_get_lumenframe,
+    "lumen_patch":              _layer.dispatch_lumen_patch,
+    "lumen_add_layer":          _layer.dispatch_lumen_add_layer,
+    "lumen_set_transform":      _layer.dispatch_lumen_set_transform,
+    "lumen_set_opacity":        _layer.dispatch_lumen_set_opacity,
+    "lumen_delete_layer":       _layer.dispatch_lumen_delete_layer,
+    "lumen_move_layer":         _layer.dispatch_lumen_move_layer,
+    "lumen_set_visibility":     _layer.dispatch_lumen_set_visibility,
+    "lumen_select":             _layer.dispatch_lumen_select,
 }
 
 
