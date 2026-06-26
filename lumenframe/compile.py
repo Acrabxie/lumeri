@@ -130,15 +130,24 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
                     matte_sources.add(str(mask["source_layer_id"]))
 
     # Track which layers belong to which adjustment layer (only CLOSEST above each).
-    # Strategy: iterate children, count non-adjustment z, for each find max adjustment below.
-    layer_to_adjustment: dict[int, int] = {}  # non-adj-z-index -> closest adjustment below it
+    # Strategy: iterate children, count non-adjustment z, for each find closest adjustment above it.
+    #
+    # NOTE: This implements a per-layer-below approximation, not AE's true composite-below.
+    # AE precomposes all layers below an adjustment into a flat image, then applies the
+    # adjustment effect to that composite. We instead apply each adjustment only to the
+    # single nearest layer below it. This avoids the complexity of dynamic layer grouping
+    # and handles the common case well (single adjustment per layer group). Full AE
+    # semantics are deferred to a future pass.
+    layer_to_adjustment: dict[int, int] = {}  # non-adj-z-index -> closest adjustment above it
     sorted_adj_z = sorted(adjustment_indices.keys())
     non_adj_z = 0
     for child_z, child in enumerate(children):
         if isinstance(child, dict) and str(child.get("type", "")) != "adjustment":
-            # Find closest adjustment at or below this non-adj-z.
-            for adj_z in reversed(sorted_adj_z):
-                if adj_z <= non_adj_z:
+            # Find closest adjustment above this non-adj-z (smallest adj_z > non_adj_z).
+            # Adjustments with adj_z > non_adj_z come after this layer in the non_adj_z order,
+            # so they are visually above it, and should affect it.
+            for adj_z in sorted_adj_z:
+                if adj_z > non_adj_z:
                     layer_to_adjustment[non_adj_z] = adj_z
                     break
             non_adj_z += 1

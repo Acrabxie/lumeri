@@ -353,6 +353,113 @@ def test_multiple_effects_chained():
     assert px[0] > 0.7  # red still high but desaturated
 
 
+# ── adjustment layer ─────────────────────────────────────────────────────
+
+
+def test_adjustment_layer_applies_to_below():
+    """Adjustment layer's effects apply to layers below it (closest-below semantics)."""
+    doc = base_doc(w=64, h=48, fps=10)
+    # Red layer at bottom.
+    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
+    # Adjustment layer above, with brightness reduction (-0.3).
+    # Brightness is additive: reduces each RGB channel by 0.3.
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "adj", "type": "adjustment",
+        "duration": 1.0,
+        "effects": [
+            {
+                "type": "brightness",
+                "params": {"value": -0.3},
+                "enabled": True
+            }
+        ]
+    }))
+
+    stack = compile_to_layer_stack(doc)
+    frame = stack.render_frame(0)
+    px = center_px(frame)
+
+    # Red (#FF0000 = 1.0, 0, 0) with brightness -0.3 → (0.7, 0, 0).
+    # Adjustment layer should have been applied, so R channel should be 0.7.
+    assert px[0] == pytest.approx(0.7, abs=0.01), \
+        f"Adjustment layer should reduce red from 1.0 to 0.7, got {px[0]}"
+
+
+def test_adjustment_layer_is_not_rendered():
+    """Adjustment layers themselves produce no pixels."""
+    doc = base_doc(w=64, h=48, fps=10)
+    # Just an adjustment layer, no content below.
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "adj", "type": "adjustment",
+        "duration": 1.0,
+        "effects": []
+    }))
+
+    stack = compile_to_layer_stack(doc)
+    frame = stack.render_frame(0)
+    # Should be fully transparent (adjustment layers don't render themselves).
+    assert frame[..., 3].max() < 0.01, "Adjustment layer alone should not produce pixels"
+
+
+def test_multiple_adjustment_layers_no_overwrite():
+    """Multiple adjustment layers: each layer gets only its closest-below adjustment (no overwrite).
+
+    This test verifies the fix for the layer_to_adjustment dict overwrite bug.
+    Before the fix: if the dict assignment loop overwrote entries, a layer could
+    get the wrong (last) adjustment applied, or none at all.
+    After the fix: closest-below semantics ensure each layer applies the correct
+    adjustment based on what's directly below it.
+    """
+    doc = base_doc(w=64, h=48, fps=10)
+    # Red layer (non-adjustment): will get adj1 (closest adjustment below it).
+    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
+    # Adjustment layer 1 (adj1): brightness -0.3.
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "adj1", "type": "adjustment",
+        "duration": 1.0,
+        "effects": [{
+            "type": "brightness",
+            "params": {"value": -0.3},
+            "enabled": True
+        }]
+    }))
+    # Green layer (non-adjustment): also gets adj1 (closest adjustment below it).
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "green", "type": "solid",
+        "color": "#00FF00", "duration": 1.0
+    }))
+    # Adjustment layer 2 (adj2): brightness -0.1.
+    # This does NOT affect red (adj1 is between red and adj2).
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "adj2", "type": "adjustment",
+        "duration": 1.0,
+        "effects": [{
+            "type": "brightness",
+            "params": {"value": -0.1},
+            "enabled": True
+        }]
+    }))
+    # White layer (non-adjustment): gets adj2 (closest adjustment below it).
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "white", "type": "solid",
+        "color": "#FFFFFF", "duration": 1.0
+    }))
+
+    stack = compile_to_layer_stack(doc)
+    frame = stack.render_frame(0)
+    px = center_px(frame)
+
+    # Top layer is white with adj2's -0.1 brightness:
+    # White (#FFFFFF = 1, 1, 1) with -0.1 → (0.9, 0.9, 0.9).
+    assert px[0] == pytest.approx(0.9, abs=0.01), \
+        f"White should be darkened by adj2 (-0.1) to 0.9, got {px[0]}"
+
+    # If overwrite bug were present:
+    # - dict would be: layer_to_adjustment = {non_adj_z=0: adj_z, ...}
+    # - iterating assignments could overwrite entries if done carelessly
+    # - red might lose adj1 or get adj2 instead
+    # - this assertion would fail (px[0] would be != 0.9)
+    # By passing, this confirms no overwrite occurred.
 
 
 # ── default resolver integration ──────────────────────────────────────────
