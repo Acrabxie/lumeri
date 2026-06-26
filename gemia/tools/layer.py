@@ -31,6 +31,7 @@ try:
         find_layer,
         find_parent,
     )
+    from lumenframe.compile import compile_to_layer_stack
 except ImportError:
     # Graceful fallback if lumenframe is not available
     empty_doc = None
@@ -39,6 +40,7 @@ except ImportError:
     new_layer = None
     find_layer = None
     find_parent = None
+    compile_to_layer_stack = None
 
 
 # Session-local doc state cache (keyed by session_id)
@@ -334,6 +336,123 @@ async def dispatch_select(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     return await dispatch_patch({"ops": [op]}, ctx)
 
 
+async def dispatch_render(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Render the current lumenframe document to a video or image file.
+
+    Compiles the lumenframe doc and renders it to MP4 (default) or PNG frame.
+    Missing media assets degrade gracefully (skipped).
+
+    Args:
+        format: "video" (default, MP4) or "frame" (single PNG at specified index)
+        frame_index: For format="frame", the frame number to render (default 0)
+
+    Returns:
+        Dict with asset_id, path, dimensions, duration (for video), etc.
+    """
+    if apply_layer_patch is None or compile_to_layer_stack is None:
+        return {
+            "applied": False,
+            "error_code": "E_NOT_AVAILABLE",
+            "error_message": "lumenframe compile module not available",
+        }
+
+    doc = _lumendoc(ctx)
+    fmt = str(args.get("format", "video")).lower()
+    frame_index = int(args.get("frame_index", 0))
+
+    # Compile the document to a renderable stack
+    try:
+        stack = compile_to_layer_stack(doc, strict=False)
+    except Exception as e:
+        return {
+            "applied": False,
+            "error_code": "E_COMPILE",
+            "error_message": f"Compile failed: {str(e)}",
+        }
+
+    # Determine output format and path
+    if fmt == "frame":
+        output_kind = "image"
+        output_ext = ".png"
+    else:
+        output_kind = "video"
+        output_ext = ".mp4"
+        fmt = "video"
+
+    asset_id = ctx.registry.allocate_id(output_kind)
+    out_path = ctx.child_path(asset_id, output_ext)
+
+    # Render
+    try:
+        if fmt == "video":
+            # Render full video
+            out_path_str = stack.render_to_video(str(out_path))
+            width, height = stack.width, stack.height
+            total_frames = stack.total_frames
+            duration_sec = total_frames / stack.fps
+
+            summary = f"lumenframe render ({width}×{height} @ {stack.fps} fps, {total_frames} frames)"
+            ctx.registry.register_output(
+                asset_id,
+                kind=output_kind,
+                path=Path(out_path_str),
+                summary=summary,
+            )
+
+            return {
+                "applied": True,
+                "asset_id": asset_id,
+                "path": str(out_path),
+                "width": width,
+                "height": height,
+                "fps": stack.fps,
+                "total_frames": total_frames,
+                "duration_sec": duration_sec,
+                "format": "mp4",
+                "summary": summary,
+            }
+        else:  # frame
+            # Render single frame
+            frame_index = min(max(frame_index, 0), stack.total_frames - 1)
+            frame_rgba = stack.render_frame(frame_index)
+
+            # Convert to PIL Image and save as PNG
+            import numpy as np
+            from PIL import Image as PILImage
+
+            # Ensure float32 [0, 1]
+            frame_uint8 = np.asarray(frame_rgba * 255, dtype=np.uint8)
+            img = PILImage.fromarray(frame_uint8, "RGBA")
+            img.save(str(out_path))
+
+            width, height = stack.width, stack.height
+            summary = f"lumenframe frame render (frame {frame_index} of {stack.total_frames})"
+            ctx.registry.register_output(
+                asset_id,
+                kind=output_kind,
+                path=out_path,
+                summary=summary,
+            )
+
+            return {
+                "applied": True,
+                "asset_id": asset_id,
+                "path": str(out_path),
+                "width": width,
+                "height": height,
+                "frame_index": frame_index,
+                "total_frames": stack.total_frames,
+                "format": "png",
+                "summary": summary,
+            }
+    except Exception as e:
+        return {
+            "applied": False,
+            "error_code": "E_RENDER",
+            "error_message": f"Render failed: {str(e)}",
+        }
+
+
 def clear_lumenframe_session(session_id: str) -> None:
     """Clear the lumenframe document cache for a session.
 
@@ -358,6 +477,7 @@ dispatch_lumen_delete_layer = dispatch_delete_layer
 dispatch_lumen_move_layer = dispatch_move_layer
 dispatch_lumen_set_visibility = dispatch_set_visibility
 dispatch_lumen_select = dispatch_select
+dispatch_lumen_render = dispatch_render
 
 
 __all__ = [
@@ -371,5 +491,6 @@ __all__ = [
     "dispatch_move_layer",
     "dispatch_set_visibility",
     "dispatch_select",
+    "dispatch_render",
     "clear_lumenframe_session",
 ]

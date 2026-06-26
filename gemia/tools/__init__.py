@@ -121,6 +121,7 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_move_layer":         _layer.dispatch_lumen_move_layer,
     "lumen_set_visibility":     _layer.dispatch_lumen_set_visibility,
     "lumen_select":             _layer.dispatch_lumen_select,
+    "lumen_render":             _layer.dispatch_lumen_render,
 }
 
 

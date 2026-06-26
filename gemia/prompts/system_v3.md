@@ -115,6 +115,7 @@ The function-calling schemas list the full set. The short version:
 The session may have a lumenframe document (a hierarchical layer tree).
 If available, it shows the current layer structure, selection, and canvas.
 Layer edits are available via lumen_* verbs and the low-level lumen_patch verb.
+Use `lumen_render` to export the document as an MP4 video or PNG frame for preview.
 
 ### Available operations (lumenframe.ops vocabulary):
 

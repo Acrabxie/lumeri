@@ -561,6 +561,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         [],
     ),
+    _tool(
+        "lumen_render",
+        "Render the current lumenframe document to a video (MP4) or still frame (PNG). Missing media assets degrade gracefully. Returns asset_id for playback or analysis via analyze_media.",
+        {
+            "format": {
+                "type": "string",
+                "enum": ["video", "frame"],
+                "description": "Output format. Default 'video' (MP4); 'frame' renders a single PNG.",
+            },
+            "frame_index": {
+                "type": "integer",
+                "description": "For format='frame', which frame to render (0-based). Default 0.",
+            },
+        },
+        [],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.
