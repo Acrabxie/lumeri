@@ -397,3 +397,173 @@ def test_lumenframe_doc_persistence_across_calls(tmp_session: ToolContext) -> No
     assert layer is not None
     assert layer["name"] == "persistent"
     assert layer.get("opacity") == 0.7
+
+
+def test_delete_layer_removes_from_tree(tmp_session: ToolContext) -> None:
+    """Test that delete_layer removes layer from tree."""
+    # Add a layer via convenience verb
+    result = asyncio.run(
+        layer_module.dispatch_add_layer(
+            {"type": "video", "name": "to_delete"},
+            tmp_session
+        )
+    )
+    assert result["applied"] is True
+
+    # Delete it
+    doc = layer_module._lumendoc(tmp_session)
+    layer_id = doc["root"]["children"][0]["id"]
+
+    del_result = asyncio.run(
+        layer_module.dispatch_delete_layer({"layer_id": layer_id}, tmp_session)
+    )
+    assert del_result["applied"] is True
+
+    # Verify it's gone
+    doc = layer_module._lumendoc(tmp_session)
+    assert len(doc["root"].get("children", [])) == 0
+
+
+def test_move_layer_reparents(tmp_session: ToolContext) -> None:
+    """Test move_layer with reparenting."""
+    # Create composition and layer
+    ops = [
+        {"op": "add_layer", "type": "composition", "name": "parent"},
+        {"op": "add_layer", "type": "video", "name": "child"},
+    ]
+    asyncio.run(layer_module.dispatch_patch({"ops": ops}, tmp_session))
+
+    doc = layer_module._lumendoc(tmp_session)
+    parent_id = doc["root"]["children"][0]["id"]
+    child_id = doc["root"]["children"][1]["id"]
+
+    # Move child into parent
+    result = asyncio.run(
+        layer_module.dispatch_move_layer(
+            {"layer_id": child_id, "parent_id": parent_id},
+            tmp_session
+        )
+    )
+    assert result["applied"] is True
+
+    # Verify parentage
+    doc = layer_module._lumendoc(tmp_session)
+    parent = find_layer(doc, parent_id)
+    assert parent is not None
+    assert len(parent.get("children", [])) == 1
+    assert parent["children"][0]["id"] == child_id
+
+
+def test_set_visibility_toggle(tmp_session: ToolContext) -> None:
+    """Test toggling visibility on a layer."""
+    # Add layer
+    asyncio.run(
+        layer_module.dispatch_add_layer(
+            {"type": "audio", "name": "sound"},
+            tmp_session
+        )
+    )
+    doc = layer_module._lumendoc(tmp_session)
+    layer_id = doc["root"]["children"][0]["id"]
+
+    # Hide it
+    result = asyncio.run(
+        layer_module.dispatch_set_visibility(
+            {"layer_id": layer_id, "visible": False},
+            tmp_session
+        )
+    )
+    assert result["applied"] is True
+
+    doc = layer_module._lumendoc(tmp_session)
+    layer = find_layer(doc, layer_id)
+    assert layer is not None
+    assert layer.get("visible") is False
+
+
+def test_select_multiple_layers(tmp_session: ToolContext) -> None:
+    """Test multi-layer selection."""
+    # Add three layers
+    for name in ["v1", "v2", "v3"]:
+        asyncio.run(
+            layer_module.dispatch_add_layer(
+                {"type": "video", "name": name},
+                tmp_session
+            )
+        )
+
+    doc = layer_module._lumendoc(tmp_session)
+    ids = [c["id"] for c in doc["root"]["children"]]
+
+    # Select first two
+    result = asyncio.run(
+        layer_module.dispatch_select(
+            {"layer_ids": ids[:2], "mode": "replace"},
+            tmp_session
+        )
+    )
+    assert result["applied"] is True
+
+    doc = layer_module._lumendoc(tmp_session)
+    selection = doc.get("selection", [])
+    assert set(selection) == set(ids[:2])
+
+
+def test_invalid_op_returns_structured_error(tmp_session: ToolContext) -> None:
+    """Test that invalid ops return structured error_code."""
+    ops = [{"op": "invalid_op_type", "some_arg": "value"}]
+    result = asyncio.run(layer_module.dispatch_patch({"ops": ops}, tmp_session))
+
+    assert result["applied"] is False
+    assert "error_code" in result
+    assert "error_message" in result
+    # Should be a specific code from lumenframe
+    assert result["error_code"] == "E_OP_UNKNOWN"
+
+
+def test_prompt_injection_placeholders_replaced() -> None:
+    """Test that system prompt placeholders are properly replaced."""
+    from gemia.agent_loop_v3 import AgentLoopV3
+    from pathlib import Path
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        loop = AgentLoopV3(
+            session_id="test_injection",
+            output_dir=Path(tmpdir),
+            emit_event=lambda _: None,
+        )
+
+        messages = loop.render_messages()
+        assert len(messages) > 0
+
+        system_msg = messages[0]
+        assert system_msg["role"] == "system"
+        content = system_msg["content"]
+
+        # Both placeholders should be replaced (not literally present)
+        assert "{{lumenframe_ops}}" not in content
+        assert "{{lumenframe}}" not in content
+
+        # Should contain lumenframe sections
+        assert "Layer Document" in content or "lumenframe" in content.lower()
+
+
+def test_clear_lumenframe_session_removes_cache(tmp_session: ToolContext) -> None:
+    """Test that clear_lumenframe_session cleans up the doc cache."""
+    # Add a doc to the cache
+    asyncio.run(
+        layer_module.dispatch_add_layer(
+            {"type": "video", "name": "test"},
+            tmp_session
+        )
+    )
+
+    # Verify it's in cache
+    assert tmp_session.session_id in layer_module._DOC_CACHE
+
+    # Clear it
+    layer_module.clear_lumenframe_session(tmp_session.session_id)
+
+    # Verify it's gone
+    assert tmp_session.session_id not in layer_module._DOC_CACHE

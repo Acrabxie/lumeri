@@ -334,6 +334,19 @@ async def dispatch_select(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     return await dispatch_patch({"ops": [op]}, ctx)
 
 
+def clear_lumenframe_session(session_id: str) -> None:
+    """Clear the lumenframe document cache for a session.
+
+    Call this when a session ends to clean up memory. Can be integrated into
+    agent_loop_v3's session teardown if/when one is added.
+
+    Args:
+        session_id: The session identifier to clear from _DOC_CACHE.
+    """
+    if session_id in _DOC_CACHE:
+        del _DOC_CACHE[session_id]
+
+
 # Dispatchers table (called by agent_loop_v3.py via DISPATCHER)
 dispatch = dispatch_patch  # The main entry point
 dispatch_get_lumenframe = dispatch_get
@@ -358,4 +371,5 @@ __all__ = [
     "dispatch_move_layer",
     "dispatch_set_visibility",
     "dispatch_select",
+    "clear_lumenframe_session",
 ]

@@ -291,25 +291,40 @@ class AgentLoopV3:
         except (ImportError, AttributeError, KeyError):
             return "(lumenframe not available)"
 
+    def _get_lumenframe_ops_catalog(self) -> str:
+        """Get lumenframe operations catalog for prompt injection.
+
+        Returns the complete operation vocabulary from lumenframe.describe_ops(),
+        or a placeholder if lumenframe is unavailable.
+        """
+        try:
+            from lumenframe import describe_ops
+            return describe_ops()
+        except (ImportError, Exception):
+            return "(lumenframe operations not available)"
+
     def render_messages(self) -> list[dict[str, Any]]:
         """Build the messages list for the next model call.
 
         System prompt = ``system_v3.md`` with the placeholders filled in:
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
-        ``{{timeline}}`` from the session project's compact timeline summary,
+        ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
         ``{{lumenframe}}`` from the session lumenframe document state (if any),
+        ``{{timeline}}`` from the session project's compact timeline summary,
         and ``{{pinned_intent}}`` from the user's first message in this
         session. After the system message comes the rolling
         user/assistant/tool window in chronological order.
         """
+        lumenframe_ops = self._get_lumenframe_ops_catalog()
         lumenframe_text = self._get_lumenframe_prompt_text()
         system_filled = (
             self._system_template
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
-            .replace("{{timeline}}", self.project.compact_text())
+            .replace("{{lumenframe_ops}}", lumenframe_ops)
             .replace("{{lumenframe}}", lumenframe_text)
+            .replace("{{timeline}}", self.project.compact_text())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )
         return [{"role": "system", "content": system_filled}, *self._messages]
