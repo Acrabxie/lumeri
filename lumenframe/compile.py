@@ -73,8 +73,24 @@ def compile_to_layer_stack(
     resolver: Resolver | None = None,
     strict: bool = False,
 ):
-    """Compile ``doc`` into a renderable ``LayerStack``."""
+    """Compile ``doc`` into a renderable ``LayerStack``.
+
+    Args:
+        doc: A lumenframe document (dict with canvas, root composition, assets).
+        resolver: A callable(layer, ctx) -> content_fn | None. If None, uses
+            the default_resolver which handles image/video/text from assets.
+        strict: If True, raises CompileError when content cannot be produced.
+            If False, skips layers with unresolved content.
+
+    Returns:
+        A LayerStack ready for render_frame() / render_to_video().
+    """
     from gemia.video.layers import LayerStack  # local: pulls cv2/numpy/PIL
+
+    # Use default resolver if none provided.
+    if resolver is None:
+        from lumenframe.resolve import default_resolver
+        resolver = default_resolver
 
     norm = model.normalize_doc(doc or {})
     canvas = norm["canvas"]
@@ -96,27 +112,58 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
     # Resolve content_fn for every child first so track mattes can borrow a sibling.
     resolved: dict[str, ContentFn] = {}
     matte_sources: set[str] = set()
+    adjustment_indices: dict[int, dict[str, Any]] = {}  # z_index -> adjustment layer
+
     for layer in children:
         if isinstance(layer, dict):
-            fn = _content_fn_for(layer, ctx, resolver, strict)
-            if fn is not None:
-                resolved[str(layer.get("id"))] = fn
+            ltype = str(layer.get("type", ""))
+            if ltype == "adjustment":
+                # Mark this as an adjustment layer for later processing.
+                adjustment_indices[len([c for c in children[:children.index(layer)] if isinstance(c, dict)])] = layer
+            else:
+                fn = _content_fn_for(layer, ctx, resolver, strict)
+                if fn is not None:
+                    resolved[str(layer.get("id"))] = fn
             mask = layer.get("mask")
             if isinstance(mask, dict) and str(mask.get("kind")) in {"alpha_matte", "luma_matte"}:
                 if mask.get("source_layer_id"):
                     matte_sources.add(str(mask["source_layer_id"]))
 
+    # Track which layers belong to which adjustment layer.
+    layer_to_adjustment: dict[int, int] = {}  # z_index -> adjustment z_index (if affected)
+    for adj_z in sorted(adjustment_indices.keys()):
+        for z in range(adj_z):
+            layer_to_adjustment[z] = adj_z
+
+    # Add layers to the stack, applying adjustments to affected layers.
     for z, layer in enumerate(children):
         if not isinstance(layer, dict):
             continue
         if not layer.get("visible", True):
             continue
+
+        ltype = str(layer.get("type", ""))
+        if ltype == "adjustment":
+            # Adjustment layers themselves are not drawn; their effects are applied to
+            # preceding layers. We handle this when processing those layers.
+            continue
+
         # A layer used only as a track matte feeds the mask, not the canvas (AE-style).
         if str(layer.get("id")) in matte_sources:
             continue
+
         content_fn = resolved.get(str(layer.get("id")))
         if content_fn is None:
-            continue  # nothing to draw (skipped / unresolved / adjustment / null)
+            continue  # nothing to draw (skipped / unresolved / null)
+
+        # Apply adjustment layer effects if this layer is affected.
+        if z in layer_to_adjustment:
+            adj_z = layer_to_adjustment[z]
+            adj_layer = adjustment_indices.get(adj_z)
+            if adj_layer:
+                effects = adj_layer.get("effects") or []
+                if effects:
+                    content_fn = _wrap_with_effects(content_fn, effects, ctx)
 
         start_frame = int(round(model._as_float(layer.get("start")) * ctx.fps))
         end_frame = int(round((model._as_float(layer.get("start")) + model._as_float(layer.get("duration"))) * ctx.fps))
@@ -152,18 +199,27 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
 def _content_fn_for(layer: dict[str, Any], ctx: ResolveContext, resolver, strict) -> ContentFn | None:
     ltype = str(layer.get("type"))
     if ltype in {"adjustment", "null"}:
-        return None  # no direct pixels in M1
+        return None  # no direct pixels in M1.1; adjustment layers are handled separately
     if ltype == "solid":
-        return _solid_content(layer, ctx)
-    if ltype == "composition":
-        return _composition_content(layer, ctx, resolver, strict)
-    if resolver is not None:
+        fn = _solid_content(layer, ctx)
+    elif ltype == "composition":
+        fn = _composition_content(layer, ctx, resolver, strict)
+    elif resolver is not None:
         fn = resolver(layer, ctx)
-        if fn is not None:
-            return fn
-    if strict:
-        raise CompileError(f"no content for layer {layer.get('id')} (type {ltype}); pass a resolver")
-    return None
+    else:
+        fn = None
+
+    if fn is None:
+        if strict:
+            raise CompileError(f"no content for layer {layer.get('id')} (type {ltype}); pass a resolver")
+        return None
+
+    # Wrap the content_fn to apply per-layer effects (the effect chain).
+    effects = layer.get("effects") or []
+    if effects:
+        fn = _wrap_with_effects(fn, effects, ctx)
+
+    return fn
 
 
 def _solid_content(layer: dict[str, Any], ctx: ResolveContext) -> ContentFn:
@@ -318,3 +374,131 @@ def _rgba01(value: Any, *, default: tuple[float, float, float, float]):
             vals.append(1.0)
         return tuple(vals)  # type: ignore[return-value]
     return default
+
+
+# ── effect chain application ──────────────────────────────────────────────
+
+
+def _wrap_with_effects(base_fn: ContentFn, effects: list[dict[str, Any]], ctx: ResolveContext) -> ContentFn:
+    """Wrap a content_fn to apply per-layer effects in order.
+
+    Args:
+        base_fn: The original content_fn(frame_index) -> RGBAFrame.
+        effects: List of effect dicts {type, params, enabled}.
+        ctx: ResolveContext for canvas dimensions.
+
+    Returns:
+        A new content_fn that applies effects in order.
+    """
+    def wrapped_fn(frame_index: int) -> np.ndarray:
+        frame = base_fn(frame_index)
+        for effect in effects:
+            if not effect.get("enabled", True):
+                continue
+            eff_type = str(effect.get("type", ""))
+            params = dict(effect.get("params") or {})
+            frame = _apply_effect(frame, eff_type, params, ctx)
+        return frame
+
+    return wrapped_fn
+
+
+def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    """Apply a single effect to an RGBA frame.
+
+    Supports a set of built-in effects; unknown effects are silently skipped.
+    """
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    # Built-in effects
+    if effect_type == "gaussian_blur":
+        radius = float(params.get("radius", 5.0))
+        return _apply_gaussian_blur_rgba(frame, radius)
+
+    if effect_type == "color_grade":
+        brightness = float(params.get("brightness", 0.0))
+        contrast = float(params.get("contrast", 1.0))
+        saturation = float(params.get("saturation", 1.0))
+        return _apply_color_grade(frame, brightness, contrast, saturation)
+
+    if effect_type == "brightness":
+        brightness = float(params.get("value", 0.0))
+        return _apply_color_grade(frame, brightness, 1.0, 1.0)
+
+    if effect_type == "contrast":
+        contrast = float(params.get("value", 1.0))
+        return _apply_color_grade(frame, 0.0, contrast, 1.0)
+
+    if effect_type == "saturation":
+        saturation = float(params.get("value", 1.0))
+        return _apply_color_grade(frame, 0.0, 1.0, saturation)
+
+    # Attempt to resolve via gemia registry (for extensions).
+    try:
+        from gemia.registry import resolve
+        func = resolve(effect_type)
+        # Call the function with the BGR image (without alpha).
+        bgr = frame[..., :3]
+        alpha = frame[..., 3:4]
+        processed = func(bgr, **params)
+        return np.concatenate([processed, alpha], axis=2).astype(np.float32)
+    except Exception:
+        # Unknown effect or resolution failed; skip silently.
+        return frame
+
+
+def _apply_gaussian_blur_rgba(frame: np.ndarray, radius: float) -> np.ndarray:
+    """Apply Gaussian blur to RGBA frame, preserving alpha."""
+    import cv2
+
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    if radius <= 0:
+        return frame
+
+    # Separate RGB and alpha.
+    rgb = frame[..., :3]
+    alpha = frame[..., 3]  # 2D array
+
+    # Apply blur to RGB.
+    ksize = int(2 * round(radius) + 1)
+    blurred_rgb = cv2.GaussianBlur(rgb, (ksize, ksize), radius)
+
+    # Blur alpha channel too for smooth edges.
+    blurred_alpha = cv2.GaussianBlur(alpha, (ksize, ksize), radius)
+    if blurred_alpha.ndim == 2:
+        blurred_alpha = blurred_alpha[..., np.newaxis]
+
+    return np.concatenate([blurred_rgb, blurred_alpha], axis=2).astype(np.float32)
+
+
+def _apply_color_grade(frame: np.ndarray, brightness: float, contrast: float, saturation: float) -> np.ndarray:
+    """Apply brightness, contrast, and saturation adjustments to RGBA frame."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    rgb = frame[..., :3].copy()
+    alpha = frame[..., 3:4]
+
+    # Apply brightness (add to all channels).
+    rgb = np.clip(rgb + brightness, 0.0, 1.0)
+
+    # Apply contrast (scale around 0.5).
+    rgb = 0.5 + contrast * (rgb - 0.5)
+    rgb = np.clip(rgb, 0.0, 1.0)
+
+    # Apply saturation (shift towards/away from grey).
+    if not np.isclose(saturation, 1.0):
+        # Convert to HSV, adjust S, convert back.
+        # For simplicity, compute greyscale and blend.
+        grey = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
+        grey = np.stack([grey, grey, grey], axis=2)
+        rgb = (1.0 - saturation) * grey + saturation * rgb
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+    return np.concatenate([rgb, alpha], axis=2).astype(np.float32)
