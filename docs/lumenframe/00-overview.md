@@ -1,8 +1,9 @@
 # lumenframe — the layered editing core
 
-> Status: **M0 landed** (model + op vocabulary + extension registry + catalogue,
-> 34 tests green). Branch `feat/lumenframe-core`. Pure-additive; no existing file
-> touched.
+> Status: **M0 + M1 landed** — model + op vocabulary + extension registry +
+> catalogue, plus the compile bridge that renders a document to real pixels
+> (48 tests green). Branch `feat/lumenframe-core`. Pure-additive; no existing
+> file touched.
 
 ## Why
 
@@ -80,9 +81,13 @@ returns structured metadata. A test enforces catalogue ⇄ registry parity.
 
 ## Roadmap (next milestones)
 
-- **M1 compile bridge** — `LayerDoc → LayerStack/CompositingGraph` so a doc
-  actually renders; map merge/flatten to raster baking, mattes to `mask_fn`,
-  effects to `gemia.registry` primitives.
+- **M1 compile bridge** — ✅ landed (`lumenframe/compile.py`). `compile_to_layer_stack`
+  maps a doc to `gemia.video.layers.LayerStack`: built-in solid + nested
+  composition content, resolver hook for media/text/extension types, centre-origin
+  transform (translate + scale + centred rotation), opacity/position/scale/rotation
+  keyframes, and alpha/luma track mattes (matte source auto-hidden, AE-style).
+  *Deferred to M1.1:* non-uniform scale, anchor≠centre, adjustment-layer & effect-chain
+  application, merge/flatten raster baking, shape-mask rasterisation, `CompositingGraph` path.
 - **M2 agent tools** — expose LayerPatch ops as verbs (like `gemia/tools/timeline.py`),
   inject `describe_ops()` + `{{lumenframe}}` doc state into the loop.
 - **M3 timeline interop** — adapter so the existing `project_model` timeline is a
