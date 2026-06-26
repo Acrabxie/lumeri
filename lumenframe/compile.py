@@ -129,13 +129,22 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
                 if mask.get("source_layer_id"):
                     matte_sources.add(str(mask["source_layer_id"]))
 
-    # Track which layers belong to which adjustment layer.
-    layer_to_adjustment: dict[int, int] = {}  # z_index -> adjustment z_index (if affected)
-    for adj_z in sorted(adjustment_indices.keys()):
-        for z in range(adj_z):
-            layer_to_adjustment[z] = adj_z
+    # Track which layers belong to which adjustment layer (only CLOSEST above each).
+    # Strategy: iterate children, count non-adjustment z, for each find max adjustment below.
+    layer_to_adjustment: dict[int, int] = {}  # non-adj-z-index -> closest adjustment below it
+    sorted_adj_z = sorted(adjustment_indices.keys())
+    non_adj_z = 0
+    for child_z, child in enumerate(children):
+        if isinstance(child, dict) and str(child.get("type", "")) != "adjustment":
+            # Find closest adjustment at or below this non-adj-z.
+            for adj_z in reversed(sorted_adj_z):
+                if adj_z <= non_adj_z:
+                    layer_to_adjustment[non_adj_z] = adj_z
+                    break
+            non_adj_z += 1
 
     # Add layers to the stack, applying adjustments to affected layers.
+    non_adj_z = 0
     for z, layer in enumerate(children):
         if not isinstance(layer, dict):
             continue
@@ -150,20 +159,23 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
 
         # A layer used only as a track matte feeds the mask, not the canvas (AE-style).
         if str(layer.get("id")) in matte_sources:
+            non_adj_z += 1
             continue
 
         content_fn = resolved.get(str(layer.get("id")))
         if content_fn is None:
+            non_adj_z += 1
             continue  # nothing to draw (skipped / unresolved / null)
 
         # Apply adjustment layer effects if this layer is affected.
-        if z in layer_to_adjustment:
-            adj_z = layer_to_adjustment[z]
+        if non_adj_z in layer_to_adjustment:
+            adj_z = layer_to_adjustment[non_adj_z]
             adj_layer = adjustment_indices.get(adj_z)
             if adj_layer:
                 effects = adj_layer.get("effects") or []
                 if effects:
                     content_fn = _wrap_with_effects(content_fn, effects, ctx)
+        non_adj_z += 1
 
         start_frame = int(round(model._as_float(layer.get("start")) * ctx.fps))
         end_frame = int(round((model._as_float(layer.get("start")) + model._as_float(layer.get("duration"))) * ctx.fps))
@@ -450,7 +462,7 @@ def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], c
 
 
 def _apply_gaussian_blur_rgba(frame: np.ndarray, radius: float) -> np.ndarray:
-    """Apply Gaussian blur to RGBA frame, preserving alpha."""
+    """Apply Gaussian blur to RGBA frame using premultiplied alpha."""
     import cv2
 
     frame = np.asarray(frame, dtype=np.float32)
@@ -462,16 +474,21 @@ def _apply_gaussian_blur_rgba(frame: np.ndarray, radius: float) -> np.ndarray:
 
     # Separate RGB and alpha.
     rgb = frame[..., :3]
-    alpha = frame[..., 3]  # 2D array
+    alpha = frame[..., 3:4]
 
-    # Apply blur to RGB.
+    # Premultiply: rgb * alpha to avoid haloing at semi-transparent edges.
+    rgb_premult = rgb * alpha
+
+    # Apply blur to premultiplied RGB and alpha separately.
     ksize = int(2 * round(radius) + 1)
-    blurred_rgb = cv2.GaussianBlur(rgb, (ksize, ksize), radius)
+    blurred_rgb_premult = cv2.GaussianBlur(rgb_premult, (ksize, ksize), radius)
+    blurred_alpha_2d = cv2.GaussianBlur(alpha[..., 0], (ksize, ksize), radius)
+    blurred_alpha = blurred_alpha_2d[..., np.newaxis]
 
-    # Blur alpha channel too for smooth edges.
-    blurred_alpha = cv2.GaussianBlur(alpha, (ksize, ksize), radius)
-    if blurred_alpha.ndim == 2:
-        blurred_alpha = blurred_alpha[..., np.newaxis]
+    # Unpremultiply: divide rgb back by alpha (avoid division by zero).
+    eps = 1e-6
+    blurred_rgb = blurred_rgb_premult / (blurred_alpha + eps)
+    blurred_rgb = np.clip(blurred_rgb, 0.0, 1.0)
 
     return np.concatenate([blurred_rgb, blurred_alpha], axis=2).astype(np.float32)
 
@@ -492,10 +509,9 @@ def _apply_color_grade(frame: np.ndarray, brightness: float, contrast: float, sa
     rgb = 0.5 + contrast * (rgb - 0.5)
     rgb = np.clip(rgb, 0.0, 1.0)
 
-    # Apply saturation (shift towards/away from grey).
+    # Apply saturation (desaturate by blending towards greyscale).
     if not np.isclose(saturation, 1.0):
-        # Convert to HSV, adjust S, convert back.
-        # For simplicity, compute greyscale and blend.
+        # Compute greyscale and blend with original.
         grey = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
         grey = np.stack([grey, grey, grey], axis=2)
         rgb = (1.0 - saturation) * grey + saturation * rgb

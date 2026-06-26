@@ -114,6 +114,7 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
     # Account for source_in / source_out (trimming within the video).
     source_in = float(layer.get("source_in", 0.0))
     source_out = float(layer.get("source_out", 0.0))
+    speed = float(layer.get("speed", 1.0))
 
     # If source_out is 0, compute it from the layer's duration.
     if source_out <= source_in:
@@ -121,15 +122,18 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
         source_out = source_in + duration
 
     def video_content_fn(frame_index: int) -> np.ndarray:
-        """Read video frame, handling trimming and canvas fit."""
-        # Absolute frame in the timeline.
-        absolute_frame = frame_index
-        # Mapped to source video frame, accounting for source_in offset.
-        source_frame = int(source_in * ctx.fps) + absolute_frame
+        """Read video frame, handling trimming, speed, and canvas fit."""
+        # Time in seconds = frame_index / fps
+        local_time = float(frame_index) / ctx.fps
+        # Source time = source_in + local_time * speed
+        source_time = source_in + (local_time * speed)
+        # Mapped to source video frame.
+        source_frame = int(source_time * ctx.fps)
 
         # Clamp to source range.
+        source_frame_min = int(source_in * ctx.fps)
         source_frame_max = int(source_out * ctx.fps)
-        source_frame = min(max(source_frame, int(source_in * ctx.fps)), source_frame_max - 1)
+        source_frame = min(max(source_frame, source_frame_min), source_frame_max - 1)
 
         try:
             frame_rgba = _read_video_frame(path, source_frame)
@@ -195,8 +199,8 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
         x = (ctx.width - text_w) // 2
         y = (ctx.height - text_h) // 2
 
-        # Convert color to 0-255 range.
-        fill = tuple(int(min(255, max(0, c * 255))) for c in color_rgba)
+        # Convert color to 0-255 range. Force alpha=255 so layer opacity controls transparency.
+        fill = tuple(int(min(255, max(0, c * 255))) for c in color_rgba[:3]) + (255,)
 
         # Draw text.
         draw.text((x, y), text, fill=fill, font=font)

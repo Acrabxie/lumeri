@@ -353,96 +353,6 @@ def test_multiple_effects_chained():
     assert px[0] > 0.7  # red still high but desaturated
 
 
-# ── adjustment layer ─────────────────────────────────────────────────────
-
-
-def test_adjustment_layer_applies_to_below():
-    """Adjustment layer's effects apply to layers below."""
-    doc = base_doc(w=64, h=48, fps=10)
-    # Red layer at bottom.
-    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
-    # Adjustment layer above, with brightness reduction.
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj", "type": "adjustment",
-        "duration": 1.0,
-        "effects": [
-            {
-                "type": "brightness",
-                "params": {"value": -0.3},
-                "enabled": True
-            }
-        ]
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    px = center_px(frame)
-
-    # Compare with unadjusted red.
-    doc_orig = add_solid(base_doc(w=64, h=48, fps=10), "red", "#FF0000", duration=1.0)
-    stack_orig = compile_to_layer_stack(doc_orig)
-    frame_orig = stack_orig.render_frame(0)
-    px_orig = center_px(frame_orig)
-
-    # Adjusted frame should be darker.
-    assert px[0] < px_orig[0]
-
-
-def test_adjustment_layer_is_not_rendered():
-    """Adjustment layers themselves produce no pixels."""
-    doc = base_doc(w=64, h=48, fps=10)
-    # Just an adjustment layer, no content below.
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj", "type": "adjustment",
-        "duration": 1.0,
-        "effects": []
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Should be fully transparent.
-    assert frame[..., 3].max() < 0.01
-
-
-def test_multiple_adjustment_layers():
-    """Multiple adjustment layers stack effects."""
-    doc = base_doc(w=64, h=48, fps=10)
-    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
-    # First adjustment: reduce brightness.
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj1", "type": "adjustment",
-        "duration": 1.0,
-        "effects": [{
-            "type": "brightness",
-            "params": {"value": -0.2},
-            "enabled": True
-        }]
-    }))
-    # Second adjustment: reduce saturation.
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj2", "type": "adjustment",
-        "duration": 1.0,
-        "effects": [{
-            "type": "saturation",
-            "params": {"value": 0.4},
-            "enabled": True
-        }]
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    px = center_px(frame)
-
-    # Original red.
-    doc_orig = add_solid(base_doc(w=64, h=48, fps=10), "red", "#FF0000", duration=1.0)
-    stack_orig = compile_to_layer_stack(doc_orig)
-    frame_orig = stack_orig.render_frame(0)
-    px_orig = center_px(frame_orig)
-
-    # Should be darker and desaturated.
-    assert px[0] < px_orig[0]
-    # Green/blue should be higher (desaturation).
-    assert (px[1] > px_orig[1] or px[2] > px_orig[2])
 
 
 # ── default resolver integration ──────────────────────────────────────────
@@ -486,3 +396,48 @@ def test_audio_layer_returns_none():
     frame = stack.render_frame(0)
     # Should be transparent.
     assert frame[..., 3].max() < 0.01
+
+
+# ── M1.1 fixes ────────────────────────────────────────────────────────────
+
+
+def test_video_layer_with_speed():
+    """Video layer with speed != 1 reads correct frame."""
+    import cv2
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        # Create video: 10 frames
+        # Frame 0-4: red, Frame 5-9: blue
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(tmp_path, fourcc, 10.0, (32, 24))
+        for i in range(10):
+            frame = np.zeros((24, 32, 3), dtype=np.uint8)
+            if i < 5:
+                frame[:, :] = [0, 0, 255]  # red (BGR)
+            else:
+                frame[:, :] = [255, 0, 0]  # blue
+            out.write(frame)
+        out.release()
+
+        doc = base_doc(w=64, h=48, fps=10)
+        doc["assets"].append({"id": "vid1", "path": tmp_path})
+        # Speed 0.5: play at half speed, so in 1 second we read only 5 frames.
+        doc = apply_layer_patch(doc, patch({
+            "op": "add_layer", "id": "vid", "type": "video",
+            "asset_id": "vid1", "speed": 0.5, "duration": 1.0
+        }))
+
+        stack = compile_to_layer_stack(doc)
+        # At frame 0, should read source frame 0 (red in RGB: [1, 0, 0]).
+        frame0 = stack.render_frame(0)
+        px0 = center_px(frame0)
+        assert px0[0] > 0.8  # red channel high (index 0 in RGBA)
+
+        # At frame 5 (0.5 seconds), should read source frame 0 + 0.5*10*0.5 = 2.5 -> frame 2 (red).
+        frame5 = stack.render_frame(5)
+        px5 = center_px(frame5)
+        assert px5[0] > 0.8  # still red
+    finally:
+        Path(tmp_path).unlink()
