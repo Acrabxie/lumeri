@@ -651,3 +651,51 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   text-align: center;
   white-space: nowrap;
 }
+
+/* ── keyframe-track editor (curve-editing visual basis) ─────────────── */
+.project-timeline-keyframes {
+  margin-top: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.kf-track {
+  position: relative;
+  height: 22px;
+  flex-shrink: 0;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.kf-track-lane {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.kf-track-label {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  font: 8px/1 ui-monospace, SF Mono, Menlo, monospace;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+.kf-marker {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -5px;
+  margin-top: -5px;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  border-radius: 2px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 3px var(--accent);
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 2;
+}
+.kf-marker:hover { background: var(--text); }
+.kf-marker:active { cursor: grabbing; }
