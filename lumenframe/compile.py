@@ -456,6 +456,42 @@ def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], c
         saturation = float(params.get("value", 1.0))
         return _apply_color_grade(frame, 0.0, 1.0, saturation)
 
+    if effect_type == "invert":
+        return _apply_invert(frame)
+
+    if effect_type == "grayscale":
+        amount = float(params.get("amount", 1.0))
+        return _apply_grayscale(frame, amount)
+
+    if effect_type == "mirror" or effect_type == "flip":
+        direction = str(params.get("direction", "horizontal"))
+        return _apply_mirror(frame, direction)
+
+    if effect_type == "crop":
+        x0 = float(params.get("x0", 0.0))
+        y0 = float(params.get("y0", 0.0))
+        x1 = float(params.get("x1", 1.0))
+        y1 = float(params.get("y1", 1.0))
+        return _apply_crop(frame, x0, y0, x1, y1)
+
+    if effect_type == "vignette":
+        amount = float(params.get("amount", 0.5))
+        return _apply_vignette(frame, amount)
+
+    if effect_type == "sharpen":
+        amount = float(params.get("amount", 1.0))
+        return _apply_sharpen(frame, amount)
+
+    if effect_type == "hue_rotate":
+        degrees = float(params.get("degrees") or params.get("value") or 0.0)
+        return _apply_hue_rotate(frame, degrees)
+
+    if effect_type == "chroma_key":
+        key_color = params.get("key_color", "#00FF00")
+        threshold = float(params.get("threshold", 0.4))
+        softness = float(params.get("softness", 0.1))
+        return _apply_chroma_key(frame, key_color, threshold, softness)
+
     # Attempt to resolve via gemia registry (for extensions).
     try:
         from gemia.registry import resolve
@@ -527,3 +563,190 @@ def _apply_color_grade(frame: np.ndarray, brightness: float, contrast: float, sa
         rgb = np.clip(rgb, 0.0, 1.0)
 
     return np.concatenate([rgb, alpha], axis=2).astype(np.float32)
+
+
+def _apply_invert(frame: np.ndarray) -> np.ndarray:
+    """Invert RGB channels, preserve alpha."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    rgb = frame[..., :3]
+    alpha = frame[..., 3:4]
+    inverted_rgb = 1.0 - rgb
+    return np.concatenate([inverted_rgb, alpha], axis=2).astype(np.float32)
+
+
+def _apply_grayscale(frame: np.ndarray, amount: float) -> np.ndarray:
+    """Blend towards greyscale; amount 0=full color, 1=full grey."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    rgb = frame[..., :3].copy()
+    alpha = frame[..., 3:4]
+
+    amount = max(0.0, min(1.0, amount))
+    if amount > 0.0:
+        grey = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
+        grey = np.stack([grey, grey, grey], axis=2)
+        rgb = (1.0 - amount) * rgb + amount * grey
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+    return np.concatenate([rgb, alpha], axis=2).astype(np.float32)
+
+
+def _apply_mirror(frame: np.ndarray, direction: str) -> np.ndarray:
+    """Flip/mirror along horizontal, vertical, or both axes."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    direction = str(direction).lower()
+    if direction in {"horizontal", "h", "x"}:
+        return np.flip(frame, axis=1).copy().astype(np.float32)
+    elif direction in {"vertical", "v", "y"}:
+        return np.flip(frame, axis=0).copy().astype(np.float32)
+    elif direction in {"both", "xy", "all"}:
+        return np.flip(np.flip(frame, axis=0), axis=1).copy().astype(np.float32)
+    return frame
+
+
+def _apply_crop(frame: np.ndarray, x0: float, y0: float, x1: float, y1: float) -> np.ndarray:
+    """Crop to normalized rectangle [x0, y0, x1, y1] ∈ [0,1]; outside α=0."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    h, w = frame.shape[:2]
+    x0, y0, x1, y1 = max(0.0, min(1.0, x0)), max(0.0, min(1.0, y0)), max(0.0, min(1.0, x1)), max(0.0, min(1.0, y1))
+    if x0 >= x1 or y0 >= y1:
+        # Crop area is degenerate; return fully transparent.
+        return np.zeros_like(frame, dtype=np.float32)
+
+    px0, py0 = int(x0 * w), int(y0 * h)
+    px1, py1 = int(x1 * w), int(y1 * h)
+    px0, py0, px1, py1 = max(0, px0), max(0, py0), min(w, px1), min(h, py1)
+
+    result = np.zeros_like(frame, dtype=np.float32)
+    if px0 < px1 and py0 < py1:
+        result[py0:py1, px0:px1] = frame[py0:py1, px0:px1]
+    return result
+
+
+def _apply_vignette(frame: np.ndarray, amount: float) -> np.ndarray:
+    """Apply radial edge darkening with gaussian falloff from center."""
+    import cv2
+
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    h, w = frame.shape[:2]
+    amount = max(0.0, min(1.0, amount))
+
+    if amount == 0.0:
+        return frame
+
+    # Create a gaussian falloff from center outward.
+    cy, cx = h / 2.0, w / 2.0
+    y, x = np.ogrid[:h, :w]
+    dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    max_dist = np.sqrt(cx ** 2 + cy ** 2)
+    normalized_dist = np.clip(dist / max_dist, 0.0, 1.0)
+
+    # Gaussian falloff: 1.0 at center, 0.0 at edges.
+    falloff = np.exp(-2.0 * (normalized_dist ** 2))
+    # Blend between 1.0 (no vignette) and falloff (full vignette).
+    vignette = 1.0 - amount * (1.0 - falloff)
+    vignette = np.stack([vignette, vignette, vignette, np.ones((h, w))], axis=2)
+
+    rgb = frame[..., :3] * vignette[..., :3]
+    alpha = frame[..., 3:4]
+    return np.concatenate([rgb, alpha], axis=2).astype(np.float32)
+
+
+def _apply_sharpen(frame: np.ndarray, amount: float) -> np.ndarray:
+    """Apply unsharp mask: original + amount*(original - gaussian_blur)."""
+    import cv2
+
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    amount = max(0.0, amount)
+    if amount == 0.0:
+        return frame
+
+    rgb = frame[..., :3]
+    alpha = frame[..., 3:4]
+
+    # Gaussian blur with radius 2.
+    ksize = 5
+    blurred = cv2.GaussianBlur(rgb, (ksize, ksize), 1.0)
+
+    # Unsharp mask.
+    sharpened = rgb + amount * (rgb - blurred)
+    sharpened = np.clip(sharpened, 0.0, 1.0)
+
+    return np.concatenate([sharpened, alpha], axis=2).astype(np.float32)
+
+
+def _apply_hue_rotate(frame: np.ndarray, degrees: float) -> np.ndarray:
+    """Rotate hue in HSV space."""
+    import cv2
+
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    rgb = frame[..., :3]
+    alpha = frame[..., 3:4]
+
+    # Convert to HSV. OpenCV expects BGR uint8, so convert.
+    bgr_uint8 = (rgb[..., ::-1] * 255.0).astype(np.uint8)  # RGB -> BGR, float to uint8
+    hsv = cv2.cvtColor(bgr_uint8, cv2.COLOR_BGR2HSV_FULL)  # HSV in [0,255]
+
+    # Rotate hue channel.
+    degrees = float(degrees)
+    hue_shift = int((degrees / 360.0) * 255.0) % 256
+    hsv[..., 0] = (hsv[..., 0].astype(np.int32) + hue_shift) % 256
+
+    # Convert back.
+    bgr_out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR_FULL)
+    rgb_out = bgr_out[..., ::-1]  # BGR -> RGB
+    rgb_out = rgb_out.astype(np.float32) / 255.0
+
+    return np.concatenate([rgb_out, alpha], axis=2).astype(np.float32)
+
+
+def _apply_chroma_key(frame: np.ndarray, key_color: str | tuple, threshold: float, softness: float) -> np.ndarray:
+    """Distance-based alpha keying: pixels near key_color become transparent."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    # Parse key_color.
+    key_rgb = _rgba01(key_color, default=(0.0, 1.0, 0.0, 1.0))[:3]
+    key_rgb = np.array(key_rgb, dtype=np.float32)
+
+    rgb = frame[..., :3]
+    alpha = frame[..., 3:4]
+
+    # Euclidean distance in RGB space.
+    dist = np.sqrt(np.sum((rgb - key_rgb) ** 2, axis=2, keepdims=True))
+
+    # Distance-based keying: 0 when dist < threshold, 1 when dist > threshold+softness.
+    threshold = max(0.0, threshold)
+    softness = max(0.0, softness)
+    edge = threshold + softness
+    if edge <= threshold:
+        # No softness; hard boundary.
+        key_alpha = (dist > threshold).astype(np.float32)
+    else:
+        # Softness ramp.
+        key_alpha = np.clip((dist - threshold) / softness, 0.0, 1.0)
+
+    # Multiply into existing alpha.
+    new_alpha = alpha * key_alpha
+    return np.concatenate([rgb, new_alpha], axis=2).astype(np.float32)

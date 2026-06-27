@@ -641,6 +641,8 @@ def _op_add_effect(doc: dict[str, Any], op: dict[str, Any]) -> None:
         "params": op.get("params"),
         "id": op.get("effect_id"),
     }
+    if "enabled" in op:
+        spec["enabled"] = op["enabled"]
     if not spec.get("type"):
         raise LayerPatchError("E_ARG", "add_effect: effect needs a type")
     effect = model._normalize_effect(spec)
@@ -699,6 +701,23 @@ def _op_color_grade(doc: dict[str, Any], op: dict[str, Any]) -> None:
             effect["enabled"] = True
             return
     layer["effects"].append(model._normalize_effect({"type": "color_grade", "params": params}))
+
+
+@register_op("flip_layer", source="core")
+def _op_flip_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Convenience: upsert a mirror effect on the layer's effect chain.
+
+    Mirrors can be applied with direction: horizontal, vertical, or both.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="flip_layer")
+    direction = str(op.get("direction", "horizontal"))
+    params = {"direction": direction}
+    for effect in layer.setdefault("effects", []):
+        if str(effect.get("type")) == "mirror":
+            effect["params"] = {**(effect.get("params") or {}), **params}
+            effect["enabled"] = True
+            return
+    layer["effects"].append(model._normalize_effect({"type": "mirror", "params": params}))
 
 
 @register_op("add_transition", source="core")

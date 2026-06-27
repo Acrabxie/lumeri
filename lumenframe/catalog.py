@@ -64,6 +64,8 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Move / scale / rotate a layer (anchor-relative, canvas-centre origin)."},
     {"op": "set_opacity", "group": "transform", "args": ["layer_id*", "opacity*(0..1)"], "summary": "Set layer opacity."},
     {"op": "set_blend_mode", "group": "transform", "args": ["layer_id*", "blend_mode*"], "summary": "Set the blend mode."},
+    {"op": "flip_layer", "group": "transform", "args": ["layer_id*", "direction(horizontal|vertical|both)"],
+     "summary": "Upsert a mirror/flip effect on the layer's effect chain."},
     # ── inter-layer ──
     {"op": "set_mask", "group": "interlayer", "args": ["layer_id*", "mask{kind(shape|alpha_matte|luma_matte), source_layer_id, shape, invert, feather}|null"],
      "summary": "Attach a drawn mask or a track matte (or clear it)."},
@@ -121,4 +123,28 @@ def describe_ops() -> str:
         for entry in sorted(items, key=lambda e: e["op"]):
             args = ", ".join(entry.get("args", []))
             lines.append(f"  {entry['op']}({args}) — {entry.get('summary', '')}")
+    return "\n".join(lines)
+
+
+def describe_effects() -> str:
+    """List of built-in and supported effect types for the effect chain."""
+    effects = [
+        ("gaussian_blur", "radius(float)", "Gaussian blur applied to RGB with premultiplied alpha."),
+        ("color_grade", "brightness, contrast, saturation, exposure, temperature, tint, highlights, shadows, gamma, lift, gain", "DaVinci-style colour grading."),
+        ("brightness", "value(float)", "Adjust brightness."),
+        ("contrast", "value(float)", "Adjust contrast."),
+        ("saturation", "value(float)", "Adjust saturation (0=grey, 1=normal, >1=saturated)."),
+        ("invert", "", "Invert RGB channels; alpha unchanged."),
+        ("grayscale", "amount(0..1, default 1.0)", "Blend towards greyscale (0=color, 1=grey)."),
+        ("mirror|flip", "direction(horizontal|vertical|both, default horizontal)", "Flip/mirror the frame."),
+        ("crop", "x0, y0, x1, y1 (normalized [0,1], default 0,0,1,1)", "Crop to rectangle; outside alpha=0."),
+        ("vignette", "amount(0..1, default 0.5)", "Radial edge darkening with gaussian falloff."),
+        ("sharpen", "amount(float, default 1.0)", "Unsharp mask sharpening."),
+        ("hue_rotate", "degrees or value(float)", "Rotate hue in HSV space."),
+        ("chroma_key", "key_color(#hex or [r,g,b], default #00FF00), threshold(0..1, default 0.4), softness(0..1, default 0.1)", "Distance-based alpha keying; pixels near key_color become transparent."),
+    ]
+    lines = ["Effect types (used in add_effect / set_effect_params):"]
+    for name, args, desc in effects:
+        lines.append(f"  {name}: {args}")
+        lines.append(f"    {desc}")
     return "\n".join(lines)
