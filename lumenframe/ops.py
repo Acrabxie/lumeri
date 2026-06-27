@@ -1300,3 +1300,148 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
 
     else:
         raise LayerPatchError("E_ARG", f"animate_layer: unknown preset {preset!r}")
+
+
+# ════════════════════════════════════════════════════════════════════════
+# CapCut-style preset sugar (speed_ramp / animate_text / apply_template)
+#
+# These three ops are pure *sugar* over the primitives above: each one builds a
+# set of standard op dicts (or a time_remap curve) and delegates to the existing
+# set_time_remap / set_keyframe / dispatch machinery. They introduce no new
+# document fields and no resolver/compile change.
+# ════════════════════════════════════════════════════════════════════════
+
+
+#: Speed-ramp presets -> a profile of (output_fraction, source_fraction) control
+#: points across the layer span. ``source_fraction`` is how far through the
+#: source media we are at that ``output_fraction`` of the (unchanged) layer
+#: duration. A segment whose source advances *slower* than output (slope < 1) is
+#: slow-motion; faster (slope > 1) is fast-forward. Endpoints are always (0,0)
+#: and (1,1) so the clip starts and ends on the same source frames.
+_SPEED_RAMP_PROFILES: dict[str, list[tuple[float, float]]] = {
+    # Fast in, slow middle, fast out — the classic "hero moment" ramp.
+    "hero": [(0.0, 0.0), (0.3, 0.45), (0.7, 0.55), (1.0, 1.0)],
+    # Quick energetic cuts: source races ahead in the middle (fast-forward).
+    "montage": [(0.0, 0.0), (0.3, 0.15), (0.7, 0.85), (1.0, 1.0)],
+    # Punch in: normal then a hard slow on the back half (bullet-time).
+    "bullet": [(0.0, 0.0), (0.5, 0.5), (0.6, 0.55), (1.0, 1.0)],
+    # Ease the speed up from a slow start (slow -> fast).
+    "ease_in": [(0.0, 0.0), (0.5, 0.25), (1.0, 1.0)],
+    # Ease the speed down to a slow finish (fast -> slow).
+    "ease_out": [(0.0, 0.0), (0.5, 0.75), (1.0, 1.0)],
+}
+
+
+@register_op("speed_ramp", source="core")
+def _op_speed_ramp(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Apply a named speed-ramp preset by emitting a ``time_remap`` curve.
+
+    Presets (``preset``): ``hero`` (slow middle), ``montage`` (fast middle),
+    ``bullet`` (slow back-half), ``ease_in`` (slow->fast), ``ease_out``
+    (fast->slow). Each preset is a fixed profile of (output_fraction,
+    source_fraction) control points; this op scales those fractions across the
+    layer's output ``duration`` and its source range, builds the keyframes, and
+    delegates to the existing ``set_time_remap`` handler (so the curve, its
+    validation, and the constant-speed reset are all shared with that op).
+
+    The output duration is preserved: a ramp redistributes *which* source frames
+    play *when*, it does not change the clip length. A segment with slope < 1 is
+    slow-motion; slope > 1 is fast-forward.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="speed_ramp")
+    preset = str(_require_arg(op, "preset"))
+    profile = _SPEED_RAMP_PROFILES.get(preset)
+    if profile is None:
+        raise LayerPatchError(
+            "E_ARG",
+            f"speed_ramp: unknown preset {preset!r} (use {', '.join(sorted(_SPEED_RAMP_PROFILES))})",
+        )
+
+    out_dur = model._as_float(layer.get("duration"))
+    if out_dur <= 0:
+        raise LayerPatchError("E_RANGE", "speed_ramp: layer has no duration to ramp")
+    src_in = model._as_float(layer.get("source_in"))
+    src_out = model._as_float(layer.get("source_out"))
+    src_range = src_out - src_in
+    if src_range <= 0:
+        # No source span recorded (e.g. a synthetic layer) — ramp across the
+        # output duration itself so the curve is still well-defined.
+        src_range = out_dur
+
+    keyframes = [
+        {
+            "t": _round_t(out_frac * out_dur),
+            "value": _round_t(src_in + src_frac * src_range),
+            "interp": "linear",
+        }
+        for out_frac, src_frac in profile
+    ]
+    # Delegate to set_time_remap so the curve validation + speed reset are shared.
+    _op_set_time_remap(doc, {
+        "op": "set_time_remap",
+        "layer_id": layer["id"],
+        "keyframes": keyframes,
+        "extrapolate": str(op.get("extrapolate") or "hold"),
+    })
+
+
+@register_op("animate_text", source="core")
+def _op_animate_text(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Animate a text layer with a CapCut-style title preset.
+
+    Presets (``preset``): ``fade_in_words``, ``pop`` (scale punch 0->~1.2->1),
+    ``wave`` (damped vertical settle), ``rise`` (slide up + fade in). The preset
+    is expanded by :func:`lumenframe.text_anim.text_anim_ops` into plain
+    ``set_keyframe`` ops on ``opacity`` / ``transform.*`` only (no new property,
+    no resolver change); each is then run through the existing ``set_keyframe``
+    handler so the keyframes are identical to hand-authored ones.
+    """
+    from lumenframe.text_anim import text_anim_ops, TextAnimError
+
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="animate_text")
+    preset = str(_require_arg(op, "preset"))
+    duration = model._as_float(op.get("duration") or 0.5)
+    easing = str(op.get("easing") or "linear")
+    try:
+        sub_ops = text_anim_ops(
+            layer["id"],
+            preset,
+            layer_start=model._as_float(layer.get("start")),
+            layer_duration=model._as_float(layer.get("duration")),
+            duration=duration,
+            easing=easing,
+        )
+    except TextAnimError as err:
+        raise LayerPatchError("E_ARG", str(err)) from err
+    for sub in sub_ops:
+        _op_set_keyframe(doc, sub)
+
+
+@register_op("apply_template", source="core")
+def _op_apply_template(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Stamp a named scene template (lower_third / intro) into the document.
+
+    The template is a pure ``params -> [op dicts]`` function; this op looks it up
+    in :data:`lumenframe.templates.TEMPLATES`, expands it with ``params``, and
+    applies each resulting op through the *same* dispatch path used for every
+    other op. Templates therefore introduce no new vocabulary — they are a macro
+    over ``add_layer`` / ``set_transform`` / ``animate_text`` / ….
+    """
+    from lumenframe.templates import TEMPLATES, template_names
+
+    name = str(_require_arg(op, "template"))
+    template = TEMPLATES.get(name)
+    if template is None:
+        raise LayerPatchError(
+            "E_ARG",
+            f"apply_template: unknown template {name!r} (use {', '.join(template_names())})",
+        )
+    params = op.get("params") or {}
+    if not isinstance(params, dict):
+        raise LayerPatchError("E_ARG", "apply_template: params must be an object")
+    try:
+        sub_ops = template(**params)
+    except TypeError as err:
+        raise LayerPatchError("E_ARG", f"apply_template: bad params for {name!r}: {err}") from err
+    for sub in sub_ops:
+        _dispatch(doc, sub)
