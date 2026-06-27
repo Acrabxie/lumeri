@@ -597,73 +597,129 @@ def _wrap_with_effects(base_fn: ContentFn, effects: list[dict[str, Any]], ctx: R
     return wrapped_fn
 
 
+# ── effect dispatch table ─────────────────────────────────────────────────
+#
+# Each built-in effect is a small adapter ``fn(frame, params, ctx) -> frame``
+# that reads its params (with the same defaults as before) and calls the
+# underlying ``_apply_*`` kernel. The ``EFFECTS`` dict maps an effect *type*
+# string to its adapter — adding a new effect is now "a new function + one dict
+# entry", with no edits to the dispatch logic in :func:`_apply_effect`.
+#
+# Aliases (e.g. ``flip`` for ``mirror``) are real, separate keys pointing at the
+# same adapter, so the table's key set is the canonical effect-type vocabulary
+# (which :mod:`lumenframe.catalog` is checked against by a drift guard test).
+
+
+def _effect_gaussian_blur(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    radius = float(params.get("radius", 5.0))
+    return _apply_gaussian_blur_rgba(frame, radius)
+
+
+def _effect_color_grade(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    brightness = float(params.get("brightness", 0.0))
+    contrast = float(params.get("contrast", 1.0))
+    saturation = float(params.get("saturation", 1.0))
+    return _apply_color_grade(frame, brightness, contrast, saturation)
+
+
+def _effect_brightness(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    brightness = float(params.get("value", 0.0))
+    return _apply_color_grade(frame, brightness, 1.0, 1.0)
+
+
+def _effect_contrast(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    contrast = float(params.get("value", 1.0))
+    return _apply_color_grade(frame, 0.0, contrast, 1.0)
+
+
+def _effect_saturation(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    saturation = float(params.get("value", 1.0))
+    return _apply_color_grade(frame, 0.0, 1.0, saturation)
+
+
+def _effect_invert(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    return _apply_invert(frame)
+
+
+def _effect_grayscale(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    amount = float(params.get("amount", 1.0))
+    return _apply_grayscale(frame, amount)
+
+
+def _effect_mirror(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    direction = str(params.get("direction", "horizontal"))
+    return _apply_mirror(frame, direction)
+
+
+def _effect_crop(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    x0 = float(params.get("x0", 0.0))
+    y0 = float(params.get("y0", 0.0))
+    x1 = float(params.get("x1", 1.0))
+    y1 = float(params.get("y1", 1.0))
+    return _apply_crop(frame, x0, y0, x1, y1)
+
+
+def _effect_vignette(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    amount = float(params.get("amount", 0.5))
+    return _apply_vignette(frame, amount)
+
+
+def _effect_sharpen(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    amount = float(params.get("amount", 1.0))
+    return _apply_sharpen(frame, amount)
+
+
+def _effect_hue_rotate(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    degrees = float(params.get("degrees") or params.get("value") or 0.0)
+    return _apply_hue_rotate(frame, degrees)
+
+
+def _effect_chroma_key(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    key_color = params.get("key_color", "#00FF00")
+    threshold = float(params.get("threshold", 0.4))
+    softness = float(params.get("softness", 0.1))
+    return _apply_chroma_key(frame, key_color, threshold, softness)
+
+
+EffectFn = Callable[["np.ndarray", dict[str, Any], "ResolveContext"], "np.ndarray"]
+
+#: Built-in effect dispatch table: effect type -> adapter ``fn(frame, params, ctx)``.
+#: This is the single source of truth for the built-in effect vocabulary; a new
+#: effect is a new ``_effect_*`` function plus one entry here — no if/elif edits.
+#: ``flip`` is an alias of ``mirror`` (same adapter, behaviour-preserving).
+EFFECTS: dict[str, EffectFn] = {
+    "gaussian_blur": _effect_gaussian_blur,
+    "color_grade": _effect_color_grade,
+    "brightness": _effect_brightness,
+    "contrast": _effect_contrast,
+    "saturation": _effect_saturation,
+    "invert": _effect_invert,
+    "grayscale": _effect_grayscale,
+    "mirror": _effect_mirror,
+    "flip": _effect_mirror,
+    "crop": _effect_crop,
+    "vignette": _effect_vignette,
+    "sharpen": _effect_sharpen,
+    "hue_rotate": _effect_hue_rotate,
+    "chroma_key": _effect_chroma_key,
+}
+
+
 def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
     """Apply a single effect to an RGBA frame.
 
-    Supports a set of built-in effects; unknown effects are silently skipped.
+    Built-in effects are dispatched through the :data:`EFFECTS` table; effects
+    not in the table fall back to the third-party :mod:`gemia.registry`, and an
+    unknown / failing effect is silently skipped (behaviour-preserving).
     """
     frame = np.asarray(frame, dtype=np.float32)
     if frame.ndim != 3 or frame.shape[2] != 4:
         return frame
 
-    # Built-in effects
-    if effect_type == "gaussian_blur":
-        radius = float(params.get("radius", 5.0))
-        return _apply_gaussian_blur_rgba(frame, radius)
-
-    if effect_type == "color_grade":
-        brightness = float(params.get("brightness", 0.0))
-        contrast = float(params.get("contrast", 1.0))
-        saturation = float(params.get("saturation", 1.0))
-        return _apply_color_grade(frame, brightness, contrast, saturation)
-
-    if effect_type == "brightness":
-        brightness = float(params.get("value", 0.0))
-        return _apply_color_grade(frame, brightness, 1.0, 1.0)
-
-    if effect_type == "contrast":
-        contrast = float(params.get("value", 1.0))
-        return _apply_color_grade(frame, 0.0, contrast, 1.0)
-
-    if effect_type == "saturation":
-        saturation = float(params.get("value", 1.0))
-        return _apply_color_grade(frame, 0.0, 1.0, saturation)
-
-    if effect_type == "invert":
-        return _apply_invert(frame)
-
-    if effect_type == "grayscale":
-        amount = float(params.get("amount", 1.0))
-        return _apply_grayscale(frame, amount)
-
-    if effect_type == "mirror" or effect_type == "flip":
-        direction = str(params.get("direction", "horizontal"))
-        return _apply_mirror(frame, direction)
-
-    if effect_type == "crop":
-        x0 = float(params.get("x0", 0.0))
-        y0 = float(params.get("y0", 0.0))
-        x1 = float(params.get("x1", 1.0))
-        y1 = float(params.get("y1", 1.0))
-        return _apply_crop(frame, x0, y0, x1, y1)
-
-    if effect_type == "vignette":
-        amount = float(params.get("amount", 0.5))
-        return _apply_vignette(frame, amount)
-
-    if effect_type == "sharpen":
-        amount = float(params.get("amount", 1.0))
-        return _apply_sharpen(frame, amount)
-
-    if effect_type == "hue_rotate":
-        degrees = float(params.get("degrees") or params.get("value") or 0.0)
-        return _apply_hue_rotate(frame, degrees)
-
-    if effect_type == "chroma_key":
-        key_color = params.get("key_color", "#00FF00")
-        threshold = float(params.get("threshold", 0.4))
-        softness = float(params.get("softness", 0.1))
-        return _apply_chroma_key(frame, key_color, threshold, softness)
+    # Built-in effects via dispatch table.
+    fn = EFFECTS.get(effect_type)
+    if fn is not None:
+        return fn(frame, params, ctx)
 
     # Attempt to resolve via gemia registry (for extensions).
     try:

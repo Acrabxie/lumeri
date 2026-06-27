@@ -144,25 +144,55 @@ def describe_ops() -> str:
     return "\n".join(lines)
 
 
+#: Documentation for each built-in effect type.
+#:
+#: ``types`` is the tuple of effect-type strings that share this row (aliases,
+#: e.g. ``("mirror", "flip")``). The display name joins them with ``|``. This is
+#: the single source for the prompt block *and* the drift guard: the union of
+#: all ``types`` here must equal the dispatch table ``lumenframe.compile.EFFECTS``
+#: keys (asserted by ``tests/test_lumenframe_effects_table.py``), so the
+#: vocabulary and its documentation can never silently drift from the renderer.
+EFFECTS_CATALOG: list[dict[str, Any]] = [
+    {"types": ("gaussian_blur",), "args": "radius(float)",
+     "desc": "Gaussian blur applied to RGB with premultiplied alpha."},
+    {"types": ("color_grade",),
+     "args": "brightness, contrast, saturation, exposure, temperature, tint, highlights, shadows, gamma, lift, gain",
+     "desc": "DaVinci-style colour grading."},
+    {"types": ("brightness",), "args": "value(float)", "desc": "Adjust brightness."},
+    {"types": ("contrast",), "args": "value(float)", "desc": "Adjust contrast."},
+    {"types": ("saturation",), "args": "value(float)",
+     "desc": "Adjust saturation (0=grey, 1=normal, >1=saturated)."},
+    {"types": ("invert",), "args": "", "desc": "Invert RGB channels; alpha unchanged."},
+    {"types": ("grayscale",), "args": "amount(0..1, default 1.0)",
+     "desc": "Blend towards greyscale (0=color, 1=grey)."},
+    {"types": ("mirror", "flip"), "args": "direction(horizontal|vertical|both, default horizontal)",
+     "desc": "Flip/mirror the frame."},
+    {"types": ("crop",), "args": "x0, y0, x1, y1 (normalized [0,1], default 0,0,1,1)",
+     "desc": "Crop to rectangle; outside alpha=0."},
+    {"types": ("vignette",), "args": "amount(0..1, default 0.5)",
+     "desc": "Radial edge darkening with gaussian falloff."},
+    {"types": ("sharpen",), "args": "amount(float, default 1.0)", "desc": "Unsharp mask sharpening."},
+    {"types": ("hue_rotate",), "args": "degrees or value(float)", "desc": "Rotate hue in HSV space."},
+    {"types": ("chroma_key",),
+     "args": "key_color(#hex or [r,g,b], default #00FF00), threshold(0..1, default 0.4), softness(0..1, default 0.1)",
+     "desc": "Distance-based alpha keying; pixels near key_color become transparent."},
+]
+
+
+def effect_types() -> set[str]:
+    """The canonical set of built-in effect type strings (aliases included).
+
+    Derived from :data:`EFFECTS_CATALOG`; the drift guard asserts this equals the
+    dispatch table ``lumenframe.compile.EFFECTS`` keys.
+    """
+    return {t for entry in EFFECTS_CATALOG for t in entry["types"]}
+
+
 def describe_effects() -> str:
     """List of built-in and supported effect types for the effect chain."""
-    effects = [
-        ("gaussian_blur", "radius(float)", "Gaussian blur applied to RGB with premultiplied alpha."),
-        ("color_grade", "brightness, contrast, saturation, exposure, temperature, tint, highlights, shadows, gamma, lift, gain", "DaVinci-style colour grading."),
-        ("brightness", "value(float)", "Adjust brightness."),
-        ("contrast", "value(float)", "Adjust contrast."),
-        ("saturation", "value(float)", "Adjust saturation (0=grey, 1=normal, >1=saturated)."),
-        ("invert", "", "Invert RGB channels; alpha unchanged."),
-        ("grayscale", "amount(0..1, default 1.0)", "Blend towards greyscale (0=color, 1=grey)."),
-        ("mirror|flip", "direction(horizontal|vertical|both, default horizontal)", "Flip/mirror the frame."),
-        ("crop", "x0, y0, x1, y1 (normalized [0,1], default 0,0,1,1)", "Crop to rectangle; outside alpha=0."),
-        ("vignette", "amount(0..1, default 0.5)", "Radial edge darkening with gaussian falloff."),
-        ("sharpen", "amount(float, default 1.0)", "Unsharp mask sharpening."),
-        ("hue_rotate", "degrees or value(float)", "Rotate hue in HSV space."),
-        ("chroma_key", "key_color(#hex or [r,g,b], default #00FF00), threshold(0..1, default 0.4), softness(0..1, default 0.1)", "Distance-based alpha keying; pixels near key_color become transparent."),
-    ]
     lines = ["Effect types (used in add_effect / set_effect_params):"]
-    for name, args, desc in effects:
-        lines.append(f"  {name}: {args}")
-        lines.append(f"    {desc}")
+    for entry in EFFECTS_CATALOG:
+        name = "|".join(entry["types"])
+        lines.append(f"  {name}: {entry['args']}")
+        lines.append(f"    {entry['desc']}")
     return "\n".join(lines)
