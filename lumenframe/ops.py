@@ -82,6 +82,95 @@ def _dispatch(doc: dict[str, Any], op: dict[str, Any]) -> None:
     handler(doc, op)
 
 
+# ── dry-run validation (ADD-only; never raises, never mutates) ───────────
+
+
+# Short, actionable guidance keyed by the stable ``LayerPatchError.code``.
+# Anything unmapped falls back to a generic hint so Gemini always gets one.
+_HINTS: dict[str, str] = {
+    "E_PATCH": "patch envelope is wrong; send {\"version\": 1, \"ops\": [...]}",
+    "E_OP": "each op must be a JSON object with an 'op' key",
+    "E_OP_UNKNOWN": "unknown op name; list available ops before patching",
+    "E_ARG": "a required argument is missing or null for this op",
+    "E_NOT_FOUND": "the layer id does not exist; inspect current layers first",
+    "E_RANGE": "value out of allowed range",
+    "E_SPEED": "speed must be greater than 0",
+    "E_ROOT": "this op cannot target the root composition",
+    "E_CONTAINER": "that parent layer cannot hold children",
+    "E_CYCLE": "cannot move a layer into itself or one of its descendants",
+    "E_GROUP_PARENT": "all selected layers must share the same parent",
+    "E_TYPE": "the layer type is unknown or not valid for this op",
+    "E_MASK": "mask/matte source is missing, self-referential, or unknown",
+    "E_UNSAFE": "the expression is invalid or not allowed",
+    "E_DOC": "the document is missing its root composition",
+    "E_ID": "every layer needs an id",
+    "E_DUP_ID": "duplicate layer id in the resulting document",
+}
+
+
+def _hint_for(code: str) -> str:
+    """Map a stable error ``code`` to a short, actionable hint."""
+    return _HINTS.get(code, "see message; inspect current state and retry")
+
+
+def validate_patch(
+    doc: dict[str, Any] | None,
+    patch: list[dict[str, Any]] | dict[str, Any],
+) -> dict[str, Any]:
+    """Dry-run a LayerPatch without mutating ``doc`` or raising.
+
+    Runs the *same* op dispatch as :func:`apply_layer_patch` against a private
+    deep copy of the (normalised) document, catching :class:`LayerPatchError`
+    per op so Gemini can see every reachable problem in one pass. The caller's
+    ``doc`` is never touched.
+
+    Returns ``{"ok": bool, "errors": [...]}`` where each error is
+    ``{"op_index": int, "code": str, "message": str, "hint": str}``. ``op_index``
+    is the position of the failing op across all ops in all patches (0-based);
+    structural/finalize failures that are not tied to a single op use ``-1``.
+    """
+    working = copy.deepcopy(normalize_doc(doc or {}))
+    patch_list = [patch] if isinstance(patch, dict) else list(patch or [])
+    errors: list[dict[str, Any]] = []
+    op_index = -1
+    for entry in patch_list:
+        if not isinstance(entry, dict) or entry.get("version") != 1:
+            err = LayerPatchError("E_PATCH", "Unsupported LayerPatch (need version: 1)")
+            errors.append({
+                "op_index": op_index + 1,
+                "code": err.code,
+                "message": err.message,
+                "hint": _hint_for(err.code),
+            })
+            # The envelope is unusable; skip its ops but keep checking siblings.
+            continue
+        for op in entry.get("ops") or []:
+            op_index += 1
+            try:
+                _dispatch(working, op)
+            except LayerPatchError as err:
+                errors.append({
+                    "op_index": op_index,
+                    "code": err.code,
+                    "message": err.message,
+                    "hint": _hint_for(err.code),
+                })
+    # Even if every op applied cleanly, the assembled document may still violate
+    # a structural invariant — surface that the way apply_layer_patch would.
+    if not errors:
+        try:
+            _finalize(working)
+            validate_doc(working)
+        except LayerPatchError as err:
+            errors.append({
+                "op_index": -1,
+                "code": err.code,
+                "message": err.message,
+                "hint": _hint_for(err.code),
+            })
+    return {"ok": not errors, "errors": errors}
+
+
 # ── shared helpers ──────────────────────────────────────────────────────
 
 
