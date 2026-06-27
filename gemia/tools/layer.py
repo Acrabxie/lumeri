@@ -20,11 +20,19 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
 
 from gemia.tools._context import ToolContext
+
+_logger = logging.getLogger(__name__)
+
+# Path cache to ensure once-resolved paths stay stable
+_LUMENFRAME_PATH_CACHE: dict[tuple[str, str], Path | None] = {}
 
 try:
     from lumenframe import (
@@ -54,13 +62,25 @@ _DOC_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _lumenframe_file_path(ctx: ToolContext) -> Path | None:
-    """Get the path to the lumenframe.json file for this project, if applicable."""
+    """Get the path to the lumenframe.json file for this project, if applicable.
+
+    Paths are cached per (session_id, project_id) to ensure stability across
+    the session lifetime.
+    """
     if ctx.project is None:
         return None
+
+    cache_key = (ctx.session_id, ctx.project.project_id)
+    if cache_key in _LUMENFRAME_PATH_CACHE:
+        return _LUMENFRAME_PATH_CACHE[cache_key]
+
     try:
         project_dir = ctx.project.store.project_dir(ctx.project.project_id)
-        return project_dir / "lumenframe.json"
+        path = project_dir / "lumenframe.json"
+        _LUMENFRAME_PATH_CACHE[cache_key] = path
+        return path
     except Exception:
+        _LUMENFRAME_PATH_CACHE[cache_key] = None
         return None
 
 
@@ -73,8 +93,15 @@ def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
       the main project state dict (timeline, assets, etc.).
     - Else: fall back to in-session memory cache (_DOC_CACHE)
 
+    **Data safety:**
+    - If lumenframe.json is corrupted/unreadable, rename it to lumenframe.json.corrupt-<timestamp>
+      (preserving the broken data for diagnostic purposes) and return a fresh empty_doc().
+    - This prevents silent data loss and helps with debugging.
+
     This ensures lumenframe docs persist across session boundaries (like timeline)
     while remaining fully orthogonal to timeline structure.
+
+    CRITICAL: Only read/write <project_dir>/lumenframe.json, never touch project state / timeline / clips.
     """
     if empty_doc is None or normalize_doc is None:
         raise RuntimeError("lumenframe module not available")
@@ -93,10 +120,25 @@ def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
                     # Lazy initialize: create, save, and return
                     doc = empty_doc()
                     file_path.parent.mkdir(parents=True, exist_ok=True)
-                    file_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+                    _write_lumenframe_atomic(file_path, doc)
                     return doc
-            except Exception:
-                # If file-based loading fails, fall back to memory cache
+            except (json.JSONDecodeError, ValueError) as e:
+                # Corrupted JSON: rename the file for diagnostic purposes
+                _logger.warning(
+                    f"Corrupted lumenframe.json at {file_path}: {e}. "
+                    "Renaming to preserve diagnostics, returning fresh empty_doc()."
+                )
+                try:
+                    corrupt_path = file_path.parent / f"lumenframe.json.corrupt-{datetime.now(timezone.utc).isoformat()}"
+                    os.replace(str(file_path), str(corrupt_path))
+                except Exception as rename_err:
+                    _logger.warning(f"Failed to rename corrupt file {file_path}: {rename_err}")
+                # Return a fresh doc
+                doc = empty_doc()
+                return doc
+            except Exception as e:
+                # Other read errors: log and fall back
+                _logger.warning(f"Failed to read lumenframe.json at {file_path}: {e}. Falling back to memory cache.")
                 pass
 
     # Fallback: in-session memory cache
@@ -106,28 +148,71 @@ def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
     return _DOC_CACHE[key]
 
 
+def _write_lumenframe_atomic(file_path: Path, doc: dict[str, Any]) -> bool:
+    """Write lumenframe document atomically: temp file → fsync → rename.
+
+    This prevents corruption from partial writes or power loss.
+
+    Returns True on success, False on write failure. On failure, logs warning but does not raise.
+    """
+    temp_path = None
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        json_text = json.dumps(copy.deepcopy(doc), ensure_ascii=False, indent=2)
+
+        # Write to temporary file in same directory (same filesystem)
+        temp_fd, temp_path = tempfile.mkstemp(dir=str(file_path.parent), prefix=".lumenframe.", suffix=".tmp")
+        try:
+            os.write(temp_fd, json_text.encode("utf-8"))
+            os.fsync(temp_fd)  # Ensure data reaches disk
+        finally:
+            os.close(temp_fd)
+
+        # Atomic rename
+        os.replace(temp_path, str(file_path))
+        return True
+    except OSError as e:
+        _logger.warning(f"Failed to write lumenframe.json atomically to {file_path}: {e}")
+        # Clean up temp file if it exists
+        if temp_path is not None:
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+        return False
+    except Exception as e:
+        _logger.warning(f"Unexpected error writing lumenframe.json to {file_path}: {e}")
+        # Clean up temp file if it exists
+        if temp_path is not None:
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+        return False
+
+
 def _save_lumendoc(ctx: ToolContext, doc: dict[str, Any]) -> None:
     """Store the document, persisting to project file or memory cache.
 
-    - If ctx.project: write to <project_dir>/lumenframe.json
+    - If ctx.project: write to <project_dir>/lumenframe.json atomically
     - Else: store in memory cache (_DOC_CACHE)
+
+    **Data safety:**
+    - Uses atomic temp-file-then-rename pattern to prevent corruption.
+    - Logs warnings on write failure but does not raise (graceful fallback to memory cache).
 
     This keeps lumenframe editing fully orthogonal to the main project state
     and timeline patch history.
+
+    CRITICAL: Only write <project_dir>/lumenframe.json, never touch project state / timeline / clips.
     """
     if ctx.project is not None:
         file_path = _lumenframe_file_path(ctx)
         if file_path is not None:
-            try:
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(
-                    json.dumps(copy.deepcopy(doc), ensure_ascii=False, indent=2),
-                    encoding="utf-8"
-                )
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            if _write_lumenframe_atomic(file_path, doc):
+                # File write succeeded
                 return
-            except Exception:
-                # If file-based save fails, fall back to memory cache
-                pass
 
     # Fallback: in-session memory cache
     _DOC_CACHE[ctx.session_id] = copy.deepcopy(doc)

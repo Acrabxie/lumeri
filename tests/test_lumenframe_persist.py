@@ -275,3 +275,95 @@ def test_existing_tool_tests_still_pass(project_root: Path) -> None:
     )
     result_mem = asyncio.run(layer_module.dispatch_get({}, ctx_mem))
     assert result_mem["applied"] is True
+
+
+def test_corrupt_json_preserved_and_recovered(project_root: Path) -> None:
+    """Test: corrupt lumenframe.json is renamed to .corrupt-* and empty doc returned."""
+    project_id = "test_corrupt"
+    ctx, handle = create_session_with_project(project_root, project_id, "session_corrupt")
+
+    # Stage corrupted JSON file
+    project_dir = handle.store.project_dir(project_id)
+    lumenframe_path = project_dir / "lumenframe.json"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    lumenframe_path.write_text("{invalid json", encoding="utf-8")
+
+    # Clear path cache to force fresh read
+    layer_module._LUMENFRAME_PATH_CACHE.clear()
+
+    # Reading should detect corruption, rename the file, and return empty doc
+    doc = layer_module._lumendoc(ctx)
+    assert doc is not None
+    assert "root" in doc  # Empty doc has root
+    assert doc["root"]["children"] == []  # Empty root
+
+    # Verify corrupt file was renamed
+    corrupt_files = list(project_dir.glob("lumenframe.json.corrupt-*"))
+    assert len(corrupt_files) == 1
+    assert "{invalid json" in corrupt_files[0].read_text(encoding="utf-8")
+
+
+def test_write_failure_handled_gracefully(project_root: Path, monkeypatch) -> None:
+    """Test: write failure logs warning but does not raise; doc remains in memory."""
+    project_id = "test_write_fail_unique"
+    ctx, handle = create_session_with_project(project_root, project_id, "session_write_fail_unique")
+
+    # Clear path cache
+    layer_module._LUMENFRAME_PATH_CACHE.clear()
+
+    # Pre-monkeypatch to prevent lazy init
+    # Monkeypatch os.replace to raise OSError BEFORE first _lumendoc call
+    original_replace = layer_module.os.replace
+    def failing_replace(*args, **kwargs):
+        raise OSError("Simulated disk error")
+    monkeypatch.setattr(layer_module.os, "replace", failing_replace)
+
+    # Load initial doc (this will try to lazy-init but fail on os.replace)
+    doc = layer_module._lumendoc(ctx)
+    doc = apply_layer_patch(doc, patch({
+        "op": "add_layer", "id": "test_layer", "type": "solid",
+        "color": "#FF0000", "duration": 1.0
+    }))
+
+    # Save should not raise, but log warning and fall back to memory
+    layer_module._save_lumendoc(ctx, doc)
+
+    # Restore os.replace
+    monkeypatch.setattr(layer_module.os, "replace", original_replace)
+
+    # Memory cache should have the doc
+    cached = layer_module._DOC_CACHE.get(ctx.session_id)
+    assert cached is not None
+    assert len(cached["root"]["children"]) == 1
+
+    # File should not exist (write failed)
+    file_path = layer_module._lumenframe_file_path(ctx)
+    assert file_path is not None
+    assert not file_path.exists()
+
+
+def test_timeline_immutable_across_multi_round_edits(project_root: Path) -> None:
+    """Test: lumenframe edits never mutate timeline/clips structure."""
+    project_id = "test_timeline_immute"
+    ctx, handle = create_session_with_project(project_root, project_id, "session_immute")
+
+    # Get initial project state (which includes timeline)
+    initial_state = handle.load()
+    initial_timeline_bytes = json.dumps(initial_state.get("timeline", {}), sort_keys=True).encode()
+
+    # Perform multiple lumenframe edit rounds
+    for i in range(3):
+        doc = layer_module._lumendoc(ctx)
+        # Add a layer
+        doc = apply_layer_patch(doc, patch({
+            "op": "add_layer", "id": f"layer_{i}", "type": "solid",
+            "color": f"#FF{i:02d}00", "duration": 1.0
+        }))
+        layer_module._save_lumendoc(ctx, doc)
+
+    # Reload project state and verify timeline is unchanged
+    final_state = handle.load()
+    final_timeline_bytes = json.dumps(final_state.get("timeline", {}), sort_keys=True).encode()
+
+    assert initial_timeline_bytes == final_timeline_bytes, \
+        "Timeline structure changed after lumenframe edits (data corruption detected)"
