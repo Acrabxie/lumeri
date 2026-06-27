@@ -28,6 +28,7 @@ _GROUP_LABELS: dict[str, str] = {
     "audio": "Audio properties",
     "animation": "Animation presets",
     "keyframes": "Keyframes",
+    "template": "Scene templates",
 }
 
 #: Core op metadata. ``args`` lists the meaningful keys; ``*`` marks required.
@@ -174,6 +175,18 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Generate keyframes using a preset: fade_in, fade_out, fly_in/out_*, zoom_in/out, ken_burns.",
      "example": {"op": "animate_layer", "layer_id": "clip1", "preset": "fade_in", "duration": 0.5},
      "errors": ["E_ARG when layer_id or preset is missing, or the preset is unknown", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "animate_text", "group": "animation", "args": ["layer_id*", "preset*(fade_in_words|pop|wave|rise)", "duration", "easing"],
+     "summary": "Animate a text layer with a CapCut-style title preset (pop/wave/rise/fade_in_words); emits opacity/transform keyframes only.",
+     "example": {"op": "animate_text", "layer_id": "title", "preset": "pop", "duration": 0.5},
+     "errors": ["E_ARG when layer_id or preset is missing, the preset is unknown, or duration is not positive", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "speed_ramp", "group": "time", "args": ["layer_id*", "preset*(montage|hero|bullet|ease_in|ease_out)", "extrapolate(hold|loop|pingpong)"],
+     "summary": "Apply a named speed-ramp preset by emitting a time_remap curve (hero=slow middle, montage=fast middle); preserves output duration.",
+     "example": {"op": "speed_ramp", "layer_id": "clip1", "preset": "hero"},
+     "errors": ["E_ARG when layer_id or preset is missing or the preset is unknown", "E_NOT_FOUND when the layer id does not exist", "E_RANGE when the layer has no duration to ramp"]},
+    {"op": "apply_template", "group": "template", "args": ["template*(lower_third|intro)", "params{...}"],
+     "summary": "Expand a named scene template (lower_third/intro) into its layers and apply them via the normal op dispatch.",
+     "example": {"op": "apply_template", "template": "lower_third", "params": {"text": "Jane Doe"}},
+     "errors": ["E_ARG when template is missing, unknown, or params is not an object / has bad keys", "E_NOT_FOUND when a referenced layer does not exist"]},
     # ── keyframes ──
     {"op": "set_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*", "value*", "interp"],
      "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity).",
