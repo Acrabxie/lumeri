@@ -651,7 +651,23 @@ def _effect_color_grade(frame: np.ndarray, params: dict[str, Any], ctx: ResolveC
     brightness = float(params.get("brightness", 0.0))
     contrast = float(params.get("contrast", 1.0))
     saturation = float(params.get("saturation", 1.0))
-    return _apply_color_grade(frame, brightness, contrast, saturation)
+    # DaVinci-style colour wheels + white balance (identity defaults are no-ops).
+    lift = float(params.get("lift", 0.0))
+    gamma = float(params.get("gamma", 1.0))
+    gain = float(params.get("gain", 1.0))
+    temperature = float(params.get("temperature", 0.0))
+    tint = float(params.get("tint", 0.0))
+    return _apply_color_grade(
+        frame,
+        brightness,
+        contrast,
+        saturation,
+        lift=lift,
+        gamma=gamma,
+        gain=gain,
+        temperature=temperature,
+        tint=tint,
+    )
 
 
 def _effect_brightness(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
@@ -799,8 +815,35 @@ def _apply_gaussian_blur_rgba(frame: np.ndarray, radius: float) -> np.ndarray:
     return np.concatenate([blurred_rgb, blurred_alpha], axis=2).astype(np.float32)
 
 
-def _apply_color_grade(frame: np.ndarray, brightness: float, contrast: float, saturation: float) -> np.ndarray:
-    """Apply brightness, contrast, and saturation adjustments to RGBA frame."""
+def _apply_color_grade(
+    frame: np.ndarray,
+    brightness: float,
+    contrast: float,
+    saturation: float,
+    *,
+    lift: float = 0.0,
+    gamma: float = 1.0,
+    gain: float = 1.0,
+    temperature: float = 0.0,
+    tint: float = 0.0,
+) -> np.ndarray:
+    """Apply DaVinci-style colour grading to an RGBA frame.
+
+    Pipeline (RGB only; alpha is preserved): brightness → contrast →
+    lift/gamma/gain colour wheels → temperature/tint white-balance →
+    saturation.
+
+    The colour-wheel stage implements the standard primaries model
+    ``out = (gain * in) ** (1 / gamma) + lift`` per channel (clamped to
+    ``[0, 1]``). ``temperature``/``tint`` apply a warm/cool and
+    green/magenta channel balance respectively.
+
+    Identity defaults — ``lift=0``, ``gamma=1``, ``gain=1``,
+    ``temperature=0``, ``tint=0`` — are a strict no-op: each new stage is
+    skipped entirely when its params sit at identity, so callers that only
+    use brightness/contrast/saturation are byte-for-byte unchanged (golden
+    identical).
+    """
     frame = np.asarray(frame, dtype=np.float32)
     if frame.ndim != 3 or frame.shape[2] != 4:
         return frame
@@ -814,6 +857,37 @@ def _apply_color_grade(frame: np.ndarray, brightness: float, contrast: float, sa
     # Apply contrast (scale around 0.5).
     rgb = 0.5 + contrast * (rgb - 0.5)
     rgb = np.clip(rgb, 0.0, 1.0)
+
+    # Colour wheels: lift / gamma / gain  ->  out = (gain * in)^(1/gamma) + lift.
+    # Skipped entirely at identity so the legacy path stays golden-identical.
+    if not (
+        np.isclose(lift, 0.0)
+        and np.isclose(gamma, 1.0)
+        and np.isclose(gain, 1.0)
+    ):
+        g = float(gamma)
+        if g <= 0.0:
+            g = 1e-6  # guard: keep the power finite for degenerate gamma.
+        rgb = rgb * float(gain)
+        rgb = np.clip(rgb, 0.0, None)  # power on negatives is undefined.
+        rgb = np.power(rgb, 1.0 / g)
+        rgb = rgb + float(lift)
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+    # Temperature / tint white balance: warm/cool (R<->B) and green/magenta
+    # (G<->R+B) channel balance. Skipped at identity (both 0) for no-op.
+    if not (np.isclose(temperature, 0.0) and np.isclose(tint, 0.0)):
+        rgb = rgb.copy()
+        temp = float(temperature)
+        tnt = float(tint)
+        # Warm (+temp) boosts red and trims blue; cool (-temp) does the reverse.
+        rgb[..., 0] = rgb[..., 0] * (1.0 + 0.3 * temp)
+        rgb[..., 2] = rgb[..., 2] * (1.0 - 0.3 * temp)
+        # +tint pushes toward green, -tint toward magenta (R+B).
+        rgb[..., 1] = rgb[..., 1] * (1.0 + 0.3 * tnt)
+        rgb[..., 0] = rgb[..., 0] * (1.0 - 0.15 * tnt)
+        rgb[..., 2] = rgb[..., 2] * (1.0 - 0.15 * tnt)
+        rgb = np.clip(rgb, 0.0, 1.0)
 
     # Apply saturation (desaturate by blending towards greyscale).
     if not np.isclose(saturation, 1.0):
