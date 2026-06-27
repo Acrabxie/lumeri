@@ -434,6 +434,13 @@
         t.banners.push({ kind: "turn_error", text: `turn error: ${ev.error || "unknown"}` });
       }
     },
+    ask_question: (ev) => {
+      // The agent paused on an `elicit` call: render the controls and let the
+      // user answer. The modal lives outside render()'s innerHTML so typing is
+      // never clobbered by a later event; submitting POSTs to /ask_response,
+      // which resolves the awaiting tool call on the session loop.
+      if (ev.question) showAskModal(ev.question);
+    },
   };
 
   function dispatch(ev) {
@@ -450,6 +457,145 @@
     }
     handler(ev);
   }
+
+  // ── ask mechanism (elicit) ──────────────────────────────────────────
+  // Imperative DOM (not part of render()'s innerHTML) so user input survives
+  // any events that arrive while the form is open.
+
+  let askModalEl = null;
+
+  function closeAskModal() {
+    if (askModalEl && askModalEl.parentNode) askModalEl.parentNode.removeChild(askModalEl);
+    askModalEl = null;
+  }
+
+  function el(tag, attrs, children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+      else if (v != null) node.setAttribute(k, v);
+    }
+    for (const c of children || []) if (c) node.appendChild(c);
+    return node;
+  }
+
+  // Build one control's DOM. Returns { node, read } where read() yields the answer.
+  function buildAskControl(key, ctrl) {
+    const type = ctrl.type;
+    const opts = Array.isArray(ctrl.options) ? ctrl.options : [];
+
+    if (type === "select") {
+      const sel = el("select", { class: "ask-input" });
+      for (const o of opts) {
+        const opt = el("option", { value: o.value, text: o.label != null ? o.label : o.value });
+        if (ctrl.default != null && o.value === ctrl.default) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      return { node: sel, read: () => sel.value };
+    }
+
+    if (type === "multi_select") {
+      const box = el("div", { class: "ask-checks" });
+      const inputs = [];
+      for (const o of opts) {
+        const cb = el("input", { type: "checkbox", value: o.value });
+        inputs.push(cb);
+        box.appendChild(el("label", { class: "ask-check" }, [cb, el("span", { text: o.label != null ? o.label : o.value })]));
+      }
+      return { node: box, read: () => inputs.filter((i) => i.checked).map((i) => i.value) };
+    }
+
+    if (type === "text") {
+      const input = ctrl.multiline
+        ? el("textarea", { class: "ask-input", rows: "3", placeholder: ctrl.placeholder || "" })
+        : el("input", { class: "ask-input", type: "text", placeholder: ctrl.placeholder || "" });
+      return { node: input, read: () => input.value };
+    }
+
+    if (type === "slider") {
+      const min = ctrl.min != null ? ctrl.min : 0;
+      const max = ctrl.max != null ? ctrl.max : 100;
+      const step = ctrl.step != null ? ctrl.step : 1;
+      const start = ctrl.default != null ? ctrl.default : min;
+      const range = el("input", { class: "ask-range", type: "range", min, max, step, value: start });
+      const out = el("output", { class: "ask-range-val", text: String(start) });
+      range.addEventListener("input", () => { out.textContent = range.value; });
+      return { node: el("div", { class: "ask-slider" }, [range, out]), read: () => Number(range.value) };
+    }
+
+    if (type === "panel") {
+      const fields = ctrl.fields || {};
+      const wrap = el("div", { class: "ask-panel" });
+      if (ctrl.description) wrap.appendChild(el("div", { class: "ask-panel-desc", text: ctrl.description }));
+      const readers = {};
+      for (const [fk, fctrl] of Object.entries(fields)) {
+        const built = buildAskControl(fk, fctrl);
+        readers[fk] = built.read;
+        wrap.appendChild(el("div", { class: "ask-field" }, [el("label", { class: "ask-label", text: fk }), built.node]));
+      }
+      return { node: wrap, read: () => Object.fromEntries(Object.entries(readers).map(([k, r]) => [k, r()])) };
+    }
+
+    // custom_panel (and any unknown type): JSON fallback editor.
+    const ta = el("textarea", { class: "ask-input ask-json", rows: "5", placeholder: "{ }" });
+    ta.value = "{}";
+    return {
+      node: el("div", {}, [el("div", { class: "ask-panel-desc", text: "JSON answer" }), ta]),
+      read: () => { try { return JSON.parse(ta.value || "{}"); } catch { return ta.value; } },
+    };
+  }
+
+  function showAskModal(question) {
+    closeAskModal();  // only one ask at a time
+    const controls = question.controls || {};
+    const readers = {};
+    const fieldNodes = [];
+    for (const [key, ctrl] of Object.entries(controls)) {
+      const built = buildAskControl(key, ctrl);
+      readers[key] = built.read;
+      fieldNodes.push(el("div", { class: "ask-field" }, [el("label", { class: "ask-label", text: key }), built.node]));
+    }
+
+    const errLine = el("div", { class: "ask-error" });
+    const submitBtn = el("button", { type: "button", class: "ask-submit", text: "Submit" });
+    const card = el("div", { class: "ask-card" }, [
+      el("div", { class: "ask-title", text: question.title || "Question" }),
+      question.description ? el("div", { class: "ask-desc", text: question.description }) : null,
+      el("div", { class: "ask-fields" }, fieldNodes),
+      errLine,
+      el("div", { class: "ask-actions" }, [submitBtn]),
+    ]);
+    askModalEl = el("div", { class: "ask-overlay" }, [card]);
+    document.body.appendChild(askModalEl);
+
+    submitBtn.addEventListener("click", async () => {
+      const answers = Object.fromEntries(Object.entries(readers).map(([k, r]) => [k, r()]));
+      submitBtn.disabled = true;
+      errLine.textContent = "";
+      try {
+        const res = await fetch(`/sessions/${state.sessionId}/ask_response`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question_id: question.question_id, answers }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          errLine.textContent = data.error || `submit failed (${res.status})`;
+          submitBtn.disabled = false;
+          return;
+        }
+        closeAskModal();
+      } catch (err) {
+        errLine.textContent = `network error: ${err.message}`;
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Debug/test hook (mirrors window.__lumeriEvents): lets DevTools and test
+  // harnesses drive the ask UI directly.
+  window.__lumeriAsk = { showAskModal, closeAskModal, buildAskControl };
 
   function inferKindFromAssetId(assetId) {
     if (String(assetId).startsWith("img_")) return "image";
