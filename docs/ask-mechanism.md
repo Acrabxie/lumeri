@@ -19,6 +19,41 @@ Unlike generic "ask the user" approaches, this mechanism:
 
 ---
 
+## Wiring status — IMPLEMENTED (human-in-the-loop)
+
+The `elicit` verb is fully wired into the v3 agent loop. The round-trip is:
+
+1. The model calls `elicit` → `gemia.tools.elicit.dispatch` (async) builds + validates
+   the control schema and asks the per-session **`AskBridge`**
+   (`gemia/tools/_ask_bridge.py`, injected at `ctx.extra["ask_bridge"]`) to emit an
+   `ask_question` SSE event and `await` the answer.
+2. Because the dispatcher is awaited at `agent_loop_v3.py` (`await DISPATCHER[name](...)`),
+   the turn naturally **pauses** on that `await` — no special loop branching needed.
+3. The frontend renders the controls and `POST`s the answer to
+   **`/sessions/{id}/ask_response`** `{question_id, answers}` (`v3_routes._ask_response`).
+4. The route → `SessionRunner.deliver_ask_answer` → `AgentLoopV3.deliver_ask_answer` →
+   `AskBridge.deliver`, which hops the resolution back onto the session's event loop
+   via `loop.call_soon_threadsafe` (HTTP and loop run on different threads).
+5. The awaited future resolves; the answer is **validated** against the schema and the
+   validated values are returned as the tool result, so the model continues with the
+   answer in hand.
+
+Resolved design decisions (from the original open questions):
+- **Answer routing**: `POST /sessions/{id}/ask_response` (matches the existing route style).
+- **Model injection form**: the validated answer is the tool's normal `tool_result` —
+  no separate text/JSON injection, so it threads through the existing loop unchanged.
+- **No-frontend fallback**: if no answer arrives within the timeout (per-call `timeout`,
+  else `AskBridge` default, else `LUMERI_ASK_TIMEOUT_SEC`, else 300s), the dispatcher
+  synthesises **per-control defaults** (`fallback_used: true`) so a turn never hangs forever.
+- **Option ergonomics**: `select`/`multi_select` `options` accept bare strings *or*
+  `{label, value}` dicts (normalised in `ask.py`); malformed options raise
+  `E_ASK_INVALID_SCHEMA` rather than silently rejecting every answer.
+
+Frontend rendering of the `ask_question` event (control widgets) is the remaining
+client-side piece; the backend contract above is complete and tested.
+
+---
+
 ## Architecture
 
 ### Three Layers

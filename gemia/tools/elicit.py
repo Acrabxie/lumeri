@@ -1,30 +1,32 @@
-"""Elicitation verb: agent requesting user input via ask mechanism.
+"""Elicitation verb: agent requests structured user input via the ask mechanism.
 
-The elicit verb allows the agent to ask the user a structured question
-and receive a validated answer. This is the agent-facing interface to
-the ask mechanism.
+Flow (human-in-the-loop):
+  1. The model calls ``elicit`` with a control schema.
+  2. This dispatcher (running on the session's asyncio loop) builds + validates the
+     control schema, then asks the :class:`~gemia.tools._ask_bridge.AskBridge` to
+     emit an ``ask_question`` SSE event and ``await`` the user's answer.
+  3. The frontend renders the controls; the user submits, and an HTTP route
+     delivers the answer back onto the session loop, resolving the await.
+  4. The answer is validated against the schema; the validated values are returned
+     as this tool's result, so the model continues the turn with the answer in hand.
 
-The verb dispatches as follows:
-  1. Agent calls elicit with a question schema
-  2. This verb emits an 'ask_question' SSE event to the user
-  3. User submits answer via client-side elicit_response
-  4. Next turn, the agent receives the answer as context
+If no answer arrives within the timeout (e.g. no frontend attached), the dispatcher
+falls back to per-control defaults so the loop never hangs forever.
 
-Note: This is a special verb that returns control to the user and does
-NOT return a normal tool result. The loop recognizes it and emits the
-ask_question event instead of appending a tool_result.
+Errors follow the stable code + message pattern (``E_ELICIT_*`` / ``E_ASK_*``).
 """
 from __future__ import annotations
 
-from typing import Any
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from gemia.tools._context import ToolContext
 from gemia.tools.ask import (
     AskQuestion,
     AskAnswer,
     AskControlType,
+    AskError,
     SelectControl,
     MultiSelectControl,
     TextControl,
@@ -35,217 +37,156 @@ from gemia.tools.ask import (
 )
 
 
-def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Emit an ask question and return metadata.
+async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Emit an ask question, await the user's answer, return the validated answer.
 
     Args:
         title: human-readable title
         description: optional longer description
-        controls: dict of {control_key: control_spec}
-            where control_spec is one of:
-              {type: "select", options: [...], default?: ...}
-              {type: "multi_select", options: [...], min?: 0, max?: ...}
-              {type: "text", placeholder?: "", pattern?: ..., min_length?: 0, max_length?: ...}
-              {type: "slider", min: num, max: num, step?: 1, default?: ...}
-              {type: "panel", fields: {...}, description?: ""}
-              {type: "custom_panel", schema: {...}, validator?: "..."}
-
-    Returns:
-        {
-            "question_id": str,
-            "status": "question_emitted",
-            "message": "Waiting for user response"
-        }
-
-    This verb is special: the loop will emit an 'ask_question' SSE event
-    to the user instead of a normal tool_result.
+        controls: ``{control_key: control_spec}`` (see the tool schema)
+        timeout: optional seconds to wait before falling back to defaults
     """
-    title = args.get("title", "Question")
-    description = args.get("description", "")
-    controls_spec = args.get("controls", {})
-
+    controls_spec = args.get("controls") or {}
     if not controls_spec:
-        return {
-            "error": "no controls specified",
-            "error_code": "E_ELICIT_NO_CONTROLS",
-        }
+        return {"error": "no controls specified", "error_code": "E_ELICIT_NO_CONTROLS"}
 
-    # Build controls from spec
     try:
         controls = _build_controls(controls_spec)
-    except Exception as e:
+    except AskError as exc:
+        return exc.to_payload()
+    except Exception as exc:  # malformed spec → let the model fix its arguments
         return {
-            "error": f"invalid control specification: {e}",
+            "error": f"invalid control specification: {exc}",
             "error_code": "E_ELICIT_INVALID_SPEC",
         }
 
-    # Create question
-    question_id = f"ask_{uuid.uuid4().hex[:12]}"
     question = AskQuestion(
-        question_id=question_id,
-        title=title,
-        description=description,
+        question_id=f"ask_{uuid.uuid4().hex[:12]}",
+        title=args.get("title", "Question"),
+        description=args.get("description", ""),
         controls=controls,
         metadata={
             "emitted_at": datetime.now(timezone.utc).isoformat(),
-            "session_id": ctx.session_id,
+            "session_id": getattr(ctx, "session_id", None),
         },
     )
 
-    # Store in session for later reference (optional, for tracking)
-    # In a real implementation, this might be persisted in the session state
-    ctx.session_state["_pending_questions"] = ctx.session_state.get("_pending_questions", {})
-    ctx.session_state["_pending_questions"][question_id] = question.to_dict()
-
-    # Return metadata; the loop will handle emitting the ask_question event
-    return {
-        "question_id": question_id,
-        "status": "question_emitted",
-        "message": "Waiting for user response",
-        "question": question.to_dict(),  # Include full question for the loop/SSE
-    }
-
-
-def _build_controls(spec: dict[str, Any]) -> dict[str, Any]:
-    """Parse control specifications into control objects."""
-    controls = {}
-
-    for key, ctrl_spec in spec.items():
-        ctrl_type = ctrl_spec.get("type")
-
-        if ctrl_type == AskControlType.SELECT:
-            controls[key] = SelectControl(
-                options=ctrl_spec.get("options", []),
-                default=ctrl_spec.get("default"),
-            )
-
-        elif ctrl_type == AskControlType.MULTI_SELECT:
-            controls[key] = MultiSelectControl(
-                options=ctrl_spec.get("options", []),
-                min=ctrl_spec.get("min", 0),
-                max=ctrl_spec.get("max"),
-            )
-
-        elif ctrl_type == AskControlType.TEXT:
-            controls[key] = TextControl(
-                placeholder=ctrl_spec.get("placeholder", ""),
-                multiline=ctrl_spec.get("multiline", False),
-                pattern=ctrl_spec.get("pattern"),
-                min_length=ctrl_spec.get("min_length", 0),
-                max_length=ctrl_spec.get("max_length"),
-            )
-
-        elif ctrl_type == AskControlType.SLIDER:
-            controls[key] = SliderControl(
-                min=ctrl_spec.get("min", 0),
-                max=ctrl_spec.get("max", 100),
-                step=ctrl_spec.get("step", 1),
-                default=ctrl_spec.get("default"),
-            )
-
-        elif ctrl_type == AskControlType.PANEL:
-            panel_fields = {}
-            for fkey, fspec in ctrl_spec.get("fields", {}).items():
-                ftype = fspec.get("type")
-                if ftype == AskControlType.SELECT:
-                    panel_fields[fkey] = SelectControl(
-                        options=fspec.get("options", []),
-                        default=fspec.get("default"),
-                    )
-                elif ftype == AskControlType.MULTI_SELECT:
-                    panel_fields[fkey] = MultiSelectControl(
-                        options=fspec.get("options", []),
-                        min=fspec.get("min", 0),
-                        max=fspec.get("max"),
-                    )
-                elif ftype == AskControlType.TEXT:
-                    panel_fields[fkey] = TextControl(
-                        placeholder=fspec.get("placeholder", ""),
-                        multiline=fspec.get("multiline", False),
-                        pattern=fspec.get("pattern"),
-                        min_length=fspec.get("min_length", 0),
-                        max_length=fspec.get("max_length"),
-                    )
-                elif ftype == AskControlType.SLIDER:
-                    panel_fields[fkey] = SliderControl(
-                        min=fspec.get("min", 0),
-                        max=fspec.get("max", 100),
-                        step=fspec.get("step", 1),
-                        default=fspec.get("default"),
-                    )
-                else:
-                    raise ValueError(f"unsupported panel field type: {ftype}")
-
-            controls[key] = PanelControl(
-                fields=panel_fields,
-                description=ctrl_spec.get("description", ""),
-            )
-
-        elif ctrl_type == AskControlType.CUSTOM_PANEL:
-            controls[key] = CustomPanelControl(
-                schema=ctrl_spec.get("schema", {}),
-            )
-
-        else:
-            raise ValueError(f"unsupported control type: {ctrl_type}")
-
-    return controls
-
-
-def dispatch_respond(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Process user response to a previous ask question.
-
-    This is called internally when the user submits an answer.
-
-    Args:
-        question_id: the question_id from the ask_question event
-        answers: {control_key: value} dict
-
-    Returns:
-        {
-            "question_id": str,
-            "status": "answer_received",
-            "validated": {control_key: validated_value}
-        }
-    """
-    question_id = args.get("question_id")
-    answers_spec = args.get("answers", {})
-
-    if not question_id:
+    bridge = (getattr(ctx, "extra", None) or {}).get("ask_bridge")
+    if bridge is None:
+        # No HITL bridge wired into this context (legacy / test path): emit nothing
+        # and hand the question back so a caller can route it however it likes.
         return {
-            "error": "question_id required",
-            "error_code": "E_ELICIT_NO_QUESTION_ID",
+            "status": "question_emitted",
+            "question_id": question.question_id,
+            "question": question.to_dict(),
+            "note": "no ask bridge in tool context; cannot await an answer here",
         }
 
-    # Retrieve the question from session state
-    pending = ctx.session_state.get("_pending_questions", {})
-    if question_id not in pending:
-        return {
-            "error": f"question {question_id} not found or already answered",
-            "error_code": "E_ELICIT_UNKNOWN_QUESTION",
-        }
-
-    question_dict = pending[question_id]
-    question = AskQuestion.from_dict(question_dict)
-    answer = AskAnswer(
-        question_id=question_id,
-        answers=answers_spec,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+    timeout = args.get("timeout")
+    raw = await bridge.emit_and_wait(
+        question.to_dict(),
+        timeout=float(timeout) if timeout is not None else None,
     )
 
-    # Validate
+    fallback_used = raw is None
+    if fallback_used:
+        raw = _default_answers(controls)
+
+    answer = AskAnswer(
+        question_id=question.question_id,
+        answers=raw,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
     validated, error = validate_ask_answer(question, answer)
     if error:
         return {
             "error": f"validation failed: {error}",
             "error_code": "E_ELICIT_INVALID_ANSWER",
+            "question_id": question.question_id,
+            "fallback_used": fallback_used,
         }
 
-    # Mark as answered
-    del pending[question_id]
-
     return {
-        "question_id": question_id,
         "status": "answer_received",
-        "validated": validated,
+        "question_id": question.question_id,
+        "answers": validated,
+        "fallback_used": fallback_used,
     }
+
+
+# ── control construction ───────────────────────────────────────────────────
+
+
+def _build_one(key_or_index: Any, spec: dict[str, Any]) -> Any:
+    """Build a single control object from its spec (shared by top-level + panel)."""
+    ctrl_type = spec.get("type")
+
+    if ctrl_type == AskControlType.SELECT:
+        return SelectControl(options=spec.get("options", []), default=spec.get("default"))
+    if ctrl_type == AskControlType.MULTI_SELECT:
+        return MultiSelectControl(
+            options=spec.get("options", []),
+            min=spec.get("min", 0),
+            max=spec.get("max"),
+        )
+    if ctrl_type == AskControlType.TEXT:
+        return TextControl(
+            placeholder=spec.get("placeholder", ""),
+            multiline=spec.get("multiline", False),
+            pattern=spec.get("pattern"),
+            min_length=spec.get("min_length", 0),
+            max_length=spec.get("max_length"),
+        )
+    if ctrl_type == AskControlType.SLIDER:
+        return SliderControl(
+            min=spec.get("min", 0),
+            max=spec.get("max", 100),
+            step=spec.get("step", 1),
+            default=spec.get("default"),
+        )
+    if ctrl_type == AskControlType.PANEL:
+        fields = {
+            fkey: _build_one(fkey, fspec)
+            for fkey, fspec in (spec.get("fields") or {}).items()
+        }
+        return PanelControl(fields=fields, description=spec.get("description", ""))
+    if ctrl_type == AskControlType.CUSTOM_PANEL:
+        return CustomPanelControl(schema=spec.get("schema", {}))
+
+    raise ValueError(f"unsupported control type: {ctrl_type!r} (control {key_or_index!r})")
+
+
+def _build_controls(spec: dict[str, Any]) -> dict[str, Any]:
+    """Parse a ``{key: control_spec}`` mapping into control objects."""
+    return {key: _build_one(key, ctrl_spec) for key, ctrl_spec in spec.items()}
+
+
+# ── default-answer synthesis (no-frontend / timeout fallback) ───────────────
+
+
+def _default_answers(controls: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort valid answer for each control, used when no user answer arrives."""
+    out: dict[str, Any] = {}
+    for key, ctrl in controls.items():
+        out[key] = _default_for(ctrl)
+    return out
+
+
+def _default_for(ctrl: Any) -> Any:
+    if isinstance(ctrl, SelectControl):
+        if ctrl.default is not None:
+            return ctrl.default
+        return ctrl.options[0]["value"] if ctrl.options else None
+    if isinstance(ctrl, MultiSelectControl):
+        need = max(0, int(ctrl.min or 0))
+        return [opt["value"] for opt in ctrl.options[:need]]
+    if isinstance(ctrl, TextControl):
+        return ""
+    if isinstance(ctrl, SliderControl):
+        return ctrl.default if ctrl.default is not None else ctrl.min
+    if isinstance(ctrl, PanelControl):
+        return {fk: _default_for(fc) for fk, fc in ctrl.fields.items()}
+    return {}  # custom_panel: schema-driven, cannot infer a default
+
+
+__all__ = ["dispatch"]

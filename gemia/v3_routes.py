@@ -91,7 +91,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -106,6 +106,8 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _upload_asset(handler, runner)
     if action == "close":
         return _close_session(handler, runner)
+    if action == "ask_response":
+        return _ask_response(handler, runner)
     return False
 
 
@@ -171,6 +173,27 @@ def _submit_turn(handler, runner: SessionRunner) -> bool:
         _json_error(handler, 409, "turn already in progress for this session")
         return True
     _json_response(handler, 202, {"session_id": runner.session_id, "accepted": True})
+    return True
+
+
+def _ask_response(handler, runner: SessionRunner) -> bool:
+    """Deliver a user's answer to a pending ``elicit`` question."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    question_id = body.get("question_id")
+    answers = body.get("answers")
+    if not isinstance(question_id, str) or not question_id:
+        _json_error(handler, 400, "request body must include 'question_id' string")
+        return True
+    if not isinstance(answers, dict):
+        _json_error(handler, 400, "request body must include 'answers' object")
+        return True
+    delivered = runner.deliver_ask_answer(question_id, answers)
+    if not delivered:
+        _json_error(handler, 404, f"no pending question: {question_id}")
+        return True
+    _json_response(handler, 200, {"question_id": question_id, "delivered": True})
     return True
 
 

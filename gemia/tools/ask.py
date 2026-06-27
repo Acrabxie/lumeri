@@ -66,6 +66,40 @@ class AskSchemaError(AskError):
     code = "E_ASK_INVALID_SCHEMA"
 
 
+def _normalize_options(options: Any) -> list[dict[str, Any]]:
+    """Coerce option specs into the canonical ``[{label, value}]`` form.
+
+    The wire/validation contract is a list of ``{"label", "value"}`` dicts, but an
+    agent (or an LLM authoring the call) will very naturally pass a bare list of
+    strings like ``["mp4", "mov"]`` — or a dict carrying only one of the two keys.
+    Without this, validation silently sees an empty value set and rejects every
+    answer. Accept the forgiving forms and normalise; raise a clear schema error
+    (never a silent empty set) for anything that can't be interpreted.
+    """
+    if options is None:
+        return []
+    if not isinstance(options, (list, tuple)):
+        raise AskSchemaError(f"options must be a list, got {type(options).__name__}")
+
+    out: list[dict[str, Any]] = []
+    for i, opt in enumerate(options):
+        if isinstance(opt, str):
+            out.append({"label": opt, "value": opt})
+        elif isinstance(opt, dict):
+            has_v, has_l = "value" in opt, "label" in opt
+            if not has_v and not has_l:
+                raise AskSchemaError(
+                    f"option #{i} must carry a 'value' or 'label', got {opt!r}")
+            value = opt.get("value", opt.get("label"))
+            label = opt.get("label", value)
+            out.append({**opt, "label": label, "value": value})
+        else:
+            raise AskSchemaError(
+                f"option #{i} must be a string or {{label, value}} dict, "
+                f"got {type(opt).__name__}")
+    return out
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Control Schemas
 # ──────────────────────────────────────────────────────────────────────
@@ -82,6 +116,9 @@ class SelectControl:
     type: Literal[AskControlType.SELECT] = AskControlType.SELECT
     options: list[dict[str, Any]] = field(default_factory=list)
     default: Optional[str] = None
+
+    def __post_init__(self):
+        self.options = _normalize_options(self.options)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +159,7 @@ class MultiSelectControl:
     max: Optional[int] = None
 
     def __post_init__(self):
+        self.options = _normalize_options(self.options)
         if self.max is None:
             self.max = len(self.options)
         if self.min < 0 or self.max < self.min:

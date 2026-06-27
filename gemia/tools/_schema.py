@@ -645,6 +645,38 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["otio_path"],
     ),
+    _tool(
+        "elicit",
+        "Ask the user a structured question and wait for their answer before "
+        "continuing. Use this when a creative/destructive choice is genuinely the "
+        "user's to make and you cannot infer it (which of N options, a value to "
+        "tune, free-text naming). Renders rich controls in the UI and returns the "
+        "validated answer as this tool's result; do NOT proceed on assumptions when "
+        "an elicit is warranted. Each control is keyed; 'controls' maps control_key "
+        "-> spec. Control types: select {options} single-choice; multi_select "
+        "{options, min?, max?} returns a list; text {placeholder?, multiline?, "
+        "pattern?, min_length?, max_length?}; slider {min, max, step?, default?} "
+        "returns a number; panel {fields: {key->spec}, description?} a grouped form; "
+        "custom_panel {schema} an extensible schema-driven form. 'options' may be a "
+        "list of strings or of {label, value} objects.",
+        {
+            "title": {"type": "string", "description": "Short question title shown to the user."},
+            "description": {"type": "string", "description": "Optional longer explanation."},
+            "controls": {
+                "type": "object",
+                "description": (
+                    "Map of control_key -> control spec. Each spec has a 'type' "
+                    "(select|multi_select|text|slider|panel|custom_panel) plus that "
+                    "type's parameters."
+                ),
+            },
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait before falling back to control defaults.",
+            },
+        },
+        ["title", "controls"],
+    ),
 ]
 
 

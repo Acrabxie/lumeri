@@ -1,399 +1,187 @@
-"""Tests for the elicit tool (agent-facing ask interface)."""
+"""Tests for the elicit tool (agent-facing ask interface).
+
+``elicit.dispatch`` is async and drives a human-in-the-loop round-trip through an
+AskBridge placed in ``ctx.extra["ask_bridge"]``: it emits an ``ask_question`` event
+and awaits the answer. These tests use a stub bridge (delivered answer / timeout)
+and drive the coroutine with ``asyncio.run`` so no async plugin is needed.
+"""
+import asyncio
+from types import SimpleNamespace
+
 import pytest
-from unittest.mock import Mock, MagicMock
-from gemia.tools.elicit import dispatch, dispatch_respond, _build_controls
+
+from gemia.tools.elicit import dispatch, _build_controls
 from gemia.tools.ask import AskControlType
 
 
-@pytest.fixture
-def mock_ctx():
-    """Create a mock ToolContext."""
-    ctx = Mock()
-    ctx.session_id = "test_session_123"
-    ctx.session_state = {}
-    return ctx
+class StubBridge:
+    """Stand-in for AskBridge: returns a preset answer (dict) or None (timeout)."""
+
+    def __init__(self, answer=None):
+        self.answer = answer
+        self.emitted = []
+
+    async def emit_and_wait(self, question, *, timeout=None):
+        self.emitted.append(question)
+        return self.answer
 
 
-def test_elicit_dispatch_basic(mock_ctx):
-    """elicit dispatches with simple select control."""
+def _ctx(bridge=None):
+    extra = {"ask_bridge": bridge} if bridge is not None else {}
+    return SimpleNamespace(session_id="test_session_123", extra=extra)
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+# ── dispatch: emit + answer round-trip ──────────────────────────────────────
+
+
+def test_elicit_emits_question_and_returns_answer():
+    bridge = StubBridge(answer={"choice": "a"})
     args = {
         "title": "Choose an option",
         "description": "Pick one",
-        "controls": {
-            "choice": {
-                "type": "select",
-                "options": [
-                    {"label": "Option A", "value": "a"},
-                    {"label": "Option B", "value": "b"},
-                ],
-            }
-        },
+        "controls": {"choice": {"type": "select", "options": [
+            {"label": "Option A", "value": "a"}, {"label": "Option B", "value": "b"}]}},
     }
+    result = run(dispatch(args, _ctx(bridge)))
 
-    result = dispatch(args, mock_ctx)
+    assert result["status"] == "answer_received"
+    assert result["answers"]["choice"] == "a"
+    assert result["fallback_used"] is False
+    # the question was emitted with the right title + control
+    assert len(bridge.emitted) == 1
+    q = bridge.emitted[0]
+    assert q["title"] == "Choose an option"
+    assert "choice" in q["controls"]
 
-    assert result["status"] == "question_emitted"
-    assert "question_id" in result
-    assert result["question"]["title"] == "Choose an option"
-    assert "choice" in result["question"]["controls"]
 
-
-def test_elicit_dispatch_no_controls(mock_ctx):
-    """elicit rejects missing controls."""
-    args = {
-        "title": "Test",
-        "controls": {},
-    }
-
-    result = dispatch(args, mock_ctx)
-
-    assert "error" in result
+def test_elicit_no_controls():
+    result = run(dispatch({"title": "Test", "controls": {}}, _ctx(StubBridge())))
     assert result["error_code"] == "E_ELICIT_NO_CONTROLS"
 
 
-def test_elicit_dispatch_panel_form(mock_ctx):
-    """elicit dispatches with panel (grouped form)."""
-    args = {
-        "title": "User Information",
-        "controls": {
-            "form": {
-                "type": "panel",
-                "description": "Fill in your info",
-                "fields": {
-                    "email": {
-                        "type": "text",
-                        "pattern": r"^[^\s@]+@[^\s@]+$",
-                        "min_length": 5,
-                    },
-                    "age": {
-                        "type": "slider",
-                        "min": 18,
-                        "max": 120,
-                        "step": 1,
-                        "default": 25,
-                    },
-                },
-            }
-        },
-    }
+def test_elicit_invalid_spec():
+    args = {"title": "Test", "controls": {"bad": {"type": "unknown_type"}}}
+    result = run(dispatch(args, _ctx(StubBridge())))
+    assert result["error_code"] == "E_ELICIT_INVALID_SPEC"
 
-    result = dispatch(args, mock_ctx)
 
+def test_elicit_rejects_invalid_answer():
+    bridge = StubBridge(answer={"choice": "z"})  # 'z' is not an option
+    args = {"title": "Choose", "controls": {
+        "choice": {"type": "select", "options": [{"label": "A", "value": "a"}]}}}
+    result = run(dispatch(args, _ctx(bridge)))
+    assert result["error_code"] == "E_ELICIT_INVALID_ANSWER"
+
+
+def test_elicit_timeout_falls_back_to_defaults():
+    bridge = StubBridge(answer=None)  # no answer delivered → timeout sentinel
+    args = {"title": "t", "controls": {
+        "fmt": {"type": "select", "options": ["mp4", "mov"], "default": "mp4"},
+        "q":   {"type": "slider", "min": 0, "max": 10, "step": 1, "default": 7}}}
+    result = run(dispatch(args, _ctx(bridge)))
+    assert result["status"] == "answer_received"
+    assert result["fallback_used"] is True
+    assert result["answers"] == {"fmt": "mp4", "q": 7}
+
+
+def test_elicit_panel_form_round_trip():
+    bridge = StubBridge(answer={"form": {"email": "a@b.co", "age": 25}})
+    args = {"title": "User Information", "controls": {"form": {
+        "type": "panel", "description": "Fill in your info", "fields": {
+            "email": {"type": "text", "pattern": r"^[^\s@]+@[^\s@]+$", "min_length": 5},
+            "age":   {"type": "slider", "min": 18, "max": 120, "step": 1, "default": 25}}}}}
+    result = run(dispatch(args, _ctx(bridge)))
+    assert result["status"] == "answer_received"
+    assert result["answers"]["form"]["age"] == 25
+    form_ctrl = bridge.emitted[0]["controls"]["form"]
+    assert {"email", "age"} <= set(form_ctrl["fields"])
+
+
+def test_elicit_bare_string_options_work():
+    """An agent passing bare-string options (not {label,value}) still works."""
+    bridge = StubBridge(answer={"fmt": "mov"})
+    args = {"title": "t", "controls": {"fmt": {"type": "select", "options": ["mp4", "mov"]}}}
+    result = run(dispatch(args, _ctx(bridge)))
+    assert result["status"] == "answer_received" and result["answers"]["fmt"] == "mov"
+
+
+def test_elicit_without_bridge_returns_question():
+    """Legacy/test context with no bridge: emit nothing, hand back the question."""
+    args = {"title": "t", "controls": {"c": {"type": "select", "options": ["a"]}}}
+    result = run(dispatch(args, _ctx(bridge=None)))
     assert result["status"] == "question_emitted"
-    assert "form" in result["question"]["controls"]
-    form_ctrl = result["question"]["controls"]["form"]
-    assert "email" in form_ctrl["fields"]
-    assert "age" in form_ctrl["fields"]
+    assert "question" in result and "c" in result["question"]["controls"]
 
 
-def test_elicit_dispatch_stores_question(mock_ctx):
-    """elicit stores the question in session state for later reference."""
-    args = {
-        "title": "Test",
-        "controls": {
-            "choice": {
-                "type": "select",
-                "options": [{"label": "A", "value": "a"}],
-            }
-        },
-    }
-
-    result = dispatch(args, mock_ctx)
-    question_id = result["question_id"]
-
-    assert "_pending_questions" in mock_ctx.session_state
-    assert question_id in mock_ctx.session_state["_pending_questions"]
+def test_elicit_all_control_types():
+    bridge = StubBridge(answer={
+        "sel": "a", "multi": ["b"], "txt": "hello", "sld": 5,
+        "pnl": {"field1": "x"}, "custom": {"anything": 1}})
+    args = {"title": "Kitchen sink", "controls": {
+        "sel":    {"type": "select", "options": [{"label": "A", "value": "a"}]},
+        "multi":  {"type": "multi_select", "options": [{"label": "B", "value": "b"}]},
+        "txt":    {"type": "text", "placeholder": "text"},
+        "sld":    {"type": "slider", "min": 0, "max": 10},
+        "pnl":    {"type": "panel", "fields": {"field1": {"type": "text"}}},
+        "custom": {"type": "custom_panel", "schema": {}}}}
+    result = run(dispatch(args, _ctx(bridge)))
+    assert result["status"] == "answer_received"
+    assert set(bridge.emitted[0]["controls"]) == {"sel", "multi", "txt", "sld", "pnl", "custom"}
 
 
-def test_elicit_respond_success(mock_ctx):
-    """elicit_respond validates and returns the answer."""
-    # First, emit a question
-    args = {
-        "title": "Choose",
-        "controls": {
-            "choice": {
-                "type": "select",
-                "options": [
-                    {"label": "A", "value": "a"},
-                    {"label": "B", "value": "b"},
-                ],
-            }
-        },
-    }
-
-    result = dispatch(args, mock_ctx)
-    question_id = result["question_id"]
-
-    # Now respond
-    response_args = {
-        "question_id": question_id,
-        "answers": {
-            "choice": "a",
-        },
-    }
-
-    response = dispatch_respond(response_args, mock_ctx)
-
-    assert response["status"] == "answer_received"
-    assert response["validated"]["choice"] == "a"
-    # Question should be removed from pending
-    assert question_id not in mock_ctx.session_state["_pending_questions"]
-
-
-def test_elicit_respond_invalid_answer(mock_ctx):
-    """elicit_respond rejects invalid answers."""
-    # First, emit a question
-    args = {
-        "title": "Choose",
-        "controls": {
-            "choice": {
-                "type": "select",
-                "options": [{"label": "A", "value": "a"}],
-            }
-        },
-    }
-
-    result = dispatch(args, mock_ctx)
-    question_id = result["question_id"]
-
-    # Try to respond with invalid value
-    response_args = {
-        "question_id": question_id,
-        "answers": {
-            "choice": "z",  # Invalid
-        },
-    }
-
-    response = dispatch_respond(response_args, mock_ctx)
-
-    assert "error" in response
-    assert response["error_code"] == "E_ELICIT_INVALID_ANSWER"
-
-
-def test_elicit_respond_missing_question(mock_ctx):
-    """elicit_respond handles missing/already-answered questions."""
-    response_args = {
-        "question_id": "nonexistent_question",
-        "answers": {},
-    }
-
-    response = dispatch_respond(response_args, mock_ctx)
-
-    assert "error" in response
-    assert response["error_code"] == "E_ELICIT_UNKNOWN_QUESTION"
+# ── _build_controls (schema parsing) ────────────────────────────────────────
 
 
 def test_build_controls_select():
-    """_build_controls parses select control."""
-    spec = {
-        "my_select": {
-            "type": "select",
-            "options": [
-                {"label": "A", "value": "a"},
-                {"label": "B", "value": "b"},
-            ],
-            "default": "a",
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_select" in controls
+    controls = _build_controls({"my_select": {"type": "select", "options": [
+        {"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "default": "a"}})
     assert controls["my_select"].default == "a"
 
 
 def test_build_controls_multi_select():
-    """_build_controls parses multi_select control."""
-    spec = {
-        "my_multi": {
-            "type": "multi_select",
-            "options": [
-                {"label": "A", "value": "a"},
-                {"label": "B", "value": "b"},
-            ],
-            "min": 1,
-            "max": 2,
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_multi" in controls
-    assert controls["my_multi"].min == 1
-    assert controls["my_multi"].max == 2
+    controls = _build_controls({"my_multi": {"type": "multi_select", "options": [
+        {"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "min": 1, "max": 2}})
+    assert controls["my_multi"].min == 1 and controls["my_multi"].max == 2
 
 
 def test_build_controls_text():
-    """_build_controls parses text control."""
-    spec = {
-        "my_text": {
-            "type": "text",
-            "placeholder": "Enter text",
-            "min_length": 1,
-            "max_length": 100,
-            "pattern": r"^[a-z]+$",
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_text" in controls
+    controls = _build_controls({"my_text": {"type": "text", "placeholder": "Enter text",
+        "min_length": 1, "max_length": 100, "pattern": r"^[a-z]+$"}})
     assert controls["my_text"].placeholder == "Enter text"
     assert controls["my_text"].pattern == r"^[a-z]+$"
 
 
 def test_build_controls_slider():
-    """_build_controls parses slider control."""
-    spec = {
-        "my_slider": {
-            "type": "slider",
-            "min": 0,
-            "max": 100,
-            "step": 5,
-            "default": 50,
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_slider" in controls
-    assert controls["my_slider"].min == 0
-    assert controls["my_slider"].max == 100
-    assert controls["my_slider"].step == 5
-    assert controls["my_slider"].default == 50
+    controls = _build_controls({"my_slider": {"type": "slider",
+        "min": 0, "max": 100, "step": 5, "default": 50}})
+    s = controls["my_slider"]
+    assert (s.min, s.max, s.step, s.default) == (0, 100, 5, 50)
 
 
 def test_build_controls_panel():
-    """_build_controls parses panel control with nested fields."""
-    spec = {
-        "my_panel": {
-            "type": "panel",
-            "description": "A form",
-            "fields": {
-                "name": {
-                    "type": "text",
-                    "min_length": 1,
-                },
-                "age": {
-                    "type": "slider",
-                    "min": 0,
-                    "max": 150,
-                },
-            },
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_panel" in controls
-    panel = controls["my_panel"]
-    assert "name" in panel.fields
-    assert "age" in panel.fields
+    controls = _build_controls({"my_panel": {"type": "panel", "description": "A form",
+        "fields": {"name": {"type": "text", "min_length": 1},
+                   "age": {"type": "slider", "min": 0, "max": 150}}}})
+    assert {"name", "age"} <= set(controls["my_panel"].fields)
 
 
 def test_build_controls_custom_panel():
-    """_build_controls parses custom_panel control."""
-    spec = {
-        "my_custom": {
-            "type": "custom_panel",
-            "schema": {
-                "type": "complex",
-                "nested": {"key": "value"},
-            },
-        }
-    }
-
-    controls = _build_controls(spec)
-
-    assert "my_custom" in controls
+    controls = _build_controls({"my_custom": {"type": "custom_panel",
+        "schema": {"type": "complex", "nested": {"key": "value"}}}})
     assert controls["my_custom"].schema["type"] == "complex"
 
 
 def test_build_controls_invalid_type():
-    """_build_controls rejects unknown control types."""
-    spec = {
-        "invalid": {
-            "type": "unknown_type",
-        }
-    }
-
     with pytest.raises(ValueError, match="unsupported control type"):
-        _build_controls(spec)
+        _build_controls({"invalid": {"type": "unknown_type"}})
 
 
 def test_build_controls_invalid_panel_field():
-    """_build_controls rejects unknown panel field types."""
-    spec = {
-        "panel": {
-            "type": "panel",
-            "fields": {
-                "bad_field": {
-                    "type": "unknown_type",
-                }
-            },
-        }
-    }
-
-    with pytest.raises(ValueError, match="unsupported panel field type"):
-        _build_controls(spec)
-
-
-def test_elicit_dispatch_invalid_spec(mock_ctx):
-    """elicit rejects invalid control specifications."""
-    args = {
-        "title": "Test",
-        "controls": {
-            "bad": {
-                "type": "unknown_type",
-            }
-        },
-    }
-
-    result = dispatch(args, mock_ctx)
-
-    assert "error" in result
-    assert result["error_code"] == "E_ELICIT_INVALID_SPEC"
-
-
-def test_elicit_all_control_types(mock_ctx):
-    """elicit can emit all 6 control types in one question."""
-    args = {
-        "title": "Kitchen sink",
-        "controls": {
-            "sel": {
-                "type": "select",
-                "options": [{"label": "A", "value": "a"}],
-            },
-            "multi": {
-                "type": "multi_select",
-                "options": [{"label": "B", "value": "b"}],
-            },
-            "txt": {
-                "type": "text",
-                "placeholder": "text",
-            },
-            "sld": {
-                "type": "slider",
-                "min": 0,
-                "max": 10,
-            },
-            "pnl": {
-                "type": "panel",
-                "fields": {
-                    "field1": {
-                        "type": "text",
-                    },
-                },
-            },
-            "custom": {
-                "type": "custom_panel",
-                "schema": {},
-            },
-        },
-    }
-
-    result = dispatch(args, mock_ctx)
-
-    assert result["status"] == "question_emitted"
-    controls = result["question"]["controls"]
-    assert set(controls.keys()) == {"sel", "multi", "txt", "sld", "pnl", "custom"}
+    # Panel fields reuse the same builder, so an unknown nested type also raises.
+    with pytest.raises(ValueError, match="unsupported control type"):
+        _build_controls({"panel": {"type": "panel", "fields": {
+            "bad_field": {"type": "unknown_type"}}}})

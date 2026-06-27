@@ -617,3 +617,60 @@ def test_real_world_survey_ask():
     assert error is None
     assert result["form"]["experience"] == "advanced"
     assert result["form"]["project_fps"] == 30.0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Option normalisation (forgiving agent-authored option specs)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_select_normalizes_bare_string_options():
+    """Bare-string options coerce to {label, value} so validation works."""
+    ctrl = SelectControl(options=["mp4", "mov"])
+    assert ctrl.options == [
+        {"label": "mp4", "value": "mp4"},
+        {"label": "mov", "value": "mov"},
+    ]
+    assert ctrl.validate("mov") == ("mov", None)
+    val, err = ctrl.validate("avi")
+    assert val is None and "not a valid option" in err
+
+
+def test_select_normalizes_partial_dicts():
+    # label-only → value defaults to label; value-only → label defaults to value
+    ctrl = SelectControl(options=[{"label": "Bee", "value": "b"}, {"label": "Cee"}, {"value": "d"}])
+    assert ctrl.options == [
+        {"label": "Bee", "value": "b"},
+        {"label": "Cee", "value": "Cee"},
+        {"label": "d", "value": "d"},
+    ]
+
+
+def test_multi_select_normalizes_and_defaults_max():
+    ctrl = MultiSelectControl(options=["v", "a", "sub"], min=1)
+    assert [o["value"] for o in ctrl.options] == ["v", "a", "sub"]
+    assert ctrl.max == 3  # defaults to len(options) after normalisation
+    assert ctrl.validate(["v", "a"]) == (["v", "a"], None)
+
+
+def test_normalize_rejects_bad_option_item():
+    with pytest.raises(AskSchemaError):
+        SelectControl(options=[123])
+    with pytest.raises(AskSchemaError):
+        SelectControl(options=[{"hint": "no value or label"}])
+
+
+def test_normalize_rejects_non_list_options():
+    with pytest.raises(AskSchemaError):
+        SelectControl(options="mp4")
+
+
+def test_normalized_options_survive_roundtrip():
+    ctrl = SelectControl(options=["mp4", "mov"])
+    q = AskQuestion(question_id="q1", title="t", controls={"fmt": ctrl})
+    restored = AskQuestion.from_dict(q.to_dict())
+    assert restored.controls["fmt"].options == [
+        {"label": "mp4", "value": "mp4"},
+        {"label": "mov", "value": "mov"},
+    ]
+    assert restored.controls["fmt"].validate("mp4") == ("mp4", None)
