@@ -58,6 +58,7 @@ from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
+from gemia.tools._ask_bridge import AskBridge
 from gemia.tools._context import ProgressUpdate
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 
@@ -221,12 +222,19 @@ class AgentLoopV3:
             on_patch=lambda info: self._emit({"kind": "timeline_op", **info}),
         )
 
+        # Human-in-the-loop bridge for the ``elicit`` verb: lets a tool dispatcher
+        # emit an ask_question event and await the user's answer (delivered from the
+        # HTTP thread via deliver_ask_answer).
+        self._ask_bridge = AskBridge(self._emit)
+
+        _extra = dict(extra or {})
+        _extra.setdefault("ask_bridge", self._ask_bridge)
         self._tool_ctx = ToolContext(
             session_id=session_id,
             output_dir=self.output_dir,
             registry=self.registry,
             emit_progress=lambda _u: None,
-            extra=dict(extra or {}),
+            extra=_extra,
             project=self.project,
         )
 
@@ -260,6 +268,15 @@ class AgentLoopV3:
 
     def _emit_via_sse_registry(self, event: dict[str, Any]) -> None:
         SSE_REGISTRY.emit(self.session_id, event)
+
+    def deliver_ask_answer(self, question_id: str, answers: dict[str, Any]) -> bool:
+        """Deliver a user's answer to a pending ``elicit`` question.
+
+        Thread-safe: called from the HTTP handler thread; the bridge hops back onto
+        this session's event loop to resolve the awaiting future. Returns True if a
+        matching pending question was found.
+        """
+        return self._ask_bridge.deliver(question_id, answers)
 
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
         record = self.registry.add_external(Path(path), summary=summary or None)

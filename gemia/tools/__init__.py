@@ -43,6 +43,7 @@ from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
 from gemia.tools import edit_image as _edit_image
 from gemia.tools import edit_video as _edit_video
+from gemia.tools import elicit as _elicit
 from gemia.tools import export as _export
 from gemia.tools import extract_frame as _extract_frame
 from gemia.tools import fetch as _fetch
@@ -91,6 +92,7 @@ _REAL: dict[str, Dispatcher] = {
     "web_search":         _web_search.dispatch,
     "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
+    "elicit":             _elicit.dispatch,
     "run_shell":          _run_shell.dispatch,
     "build":              _build.dispatch,
     "check_job":          _build.dispatch_check,

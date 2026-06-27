@@ -148,6 +148,16 @@ class SessionRunner:
         asyncio.run_coroutine_threadsafe(_run(), self._loop)
         return True
 
+    def deliver_ask_answer(self, question_id: str, answers: dict[str, Any]) -> bool:
+        """Deliver a user's answer to a pending ``elicit`` question.
+
+        Returns True if a matching pending question was found. The agent's bridge
+        hops the resolution back onto this session's event loop, so this is safe to
+        call directly from the HTTP handler thread.
+        """
+        self.touch()
+        return self.agent.deliver_ask_answer(question_id, answers)
+
     def asset_path(self, asset_id: str) -> Path | None:
         self.touch()
         if not self.agent.registry.contains(asset_id):
