@@ -70,8 +70,8 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
     {"op": "flip_layer", "group": "transform", "args": ["layer_id*", "direction(horizontal|vertical|both)"],
      "summary": "Upsert a mirror/flip effect on the layer's effect chain."},
     # ── inter-layer ──
-    {"op": "set_mask", "group": "interlayer", "args": ["layer_id*", "mask{kind(shape|alpha_matte|luma_matte), source_layer_id, shape, invert, feather}|null"],
-     "summary": "Attach a drawn mask or a track matte (or clear it)."},
+    {"op": "set_mask", "group": "interlayer", "args": ["layer_id*", "mask{kind(shape|alpha_matte|luma_matte), source_layer_id, shape{type(rectangle|ellipse|polygon), x0,y0,x1,y1|rect|cx,cy,rx,ry|points[[x,y]], radius}, invert, feather}|null"],
+     "summary": "Attach a shape mask (rectangle/ellipse/polygon in normalized [0,1] canvas coords, rounded-rect radius + feather), an alpha/luma track matte, or clear it (null)."},
     {"op": "clip_to_below", "group": "interlayer", "args": ["layer_id*", "enabled"],
      "summary": "Clip a layer to the layer beneath it (clipping mask)."},
     {"op": "add_adjustment_layer", "group": "interlayer", "args": ["parent_id", "index", "name", "effects[]"],

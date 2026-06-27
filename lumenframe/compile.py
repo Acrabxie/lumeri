@@ -22,7 +22,9 @@ centred); ``ctx`` carries ``width`` / ``height`` / ``fps`` / ``total_frames`` /
 Mapped per layer: time (start/duration → frame range), z-order (tree order),
 opacity, blend mode, centre-origin transform (translate + uniform scale +
 rotation, computed analytically so rotation stays centred), opacity/position
-keyframes, and alpha/luma **track mattes**.
+keyframes, **shape masks** (rectangle / ellipse / polygon, rasterised in
+normalised canvas coordinates with optional feather + invert), and alpha/luma
+**track mattes**.
 
 Known M1 limitations (tracked for M1.1): non-uniform scale uses ``scale_x``;
 anchor is treated as centre; adjustment-layer effects and the per-layer effect
@@ -275,8 +277,10 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
     if not isinstance(mask, dict):
         return None
     kind = str(mask.get("kind"))
+    if kind == "shape":
+        return _shape_matte(mask, ctx)
     if kind not in {"alpha_matte", "luma_matte"}:
-        return None  # shape masks are an M1.1 rasterisation task
+        return None
     source_id = str(mask.get("source_layer_id") or "")
     source_fn = resolved.get(source_id)
     if source_fn is None:
@@ -300,6 +304,115 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
         return 1.0 - alpha if invert else alpha
 
     return matte
+
+
+# ── shape masks ───────────────────────────────────────────────────────────
+
+
+def _shape_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "np.ndarray"]:
+    """A drawn vector mask (rectangle / ellipse / polygon) → per-frame alpha.
+
+    The shape is rasterised once in canvas space (it does not animate yet), so
+    the closure just returns the cached alpha. ``feather`` and ``invert`` are
+    baked in; the backend resizes the alpha onto the (transformed) layer frame,
+    so a mask travels with its layer's transform — the After Effects semantic.
+    """
+    alpha = _rasterise_shape_mask(mask, ctx.width, ctx.height)
+
+    def matte(_local_frame: int):
+        return alpha
+
+    return matte
+
+
+def _shape_box(shape: dict[str, Any]) -> tuple[float, float, float, float]:
+    """Normalised ``(x0, y0, x1, y1)`` bounding box for a rect/ellipse shape.
+
+    Accepts ``x0/y0/x1/y1``, a ``rect`` list, or a centre form
+    (``cx/cy`` + ``rx/ry`` or ``w/h``). Defaults to the full canvas.
+    """
+    rect = shape.get("rect")
+    if isinstance(rect, (list, tuple)) and len(rect) >= 4:
+        return (float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3]))
+    if all(k in shape for k in ("x0", "y0", "x1", "y1")):
+        return (float(shape["x0"]), float(shape["y0"]), float(shape["x1"]), float(shape["y1"]))
+    if "cx" in shape and "cy" in shape and any(k in shape for k in ("rx", "ry", "w", "h")):
+        cx, cy = float(shape["cx"]), float(shape["cy"])
+        half_w = float(shape["w"]) / 2.0 if "w" in shape else float(shape.get("rx", shape.get("ry", 0.0)))
+        half_h = float(shape["h"]) / 2.0 if "h" in shape else float(shape.get("ry", shape.get("rx", 0.0)))
+        return (cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+    return (0.0, 0.0, 1.0, 1.0)
+
+
+def _filled_rounded_rect(img: "np.ndarray", x0: int, y0: int, x1: int, y1: int, r: int) -> None:
+    import cv2
+
+    if x1 <= x0 or y1 <= y0:
+        return
+    r = min(r, (x1 - x0) // 2, (y1 - y0) // 2)
+    if r <= 0:
+        cv2.rectangle(img, (x0, y0), (x1, y1), 255, -1)
+        return
+    cv2.rectangle(img, (x0 + r, y0), (x1 - r, y1), 255, -1)
+    cv2.rectangle(img, (x0, y0 + r), (x1, y1 - r), 255, -1)
+    for cx, cy in ((x0 + r, y0 + r), (x1 - r, y0 + r), (x0 + r, y1 - r), (x1 - r, y1 - r)):
+        cv2.circle(img, (cx, cy), r, 255, -1, lineType=cv2.LINE_AA)
+
+
+def _rasterise_shape_mask(mask: dict[str, Any], width: int, height: int) -> "np.ndarray":
+    """Rasterise a shape-mask spec to a float32 ``(H, W)`` alpha in ``[0, 1]``.
+
+    Coordinates are normalised to the canvas (``[0, 1]``) so a mask is
+    resolution-independent. ``feather`` (a fraction of the smaller canvas
+    dimension) softens the edge; ``invert`` flips coverage.
+    """
+    import cv2
+
+    shape = mask.get("shape") if isinstance(mask.get("shape"), dict) else {}
+    stype = str(shape.get("type") or "rectangle").lower()
+    img = np.zeros((height, width), dtype=np.uint8)
+
+    def _px(nx: Any, ny: Any) -> tuple[int, int]:
+        return (int(round(float(nx) * width)), int(round(float(ny) * height)))
+
+    if stype in {"polygon", "poly"}:
+        pts = [
+            _px(p[0], p[1])
+            for p in (shape.get("points") or [])
+            if isinstance(p, (list, tuple)) and len(p) >= 2
+        ]
+        if len(pts) >= 3:
+            cv2.fillPoly(img, [np.array(pts, dtype=np.int32)], 255, lineType=cv2.LINE_AA)
+    else:
+        x0n, y0n, x1n, y1n = _shape_box(shape)
+        x0, y0 = _px(x0n, y0n)
+        x1, y1 = _px(x1n, y1n)
+        if x1 < x0:
+            x0, x1 = x1, x0
+        if y1 < y0:
+            y0, y1 = y1, y0
+        if stype in {"ellipse", "circle", "oval"}:
+            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+            ax, ay = (x1 - x0) // 2, (y1 - y0) // 2
+            if ax > 0 and ay > 0:
+                cv2.ellipse(img, (cx, cy), (ax, ay), 0, 0, 360, 255, -1, lineType=cv2.LINE_AA)
+        else:  # rectangle (default)
+            radius = float(shape.get("radius") or 0.0)
+            r = int(round(radius * min(width, height)))
+            if r > 0:
+                _filled_rounded_rect(img, x0, y0, x1, y1, r)
+            elif x1 > x0 and y1 > y0:
+                cv2.rectangle(img, (x0, y0), (x1, y1), 255, -1)
+
+    alpha = img.astype(np.float32) / 255.0
+    feather = float(mask.get("feather") or 0.0)
+    if feather > 0:
+        sigma = feather * min(width, height)
+        if sigma > 0:
+            alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_DEFAULT)
+    if mask.get("invert"):
+        alpha = 1.0 - alpha
+    return np.clip(alpha, 0.0, 1.0).astype(np.float32)
 
 
 # ── transform / keyframes ─────────────────────────────────────────────────
