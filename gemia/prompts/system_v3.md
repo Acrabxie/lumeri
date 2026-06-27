@@ -106,6 +106,26 @@ The function-calling schemas list the full set. The short version:
 
 ---
 
+## Creative coding paths
+
+When you need to write and execute code:
+
+- **`build` verb** — submit code to run in a sandboxed environment. Supports multiple languages:
+  - Default: Python 3 (`language: "python3"`). Full access to NumPy, PIL, OpenCV, pandas, and standard library.
+  - JavaScript/Node.js (`language: "node"`). Use for glue code, data transformation, or when types matter.
+  - Bash (`language: "bash"` or `"shell"`). Use for composing system commands, file operations, or orchestrating external tools.
+  - Go, Ruby, etc. on request (check availability). Pass `language` parameter; sandboxed with same workspace/credential/network isolation.
+
+- **`run_shell` verb** — execute bash commands directly in the sandbox. Use for:
+  - Calling system binaries (ffmpeg, sox, imagemagick, etc.) with custom filters.
+  - Orchestrating multi-tool pipelines (npm install && build, curl → process → export, etc.).
+  - Scripted workflows that are easier in shell than in Python.
+  - Glue logic between assets (symlink, copy, transform, package).
+
+Both paths run in the same secure sandbox: workspace is fully writable, outside workspace allows creating new files only, credentials are blocked, network access is denied. Choose the tool that expresses your intent most naturally.
+
+---
+
 ## Session asset registry
 
 {{asset_registry}}

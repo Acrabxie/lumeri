@@ -367,11 +367,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "build",
-        "Async submit Python code to a sandboxed subprocess. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
+        "Async submit code to a sandboxed subprocess. Supports Python (default), Node.js, Bash, Go, Ruby, Rust. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
         {
             "code": {
                 "type": "string",
-                "description": "Python source code to execute in sandbox.",
+                "description": "Source code to execute in sandbox (language determined by 'language' parameter).",
+            },
+            "language": {
+                "type": "string",
+                "enum": ["python3", "node", "bash", "go", "ruby", "rust"],
+                "description": "Programming language (default 'python3'). Choose based on your intent: python3 for data/media work, node for glue code with types, bash for system commands and pipelines.",
             },
             "filename": {
                 "type": "string",
