@@ -58,6 +58,12 @@ def default_resolver(
     if ltype == "text":
         return _text_resolver(layer, ctx)
 
+    if ltype == "html":
+        # HTML/CSS/JS motion-graphics layer: renders to an mp4 (cached) and is
+        # then sampled through _video_resolver, so it composites like a video.
+        from lumenframe.resolve_html import html_resolver
+        return html_resolver(layer, ctx)
+
     # Unknown type — extension or future layer type
     return None
 

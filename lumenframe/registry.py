@@ -188,6 +188,20 @@ def _register_builtin_layer_types() -> None:
             "defaults": {},
             "source": "core",
         })
+    # The ``html`` layer type ships in the core (lumenframe.resolve_html renders
+    # it to a video via HyperFrames). Register it here so ``add_layer`` validation
+    # accepts it and it survives ``reset_for_tests``. Importing resolve_html lazily
+    # also runs its own ``register()`` for symmetry, but we register a minimal spec
+    # directly to avoid pulling the renderer import into the registry hot path.
+    _LAYER_TYPES.setdefault("html", {
+        "container": False,
+        "defaults": {},
+        "source": "core",
+        "description": (
+            "HTML/CSS/JS motion-graphics layer rendered to a video via "
+            "HyperFrames and composited like a video layer."
+        ),
+    })
 
 
 _register_builtin_layer_types()
