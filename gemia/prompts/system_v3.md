@@ -47,7 +47,9 @@ The function-calling schemas list the full set. The short version:
 - **Plan multi-step work, then adapt.** For anything beyond a single
   obvious action, first outline the few steps you expect — a short plan —
   then carry it out one step at a time, revising the plan as real results
-  come in. For a single obvious action, just do it.
+  come in. For a single obvious action, just do it. **Don't stop after
+  a single step unless you're genuinely blocked or waiting for user input —
+  continue calling tools to move the work forward until the goal is complete.**
 - **Read tool errors like a debugger.** A failed call comes back
   structured — `error_code`, a `recovery` hint, and often `valid_options`
   and a `hint`. Use them instead of guessing:

@@ -294,12 +294,28 @@ class AgentLoopV3:
     def _get_lumenframe_ops_catalog(self) -> str:
         """Get lumenframe operations catalog for prompt injection.
 
-        Returns the complete operation vocabulary from lumenframe.describe_ops(),
-        or a placeholder if lumenframe is unavailable.
+        **Conditional injection (on-demand):**
+        - If the session has a non-empty lumenframe doc (root.children with ≥1 layer),
+          inject the complete operation vocabulary from lumenframe.describe_ops().
+        - If the doc is empty or absent, return a minimal one-line pointer instead
+          of the full 3200+ character catalog, avoiding noise for non-layer tasks.
+          Once the user starts a lumenframe edit, the full vocabulary auto-injects.
         """
         try:
+            from gemia.tools import layer as _layer
             from lumenframe import describe_ops
-            return describe_ops()
+
+            # Check if doc exists and has layers
+            if hasattr(_layer, "_DOC_CACHE") and self.session_id in _layer._DOC_CACHE:
+                doc = _layer._DOC_CACHE[self.session_id]
+                root = doc.get("root", {})
+                children = root.get("children", [])
+                # Non-empty doc: inject full ops catalog
+                if children:
+                    return describe_ops()
+
+            # Empty or missing doc: minimal pointer
+            return "Layer editing available via lumen_* tools — call lumen_get to start."
         except (ImportError, Exception):
             return "(lumenframe operations not available)"
 
