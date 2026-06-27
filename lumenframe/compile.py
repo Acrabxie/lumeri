@@ -40,7 +40,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-from lumenframe import model
+from lumenframe import model, timebase
 
 ContentFn = Callable[[int], "np.ndarray"]
 Resolver = Callable[[dict[str, Any], "ResolveContext"], Optional[ContentFn]]
@@ -184,6 +184,9 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
         matte = _matte_fn(layer, resolved, children, ctx)
         if matte is not None:
             runtime.mask_fn = matte
+        time_map = _time_remap_fn(layer, ctx.fps)
+        if time_map is not None:
+            runtime.time_map_fn = time_map
         stack.add_layer(runtime)
 
 
@@ -539,6 +542,35 @@ def _easing_for(interp: str) -> str:
         "linear": "linear", "hold": "step", "ease": "ease-in-out",
         "ease_in": "ease-in", "ease_out": "ease-out", "bezier": "ease-in-out",
     }.get(interp, "linear")
+
+
+def _time_remap_fn(layer: dict[str, Any], fps: float) -> Callable[[int], int] | None:
+    """Build the ``time_map_fn`` for a layer carrying a ``time_remap`` curve.
+
+    The render backend hands ``time_map_fn`` the *output-local* frame (absolute
+    frame minus the layer's ``start_frame``) and feeds its return value — the
+    *source-local* frame — to the layer's ``content_fn``. So:
+
+        out_sec    = output_local_frame / fps                 (output timeline)
+        src_sec    = eval_time_remap(curve, out_sec)          (source timeline)
+        src_local  = to_frame(src_sec - source_in, fps)       (content_fn arg)
+
+    This drives content sampling only; transform / opacity keyframes and
+    expressions stay on the OUTPUT frame (the backend evaluates those off the
+    absolute frame index, untouched by this map). A ``time_remap`` therefore
+    overrides any constant-speed source mapping for the same layer.
+    """
+    remap = layer.get("time_remap")
+    if not isinstance(remap, dict) or not (remap.get("keyframes")):
+        return None
+    source_in = model._as_float(layer.get("source_in"))
+
+    def time_map_fn(output_local_frame: int) -> int:
+        out_sec = timebase.to_seconds(int(output_local_frame), fps)
+        src_sec = model.eval_time_remap(remap, out_sec)
+        return max(0, timebase.to_frame(src_sec - source_in, fps))
+
+    return time_map_fn
 
 
 # ── small helpers ──────────────────────────────────────────────────────────

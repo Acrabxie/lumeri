@@ -30,13 +30,15 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from lumenframe import model
+from lumenframe import model, timebase
 from lumenframe.model import (
     BLEND_MODES,
     DEFAULT_TRANSFORM,
     INTERP_KINDS,
     MASK_KINDS,
     TIME_NDIGITS,
+    TIME_REMAP_EXTRAPOLATE,
+    TIME_REMAP_INTERP,
     new_layer,
     normalize_doc,
 )
@@ -205,6 +207,42 @@ def _is_container(layer: dict[str, Any]) -> bool:
 
 def _round_t(value: Any) -> float:
     return round(model._as_float(value), TIME_NDIGITS)
+
+
+def _canvas_fps(doc: dict[str, Any]) -> float:
+    """Canvas fps (the only timebase frame<->second uses), defaulting safely."""
+    canvas = doc.get("canvas") if isinstance(doc.get("canvas"), dict) else {}
+    return float(canvas.get("fps") or model.DEFAULT_CANVAS["fps"])
+
+
+def _seconds_or_frame(
+    doc: dict[str, Any],
+    op: dict[str, Any],
+    sec_key: str,
+    frame_key: str,
+    *,
+    op_name: str,
+) -> float | None:
+    """Resolve one timeline edge given in *either* seconds or frames.
+
+    The document stays seconds-canonical: a ``{frame}`` value is converted with
+    ``timebase.to_seconds(frame, canvas.fps)`` and the doc only ever stores
+    seconds. Supplying *both* the seconds and the frame form for the same edge is
+    a contradiction and raises ``E_ARG``. Returns the edge in seconds, or
+    ``None`` when neither form was given.
+    """
+    has_sec = op.get(sec_key) is not None
+    has_frame = op.get(frame_key) is not None
+    if has_sec and has_frame:
+        raise LayerPatchError(
+            "E_ARG",
+            f"{op_name}: give {sec_key!r} (seconds) or {frame_key!r} (frame) for one edge, not both",
+        )
+    if has_frame:
+        return _round_t(timebase.to_seconds(model._as_float(op.get(frame_key)), _canvas_fps(doc)))
+    if has_sec:
+        return _round_t(op.get(sec_key))
+    return None
 
 
 def _fresh_ids_deep(layer: dict[str, Any]) -> dict[str, Any]:
@@ -571,8 +609,12 @@ def _op_trim(doc: dict[str, Any], op: dict[str, Any]) -> None:
     speed = max(model._as_float(layer.get("speed")) or 1.0, 1e-6)
     start = model._as_float(layer.get("start"))
     duration = model._as_float(layer.get("duration"))
+    # An edge may be given in seconds (``to``) or frames (``frame_in``/
+    # ``frame_out``) — converted via the canvas timebase. Mixing both for the
+    # same edge is E_ARG; the doc stays seconds-canonical either way.
     if edge == "in":
-        new_start = _round_t(op["to"]) if op.get("to") is not None else _round_t(start + model._as_float(op.get("delta")))
+        edge_sec = _seconds_or_frame(doc, op, "to", "frame_in", op_name="trim")
+        new_start = edge_sec if edge_sec is not None else _round_t(start + model._as_float(op.get("delta")))
         delta_t = new_start - start
         new_duration = duration - delta_t
         if new_duration <= 0:
@@ -581,7 +623,8 @@ def _op_trim(doc: dict[str, Any], op: dict[str, Any]) -> None:
         layer["duration"] = _round_t(new_duration)
         layer["source_in"] = _round_t(model._as_float(layer.get("source_in")) + delta_t * speed)
     else:
-        new_end = _round_t(op["to"]) if op.get("to") is not None else _round_t(start + duration + model._as_float(op.get("delta")))
+        edge_sec = _seconds_or_frame(doc, op, "to", "frame_out", op_name="trim")
+        new_end = edge_sec if edge_sec is not None else _round_t(start + duration + model._as_float(op.get("delta")))
         new_duration = new_end - start
         if new_duration <= 0:
             raise LayerPatchError("E_RANGE", "trim: out-edge would collapse the layer")
@@ -592,7 +635,11 @@ def _op_trim(doc: dict[str, Any], op: dict[str, Any]) -> None:
 @register_op("split", source="core")
 def _op_split(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer_id = str(_require_arg(op, "layer_id"))
-    at_time = _round_t(_require_arg(op, "at_time"))
+    # Cut point may be seconds (``at_time``) or frames (``at_frame``); the doc
+    # stays seconds-canonical. Mixing both is E_ARG; neither is E_ARG.
+    at_time = _seconds_or_frame(doc, op, "at_time", "at_frame", op_name="split")
+    if at_time is None:
+        raise LayerPatchError("E_ARG", "split: missing required arg 'at_time' (or 'at_frame')")
     parent, index = _require_locate(doc, layer_id, op="split")
     left = parent["children"][index]
     start = model._as_float(left.get("start"))
@@ -629,6 +676,63 @@ def _op_set_speed(doc: dict[str, Any], op: dict[str, Any]) -> None:
         new_duration = model._as_float(layer.get("duration")) * old_speed / speed
     layer["speed"] = speed
     layer["duration"] = _round_t(new_duration)
+
+
+@register_op("set_time_remap", source="core")
+def _op_set_time_remap(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Attach a time-remap (speed-ramp) curve to a layer.
+
+    ``keyframes`` is a list of ``{"t": output_seconds, "value": source_seconds,
+    "interp": "linear"|"hold"}`` points: at output-time ``t`` the layer samples
+    its source at ``value`` seconds. ``extrapolate`` (``hold``/``loop``/
+    ``pingpong``, default ``hold``) governs output times outside the curve span.
+
+    Mutual exclusion with a non-unit constant ``speed``: a remap *is* the speed
+    curve, so this op CLEARS any constant speed back to ``1.0`` (documented; we
+    reset rather than raise so a single call fully describes the retime). Passing
+    an empty keyframe list, or a point missing ``t``/``value``, raises ``E_ARG``;
+    two keyframes with the same output ``t`` mapping to different source values
+    raise ``E_RANGE`` (an ambiguous, non-functional curve).
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_time_remap")
+    raw = _require_arg(op, "keyframes")
+    if not isinstance(raw, list) or not raw:
+        raise LayerPatchError("E_ARG", "set_time_remap: keyframes must be a non-empty list")
+
+    points: list[dict[str, Any]] = []
+    for pt in raw:
+        if not isinstance(pt, dict) or pt.get("t") is None or pt.get("value") is None:
+            raise LayerPatchError("E_ARG", "set_time_remap: each keyframe needs t and value")
+        interp = str(pt.get("interp") or "linear")
+        if interp not in TIME_REMAP_INTERP:
+            raise LayerPatchError(
+                "E_ARG", f"set_time_remap: unknown interp {interp!r} (use linear|hold)"
+            )
+        points.append({
+            "t": _round_t(pt.get("t")),
+            "value": _round_t(pt.get("value")),
+            "interp": interp,
+        })
+    points.sort(key=lambda k: k["t"])
+
+    # Reject an ambiguous (non-functional) curve: same output t, different source.
+    for prev, nxt in zip(points, points[1:]):
+        if abs(prev["t"] - nxt["t"]) <= 1e-9 and abs(prev["value"] - nxt["value"]) > 1e-9:
+            raise LayerPatchError(
+                "E_RANGE",
+                f"set_time_remap: two keyframes at t={prev['t']} map to different source times",
+            )
+
+    extrapolate = str(op.get("extrapolate") or "hold")
+    if extrapolate not in TIME_REMAP_EXTRAPOLATE:
+        raise LayerPatchError(
+            "E_ARG",
+            f"set_time_remap: unknown extrapolate {extrapolate!r} (use hold|loop|pingpong)",
+        )
+
+    layer["time_remap"] = {"keyframes": points, "extrapolate": extrapolate}
+    # A remap supersedes constant speed; clear it so the retime is unambiguous.
+    layer["speed"] = 1.0
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -830,7 +934,10 @@ def _op_add_transition(doc: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_set_keyframe(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_keyframe")
     prop = str(_require_arg(op, "property"))
-    t = _round_t(_require_arg(op, "t"))
+    # Time may be seconds (``t``) or frames (``frame``); doc stays seconds-canonical.
+    t = _seconds_or_frame(doc, op, "t", "frame", op_name="set_keyframe")
+    if t is None:
+        raise LayerPatchError("E_ARG", "set_keyframe: missing required arg 't' (or 'frame')")
     interp = str(op.get("interp") or "linear")
     if interp not in INTERP_KINDS:
         raise LayerPatchError("E_ARG", f"set_keyframe: unknown interp {interp!r}")
@@ -844,7 +951,10 @@ def _op_set_keyframe(doc: dict[str, Any], op: dict[str, Any]) -> None:
 def _op_remove_keyframe(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="remove_keyframe")
     prop = str(_require_arg(op, "property"))
-    t = _round_t(_require_arg(op, "t"))
+    # Time may be seconds (``t``) or frames (``frame``); doc stays seconds-canonical.
+    t = _seconds_or_frame(doc, op, "t", "frame", op_name="remove_keyframe")
+    if t is None:
+        raise LayerPatchError("E_ARG", "remove_keyframe: missing required arg 't' (or 'frame')")
     track = layer.get("keyframes", {}).get(prop)
     if not track:
         raise LayerPatchError("E_NOT_FOUND", f"remove_keyframe: no track {prop!r}")

@@ -81,13 +81,22 @@ DEFAULT_TRANSFORM: dict[str, float] = {
 #: Rounding for all time values written into the doc (mirrors timeline v1).
 TIME_NDIGITS = 6
 
+#: Extrapolation policies for a time-remap curve outside its keyframe span.
+TIME_REMAP_EXTRAPOLATE: set[str] = {"hold", "loop", "pingpong"}
+
+#: Interpolation kinds a time-remap keyframe may use. A remap curve is a plain
+#: output_seconds -> source_seconds mapping, so only the simplest, exactly
+#: invertible kinds are allowed: ``linear`` ramps source time, ``hold`` freezes
+#: it (a still frame) until the next keyframe.
+TIME_REMAP_INTERP: set[str] = {"linear", "hold"}
+
 #: Canonical top-level keys on a layer. Anything else an author supplies is
 #: folded into ``props`` rather than dropped.
 _SCHEMA_KEYS: frozenset[str] = frozenset({
     "id", "type", "name", "children", "start", "duration", "source_in",
     "source_out", "speed", "lane", "transform", "opacity", "blend_mode",
     "visible", "locked", "mask", "clip_to_below", "merged", "asset_id",
-    "effects", "keyframes", "props",
+    "effects", "keyframes", "time_remap", "props",
 })
 
 
@@ -253,6 +262,10 @@ def _normalize_layer(raw: dict[str, Any], *, force_type: str | None = None) -> d
         }
     if isinstance(raw.get("keyframes"), dict):
         base["keyframes"] = _normalize_keyframes(raw["keyframes"])
+    if isinstance(raw.get("time_remap"), dict):
+        remap = _normalize_time_remap(raw["time_remap"])
+        if remap is not None:
+            base["time_remap"] = remap
     if isinstance(raw.get("props"), dict):
         base["props"] = dict(raw["props"])
     # Be forgiving with hand-/agent-authored layers: stash any unknown top-level
@@ -309,6 +322,89 @@ def _normalize_keyframes(keyframes: dict[str, Any]) -> dict[str, list[dict[str, 
         kfs.sort(key=lambda k: k["t"])
         out[str(prop)] = kfs
     return out
+
+
+def _normalize_time_remap(remap: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalise a time-remap (speed-ramp) spec, or ``None`` if it has no points.
+
+    A remap is ``{"keyframes": [{"t": output_seconds, "value": source_seconds,
+    "interp": "linear"|"hold"}, ...], "extrapolate": "hold"|"loop"|"pingpong"}``.
+    ``t`` is a time on the layer's *output* timeline (layer-local seconds);
+    ``value`` is the *source* time it samples. Keyframes are sorted by ``t``;
+    floats are rounded to ``TIME_NDIGITS`` so the doc round-trips byte-stably.
+    """
+    points = remap.get("keyframes")
+    if not isinstance(points, list):
+        return None
+    kfs: list[dict[str, Any]] = []
+    for pt in points:
+        if not isinstance(pt, dict) or pt.get("t") is None or pt.get("value") is None:
+            continue
+        interp = str(pt.get("interp") or "linear")
+        kfs.append({
+            "t": round(_as_float(pt.get("t")), TIME_NDIGITS),
+            "value": round(_as_float(pt.get("value")), TIME_NDIGITS),
+            "interp": interp if interp in TIME_REMAP_INTERP else "linear",
+        })
+    if not kfs:
+        return None
+    kfs.sort(key=lambda k: k["t"])
+    extrapolate = str(remap.get("extrapolate") or "hold")
+    if extrapolate not in TIME_REMAP_EXTRAPOLATE:
+        extrapolate = "hold"
+    return {"keyframes": kfs, "extrapolate": extrapolate}
+
+
+def eval_time_remap(remap: dict[str, Any], out_seconds: float) -> float:
+    """Evaluate a normalised time-remap curve: output seconds -> source seconds.
+
+    Between keyframes the curve interpolates by the *left* keyframe's ``interp``
+    (``hold`` freezes the source time, ``linear`` ramps it). Outside the keyframe
+    span the ``extrapolate`` policy applies over the output-time domain:
+
+    * ``hold``     — clamp to the nearest endpoint's source value (a freeze).
+    * ``loop``     — wrap the output time into ``[t0, tN]`` and re-evaluate.
+    * ``pingpong`` — reflect the output time so the curve plays forward/back.
+
+    A single keyframe (or a zero-length span) degenerates to a constant source
+    time. The result is plain seconds; the caller quantises to a frame.
+    """
+    kfs = remap.get("keyframes") or []
+    n = len(kfs)
+    if n == 0:
+        return float(out_seconds)
+    if n == 1:
+        return float(kfs[0]["value"])
+
+    t0 = float(kfs[0]["t"])
+    tn = float(kfs[-1]["t"])
+    span = tn - t0
+    t = float(out_seconds)
+
+    if span <= 0:
+        return float(kfs[0]["value"])
+
+    extrapolate = str(remap.get("extrapolate") or "hold")
+    if t < t0 or t > tn:
+        if extrapolate == "loop":
+            t = t0 + ((t - t0) % span)
+        elif extrapolate == "pingpong":
+            phase = (t - t0) % (2.0 * span)
+            t = t0 + (phase if phase <= span else 2.0 * span - phase)
+        else:  # hold: clamp to the matching endpoint
+            return float(kfs[0]["value"] if t < t0 else kfs[-1]["value"])
+
+    # Locate the segment [a, b] with a.t <= t <= b.t.
+    for i in range(n - 1):
+        a, b = kfs[i], kfs[i + 1]
+        ta, tb = float(a["t"]), float(b["t"])
+        if ta <= t <= tb:
+            if str(a.get("interp")) == "hold" or tb <= ta:
+                return float(a["value"])
+            frac = (t - ta) / (tb - ta)
+            return float(a["value"]) + frac * (float(b["value"]) - float(a["value"]))
+    # Float fall-through (t == tn within rounding): last keyframe.
+    return float(kfs[-1]["value"])
 
 
 # ── tree traversal & lookup ─────────────────────────────────────────────
