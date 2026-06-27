@@ -56,6 +56,7 @@
     projectTimeline: null,      // fetched from /sessions/{id}/timeline
     timelinePollTimer: null,
     frameRuler: null,           // active FrameRuler instance (frame ruler/playhead/scrubber)
+    keyframeEditor: null,       // active KeyframeEditor instance (keyframe-track strip)
   };
 
   function newTurn(userMessage) {
@@ -714,6 +715,29 @@
         pxPerFrame: FRAME_RULER_DEFAULT_PX_PER_FRAME,
         currentFrame: prevFrame,
       });
+
+      // Keyframe-track editor strip: the visual basis for curve editing. Lives
+      // just below the ruler; built empty here (no keyframes flow from the
+      // backend yet) so add/move can be driven once a property is selected.
+      let kfHost = document.getElementById("project-timeline-keyframes");
+      if (!kfHost) {
+        kfHost = document.createElement("div");
+        kfHost.id = "project-timeline-keyframes";
+        kfHost.className = "project-timeline-keyframes";
+        if (rulerHost.parentNode) {
+          rulerHost.parentNode.insertBefore(kfHost, rulerHost.nextSibling);
+        }
+      }
+      const prevKfs = state.keyframeEditor ? state.keyframeEditor.keyframes : [];
+      const prevProp = state.keyframeEditor ? state.keyframeEditor.property : "value";
+      kfHost.innerHTML = "";
+      buildKeyframeEditor(kfHost, {
+        property: prevProp,
+        keyframes: prevKfs,
+        durationSec: dur,
+        fps: data.fps || 30,
+        pxPerSec: (data.fps || 30) * FRAME_RULER_DEFAULT_PX_PER_FRAME,
+      });
     }
 
     metaEl.textContent = [
@@ -901,6 +925,134 @@
     seekToFrame: (n) => (state.frameRuler ? state.frameRuler.seekToFrame(n) : null),
     step: (delta) => (state.frameRuler ? state.frameRuler.step(delta) : null),
     current: () => (state.frameRuler ? state.frameRuler.currentFrame : null),
+  };
+
+  // ── keyframe-track editor (curve-editing visual basis) ──────────────
+  // Self-contained, imperative DOM (like buildFrameRuler): a horizontal track
+  // with one marker per keyframe, the visual foundation for full curve editing.
+  // Mirrors the frame-ruler pattern, including a debug/test hook
+  // (window.__lumeriKeyframeEditor) that drives the same build/add/move the
+  // panel render wires up. Bezier value curves come later — this slice nails
+  // marker POSITIONS, add/move, and frame snapping.
+  //
+  // Position model (all deterministic, time-in-seconds):
+  //   marker.left(px)   == keyframe.t * pxPerSec
+  //   track width(px)   == max(durationSec, last keyframe t) * pxPerSec
+  //   keyframes kept sorted ascending by t (addKeyframe inserts in order)
+  //   frame snap         t -> round(t * fps) / fps   (move snaps to frame grid)
+
+  const KEYFRAME_EDITOR_DEFAULT_PX_PER_SEC = 80;
+
+  // Snap a time (seconds) to the nearest frame boundary on the fps grid.
+  function snapTimeToFrame(t, fps) {
+    const f = Number(fps) > 0 ? Number(fps) : 30;
+    return Math.round((Number(t) || 0) * f) / f;
+  }
+
+  function clampTime(t, durationSec) {
+    t = Number(t) || 0;
+    if (t < 0) return 0;
+    const hi = Number(durationSec) > 0 ? Number(durationSec) : t;
+    return t > hi ? hi : t;
+  }
+
+  function buildKeyframeEditor(container, opts) {
+    if (!container) return null;
+    opts = opts || {};
+    const property = opts.property != null ? String(opts.property) : "value";
+    const durationSec = Number(opts.durationSec) || 0;
+    const fps = Number(opts.fps) > 0 ? Number(opts.fps) : 30;
+    const pxPerSec = Number(opts.pxPerSec) > 0
+      ? Number(opts.pxPerSec) : KEYFRAME_EDITOR_DEFAULT_PX_PER_SEC;
+
+    // Normalize + sort the incoming keyframes (ascending by t).
+    const keyframes = (Array.isArray(opts.keyframes) ? opts.keyframes : [])
+      .map((k) => ({ t: Number(k.t) || 0, value: k.value }))
+      .sort((a, b) => a.t - b.t);
+
+    const inst = {
+      property, durationSec, fps, pxPerSec, keyframes, container,
+    };
+
+    // Track width spans at least the project duration, growing if a keyframe
+    // sits past the end (so out-of-range markers stay visible).
+    inst.trackWidth = () => {
+      const lastT = inst.keyframes.length ? inst.keyframes[inst.keyframes.length - 1].t : 0;
+      return Math.max(durationSec, lastT) * inst.pxPerSec;
+    };
+
+    const root = el("div", { class: "kf-track", "data-property": property });
+    root.style.position = "relative";
+
+    const lane = el("div", { class: "kf-track-lane" });
+    root.appendChild(lane);
+
+    const label = el("span", { class: "kf-track-label", text: property });
+    root.appendChild(label);
+
+    inst.root = root;
+    inst.lane = lane;
+
+    // Build one marker element for a keyframe at the given list index.
+    inst.makeMarker = (kf, index) => {
+      const marker = el("div", { class: "kf-marker" });
+      marker.style.left = `${kf.t * inst.pxPerSec}px`;
+      marker.setAttribute("data-index", String(index));
+      marker.setAttribute("data-t", String(kf.t));
+      if (kf.value != null) marker.setAttribute("data-value", String(kf.value));
+      marker.setAttribute("title", `${property} @ ${kf.t.toFixed(3)}s`);
+      return marker;
+    };
+
+    // Re-render all markers from inst.keyframes (clears prior markers first).
+    inst.renderMarkers = () => {
+      const old = lane.querySelectorAll(".kf-marker");
+      for (const m of old) if (m.parentNode) m.parentNode.removeChild(m);
+      inst.keyframes.forEach((kf, i) => lane.appendChild(inst.makeMarker(kf, i)));
+      root.style.width = `${inst.trackWidth()}px`;
+    };
+
+    // addKeyframe: insert keeping the list sorted by t, then re-render.
+    inst.addKeyframe = (t, value) => {
+      t = clampTime(t, inst.durationSec);
+      const kf = { t, value };
+      let i = 0;
+      while (i < inst.keyframes.length && inst.keyframes[i].t <= t) i++;
+      inst.keyframes.splice(i, 0, kf);
+      inst.renderMarkers();
+      return inst.keyframes.indexOf(kf);
+    };
+
+    // moveKeyframe: update a marker's t (snapped to the frame grid), keep the
+    // list sorted, re-render, and return the keyframe's NEW index.
+    inst.moveKeyframe = (index, newT) => {
+      if (index < 0 || index >= inst.keyframes.length) return -1;
+      const kf = inst.keyframes[index];
+      kf.t = clampTime(snapTimeToFrame(newT, inst.fps), inst.durationSec);
+      inst.keyframes.sort((a, b) => a.t - b.t);
+      inst.renderMarkers();
+      return inst.keyframes.indexOf(kf);
+    };
+
+    // markers(): computed positions for callers/tests.
+    inst.markers = () => inst.keyframes.map((kf, i) => ({
+      index: i, t: kf.t, value: kf.value, left: kf.t * inst.pxPerSec,
+    }));
+
+    inst.renderMarkers();
+    container.appendChild(root);
+
+    state.keyframeEditor = inst;
+    return inst;
+  }
+
+  // Debug/test hook (mirrors window.__lumeriFrameRuler): build() constructs the
+  // strip in a container; addKeyframe/moveKeyframe/markers drive the instance.
+  window.__lumeriKeyframeEditor = {
+    build: (container, opts) => buildKeyframeEditor(container, opts),
+    addKeyframe: (t, value) => (state.keyframeEditor ? state.keyframeEditor.addKeyframe(t, value) : null),
+    moveKeyframe: (index, newT) => (state.keyframeEditor ? state.keyframeEditor.moveKeyframe(index, newT) : null),
+    markers: () => (state.keyframeEditor ? state.keyframeEditor.markers() : null),
   };
 
   // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
