@@ -58,7 +58,9 @@ def test_agent_loop_preserves_gemini_tool_call_extra_content(tmp_path: Path) -> 
 
     asyncio.run(loop.run_turn("做个mg动画"))
 
-    assert client.calls == 2
+    # Original: 2 calls (tool call + text stop). With RC4 gate: one additional call
+    # after the text stop to verify completion, so 3 total.
+    assert client.calls == 3
     second_messages = client.seen_messages[1]
     assistant = next(
         msg for msg in second_messages

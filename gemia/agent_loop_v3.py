@@ -65,6 +65,9 @@ from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_v3.md"
 _ROLLING_USER_TURNS = 8
 
+# RC4: one-shot completion-check gate before ending on no-tool-calls
+COMPLETION_CHECK_ENABLED = True
+
 # Circuit breaker: there is no cap on the TOTAL number of tool steps in a turn
 # (a research + see→modify→rerun build loop legitimately needs many). Instead,
 # we trip only when the SAME (tool, error-class) repeats this many times in a
@@ -426,6 +429,9 @@ class AgentLoopV3:
 
         self._emit({"kind": "turn_start"})
 
+        # RC4: per-turn one-shot completion check guard (not per-loop iteration).
+        completion_check_done = False
+
         while True:
             accum = _StreamAccumulator()
             messages = self.render_messages()
@@ -477,17 +483,37 @@ class AgentLoopV3:
                 ]
             self._messages.append(assistant_msg)
 
-            # ---- model called no tools → turn ends ------------------
+            # ---- model called no tools → RC4 completion gate --------
             if not accum.tool_calls:
-                final_ids = [
-                    r.asset_id
-                    for r in self.registry.list_records()
-                    if r.asset_id not in pre_asset_ids
-                ]
-                self._emit(
-                    {"kind": "turn_complete", "final_asset_ids": final_ids}
-                )
-                return
+                if COMPLETION_CHECK_ENABLED and not completion_check_done:
+                    # One-shot nudge before honest stop (RC4 host-side gate).
+                    # Inject a user message prompting the model to verify completion.
+                    pinned_summary = (
+                        f"原始请求：{self._pinned_intent}"
+                        if self._pinned_intent
+                        else "原始请求：（未提供）"
+                    )
+                    nudge_msg = (
+                        f"目标核对：{pinned_summary}。"
+                        "若已完全完成，简短确认做了什么然后停下。"
+                        "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
+                        "若确实被卡住需要用户输入，明确说明。"
+                    )
+                    self._messages.append({"role": "user", "content": nudge_msg})
+                    completion_check_done = True
+                    self._emit({"kind": "completion_check"})
+                    continue
+                else:
+                    # Already did one-shot check or gate is disabled → honest stop.
+                    final_ids = [
+                        r.asset_id
+                        for r in self.registry.list_records()
+                        if r.asset_id not in pre_asset_ids
+                    ]
+                    self._emit(
+                        {"kind": "turn_complete", "final_asset_ids": final_ids}
+                    )
+                    return
 
             # ---- dispatch each tool call sequentially --------------
             for tc in accum.tool_calls:

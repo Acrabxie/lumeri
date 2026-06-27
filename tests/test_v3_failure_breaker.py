@@ -119,7 +119,9 @@ def test_breaker_resets_streak_on_success(tmp_path: Path, monkeypatch) -> None:
     # 4 fails, 1 success (resets streak), 4 fails — never 5 in a row. The turn
     # runs to natural completion (call #10 with no tool calls). Without the
     # reset, the streak would hit 5 on the 6th flaky call and trip early.
-    assert client.calls == 10
+    # With RC4 completion gate, one extra model call happens after call #10
+    # when the model stops, so we expect 11 total.
+    assert client.calls == 11
     assert not [e for e in events if e.get("kind") == "turn_error"]
     assert [e for e in events if e.get("kind") == "turn_complete"]
 
@@ -226,7 +228,8 @@ def test_breaker_soft_resets_when_error_code_changes(tmp_path: Path, monkeypatch
 
     asyncio.run(loop.run_turn("keep adapting"))
 
-    assert client.calls == 10  # 9 tool turns + 1 closing text turn
+    # 9 tool turns + 1 closing text turn + 1 RC4 completion gate nudge = 11
+    assert client.calls == 11
     assert not [e for e in events if e.get("kind") == "turn_error"]
     assert [e for e in events if e.get("kind") == "turn_complete"]
     assert sum(1 for e in events if e.get("kind") == "tool_exec_error") == 9
