@@ -734,6 +734,10 @@
         }
       }
       renderSelectedClipKeyframes();
+
+      // Clip/layer inspector: lists the selected layer's transform/opacity/blend/
+      // effects with light edit controls. Lives just below the keyframe strip.
+      renderInspector();
     }
 
     metaEl.textContent = [
@@ -1152,6 +1156,221 @@
     clipKeyframeTracks: (clip, fps) => clipKeyframeTracks(clip, fps),
   };
 
+  // ── clip / layer inspector panel ────────────────────────────────────
+  // Self-contained, imperative DOM (like buildFrameRuler / buildKeyframeEditor):
+  // when a clip/layer is selected the panel lists its transform (x/y/scale/
+  // rotation), opacity, blend mode, and any extra effects with readable values,
+  // plus LIGHT controls — an opacity slider and a reset button — that emit the
+  // existing edit op path (postTimelineOp -> { op: "set_effects", … }), the same
+  // /timeline/op endpoint the model's verbs and direct-edit gestures use. No new
+  // backend endpoints are invented.
+  //
+  // Value model (all read off the layer's effects map, with sensible defaults):
+  //   transform : x=0, y=0, scale=1, rotation=0
+  //   opacity   : 1 (clamped to the backend's [0,1] domain on the slider)
+  //   blend     : layer.blend / layer.blend_mode / effects.blend, else "normal"
+  //   effects   : any remaining keys on effects beyond the named transform set
+  //
+  // Mirrors the frame-ruler/keyframe-editor debug hook so DevTools and node tests
+  // can assert the COMPUTED panel values without a browser:
+  //   window.__lumeriInspector = { build(container, layer), readControls() }
+
+  // Inspector transform keys that get their own labelled rows (everything else
+  // on the effects map shows up under the generic "effects" list).
+  const INSPECTOR_TRANSFORM_KEYS = ["x", "y", "scale", "rotation"];
+  // Default values so an un-keyframed/untouched layer still reads sensibly.
+  const INSPECTOR_DEFAULTS = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
+
+  function _num(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function clamp01(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return n < 0 ? 0 : n > 1 ? 1 : n;
+  }
+  // Trim trailing zeros for a compact-but-honest numeric readout (3 dp max).
+  function fmtNum(n) {
+    if (!Number.isFinite(n)) return "—";
+    const s = (Math.round(n * 1000) / 1000).toString();
+    return s;
+  }
+
+  // Pull the inspector's value model off a layer/clip object. Effects (x/y/scale/
+  // rotation/opacity/…) ride on layer.effects (see lumerai/patches.py _EFFECT_KEYS);
+  // we read them with defaults so the panel is always populated.
+  function inspectorValues(layer) {
+    const fx = (layer && typeof layer.effects === "object" && layer.effects) || {};
+    const transform = {
+      x: _num(fx.x, INSPECTOR_DEFAULTS.x),
+      y: _num(fx.y, INSPECTOR_DEFAULTS.y),
+      scale: _num(fx.scale, INSPECTOR_DEFAULTS.scale),
+      rotation: _num(fx.rotation, INSPECTOR_DEFAULTS.rotation),
+    };
+    const opacity = clamp01(_num(fx.opacity, INSPECTOR_DEFAULTS.opacity));
+    const blend = (layer && (layer.blend || layer.blend_mode)) || fx.blend || "normal";
+    // Extra effects: anything on the map that isn't a named transform/opacity/blend.
+    const known = new Set([...INSPECTOR_TRANSFORM_KEYS, "opacity", "blend"]);
+    const effects = {};
+    for (const [k, v] of Object.entries(fx)) {
+      if (!known.has(k)) effects[k] = v;
+    }
+    return { transform, opacity, blend: String(blend), effects };
+  }
+
+  function inspectorRow(label, value) {
+    const row = el("div", { class: "inspector-row" });
+    row.appendChild(el("span", { class: "inspector-key", text: label }));
+    row.appendChild(el("span", { class: "inspector-val", text: value }));
+    return row;
+  }
+
+  function buildInspector(container, layer) {
+    if (!container) return null;
+    const vals = inspectorValues(layer);
+
+    const root = el("div", { class: "inspector" });
+    if (layer && layer.id != null) root.setAttribute("data-clip-id", String(layer.id));
+
+    // Header: layer name / media kind.
+    const name = (layer && (layer.name || layer.id)) || "—";
+    const kind = (layer && (layer.media_kind || layer.kind)) || "";
+    const head = el("div", { class: "inspector-head" });
+    head.appendChild(el("span", { class: "inspector-title", text: String(name) }));
+    if (kind) head.appendChild(el("span", { class: "inspector-kind", text: String(kind) }));
+    root.appendChild(head);
+
+    // ── Transform section (read-only readouts) ──
+    const tform = el("div", { class: "inspector-section", "data-section": "transform" });
+    tform.appendChild(el("div", { class: "inspector-section-title", text: "Transform" }));
+    const tGrid = el("div", { class: "inspector-grid" });
+    tGrid.appendChild(inspectorRow("X", fmtNum(vals.transform.x)));
+    tGrid.appendChild(inspectorRow("Y", fmtNum(vals.transform.y)));
+    tGrid.appendChild(inspectorRow("Scale", fmtNum(vals.transform.scale)));
+    tGrid.appendChild(inspectorRow("Rotation", `${fmtNum(vals.transform.rotation)}°`));
+    tform.appendChild(tGrid);
+    root.appendChild(tform);
+
+    // ── Compositing section: opacity (with slider) + blend ──
+    const comp = el("div", { class: "inspector-section", "data-section": "compositing" });
+    comp.appendChild(el("div", { class: "inspector-section-title", text: "Compositing" }));
+    const cGrid = el("div", { class: "inspector-grid" });
+    cGrid.appendChild(inspectorRow("Blend", vals.blend));
+    comp.appendChild(cGrid);
+
+    // Opacity control: a LIGHT slider [0,1] mirroring backend validation, with a
+    // live numeric output; releasing it emits the existing set_effects op.
+    const opWrap = el("div", { class: "inspector-control" });
+    opWrap.appendChild(el("label", { class: "inspector-control-label", text: "Opacity" }));
+    const slider = el("input", {
+      class: "inspector-opacity",
+      type: "range",
+      min: "0",
+      max: "1",
+      step: "0.01",
+    });
+    slider.value = String(vals.opacity);
+    const out = el("output", { class: "inspector-opacity-val", text: fmtNum(vals.opacity) });
+    slider.addEventListener("input", () => { out.textContent = fmtNum(clamp01(slider.value)); });
+    // Commit on change (pointer release / keyboard commit) through the real op path.
+    slider.addEventListener("change", () => {
+      const clipId = layer && layer.id;
+      if (!clipId) return;
+      postTimelineOp({ op: "set_effects", clip_id: clipId, effects: { opacity: clamp01(slider.value) } });
+    });
+    opWrap.appendChild(slider);
+    opWrap.appendChild(out);
+    comp.appendChild(opWrap);
+    root.appendChild(comp);
+
+    // ── Effects section: any remaining effects keys, readable values ──
+    const fxKeys = Object.keys(vals.effects);
+    const fxSection = el("div", { class: "inspector-section", "data-section": "effects" });
+    fxSection.appendChild(el("div", { class: "inspector-section-title", text: "Effects" }));
+    const fxGrid = el("div", { class: "inspector-grid" });
+    if (fxKeys.length === 0) {
+      fxGrid.appendChild(el("div", { class: "inspector-empty", text: "none" }));
+    } else {
+      for (const k of fxKeys) {
+        const v = vals.effects[k];
+        const txt = typeof v === "number" ? fmtNum(v) : String(v);
+        fxGrid.appendChild(inspectorRow(k, txt));
+      }
+    }
+    fxSection.appendChild(fxGrid);
+    root.appendChild(fxSection);
+
+    // ── Actions: reset opacity to 1 through the same op path ──
+    const actions = el("div", { class: "inspector-actions" });
+    const resetBtn = el("button", { class: "inspector-btn", "data-action": "reset", text: "Reset opacity" });
+    resetBtn.addEventListener("click", () => {
+      slider.value = "1";
+      out.textContent = fmtNum(1);
+      const clipId = layer && layer.id;
+      if (!clipId) return;
+      postTimelineOp({ op: "set_effects", clip_id: clipId, effects: { opacity: 1 } });
+    });
+    actions.appendChild(resetBtn);
+    root.appendChild(actions);
+
+    // Instance API + computed-value accessors for the debug/test hook.
+    const inst = {
+      root,
+      container,
+      layer,
+      values: vals,
+      slider,
+      output: out,
+      resetBtn,
+      // readControls(): the panel's CURRENT (possibly edited) computed values.
+      readControls: () => ({
+        opacity: clamp01(slider.value),
+        transform: { ...vals.transform },
+        blend: vals.blend,
+        effects: { ...vals.effects },
+      }),
+    };
+
+    container.appendChild(root);
+    state.inspector = inst;
+    return inst;
+  }
+
+  // Render the inspector into the panel host for the currently selected clip. With
+  // no selection the host is emptied (panel layout stays stable). Lazily creates
+  // the #project-timeline-inspector host below the keyframe strip.
+  function renderInspector() {
+    let host = document.getElementById("project-timeline-inspector");
+    if (!host) {
+      const kfHost = document.getElementById("project-timeline-keyframes");
+      const panel = document.getElementById("project-timeline-panel");
+      const anchor = kfHost || panel;
+      if (!anchor) return;
+      host = document.createElement("div");
+      host.id = "project-timeline-inspector";
+      host.className = "project-timeline-inspector";
+      if (kfHost && kfHost.parentNode) {
+        kfHost.parentNode.insertBefore(host, kfHost.nextSibling);
+      } else if (panel) {
+        panel.appendChild(host);
+      }
+    }
+    host.innerHTML = "";
+    const clip = selectedClip();
+    if (!clip) { state.inspector = null; return; }
+    buildInspector(host, clip);
+  }
+
+  // Debug/test hook (mirrors __lumeriFrameRuler / __lumeriKeyframeEditor):
+  // build() constructs the inspector in a container for a given layer/clip;
+  // readControls() returns the active panel's computed (post-edit) values.
+  window.__lumeriInspector = {
+    build: (container, layer) => buildInspector(container, layer),
+    readControls: () => (state.inspector ? state.inspector.readControls() : null),
+    values: () => (state.inspector ? state.inspector.values : null),
+  };
+
   // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
   // Every gesture compiles to ONE patches.py op applied through the SAME
   // ProjectStore path as the model's verbs — no parallel edit state.
@@ -1194,6 +1413,7 @@
     });
     updateEditHint();
     renderSelectedClipKeyframes();
+    renderInspector();
   }
 
   // Rebuild the keyframe-track strip from the currently selected clip's derived
