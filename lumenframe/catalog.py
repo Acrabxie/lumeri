@@ -12,6 +12,7 @@ and its documentation can never silently drift apart.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from lumenframe.registry import list_ops, op_source
@@ -33,79 +34,151 @@ _GROUP_LABELS: dict[str, str] = {
 CORE_OPS_CATALOG: list[dict[str, Any]] = [
     # ── layer management ──
     {"op": "add_layer", "group": "layer", "args": ["type*", "id", "parent_id", "index", "at_time", "lane", "...fields"],
-     "summary": "Create a new layer (video/image/text/shape/audio/adjustment/...) under a parent (default root)."},
+     "summary": "Create a new layer (video/image/text/shape/audio/adjustment/...) under a parent (default root).",
+     "example": {"op": "add_layer", "type": "text", "id": "title", "at_time": 0.0, "text": "Hello"},
+     "errors": ["E_NOT_FOUND when parent_id does not exist", "E_CONTAINER when parent_id cannot hold children"]},
     {"op": "delete_layer", "group": "layer", "args": ["layer_id*|layer_ids*"],
-     "summary": "Remove one or more layers; mattes pointing at them are cleared."},
+     "summary": "Remove one or more layers; mattes pointing at them are cleared.",
+     "example": {"op": "delete_layer", "layer_id": "clip1"},
+     "errors": ["E_ARG when neither layer_id nor layer_ids is given", "E_NOT_FOUND when the layer id does not exist", "E_ROOT when targeting the root composition"]},
     {"op": "duplicate_layer", "group": "layer", "args": ["layer_id*", "name", "offset_time"],
-     "summary": "Deep-copy a layer (fresh ids) right after the original."},
+     "summary": "Deep-copy a layer (fresh ids) right after the original.",
+     "example": {"op": "duplicate_layer", "layer_id": "clip1", "offset_time": 2.0},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "select", "group": "layer", "args": ["layer_ids*", "mode(replace|add|toggle|clear)"],
-     "summary": "Change the editor selection."},
+     "summary": "Change the editor selection.",
+     "example": {"op": "select", "layer_ids": ["clip1"], "mode": "replace"},
+     "errors": ["E_NOT_FOUND when a selected layer id does not exist", "E_ARG when mode is unknown"]},
     {"op": "move_layer", "group": "layer", "args": ["layer_id*", "parent_id", "index", "lane", "start", "delta_start"],
-     "summary": "Universal move: reparent, reorder (z), retime and relane in one op."},
+     "summary": "Universal move: reparent, reorder (z), retime and relane in one op.",
+     "example": {"op": "move_layer", "layer_id": "clip1", "parent_id": "comp1", "index": 0},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when a referenced layer does not exist", "E_ROOT when moving the root composition", "E_CONTAINER when the new parent cannot hold children", "E_CYCLE when moving a layer into itself or a descendant"]},
     {"op": "reorder_layer", "group": "layer", "args": ["layer_id*", "to(top|bottom|forward|backward)|index|delta"],
-     "summary": "Pure z-order change within the current parent."},
+     "summary": "Pure z-order change within the current parent.",
+     "example": {"op": "reorder_layer", "layer_id": "clip1", "to": "top"},
+     "errors": ["E_ARG when none of to / index / delta is given", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "group_layers", "group": "layer", "args": ["layer_ids*", "name", "into_id"],
-     "summary": "Wrap sibling layers into a new composition (precompose)."},
+     "summary": "Wrap sibling layers into a new composition (precompose).",
+     "example": {"op": "group_layers", "layer_ids": ["clip1", "clip2"], "name": "Group"},
+     "errors": ["E_ARG when layer_ids is empty", "E_NOT_FOUND when a layer id does not exist", "E_GROUP_PARENT when the layers do not share one parent"]},
     {"op": "ungroup_layer", "group": "layer", "args": ["layer_id*"],
-     "summary": "Dissolve a composition, lifting its children to the parent."},
+     "summary": "Dissolve a composition, lifting its children to the parent.",
+     "example": {"op": "ungroup_layer", "layer_id": "comp1"},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist", "E_ROOT when targeting the root composition", "E_TYPE when the layer is not a composition"]},
     {"op": "merge_layers", "group": "layer", "args": ["layer_ids*", "name"],
-     "summary": "Flatten layers into one composition marked for raster baking."},
-    {"op": "rename_layer", "group": "layer", "args": ["layer_id*", "name*"], "summary": "Rename a layer."},
-    {"op": "set_visibility", "group": "layer", "args": ["layer_id*", "visible*"], "summary": "Show / hide a layer."},
-    {"op": "set_lock", "group": "layer", "args": ["layer_id*", "locked*"], "summary": "Lock / unlock a layer."},
+     "summary": "Flatten layers into one composition marked for raster baking.",
+     "example": {"op": "merge_layers", "layer_ids": ["clip1", "clip2"], "name": "Merged"},
+     "errors": ["E_ARG when layer_ids is empty", "E_NOT_FOUND when a layer id does not exist", "E_GROUP_PARENT when the layers do not share one parent"]},
+    {"op": "rename_layer", "group": "layer", "args": ["layer_id*", "name*"], "summary": "Rename a layer.",
+     "example": {"op": "rename_layer", "layer_id": "clip1", "name": "Intro"},
+     "errors": ["E_ARG when layer_id or name is missing", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "set_visibility", "group": "layer", "args": ["layer_id*", "visible*"], "summary": "Show / hide a layer.",
+     "example": {"op": "set_visibility", "layer_id": "clip1", "visible": False},
+     "errors": ["E_ARG when layer_id or visible is missing", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "set_lock", "group": "layer", "args": ["layer_id*", "locked*"], "summary": "Lock / unlock a layer.",
+     "example": {"op": "set_lock", "layer_id": "clip1", "locked": True},
+     "errors": ["E_ARG when layer_id or locked is missing", "E_NOT_FOUND when the layer id does not exist"]},
     # ── time ──
     {"op": "set_time", "group": "time", "args": ["layer_id*", "start", "duration"],
-     "summary": "Set a layer's start and/or duration on its parent timeline."},
+     "summary": "Set a layer's start and/or duration on its parent timeline.",
+     "example": {"op": "set_time", "layer_id": "clip1", "start": 1.0, "duration": 4.0},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist", "E_RANGE when duration is negative"]},
     {"op": "trim", "group": "time", "args": ["layer_id*", "edge(in|out)*", "to|delta"],
-     "summary": "Trim one edge; source in/out follows so media stays in sync."},
+     "summary": "Trim one edge; source in/out follows so media stays in sync.",
+     "example": {"op": "trim", "layer_id": "clip1", "edge": "out", "to": 5.0},
+     "errors": ["E_ARG when layer_id is missing or edge is not in/out", "E_NOT_FOUND when the layer id does not exist", "E_RANGE when the trim would collapse the layer"]},
     {"op": "split", "group": "time", "args": ["layer_id*", "at_time*"],
-     "summary": "Cut a layer in two at a time, splitting the source range."},
+     "summary": "Cut a layer in two at a time, splitting the source range.",
+     "example": {"op": "split", "layer_id": "clip1", "at_time": 2.5},
+     "errors": ["E_ARG when layer_id or at_time is missing", "E_NOT_FOUND when the layer id does not exist", "E_RANGE when at_time is not inside the layer"]},
     {"op": "set_speed", "group": "time", "args": ["layer_id*", "speed*"],
-     "summary": "Retime a layer; duration recomputes from the source range."},
+     "summary": "Retime a layer; duration recomputes from the source range.",
+     "example": {"op": "set_speed", "layer_id": "clip1", "speed": 2.0},
+     "errors": ["E_ARG when layer_id or speed is missing", "E_NOT_FOUND when the layer id does not exist", "E_SPEED when speed is not greater than 0"]},
     # ── transform & compositing ──
     {"op": "set_transform", "group": "transform", "args": ["layer_id*", "x", "y", "scale|scale_x|scale_y", "rotation", "anchor_x", "anchor_y"],
-     "summary": "Move / scale / rotate a layer (anchor-relative, canvas-centre origin)."},
-    {"op": "set_opacity", "group": "transform", "args": ["layer_id*", "opacity*(0..1)"], "summary": "Set layer opacity."},
-    {"op": "set_blend_mode", "group": "transform", "args": ["layer_id*", "blend_mode*"], "summary": "Set the blend mode."},
+     "summary": "Move / scale / rotate a layer (anchor-relative, canvas-centre origin).",
+     "example": {"op": "set_transform", "layer_id": "clip1", "x": 100, "y": -50, "scale": 1.5, "rotation": 15},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "set_opacity", "group": "transform", "args": ["layer_id*", "opacity*(0..1)"], "summary": "Set layer opacity.",
+     "example": {"op": "set_opacity", "layer_id": "clip1", "opacity": 0.5},
+     "errors": ["E_ARG when layer_id or opacity is missing", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "set_blend_mode", "group": "transform", "args": ["layer_id*", "blend_mode*"], "summary": "Set the blend mode.",
+     "example": {"op": "set_blend_mode", "layer_id": "clip1", "blend_mode": "screen"},
+     "errors": ["E_ARG when layer_id or blend_mode is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "flip_layer", "group": "transform", "args": ["layer_id*", "direction(horizontal|vertical|both)"],
-     "summary": "Upsert a mirror/flip effect on the layer's effect chain."},
+     "summary": "Upsert a mirror/flip effect on the layer's effect chain.",
+     "example": {"op": "flip_layer", "layer_id": "clip1", "direction": "horizontal"},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     # ── inter-layer ──
     {"op": "set_mask", "group": "interlayer", "args": ["layer_id*", "mask{kind(shape|alpha_matte|luma_matte), source_layer_id, shape{type(rectangle|ellipse|polygon), x0,y0,x1,y1|rect|cx,cy,rx,ry|points[[x,y]], radius}, invert, feather}|null"],
-     "summary": "Attach a shape mask (rectangle/ellipse/polygon in normalized [0,1] canvas coords, rounded-rect radius + feather), an alpha/luma track matte, or clear it (null)."},
+     "summary": "Attach a shape mask (rectangle/ellipse/polygon in normalized [0,1] canvas coords, rounded-rect radius + feather), an alpha/luma track matte, or clear it (null).",
+     "example": {"op": "set_mask", "layer_id": "clip1", "mask": {"kind": "shape", "shape": {"type": "rectangle", "x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.9}}},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist", "E_MASK when the mask kind is unknown or a matte source is missing/self-referential"]},
     {"op": "clip_to_below", "group": "interlayer", "args": ["layer_id*", "enabled"],
-     "summary": "Clip a layer to the layer beneath it (clipping mask)."},
+     "summary": "Clip a layer to the layer beneath it (clipping mask).",
+     "example": {"op": "clip_to_below", "layer_id": "clip1", "enabled": True},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "add_adjustment_layer", "group": "interlayer", "args": ["parent_id", "index", "name", "effects[]"],
-     "summary": "Insert an adjustment layer whose effects apply to the layers below."},
+     "summary": "Insert an adjustment layer whose effects apply to the layers below.",
+     "example": {"op": "add_adjustment_layer", "name": "Grade", "effects": [{"type": "color_grade", "params": {"contrast": 1.2}}]},
+     "errors": ["E_NOT_FOUND when parent_id does not exist", "E_CONTAINER when the parent cannot hold children"]},
     # ── effects & colour ──
     {"op": "add_effect", "group": "effects", "args": ["layer_id*", "effect{type*, params, id}", "index"],
-     "summary": "Append an effect to a layer's effect chain."},
-    {"op": "remove_effect", "group": "effects", "args": ["layer_id*", "effect_id*"], "summary": "Remove an effect by id."},
+     "summary": "Append an effect to a layer's effect chain.",
+     "example": {"op": "add_effect", "layer_id": "clip1", "effect": {"type": "gaussian_blur", "params": {"radius": 8}}},
+     "errors": ["E_ARG when layer_id is missing or the effect has no type", "E_NOT_FOUND when the layer id does not exist"]},
+    {"op": "remove_effect", "group": "effects", "args": ["layer_id*", "effect_id*"], "summary": "Remove an effect by id.",
+     "example": {"op": "remove_effect", "layer_id": "clip1", "effect_id": "fx1"},
+     "errors": ["E_ARG when layer_id or effect_id is missing", "E_NOT_FOUND when the layer or effect id does not exist"]},
     {"op": "set_effect_params", "group": "effects", "args": ["layer_id*", "effect_id*", "params*", "merge"],
-     "summary": "Update an effect's parameters (merge by default)."},
+     "summary": "Update an effect's parameters (merge by default).",
+     "example": {"op": "set_effect_params", "layer_id": "clip1", "effect_id": "fx1", "params": {"radius": 12}},
+     "errors": ["E_ARG when layer_id/effect_id/params is missing or params is not an object", "E_NOT_FOUND when the layer or effect id does not exist"]},
     {"op": "color_grade", "group": "effects", "args": ["layer_id*", "brightness", "contrast", "saturation", "exposure", "temperature", "tint", "highlights", "shadows", "gamma", "lift", "gain"],
-     "summary": "Upsert a single colour-grade effect (DaVinci-style controls)."},
+     "summary": "Upsert a single colour-grade effect (DaVinci-style controls).",
+     "example": {"op": "color_grade", "layer_id": "clip1", "contrast": 1.2, "saturation": 1.1},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "add_transition", "group": "effects", "args": ["layer_id*", "kind*", "duration", "at(in|out|both)"],
-     "summary": "Attach an in/out transition to a layer."},
+     "summary": "Attach an in/out transition to a layer.",
+     "example": {"op": "add_transition", "layer_id": "clip1", "kind": "fade", "duration": 0.5, "at": "in"},
+     "errors": ["E_ARG when layer_id or kind is missing or at is invalid", "E_NOT_FOUND when the layer id does not exist"]},
     # ── text styling ──
     {"op": "set_text", "group": "text", "args": ["layer_id*", "text", "font", "font_size", "color", "align", "stroke", "shadow", "background", "line_spacing"],
-     "summary": "Set text properties (only provided keys are updated); works with text layers."},
+     "summary": "Set text properties (only provided keys are updated); works with text layers.",
+     "example": {"op": "set_text", "layer_id": "title", "text": "Hello", "font_size": 64, "color": "#ffffff"},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     # ── audio properties ──
     {"op": "set_volume", "group": "audio", "args": ["layer_id*", "volume*"],
-     "summary": "Set audio layer volume (linear, 0..1+, default 1.0)."},
+     "summary": "Set audio layer volume (linear, 0..1+, default 1.0).",
+     "example": {"op": "set_volume", "layer_id": "music", "volume": 0.8},
+     "errors": ["E_ARG when layer_id or volume is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "set_audio_fade", "group": "audio", "args": ["layer_id*", "fade_in", "fade_out"],
-     "summary": "Set fade-in and/or fade-out durations (seconds) on an audio layer."},
+     "summary": "Set fade-in and/or fade-out durations (seconds) on an audio layer.",
+     "example": {"op": "set_audio_fade", "layer_id": "music", "fade_in": 0.5, "fade_out": 1.0},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "mute_layer", "group": "audio", "args": ["layer_id*", "muted(default true)"],
-     "summary": "Mute or unmute a layer."},
+     "summary": "Mute or unmute a layer.",
+     "example": {"op": "mute_layer", "layer_id": "music", "muted": True},
+     "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
     # ── animation presets ──
     {"op": "animate_layer", "group": "animation", "args": ["layer_id*", "preset*", "duration", "easing"],
-     "summary": "Generate keyframes using a preset: fade_in, fade_out, fly_in/out_*, zoom_in/out, ken_burns."},
+     "summary": "Generate keyframes using a preset: fade_in, fade_out, fly_in/out_*, zoom_in/out, ken_burns.",
+     "example": {"op": "animate_layer", "layer_id": "clip1", "preset": "fade_in", "duration": 0.5},
+     "errors": ["E_ARG when layer_id or preset is missing, or the preset is unknown", "E_NOT_FOUND when the layer id does not exist"]},
     # ── keyframes ──
     {"op": "set_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*", "value*", "interp"],
-     "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity)."},
+     "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity).",
+     "example": {"op": "set_keyframe", "layer_id": "clip1", "property": "opacity", "t": 0.0, "value": 0.0, "interp": "linear"},
+     "errors": ["E_ARG when layer_id/property/t is missing or interp is unknown", "E_NOT_FOUND when the layer id does not exist"]},
     {"op": "remove_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*"],
-     "summary": "Remove a keyframe at a time."},
+     "summary": "Remove a keyframe at a time.",
+     "example": {"op": "remove_keyframe", "layer_id": "clip1", "property": "opacity", "t": 0.0},
+     "errors": ["E_ARG when layer_id/property/t is missing", "E_NOT_FOUND when the layer, track, or keyframe does not exist"]},
     {"op": "set_expression", "group": "animation", "args": ["layer_id*", "property*", "expression*"],
-     "summary": "Bind a time-driven expression to a layer property (e.g., opacity, rotation)."},
+     "summary": "Bind a time-driven expression to a layer property (e.g., opacity, rotation).",
+     "example": {"op": "set_expression", "layer_id": "clip1", "property": "opacity", "expression": "0.5 + 0.2 * sin(time * 8)"},
+     "errors": ["E_ARG when layer_id/property is missing or expression is empty", "E_NOT_FOUND when the layer id does not exist", "E_UNSAFE when the expression is invalid or not allowed"]},
 ]
 
 _BY_OP: dict[str, dict[str, Any]] = {entry["op"]: entry for entry in CORE_OPS_CATALOG}
@@ -126,7 +199,13 @@ def op_catalog() -> list[dict[str, Any]]:
 
 
 def describe_ops() -> str:
-    """Compact, grouped, human-readable vocabulary block for prompt injection."""
+    """Compact, grouped, human-readable vocabulary block for prompt injection.
+
+    Each op line is followed (when the catalogue provides them) by a copy-paste
+    ``Example:`` op dict and an ``Errors:`` list of the codes that op can raise,
+    so the agent sees a concrete, structurally-valid call and its main failure
+    modes inline. A trailing :func:`error_catalog` block decodes every code.
+    """
     entries = op_catalog()
     by_group: dict[str, list[dict[str, Any]]] = {}
     for entry in entries:
@@ -141,7 +220,52 @@ def describe_ops() -> str:
         for entry in sorted(items, key=lambda e: e["op"]):
             args = ", ".join(entry.get("args", []))
             lines.append(f"  {entry['op']}({args}) — {entry.get('summary', '')}")
+            example = entry.get("example")
+            if example:
+                lines.append(f"    Example: {json.dumps(example, ensure_ascii=False)}")
+            errors = entry.get("errors")
+            if errors:
+                lines.append(f"    Errors: {'; '.join(errors)}")
+    # Decode every error code once at the end so the agent can self-correct.
+    lines.append("\n[Error codes]")
+    for code, meaning in error_catalog().items():
+        lines.append(f"  {code}: {meaning}")
     return "\n".join(lines)
+
+
+#: Stable LayerPatchError codes -> short, agent-facing meaning. Kept in lock-step
+#: with the per-op handler hints in :mod:`lumenframe.ops`; a test asserts the two
+#: cover the same codes so the catalogue can never silently drift from the ops.
+_ERROR_CATALOG: dict[str, str] = {
+    "E_PATCH": "patch envelope is wrong; send {\"version\": 1, \"ops\": [...]}",
+    "E_OP": "each op must be a JSON object with an 'op' key",
+    "E_OP_UNKNOWN": "unknown op name; list available ops before patching",
+    "E_ARG": "a required argument is missing or null for this op",
+    "E_NOT_FOUND": "the layer/effect/keyframe id does not exist; inspect current state first",
+    "E_RANGE": "value out of allowed range (e.g. negative duration, split outside the layer)",
+    "E_SPEED": "speed must be greater than 0",
+    "E_ROOT": "this op cannot target the root composition",
+    "E_CONTAINER": "that parent layer cannot hold children",
+    "E_CYCLE": "cannot move a layer into itself or one of its descendants",
+    "E_GROUP_PARENT": "all selected layers must share the same parent",
+    "E_TYPE": "the layer type is unknown or not valid for this op",
+    "E_MASK": "mask/matte source is missing, self-referential, or unknown",
+    "E_UNSAFE": "the expression is invalid or not allowed",
+    "E_DOC": "the document is missing its root composition",
+    "E_ID": "every layer needs an id",
+    "E_DUP_ID": "duplicate layer id in the resulting document",
+}
+
+
+def error_catalog() -> dict[str, str]:
+    """Map every stable ``LayerPatchError`` code to a short, agent-facing meaning.
+
+    These are the codes surfaced by :func:`lumenframe.ops.validate_patch` /
+    :func:`lumenframe.ops.apply_layer_patch`; pairing them with the per-op
+    ``errors`` lists lets the agent decode a failure and self-correct without a
+    round-trip.
+    """
+    return dict(_ERROR_CATALOG)
 
 
 #: Documentation for each built-in effect type.
