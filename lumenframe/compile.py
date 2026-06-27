@@ -159,6 +159,18 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
 
         start_frame = int(round(model._as_float(layer.get("start")) * ctx.fps))
         end_frame = int(round((model._as_float(layer.get("start")) + model._as_float(layer.get("duration"))) * ctx.fps))
+
+        # Synthesise in/out transitions (stored by add_transition under
+        # props.transitions) as a transient per-frame wrapper — the doc is never
+        # mutated. The wrapper runs after the effect chain so a transition
+        # modulates the final layer content.
+        props = layer.get("props")
+        if isinstance(props, dict):
+            transitions = props.get("transitions")
+            if isinstance(transitions, dict) and transitions:
+                span = max(1, max(start_frame + 1, end_frame) - max(0, start_frame))
+                content_fn = _wrap_with_transitions(content_fn, transitions, span, ctx.fps)
+
         transform = {**model.DEFAULT_TRANSFORM, **(layer.get("transform") or {})}
         scale = float(transform.get("scale_x", 1.0))
         rotation = float(transform.get("rotation", 0.0))
@@ -629,6 +641,160 @@ def _wrap_with_effects(base_fn: ContentFn, effects: list[dict[str, Any]], ctx: R
     return wrapped_fn
 
 
+# ── transitions (synthesised at compile, never mutate the doc) ─────────────
+#
+# ``add_transition`` records ``props.transitions[edge] = {kind, duration}`` on a
+# layer (edge is ``"in"`` / ``"out"``). Nothing in the doc tells the renderer how
+# to draw them, so we synthesise a *transient* per-frame effect here: the layer's
+# ``content_fn`` is wrapped so that, over the first ``duration`` seconds of the
+# layer (the in edge) and the last ``duration`` seconds (the out edge), the
+# transition modulates the canvas-sized content. ``content_fn`` is handed a
+# layer-local frame index (absolute minus ``start_frame``), which is exactly the
+# progress signal we need — so the wrapper is a pure function of that index and
+# the doc is never touched.
+
+#: Transition kinds the renderer can synthesise (used by the catalogue docs).
+TRANSITION_KINDS: tuple[str, ...] = (
+    "fade",
+    "dissolve",
+    "wipe_l",
+    "wipe_r",
+    "wipe_u",
+    "wipe_d",
+    "slide",
+)
+
+
+def _edge_progress(local_frame: int, in_frames: int, out_frames: int, span_frames: int) -> tuple[str, float]:
+    """Return ``(edge, t)`` for a layer-local frame.
+
+    ``t`` ramps ``0 -> 1`` across the ``in`` edge and ``1 -> 0`` across the
+    ``out`` edge; outside both edges ``t == 1.0`` (fully shown). ``edge`` is
+    ``"in"`` / ``"out"`` / ``""`` so spatial kinds know which direction to grow.
+    The ramp uses ``local_frame / edge_frames`` so frame 0 is fully hidden
+    (``t == 0``) and the last edge frame reaches full (``t == 1``).
+    """
+    span = max(1, int(span_frames))
+    last = span - 1
+    f = max(0, min(int(local_frame), last))
+
+    # In edge takes priority near the start; out edge near the end.
+    if in_frames > 0 and f < in_frames:
+        denom = float(min(in_frames, last)) or 1.0
+        return "in", max(0.0, min(1.0, f / denom))
+    if out_frames > 0 and f > last - out_frames:
+        # Frames remaining until the layer ends (0 on the final frame).
+        remaining = last - f
+        denom = float(min(out_frames, last)) or 1.0
+        return "out", max(0.0, min(1.0, remaining / denom))
+    return "", 1.0
+
+
+def _apply_transition(frame: np.ndarray, kind: str, edge: str, t: float) -> np.ndarray:
+    """Modulate a canvas-sized RGBA ``frame`` by transition ``kind`` at progress ``t``.
+
+    ``t`` is the *reveal* fraction (1.0 = fully shown). ``edge`` is ``"in"`` /
+    ``"out"`` and selects the growth direction for spatial kinds. fade / dissolve
+    scale alpha; wipe_* reveal a growing band via a hard column/row mask; slide
+    translates the content in from (in) / out to (out) the edge direction.
+    """
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+    t = max(0.0, min(1.0, float(t)))
+    kind = str(kind).lower()
+
+    if kind in ("fade", "dissolve"):
+        out = frame.copy()
+        out[..., 3:4] = out[..., 3:4] * t
+        return out
+
+    if kind in ("wipe_l", "wipe_r", "wipe_u", "wipe_d"):
+        h, w = frame.shape[:2]
+        out = frame.copy()
+        if kind in ("wipe_l", "wipe_r"):
+            reveal = int(round(t * w))
+            mask = np.zeros((w,), dtype=np.float32)
+            if reveal > 0:
+                # wipe_l reveals from the left edge; wipe_r from the right.
+                if kind == "wipe_l":
+                    mask[:reveal] = 1.0
+                else:
+                    mask[w - reveal:] = 1.0
+            out[..., 3] = out[..., 3] * mask[np.newaxis, :]
+        else:
+            reveal = int(round(t * h))
+            mask = np.zeros((h,), dtype=np.float32)
+            if reveal > 0:
+                # wipe_u reveals from the top edge; wipe_d from the bottom.
+                if kind == "wipe_u":
+                    mask[:reveal] = 1.0
+                else:
+                    mask[h - reveal:] = 1.0
+            out[..., 3] = out[..., 3] * mask[:, np.newaxis]
+        return out
+
+    if kind == "slide":
+        # Slide in from the left edge (in) / out to the right edge (out): shift
+        # the content horizontally by (1 - t) of the width, zero-filling vacated
+        # pixels so alpha goes transparent there.
+        h, w = frame.shape[:2]
+        shift = int(round((1.0 - t) * w))
+        out = np.zeros_like(frame, dtype=np.float32)
+        if shift <= 0:
+            return frame.copy()
+        if shift >= w:
+            return out
+        out[:, shift:, :] = frame[:, : w - shift, :]
+        return out
+
+    # Unknown kind: fall back to a fade so the transition still has an effect.
+    out = frame.copy()
+    out[..., 3:4] = out[..., 3:4] * t
+    return out
+
+
+def _wrap_with_transitions(
+    base_fn: ContentFn,
+    transitions: dict[str, Any],
+    span_frames: int,
+    fps: float,
+) -> ContentFn:
+    """Wrap a content_fn so in/out transitions modulate it per layer-local frame.
+
+    ``transitions`` is ``props.transitions`` — ``{"in": {kind, duration}, ...}``.
+    ``span_frames`` is the layer's drawn length in frames; ``fps`` converts a
+    transition ``duration`` (seconds) to a frame count. The doc is not mutated.
+    """
+    in_spec = transitions.get("in") if isinstance(transitions.get("in"), dict) else None
+    out_spec = transitions.get("out") if isinstance(transitions.get("out"), dict) else None
+
+    def _frames(spec: dict[str, Any] | None) -> int:
+        if not spec:
+            return 0
+        dur = model._as_float(spec.get("duration"))
+        return max(0, int(round(dur * fps)))
+
+    in_frames = _frames(in_spec)
+    out_frames = _frames(out_spec)
+    if in_frames <= 0 and out_frames <= 0:
+        return base_fn
+
+    in_kind = str((in_spec or {}).get("kind") or "fade")
+    out_kind = str((out_spec or {}).get("kind") or "fade")
+
+    def wrapped_fn(local_frame: int) -> np.ndarray:
+        frame = base_fn(local_frame)
+        edge, t = _edge_progress(local_frame, in_frames, out_frames, span_frames)
+        if edge == "in":
+            return _apply_transition(frame, in_kind, "in", t)
+        if edge == "out":
+            return _apply_transition(frame, out_kind, "out", t)
+        return frame
+
+    return wrapped_fn
+
+
 # ── effect dispatch table ─────────────────────────────────────────────────
 #
 # Each built-in effect is a small adapter ``fn(frame, params, ctx) -> frame``
@@ -729,6 +895,20 @@ def _effect_chroma_key(frame: np.ndarray, params: dict[str, Any], ctx: ResolveCo
     return _apply_chroma_key(frame, key_color, threshold, softness)
 
 
+def _effect_curves(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    """DaVinci-style tone curves on r/g/b/rgb/luma; identity points are a no-op.
+
+    Delegates to the standalone :func:`lumenframe.effects.curves.apply_curves`
+    kernel (NumPy only, alpha-preserving). ``channel`` selects which channel(s)
+    the transfer applies to and ``points`` is the ``[[x, y], ...]`` control set.
+    """
+    from lumenframe.effects.curves import apply_curves
+
+    channel = str(params.get("channel", "rgb"))
+    points = params.get("points")
+    return apply_curves(frame, channel=channel, points=points)
+
+
 EffectFn = Callable[["np.ndarray", dict[str, Any], "ResolveContext"], "np.ndarray"]
 
 #: Built-in effect dispatch table: effect type -> adapter ``fn(frame, params, ctx)``.
@@ -750,6 +930,7 @@ EFFECTS: dict[str, EffectFn] = {
     "sharpen": _effect_sharpen,
     "hue_rotate": _effect_hue_rotate,
     "chroma_key": _effect_chroma_key,
+    "curves": _effect_curves,
 }
 
 
