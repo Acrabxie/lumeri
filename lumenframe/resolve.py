@@ -157,6 +157,45 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
     return video_content_fn
 
 
+def _draw_line_spaced(draw, xy, line, font, fill, letter_spacing, stroke_width=0, stroke_fill=None):
+    """Draw a line of text, inserting ``letter_spacing`` px between glyphs.
+
+    Mirrors ``ImageDraw.text`` when ``letter_spacing`` is 0 by delegating to a
+    single ``draw.text`` call, so non-tracked rendering is byte-identical. When
+    tracking is requested, glyphs are drawn one at a time and advanced by their
+    individual width plus ``letter_spacing``.
+    """
+    x, y = xy
+    for ch in line:
+        draw.text(
+            (x, y), ch, fill=fill, font=font,
+            stroke_width=stroke_width if stroke_width > 0 else 0,
+            stroke_fill=stroke_fill,
+        )
+        try:
+            adv = draw.textlength(ch, font=font)
+        except Exception:
+            adv = font.getbbox(ch)[2] if hasattr(font, "getbbox") else len(ch) * 8
+        x += adv + letter_spacing
+
+
+def _line_advance(font, line, letter_spacing):
+    """Pixel advance of a line including per-glyph ``letter_spacing``."""
+    from PIL import Image as _PILImage, ImageDraw as _ImageDraw
+
+    tmp = _ImageDraw.Draw(_PILImage.new("RGBA", (1, 1)))
+    total = 0.0
+    for ch in line:
+        try:
+            total += tmp.textlength(ch, font=font)
+        except Exception:
+            total += font.getbbox(ch)[2] if hasattr(font, "getbbox") else len(ch) * 8
+        total += letter_spacing
+    if line:
+        total -= letter_spacing  # no trailing gap after last glyph
+    return total
+
+
 def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
     """Resolve a text layer to a canvas-sized RGBA content_fn.
 
@@ -168,6 +207,9 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
     - Shadow (drop shadow with blur)
     - Background box
     - Line spacing
+    - Letter-spacing / tracking (CapCut "字间距")
+    - Vertical gradient fill (CapCut "渐变")
+    - Outer glow (CapCut "发光")
     """
     from PIL import Image as PILImage, ImageDraw, ImageFont, ImageFilter
     import numpy as np
@@ -216,6 +258,35 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
 
     line_spacing = float(props.get("line_spacing", 1.0))
 
+    # --- New CapCut text features (ADD-only; inactive when prop absent) ---
+
+    # Letter-spacing / tracking: extra px inserted between glyphs.
+    letter_spacing = float(props.get("letter_spacing", 0.0))
+    use_tracking = letter_spacing != 0.0
+
+    # Vertical gradient fill: {"from": "#RRGGBB", "to": "#RRGGBB"} top->bottom.
+    gradient_config = props.get("gradient")
+    gradient_from_rgba = None
+    gradient_to_rgba = None
+    if gradient_config and isinstance(gradient_config, dict):
+        g_from = gradient_config.get("from")
+        g_to = gradient_config.get("to")
+        if g_from is not None and g_to is not None:
+            gradient_from_rgba = _parse_color(g_from)
+            gradient_to_rgba = _parse_color(g_to)
+    use_gradient = gradient_from_rgba is not None and gradient_to_rgba is not None
+
+    # Outer glow: {"color": "#RRGGBB", "radius": px, "intensity": 0..N}.
+    glow_config = props.get("glow")
+    glow_radius = 0.0
+    glow_color_rgba = (1.0, 1.0, 1.0, 1.0)
+    glow_intensity = 1.0
+    if glow_config and isinstance(glow_config, dict):
+        glow_radius = float(glow_config.get("radius", 0))
+        glow_color_rgba = _parse_color(glow_config.get("color", "#FFFFFF"))
+        glow_intensity = float(glow_config.get("intensity", 1.0))
+    use_glow = glow_radius > 0
+
     # Load font.
     try:
         if font_path:
@@ -254,13 +325,23 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
         line_widths = [bbox[2] - bbox[0] for bbox in line_bboxes]
         line_heights = [bbox[3] - bbox[1] for bbox in line_bboxes]
 
+        # When tracking is active, the natural bbox width understates the line:
+        # widen each line to the tracked advance so glyphs and alignment fit.
+        if use_tracking:
+            line_widths = [
+                max(line_widths[i], int(round(_line_advance(font, line, letter_spacing))))
+                for i, line in enumerate(lines)
+            ]
+
         # Compute block dimensions.
         block_width = max(line_widths) if line_widths else font_size
         avg_line_height = sum(line_heights) / len(line_heights) if line_heights else font_size
         block_height = sum(line_heights) + (len(lines) - 1) * avg_line_height * (line_spacing - 1.0)
 
-        # Add padding for stroke and effects.
+        # Add padding for stroke and effects (glow needs room outside glyphs).
         padding = int(stroke_width) + 2
+        if use_glow:
+            padding += int(glow_radius) * 2 + 2
         block_width = int(block_width + 2 * padding)
         block_height = int(block_height + 2 * padding)
 
@@ -305,10 +386,16 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 shadow_x = x_pos + shadow_offset[0]
                 shadow_y = y_offset + shadow_offset[1]
 
-                shadow_draw.text(
-                    (shadow_x, shadow_y), line,
-                    fill=shadow_fill, font=font
-                )
+                if use_tracking:
+                    _draw_line_spaced(
+                        shadow_draw, (shadow_x, shadow_y), line, font,
+                        shadow_fill, letter_spacing,
+                    )
+                else:
+                    shadow_draw.text(
+                        (shadow_x, shadow_y), line,
+                        fill=shadow_fill, font=font
+                    )
 
             # Apply blur to shadow.
             if shadow_blur > 0:
@@ -318,6 +405,46 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
 
             # Composite shadow under background/text.
             result_canvas.paste(shadow_canvas, (0, 0), shadow_canvas)
+
+        # Step 2.5: Outer glow (drawn under the text, halo extends past glyphs).
+        if use_glow:
+            glow_canvas = PILImage.new(
+                "RGBA", (int(block_width), int(block_height)), (0, 0, 0, 0)
+            )
+            glow_draw = ImageDraw.Draw(glow_canvas)
+            glow_fill = tuple(
+                int(min(255, max(0, c * 255))) for c in glow_color_rgba[:3]
+            ) + (255,)
+
+            y_offset = float(padding)
+            for i, line in enumerate(lines):
+                if i > 0:
+                    y_offset += line_heights[i - 1] * line_spacing
+                if align == "left":
+                    x_pos = float(padding)
+                elif align == "right":
+                    x_pos = block_width - line_widths[i] - padding
+                else:
+                    x_pos = (block_width - line_widths[i]) / 2.0
+
+                if use_tracking:
+                    _draw_line_spaced(
+                        glow_draw, (x_pos, y_offset), line, font, glow_fill,
+                        letter_spacing,
+                    )
+                else:
+                    glow_draw.text((x_pos, y_offset), line, fill=glow_fill, font=font)
+
+            # Blur to spread the halo outward.
+            glow_canvas = glow_canvas.filter(
+                ImageFilter.GaussianBlur(radius=float(glow_radius))
+            )
+            # Boost alpha by intensity (blur dilutes it; CapCut glow is punchy).
+            if glow_intensity != 1.0:
+                ga = np.asarray(glow_canvas, dtype=np.float32)
+                ga[:, :, 3] = np.clip(ga[:, :, 3] * glow_intensity, 0, 255)
+                glow_canvas = PILImage.fromarray(ga.astype(np.uint8), "RGBA")
+            result_canvas.paste(glow_canvas, (0, 0), glow_canvas)
 
         # Step 3: Draw text with optional stroke.
         text_canvas = PILImage.new("RGBA", (int(block_width), int(block_height)), (0, 0, 0, 0))
@@ -346,11 +473,45 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
             else:  # center
                 x_pos = (block_width - line_widths[i]) / 2.0
 
-            text_draw.text(
-                (x_pos, y_offset), line,
-                fill=text_fill, font=font,
-                stroke_width=stroke_width if stroke_width > 0 else 0,
-                stroke_fill=stroke_fill
+            if use_tracking:
+                _draw_line_spaced(
+                    text_draw, (x_pos, y_offset), line, font, text_fill,
+                    letter_spacing,
+                    stroke_width=stroke_width if stroke_width > 0 else 0,
+                    stroke_fill=stroke_fill,
+                )
+            else:
+                text_draw.text(
+                    (x_pos, y_offset), line,
+                    fill=text_fill, font=font,
+                    stroke_width=stroke_width if stroke_width > 0 else 0,
+                    stroke_fill=stroke_fill
+                )
+
+        # Step 3.5: Apply a vertical gradient over the glyph fill (top -> bottom).
+        # The glyph alpha is preserved as a mask; only RGB is replaced by the
+        # gradient ramp, so antialiased edges and stroke alpha stay intact.
+        if use_gradient:
+            ta = np.asarray(text_canvas, dtype=np.float32) / 255.0
+            h_px = ta.shape[0]
+            ramp = np.linspace(0.0, 1.0, h_px, dtype=np.float32)[:, None]  # (H,1)
+            gf = np.array(gradient_from_rgba[:3], dtype=np.float32)  # top
+            gt = np.array(gradient_to_rgba[:3], dtype=np.float32)    # bottom
+            grad_rgb = gf[None, None, :] * (1.0 - ramp[:, :, None]) + \
+                gt[None, None, :] * ramp[:, :, None]  # (H,1,3)
+            grad_rgb = np.broadcast_to(grad_rgb, (h_px, ta.shape[1], 3))
+            alpha = ta[:, :, 3:4]
+            # Only recolor pixels belonging to the core glyph fill (not stroke):
+            # use the original glyph color as a selector so stroke keeps its hue.
+            fill_sel = np.all(
+                np.isclose(ta[:, :, :3], np.array(color_rgba[:3], np.float32),
+                           atol=2.0 / 255.0),
+                axis=2, keepdims=True,
+            ).astype(np.float32)
+            new_rgb = grad_rgb * fill_sel + ta[:, :, :3] * (1.0 - fill_sel)
+            out = np.concatenate([new_rgb, alpha], axis=2)
+            text_canvas = PILImage.fromarray(
+                (np.clip(out, 0, 1) * 255.0).astype(np.uint8), "RGBA"
             )
 
         # Step 4: Composite text on top of shadow/background.
