@@ -373,6 +373,7 @@ class Layer:
     rotation_deg: float = 0.0
     content_fn: Callable[[int], RGBAFrame] = lambda _frame_index: np.zeros((1, 1, 4), dtype=np.float32)
     mask_fn: Callable[[int], np.ndarray] | None = None
+    time_map_fn: Callable[[int], int] | None = None
     keyframes: dict[str, KeyframeTrack] = field(default_factory=dict)
     position: tuple[int, int] = (0, 0)
     expressions: dict[str, dict] = field(default_factory=dict)  # property_name -> {"expr": str, ...}
@@ -422,6 +423,7 @@ class Layer:
 
     def frame_content(self, frame_index: int) -> RGBAFrame:
         local_frame = frame_index - self.start_frame
+        local_frame = self.time_map_fn(local_frame) if self.time_map_fn is not None else local_frame
         frame = _to_rgba(self.content_fn(local_frame))
         scale = max(0.001, float(self.keyframes.get("scale").evaluate(float(frame_index)))) if "scale" in self.keyframes else float(self.scale)
         rotation_deg = float(self.keyframes.get("rotation_deg").evaluate(float(frame_index))) if "rotation_deg" in self.keyframes else float(self.rotation_deg)
