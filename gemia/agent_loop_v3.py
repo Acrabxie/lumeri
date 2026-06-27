@@ -346,7 +346,60 @@ class AgentLoopV3:
             .replace("{{timeline}}", self.project.compact_text())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )
-        return [{"role": "system", "content": system_filled}, *self._messages]
+        msgs = [{"role": "system", "content": system_filled}, *self._messages]
+
+        # Recency grounding: the live state already lives in the system prompt, but
+        # it sits in a low-attention slot while the pinned first request is re-shown
+        # every turn — so the model over-anchors on the original framing and
+        # under-reads the current reality. Surface a short state digest in the most
+        # RECENT message (the slot the model attends to most) so each next step is
+        # grounded in what is actually there now. We append into the last message's
+        # content rather than adding a message, to preserve the alternating-role
+        # contract the client requires (consecutive tool results fold into one user
+        # message; a second user message would break it).
+        digest = self._env_recency_digest()
+        if digest and len(msgs) > 1:
+            tail = msgs[-1]
+            if tail.get("role") in ("user", "tool") and isinstance(tail.get("content"), str):
+                tail = dict(tail)
+                tail["content"] = f"{tail['content']}\n\n{digest}" if tail["content"] else digest
+                msgs[-1] = tail
+        return msgs
+
+    def _env_recency_digest(self) -> str:
+        """A short snapshot of the live state for the recency slot.
+
+        Deliberately brief: the full Timeline / Layer Document / asset registry are
+        in the system prompt. This is the *pointer* that pulls attention back to the
+        present and tells the model to act on current reality, not on the pinned
+        original request or its memory of earlier turns.
+        """
+        def _first(text: str) -> str:
+            for line in (text or "").splitlines():
+                line = line.strip()
+                if line:
+                    return line
+            return ""
+
+        snaps: list[str] = []
+        tl = _first(self.project.compact_text())
+        if tl:
+            snaps.append(f"Timeline: {tl}")
+        lf = self._get_lumenframe_prompt_text() or ""
+        if lf and not lf.startswith("("):
+            snaps.append("Layers: " + " | ".join(s.strip() for s in lf.splitlines() if s.strip())[:240])
+        assets = [r.asset_id for r in self.registry.list_records()][-4:]
+        if assets:
+            snaps.append("Latest assets: " + ", ".join(assets))
+        if not snaps:
+            return ""
+        return (
+            "[Current state — ground your NEXT step in this present reality, not the "
+            "original request or your memory of earlier turns. Re-read the full "
+            "Timeline / Layer Document / asset registry above before a consequential "
+            "step; after a change, confirm the result here and correct course if it "
+            "diverged.]\n" + "\n".join(snaps)
+        )
 
     def _append_tool_result(self, call_id: str, payload: Any) -> None:
         if isinstance(payload, str):
