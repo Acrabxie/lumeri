@@ -597,6 +597,114 @@ class AgentLoopV3:
         )
 
     @staticmethod
+    def _synthesize_wrapup_message(
+        reason: str,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+        tool_name: str | None = None,
+    ) -> str:
+        """Build a short 'stopped because X; here's what was / wasn't done'
+        summary LOCALLY from the known stop reason and the turn's tool / asset
+        counts. No model API call — this is a cheap deterministic synthesis so a
+        circuit-breaker / budget / doom-loop / stream-error stop is *explained*
+        to the user instead of being a bare silent halt.
+
+        ``reason`` is a short machine code (e.g. ``"failure_breaker"``,
+        ``"doom_loop"``, ``"budget_exhausted"``, ``"stream_error"``); the rest
+        is synthesized from the turn state that is already on hand at the exit
+        point."""
+        why = {
+            "failure_breaker": (
+                f"tool '{tool_name}' kept failing the same way and the failure "
+                f"circuit-breaker tripped"
+                if tool_name
+                else "a tool kept failing the same way and the failure "
+                "circuit-breaker tripped"
+            ),
+            "doom_loop": (
+                f"tool '{tool_name}' was called repeatedly with identical "
+                f"arguments (a doom loop) and was stopped"
+                if tool_name
+                else "the same call was repeated with identical arguments "
+                "(a doom loop) and was stopped"
+            ),
+            "budget_exhausted": "the per-turn budget (cost / time) was exhausted",
+            "stream_error": "the model stream errored out",
+        }.get(reason, f"the turn stopped ({reason})")
+
+        done_bits: list[str] = []
+        if assets_produced:
+            done_bits.append(
+                f"{assets_produced} asset" + ("s" if assets_produced != 1 else "")
+            )
+        if tools_succeeded:
+            done_bits.append(
+                f"{tools_succeeded} tool call"
+                + ("s" if tools_succeeded != 1 else "")
+                + " succeeded"
+            )
+        done = ", ".join(done_bits) if done_bits else "nothing was completed"
+
+        not_done = (
+            f"{tools_failed} tool call"
+            + ("s" if tools_failed != 1 else "")
+            + " failed"
+            if tools_failed
+            else "no failures were recorded before the stop"
+        )
+
+        return (
+            f"Stopped because {why}. "
+            f"What was done: {done}. "
+            f"What wasn't: {not_done}. "
+            "Ask me to continue or adjust the approach if you'd like more."
+        )
+
+    def _emit_turn_wrapup(
+        self,
+        reason: str,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+        tool_name: str | None = None,
+    ) -> None:
+        """ADDITIVE graceful wrap-up (ported from opencode pattern #5): at a
+        non-success exit point (failure breaker, budget exhaustion, doom loop,
+        stream error) emit a short assistant-facing ``turn_wrapup`` event that
+        explains the stop, *in addition to* the existing breaker / turn_error
+        event — so the user gets a 'stopped because X; here's what was / wasn't
+        done' summary instead of a bare halt.
+
+        Cheap and non-fatal by contract: the message is synthesized LOCALLY
+        (no extra model call) and the whole thing is wrapped in try/except so a
+        failure here can never break the loop. ``WHEN`` the turn stops is
+        unchanged — this only ADDS the explanatory emission."""
+        try:
+            message = self._synthesize_wrapup_message(
+                reason,
+                tools_succeeded=tools_succeeded,
+                tools_failed=tools_failed,
+                assets_produced=assets_produced,
+                tool_name=tool_name,
+            )
+            self._emit(
+                {
+                    "kind": "turn_wrapup",
+                    "reason": reason,
+                    "message": message,
+                    "tools_succeeded": tools_succeeded,
+                    "tools_failed": tools_failed,
+                    "assets_produced": assets_produced,
+                    **({"tool_name": tool_name} if tool_name else {}),
+                }
+            )
+        except Exception:  # noqa: BLE001 — wrap-up must never break the turn
+            pass
+
+    @staticmethod
     def _is_doom_loop(recent: list[tuple[str, str]]) -> bool:
         """True when the last ``_DOOM_LOOP_THRESHOLD`` recorded tool calls are the
         SAME (tool_name, raw-args-JSON) tuple, byte-for-byte. ``recent`` is the
@@ -648,6 +756,19 @@ class AgentLoopV3:
         # plain list is simplest; it never grows unbounded because the turn stops
         # the moment the breaker or doom-loop guard trips.
         recent_tool_calls: list[tuple[str, str]] = []
+        # Running tallies for the graceful wrap-up summary at non-success exits
+        # (opencode pattern #5). Cheap counters, no extra model call: a
+        # dispatch that returned is a success; any error / gate / parse-fail is
+        # a failure. Asset count is computed from the registry at exit time.
+        tools_succeeded = 0
+        tools_failed = 0
+
+        def _assets_produced() -> int:
+            return sum(
+                1
+                for r in self.registry.list_records()
+                if r.asset_id not in pre_asset_ids
+            )
 
         self._emit({"kind": "turn_start"})
 
@@ -691,6 +812,12 @@ class AgentLoopV3:
                     accum.finish_reason = str(delta["reason"])
                 elif kind == "error":
                     self._emit({"kind": "turn_error", "error": str(delta["error"])})
+                    self._emit_turn_wrapup(
+                        "stream_error",
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=_assets_produced(),
+                    )
                     return
 
             # ---- persist the assistant message ---------------------
@@ -775,12 +902,20 @@ class AgentLoopV3:
                             "raw_arguments": tc.args,
                         },
                     )
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BAD_ARG",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -810,12 +945,20 @@ class AgentLoopV3:
                     )
                     # A gate is a non-dispatch: count it so the model cannot
                     # spin forever re-requesting an over-budget tool.
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BUDGET",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "budget_exhausted",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -842,12 +985,20 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {"needs_approval": True, "reason": cap_reason}
                     )
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_VISUAL_CAP",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -897,6 +1048,7 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {**err_payload, "tool_name": tc.name}
                     )
+                    tools_failed += 1
                     limit = (
                         _MAX_TRANSIENT_RETRIES
                         if recovery == RECOVERY_TRANSIENT_RETRY
@@ -907,6 +1059,13 @@ class AgentLoopV3:
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -914,6 +1073,7 @@ class AgentLoopV3:
                 self.budget.commit(tc.name, actual_seconds=elapsed)
                 # Successful dispatch — clear this tool's failure streak entirely.
                 tool_fail_counts.pop(tc.name, None)
+                tools_succeeded += 1
 
                 # ---- success-blind doom-loop guard -------------------
                 # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the
@@ -931,6 +1091,13 @@ class AgentLoopV3:
                 recent_tool_calls.append((tc.name, tc.args))
                 if self._is_doom_loop(recent_tool_calls):
                     self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
+                    self._emit_turn_wrapup(
+                        "doom_loop",
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=_assets_produced(),
+                        tool_name=tc.name,
+                    )
                     return
 
                 # Model-facing tool_result: strip thumbnail_path (file
