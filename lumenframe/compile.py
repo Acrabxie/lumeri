@@ -178,6 +178,8 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
             content_fn=content_fn,
             position=position,
             keyframes=_keyframe_tracks(layer, ctx.fps),
+            # Pass expressions for time-driven property animation
+            expressions=layer.get("expressions") or {},
         )
         matte = _matte_fn(layer, resolved, children, ctx)
         if matte is not None:
@@ -411,6 +413,66 @@ def _rasterise_shape_mask(mask: dict[str, Any], width: int, height: int) -> "np.
     if mask.get("invert"):
         alpha = 1.0 - alpha
     return np.clip(alpha, 0.0, 1.0).astype(np.float32)
+
+
+def _resolve_property_with_expression(
+    layer: dict,
+    property_name: str,
+    frame_index: int,
+    fps: float,
+    canvas_width: float,
+    canvas_height: float,
+    default: float = 0.0,
+) -> float:
+    """Resolve a layer property value, prioritizing expressions over keyframes.
+
+    Precedence: expression (time-driven) > keyframes > static value > default
+    
+    Args:
+        layer: Layer dict that may have "expressions" and "keyframes"
+        property_name: Property like "opacity" or "transform.x"
+        frame_index: Current frame number
+        fps: Frames per second
+        canvas_width, canvas_height: Canvas dimensions for binding
+        default: Fallback value if no binding found
+    
+    Returns:
+        Evaluated property value as float
+    """
+    from gemia.expressions import SafeEvaluator, ExprError
+    
+    # Check if property has an expression bound
+    expressions = layer.get("expressions") or {}
+    if property_name in expressions:
+        expr_data = expressions[property_name]
+        expr_str = expr_data.get("expr", "")
+        
+        try:
+            time_sec = frame_index / fps
+            layer_duration = float(layer.get("duration", 1.0))
+            evaluator = SafeEvaluator(
+                time=time_sec,
+                duration=layer_duration,
+                width=canvas_width,
+                height=canvas_height,
+            )
+            result = evaluator.eval(expr_str)
+            return float(result)
+        except ExprError:
+            # If expression fails, fall through to keyframes
+            pass
+        except Exception:
+            # Any other error, fall through
+            pass
+    
+    # If no expression, check keyframes (this is handled by the caller via KeyframeTrack)
+    # Fallback to static value
+    static = layer.get(property_name) if property_name not in ("transform.x", "transform.y", "transform.rotation", "transform.scale_x", "transform.scale_y") else None
+    if static is not None:
+        return float(static)
+    
+    return default
+
 
 
 # ── transform / keyframes ─────────────────────────────────────────────────

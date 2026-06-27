@@ -375,6 +375,7 @@ class Layer:
     mask_fn: Callable[[int], np.ndarray] | None = None
     keyframes: dict[str, KeyframeTrack] = field(default_factory=dict)
     position: tuple[int, int] = (0, 0)
+    expressions: dict[str, dict] = field(default_factory=dict)  # property_name -> {"expr": str, ...}
 
     def is_active(self, frame_index: int) -> bool:
         if frame_index < self.start_frame:
@@ -384,6 +385,24 @@ class Layer:
         return frame_index < self.end_frame
 
     def property_value(self, name: str, frame_index: int, fps: float) -> float:
+        # Precedence: expressions > keyframes > static value
+        if name in self.expressions:
+            expr_data = self.expressions[name]
+            expr_str = expr_data.get("expr", "")
+            if expr_str:
+                try:
+                    from gemia.expressions import SafeEvaluator
+                    time_sec = float(frame_index) / fps if fps > 0 else 0.0
+                    # Get layer duration (end_frame - start_frame) / fps
+                    duration_frames = (self.end_frame or self.start_frame) - self.start_frame
+                    duration_sec = float(duration_frames) / fps if fps > 0 else 1.0
+                    evaluator = SafeEvaluator(time=time_sec, duration=duration_sec)
+                    result = evaluator.eval(expr_str)
+                    return float(result)
+                except Exception:
+                    # If expression fails, fall through to keyframes
+                    pass
+        
         base = getattr(self, name)
         track = self.keyframes.get(name)
         if track is None:

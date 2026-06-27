@@ -247,6 +247,10 @@ def _normalize_layer(raw: dict[str, Any], *, force_type: str | None = None) -> d
         base["mask"] = _normalize_mask(raw["mask"])
     if isinstance(raw.get("effects"), list):
         base["effects"] = [_normalize_effect(e) for e in raw["effects"] if isinstance(e, dict)]
+    if isinstance(raw.get("expressions"), dict):
+        base["expressions"] = {
+            k: v for k, v in raw["expressions"].items() if isinstance(v, dict)
+        }
     if isinstance(raw.get("keyframes"), dict):
         base["keyframes"] = _normalize_keyframes(raw["keyframes"])
     if isinstance(raw.get("props"), dict):

@@ -104,6 +104,8 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity)."},
     {"op": "remove_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*"],
      "summary": "Remove a keyframe at a time."},
+    {"op": "set_expression", "group": "animation", "args": ["layer_id*", "property*", "expression*"],
+     "summary": "Bind a time-driven expression to a layer property (e.g., opacity, rotation)."},
 ]
 
 _BY_OP: dict[str, dict[str, Any]] = {entry["op"]: entry for entry in CORE_OPS_CATALOG}

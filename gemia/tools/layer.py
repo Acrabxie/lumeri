@@ -603,6 +603,112 @@ async def dispatch_render(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
         }
 
 
+
+async def dispatch_set_expression(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Bind a time-driven expression to a layer property (e.g., opacity, rotation).
+
+    Expressions allow properties to be animated using mathematical functions of time,
+    without manually creating keyframes. Safe evaluator restricts to whitelist.
+
+    Args:
+        layer_id: Layer to bind expression to
+        property: Property name (e.g., "opacity", "transform.rotation", "transform.scale_x")
+        expression: Expression string (e.g., "0.5 + 0.2 * sin(time * 8)") — time in seconds
+
+    Available bindings in expression:
+        - time: Current time in seconds (frame_index / fps)
+        - duration: Layer total duration in seconds
+
+    Available functions:
+        - Math: sin, cos, sqrt, abs, min, max, floor, ceil
+        - Easing: linear, ease_in_quad, ease_out_quad, ease_in_out_quad,
+                  ease_in_cubic, ease_out_cubic, ease_in_out_cubic
+    
+    Returns:
+        {
+            "layer_id": str,
+            "property": str,
+            "expression": str,
+            "valid": bool,
+            "summary": str
+        }
+    """
+    from lumenframe import find_layer, apply_layer_patch
+    from gemia.expressions import validate_expression
+
+    if apply_layer_patch is None:
+        return {
+            "error_code": "E_UNAVAILABLE",
+            "error_message": "lumenframe module not available",
+        }
+
+    layer_id = str(args.get("layer_id") or "").strip()
+    property_name = str(args.get("property") or "").strip()
+    expression_str = str(args.get("expression") or "").strip()
+
+    if not layer_id:
+        return {
+            "error_code": "E_ARG",
+            "error_message": "Missing required argument: layer_id",
+        }
+    if not property_name:
+        return {
+            "error_code": "E_ARG",
+            "error_message": "Missing required argument: property",
+        }
+    if not expression_str:
+        return {
+            "error_code": "E_ARG",
+            "error_message": "Missing required argument: expression",
+        }
+
+    # Validate expression
+    is_valid, err_msg = validate_expression(expression_str)
+    if not is_valid:
+        return {
+            "layer_id": layer_id,
+            "property": property_name,
+            "expression": expression_str,
+            "valid": False,
+            "error_code": "E_UNSAFE",
+            "error_message": f"Expression validation failed: {err_msg}",
+        }
+
+    # Apply the set_expression op
+    try:
+        doc = _lumendoc(ctx)
+        patch = {
+            "version": 1,
+            "ops": [
+                {
+                    "op": "set_expression",
+                    "layer_id": layer_id,
+                    "property": property_name,
+                    "expression": expression_str,
+                }
+            ],
+        }
+        new_doc = apply_layer_patch(doc, patch)
+        _save_lumendoc(ctx, new_doc)
+
+        return {
+            "layer_id": layer_id,
+            "property": property_name,
+            "expression": expression_str,
+            "valid": True,
+            "summary": f"Bound expression to {layer_id}.{property_name}: {expression_str}",
+        }
+    except Exception as e:
+        return {
+            "layer_id": layer_id,
+            "property": property_name,
+            "expression": expression_str,
+            "valid": False,
+            "error_code": "E_APPLY",
+            "error_message": f"Failed to apply expression: {str(e)}",
+        }
+
+
 def clear_lumenframe_session(session_id: str) -> None:
     """Clear the lumenframe document cache for a session.
 
@@ -642,5 +748,6 @@ __all__ = [
     "dispatch_set_visibility",
     "dispatch_select",
     "dispatch_render",
+    "dispatch_set_expression",
     "clear_lumenframe_session",
 ]

@@ -768,6 +768,49 @@ def _op_remove_keyframe(doc: dict[str, Any], op: dict[str, Any]) -> None:
         layer["keyframes"].pop(prop, None)
 
 
+@register_op("set_expression", source="core")
+def _op_set_expression(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Bind an expression string to a layer property (time-driven animation).
+
+    Expressions are evaluated at render-time using SafeEvaluator. This allows
+    time-dependent properties without manually creating keyframes.
+
+    Args:
+        layer_id: Layer to bind expression to
+        property: Property name (e.g., "opacity", "transform.x", "transform.rotation")
+        expression: Expression string (e.g., "0.5 + 0.2 * sin(time * 8)")
+
+    The expression has access to:
+        - time: Current frame time in seconds
+        - duration: Layer total duration in seconds
+        - width, height: Canvas dimensions
+
+    Precedence (at render): expression > keyframes > static value.
+    Use expressions for rhythmic, data-driven, or time-locked properties.
+    """
+    from gemia.expressions import validate_expression, ExprError
+    
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_expression")
+    prop = str(_require_arg(op, "property"))
+    expression_str = str(_require_arg(op, "expression")).strip()
+    
+    if not expression_str:
+        raise LayerPatchError("E_ARG", "set_expression: expression cannot be empty")
+    
+    # Validate expression syntax & safety
+    is_valid, err_msg = validate_expression(expression_str)
+    if not is_valid:
+        raise LayerPatchError("E_UNSAFE", f"set_expression: invalid expression: {err_msg}")
+    
+    # Store in layer.expressions dict
+    expressions = layer.setdefault("expressions", {})
+    expressions[prop] = {
+        "expr": expression_str,
+    }
+
+
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Text styling
 # ════════════════════════════════════════════════════════════════════════
