@@ -401,65 +401,68 @@ def test_adjustment_layer_is_not_rendered():
     assert frame[..., 3].max() < 0.01, "Adjustment layer alone should not produce pixels"
 
 
-def test_multiple_adjustment_layers_no_overwrite():
-    """Multiple adjustment layers: each layer gets only its closest-below adjustment (no overwrite).
+def _adj(lid, value):
+    return {
+        "op": "add_layer", "id": lid, "type": "adjustment", "duration": 1.0,
+        "effects": [{"type": "brightness", "params": {"value": value}, "enabled": True}],
+    }
 
-    This test verifies the fix for the layer_to_adjustment dict overwrite bug.
-    Before the fix: if the dict assignment loop overwrote entries, a layer could
-    get the wrong (last) adjustment applied, or none at all.
-    After the fix: closest-below semantics ensure each layer applies the correct
-    adjustment based on what's directly below it.
+
+def test_top_layer_above_all_adjustments_is_unaffected():
+    """An adjustment layer affects only what is BELOW it (After Effects).
+
+    Stack bottom→top: red, adj1(-0.3), green, adj2(-0.1), white. The white layer
+    sits above every adjustment, so it must stay pure white (1.0) — adjustments do
+    not leak upward. The earlier closest-below approximation wrongly pulled adj2 up
+    onto white and dimmed it to 0.9; this guards against that regression.
     """
     doc = base_doc(w=64, h=48, fps=10)
-    # Red layer (non-adjustment): will get adj1 (closest adjustment below it).
     doc = add_solid(doc, "red", "#FF0000", duration=1.0)
-    # Adjustment layer 1 (adj1): brightness -0.3.
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj1", "type": "adjustment",
-        "duration": 1.0,
-        "effects": [{
-            "type": "brightness",
-            "params": {"value": -0.3},
-            "enabled": True
-        }]
-    }))
-    # Green layer (non-adjustment): also gets adj1 (closest adjustment below it).
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "green", "type": "solid",
-        "color": "#00FF00", "duration": 1.0
-    }))
-    # Adjustment layer 2 (adj2): brightness -0.1.
-    # This does NOT affect red (adj1 is between red and adj2).
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "adj2", "type": "adjustment",
-        "duration": 1.0,
-        "effects": [{
-            "type": "brightness",
-            "params": {"value": -0.1},
-            "enabled": True
-        }]
-    }))
-    # White layer (non-adjustment): gets adj2 (closest adjustment below it).
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "white", "type": "solid",
-        "color": "#FFFFFF", "duration": 1.0
-    }))
+    doc = apply_layer_patch(doc, patch(_adj("adj1", -0.3)))
+    doc = add_solid(doc, "green", "#00FF00", duration=1.0)
+    doc = apply_layer_patch(doc, patch(_adj("adj2", -0.1)))
+    doc = add_solid(doc, "white", "#FFFFFF", duration=1.0)
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    px = center_px(frame)
+    px = center_px(compile_to_layer_stack(doc).render_frame(0))
+    assert px[0] == pytest.approx(1.0, abs=0.01) and px[2] == pytest.approx(1.0, abs=0.01), \
+        f"white sits above every adjustment and must stay 1.0, got {px[:3]}"
 
-    # Top layer is white with adj2's -0.1 brightness:
-    # White (#FFFFFF = 1, 1, 1) with -0.1 → (0.9, 0.9, 0.9).
-    assert px[0] == pytest.approx(0.9, abs=0.01), \
-        f"White should be darkened by adj2 (-0.1) to 0.9, got {px[0]}"
 
-    # If overwrite bug were present:
-    # - dict would be: layer_to_adjustment = {non_adj_z=0: adj_z, ...}
-    # - iterating assignments could overwrite entries if done carelessly
-    # - red might lose adj1 or get adj2 instead
-    # - this assertion would fail (px[0] would be != 0.9)
-    # By passing, this confirms no overwrite occurred.
+def test_stacked_adjustments_compound_over_composite_below():
+    """Stacked adjustments compound over the cumulative composite below.
+
+    Stack bottom→top: red, adj1(-0.3), adj2(-0.1). adj1 dims red to 0.7; adj2 then
+    operates on the *composite below it* (red already carrying adj1 = 0.7), not on a
+    bare layer, dimming it again to 0.6. A closest-below approximation would apply
+    only adj1 and leave the top at 0.7 — so 0.6 proves true composite-below.
+    """
+    doc = base_doc(w=64, h=48, fps=10)
+    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
+    doc = apply_layer_patch(doc, patch(_adj("adj1", -0.3)))
+    doc = apply_layer_patch(doc, patch(_adj("adj2", -0.1)))
+
+    px = center_px(compile_to_layer_stack(doc).render_frame(0))
+    assert px[0] == pytest.approx(0.6, abs=0.01), \
+        f"adj2 should compound over red+adj1 (0.7) down to 0.6, got {px[0]}"
+
+
+def test_adjustment_flattens_all_layers_below_not_just_nearest():
+    """An adjustment flattens EVERY layer beneath it, not only the closest one.
+
+    Stack bottom→top: red (opaque), blue (opacity 0.5), adj(-0.3). The composite
+    below the adjustment at centre = blue@0.5 over red = (0.5, 0, 0.5). The
+    adjustment subtracts 0.3 from each channel of that flat composite → (0.2, 0,
+    0.2). A per-layer approximation that only touched the nearest layer (blue) would
+    leave red's contribution at full brightness.
+    """
+    doc = base_doc(w=64, h=48, fps=10)
+    doc = add_solid(doc, "red", "#FF0000", duration=1.0)
+    doc = add_solid(doc, "blue", "#0000FF", duration=1.0, opacity=0.5)
+    doc = apply_layer_patch(doc, patch(_adj("adj", -0.3)))
+
+    px = center_px(compile_to_layer_stack(doc).render_frame(0))
+    assert px[0] == pytest.approx(0.2, abs=0.02), f"flattened red channel, got {px[0]}"
+    assert px[2] == pytest.approx(0.2, abs=0.02), f"flattened blue channel, got {px[2]}"
 
 
 # ── default resolver integration ──────────────────────────────────────────

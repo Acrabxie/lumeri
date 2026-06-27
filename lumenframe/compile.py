@@ -22,14 +22,15 @@ centred); ``ctx`` carries ``width`` / ``height`` / ``fps`` / ``total_frames`` /
 Mapped per layer: time (start/duration → frame range), z-order (tree order),
 opacity, blend mode, centre-origin transform (translate + uniform scale +
 rotation, computed analytically so rotation stays centred), opacity/position
-keyframes, **shape masks** (rectangle / ellipse / polygon, rasterised in
-normalised canvas coordinates with optional feather + invert), and alpha/luma
-**track mattes**.
+keyframes, the per-layer effect chain, **shape masks** (rectangle / ellipse /
+polygon, rasterised in normalised canvas coordinates with optional feather +
+invert), alpha/luma **track mattes**, and **adjustment layers** (After Effects
+``composite-below``: the effect chain runs over the flat composite of every
+layer beneath the adjustment in its comp, stacked adjustments compounding).
 
-Known M1 limitations (tracked for M1.1): non-uniform scale uses ``scale_x``;
-anchor is treated as centre; adjustment-layer effects and the per-layer effect
-chain are not yet applied; transform keyframes don't recouple the rotation
-bounding box.
+Known limitations (tracked): non-uniform scale collapses to ``scale_x``; anchor
+is treated as centre; transform keyframes don't recouple the rotation bounding
+box.
 """
 from __future__ import annotations
 
@@ -111,18 +112,14 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
     from gemia.video.layers import Layer
 
     children = comp.get("children") or []
-    # Resolve content_fn for every child first so track mattes can borrow a sibling.
+    # Resolve content_fn for every non-adjustment child first so track mattes can
+    # borrow a sibling.
     resolved: dict[str, ContentFn] = {}
     matte_sources: set[str] = set()
-    adjustment_indices: dict[int, dict[str, Any]] = {}  # z_index -> adjustment layer
 
     for layer in children:
         if isinstance(layer, dict):
-            ltype = str(layer.get("type", ""))
-            if ltype == "adjustment":
-                # Mark this as an adjustment layer for later processing.
-                adjustment_indices[len([c for c in children[:children.index(layer)] if isinstance(c, dict)])] = layer
-            else:
+            if str(layer.get("type", "")) != "adjustment":
                 fn = _content_fn_for(layer, ctx, resolver, strict)
                 if fn is not None:
                     resolved[str(layer.get("id"))] = fn
@@ -131,31 +128,6 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
                 if mask.get("source_layer_id"):
                     matte_sources.add(str(mask["source_layer_id"]))
 
-    # Track which layers belong to which adjustment layer (only CLOSEST above each).
-    # Strategy: iterate children, count non-adjustment z, for each find closest adjustment above it.
-    #
-    # NOTE: This implements a per-layer-below approximation, not AE's true composite-below.
-    # AE precomposes all layers below an adjustment into a flat image, then applies the
-    # adjustment effect to that composite. We instead apply each adjustment only to the
-    # single nearest layer below it. This avoids the complexity of dynamic layer grouping
-    # and handles the common case well (single adjustment per layer group). Full AE
-    # semantics are deferred to a future pass.
-    layer_to_adjustment: dict[int, int] = {}  # non-adj-z-index -> closest adjustment above it
-    sorted_adj_z = sorted(adjustment_indices.keys())
-    non_adj_z = 0
-    for child_z, child in enumerate(children):
-        if isinstance(child, dict) and str(child.get("type", "")) != "adjustment":
-            # Find closest adjustment above this non-adj-z (smallest adj_z > non_adj_z).
-            # Adjustments with adj_z > non_adj_z come after this layer in the non_adj_z order,
-            # so they are visually above it, and should affect it.
-            for adj_z in sorted_adj_z:
-                if adj_z > non_adj_z:
-                    layer_to_adjustment[non_adj_z] = adj_z
-                    break
-            non_adj_z += 1
-
-    # Add layers to the stack, applying adjustments to affected layers.
-    non_adj_z = 0
     for z, layer in enumerate(children):
         if not isinstance(layer, dict):
             continue
@@ -164,29 +136,26 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
 
         ltype = str(layer.get("type", ""))
         if ltype == "adjustment":
-            # Adjustment layers themselves are not drawn; their effects are applied to
-            # preceding layers. We handle this when processing those layers.
-            continue
-
-        # A layer used only as a track matte feeds the mask, not the canvas (AE-style).
-        if str(layer.get("id")) in matte_sources:
-            non_adj_z += 1
-            continue
-
-        content_fn = resolved.get(str(layer.get("id")))
-        if content_fn is None:
-            non_adj_z += 1
-            continue  # nothing to draw (skipped / unresolved / null)
-
-        # Apply adjustment layer effects if this layer is affected.
-        if non_adj_z in layer_to_adjustment:
-            adj_z = layer_to_adjustment[non_adj_z]
-            adj_layer = adjustment_indices.get(adj_z)
-            if adj_layer:
-                effects = adj_layer.get("effects") or []
-                if effects:
-                    content_fn = _wrap_with_effects(content_fn, effects, ctx)
-        non_adj_z += 1
+            # After Effects composite-below: an adjustment layer's effect chain runs
+            # over the flat composite of EVERY layer beneath it in this comp — not
+            # just the nearest one. We render that composite as a sub-stack
+            # (recursively, so adjustments stacked above each other compound over the
+            # cumulative result), then apply the adjustment's effects on top. The
+            # adjustment is a real drawn layer: its own opacity / blend / time range /
+            # mask govern how the effected composite lands back over the layers below
+            # (full opacity + normal blend = a straight replacement, exactly like AE;
+            # a shape mask localises the effect to a region).
+            content_fn = _adjustment_content(children[:z], layer, ctx, resolver, strict)
+            effects = layer.get("effects") or []
+            if effects:
+                content_fn = _wrap_with_effects(content_fn, effects, ctx)
+        else:
+            # A layer used only as a track matte feeds the mask, not the canvas.
+            if str(layer.get("id")) in matte_sources:
+                continue
+            content_fn = resolved.get(str(layer.get("id")))
+            if content_fn is None:
+                continue  # nothing to draw (skipped / unresolved / null)
 
         start_frame = int(round(model._as_float(layer.get("start")) * ctx.fps))
         end_frame = int(round((model._as_float(layer.get("start")) + model._as_float(layer.get("duration"))) * ctx.fps))
@@ -214,6 +183,35 @@ def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, 
         if matte is not None:
             runtime.mask_fn = matte
         stack.add_layer(runtime)
+
+
+def _adjustment_content(below_children, adj_layer, ctx: ResolveContext, resolver, strict) -> ContentFn:
+    """Composite-below source for an adjustment layer.
+
+    ``below_children`` are the comp children physically beneath the adjustment, in
+    their original (parent-comp) timeline. They are populated into a sub-stack that
+    shares the parent's frame timeline (recursively applying adjustment semantics,
+    so a lower adjustment is already baked into this composite). The adjustment's
+    effect chain is applied by the caller; here we only produce the flat backdrop.
+
+    The Layer machinery hands ``content_fn`` a layer-local frame (absolute minus the
+    adjustment's start), so we shift it back to the parent-absolute frame before
+    sampling the sub-stack. NOTE: each adjustment re-renders everything below it, so
+    deeply stacked adjustments cost O(n²) — acceptable, and inherent to the model.
+    """
+    from gemia.video.layers import LayerStack
+
+    sub = LayerStack(width=ctx.width, height=ctx.height, fps=ctx.fps,
+                     total_frames=ctx.total_frames)
+    _populate_stack(sub, {"children": list(below_children)}, ctx, resolver, strict)
+    adj_start = int(round(model._as_float(adj_layer.get("start")) * ctx.fps))
+    last = max(0, ctx.total_frames - 1)
+
+    def content_fn(local_frame: int):
+        absolute = min(max(int(local_frame) + adj_start, 0), last)
+        return np.asarray(sub.render_frame(absolute), dtype=np.float32).copy()
+
+    return content_fn
 
 
 # ── content producers ────────────────────────────────────────────────────
