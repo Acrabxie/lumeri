@@ -148,8 +148,8 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Upsert a single colour-grade effect (DaVinci-style controls).",
      "example": {"op": "color_grade", "layer_id": "clip1", "contrast": 1.2, "saturation": 1.1},
      "errors": ["E_ARG when layer_id is missing", "E_NOT_FOUND when the layer id does not exist"]},
-    {"op": "add_transition", "group": "effects", "args": ["layer_id*", "kind*", "duration", "at(in|out|both)"],
-     "summary": "Attach an in/out transition to a layer.",
+    {"op": "add_transition", "group": "effects", "args": ["layer_id*", "kind*(fade|dissolve|wipe_l|wipe_r|wipe_u|wipe_d|slide)", "duration", "at(in|out|both)"],
+     "summary": "Attach an in/out transition to a layer; rendered at compile (fade/dissolve ramp opacity, wipe_* reveal a growing band, slide translates the content).",
      "example": {"op": "add_transition", "layer_id": "clip1", "kind": "fade", "duration": 0.5, "at": "in"},
      "errors": ["E_ARG when layer_id or kind is missing or at is invalid", "E_NOT_FOUND when the layer id does not exist"]},
     # ── text styling ──
@@ -321,6 +321,9 @@ EFFECTS_CATALOG: list[dict[str, Any]] = [
     {"types": ("chroma_key",),
      "args": "key_color(#hex or [r,g,b], default #00FF00), threshold(0..1, default 0.4), softness(0..1, default 0.1)",
      "desc": "Distance-based alpha keying; pixels near key_color become transparent."},
+    {"types": ("curves",),
+     "args": "channel(r|g|b|rgb|luma, default rgb), points([[x,y],...] in [0,1], default identity)",
+     "desc": "DaVinci-style monotone tone curve (LUT) per channel; identity points are a no-op."},
 ]
 
 
@@ -341,3 +344,14 @@ def describe_effects() -> str:
         lines.append(f"  {name}: {entry['args']}")
         lines.append(f"    {entry['desc']}")
     return "\n".join(lines)
+
+
+def transition_kinds() -> set[str]:
+    """The transition kinds the renderer can synthesise (``add_transition`` kind).
+
+    Derived from the renderer's ``lumenframe.compile.TRANSITION_KINDS`` so the
+    documented vocabulary can never claim a kind the compiler doesn't draw.
+    """
+    from lumenframe.compile import TRANSITION_KINDS
+
+    return set(TRANSITION_KINDS)
