@@ -1,8 +1,8 @@
-"""lumen_*: lumenframe layer editing verbs.
+"""lumen_*: lumenframe layer editing verbs with persistent storage.
 
 This module exposes the lumenframe LayerPatch vocabulary as agent verbs
-(similar to timeline_* verbs). The document state is held in session
-context to enable atomic edits and state inspection.
+(similar to timeline_* verbs). The document state is persisted to the project
+and survives across session boundaries.
 
 Design contract:
 - Each verb compiles to a LayerPatch and applies it atomically via
@@ -11,12 +11,16 @@ Design contract:
   (layer tree, selection).
 - ``lumen_patch`` is the low-level verb that accepts a raw ops list;
   convenience verbs (add_layer, set_transform, etc.) are built on top.
-- Doc persistence: we use in-session memory + minimal fallback. If a project
-  handle is available (ctx.project), we can later extend to persistent
-  storage.
+- **Persistence**: if ctx.project (ProjectHandle) is available, doc is stored
+  in project["lumenframe"] field and persists across sessions. Fallback to
+  in-memory cache for non-project sessions. Lumenframe is **orthogonal**
+  to timeline — no mutation of timeline fields.
 """
 from __future__ import annotations
 
+import copy
+import json
+from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
 
@@ -30,6 +34,7 @@ try:
         new_layer,
         find_layer,
         find_parent,
+        normalize_doc,
     )
     from lumenframe.compile import compile_to_layer_stack
 except ImportError:
@@ -40,23 +45,61 @@ except ImportError:
     new_layer = None
     find_layer = None
     find_parent = None
+    normalize_doc = None
     compile_to_layer_stack = None
 
 
-# Session-local doc state cache (keyed by session_id)
+# Session-local doc state cache (keyed by session_id) — fallback for non-project sessions
 _DOC_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _lumenframe_file_path(ctx: ToolContext) -> Path | None:
+    """Get the path to the lumenframe.json file for this project, if applicable."""
+    if ctx.project is None:
+        return None
+    try:
+        project_dir = ctx.project.store.project_dir(ctx.project.project_id)
+        return project_dir / "lumenframe.json"
+    except Exception:
+        return None
 
 
 def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
     """Retrieve or initialize the session's lumenframe document.
 
-    Strategy: in-session memory first. If a persistent project handle
-    becomes available in the future, we can extend this to also load/save
-    from disk.
+    **Persistence strategy:**
+    - If ctx.project (ProjectHandle) is available: load from <project_dir>/lumenframe.json,
+      lazy-initialize and persist if missing. This keeps lumenframe orthogonal to
+      the main project state dict (timeline, assets, etc.).
+    - Else: fall back to in-session memory cache (_DOC_CACHE)
+
+    This ensures lumenframe docs persist across session boundaries (like timeline)
+    while remaining fully orthogonal to timeline structure.
     """
-    if empty_doc is None:
+    if empty_doc is None or normalize_doc is None:
         raise RuntimeError("lumenframe module not available")
 
+    # Prefer persistent project storage if available
+    if ctx.project is not None:
+        file_path = _lumenframe_file_path(ctx)
+        if file_path is not None:
+            try:
+                if file_path.exists():
+                    # Load from file
+                    raw = json.loads(file_path.read_text(encoding="utf-8"))
+                    doc = normalize_doc(raw)
+                    return doc
+                else:
+                    # Lazy initialize: create, save, and return
+                    doc = empty_doc()
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+                    return doc
+            except Exception:
+                # If file-based loading fails, fall back to memory cache
+                pass
+
+    # Fallback: in-session memory cache
     key = ctx.session_id
     if key not in _DOC_CACHE:
         _DOC_CACHE[key] = empty_doc()
@@ -64,8 +107,30 @@ def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
 
 
 def _save_lumendoc(ctx: ToolContext, doc: dict[str, Any]) -> None:
-    """Store the document back to session cache."""
-    _DOC_CACHE[ctx.session_id] = doc
+    """Store the document, persisting to project file or memory cache.
+
+    - If ctx.project: write to <project_dir>/lumenframe.json
+    - Else: store in memory cache (_DOC_CACHE)
+
+    This keeps lumenframe editing fully orthogonal to the main project state
+    and timeline patch history.
+    """
+    if ctx.project is not None:
+        file_path = _lumenframe_file_path(ctx)
+        if file_path is not None:
+            try:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(
+                    json.dumps(copy.deepcopy(doc), ensure_ascii=False, indent=2),
+                    encoding="utf-8"
+                )
+                return
+            except Exception:
+                # If file-based save fails, fall back to memory cache
+                pass
+
+    # Fallback: in-session memory cache
+    _DOC_CACHE[ctx.session_id] = copy.deepcopy(doc)
 
 
 def _compact_tree_summary(layer: dict[str, Any], depth: int = 0, max_depth: int = 4) -> str:
