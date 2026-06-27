@@ -1053,16 +1053,43 @@ def _op_set_volume(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer.setdefault("props", {})["volume"] = volume
 
 
+#: Audio fade curve shapes a downstream mixer can apply to a fade ramp.
+_AUDIO_FADE_SHAPES: frozenset[str] = frozenset({"linear", "exp", "log"})
+
+
 @register_op("set_audio_fade", source="core")
 def _op_set_audio_fade(doc: dict[str, Any], op: dict[str, Any]) -> None:
-    """Set fade-in and/or fade-out durations (in seconds) in layer props."""
+    """Set fade-in and/or fade-out durations (in seconds) in layer props.
+
+    Durations stay as plain scalars under ``props.fade_in`` / ``props.fade_out``
+    (unchanged contract). The optional ``shape`` selects the fade *curve* a
+    downstream mixer should ramp along — one of ``linear`` (default), ``exp``
+    (slow start, fast finish) or ``log`` (fast start, slow finish) — and is
+    stored alongside as ``props.fade_in_shape`` / ``props.fade_out_shape`` so the
+    structured audio metadata travels with the layer (lumenframe compile is
+    video-only). The shape applies to whichever edge(s) this op writes.
+    """
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_audio_fade")
     props = layer.setdefault("props", {})
 
+    shape = op.get("shape")
+    if shape is not None:
+        shape = str(shape)
+        if shape not in _AUDIO_FADE_SHAPES:
+            raise LayerPatchError(
+                "E_ARG",
+                f"set_audio_fade: unknown fade shape {shape!r} "
+                f"(expected one of {sorted(_AUDIO_FADE_SHAPES)})",
+            )
+    else:
+        shape = "linear"
+
     if op.get("fade_in") is not None:
         props["fade_in"] = model._as_float(op["fade_in"])
+        props["fade_in_shape"] = shape
     if op.get("fade_out") is not None:
         props["fade_out"] = model._as_float(op["fade_out"])
+        props["fade_out_shape"] = shape
 
 
 @register_op("mute_layer", source="core")
@@ -1071,6 +1098,45 @@ def _op_mute_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="mute_layer")
     muted = bool(op.get("muted", True))
     layer.setdefault("props", {})["muted"] = muted
+
+
+@register_op("duck_audio", source="core")
+def _op_duck_audio(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Store a sidechain-ducking descriptor on an audio layer.
+
+    Ducking lowers this layer's level whenever a *target* layer (typically a
+    voiceover/dialogue track) is audible — the CapCut/DaVinci "auto-duck music
+    under speech" behaviour. lumenframe compile is video-only, so this is pure
+    structured metadata for a downstream mixer; it is written to
+    ``props.ducking = {target_id, amount, attack, release}``:
+
+    * ``target_id`` — the layer that triggers the duck (must exist → else
+      ``E_NOT_FOUND``);
+    * ``amount`` — how much to attenuate while the target is audible. A value
+      ``<= 0`` is read as dB of attenuation (e.g. ``-12``); a value in ``0..1``
+      is read as a linear gain floor. Stored verbatim (default ``-12`` dB);
+    * ``attack`` / ``release`` — duck-in / duck-out times in seconds
+      (defaults ``0.05`` / ``0.3``); both must be ``>= 0`` → else ``E_RANGE``.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="duck_audio")
+    target_id = str(_require_arg(op, "target_id"))
+    # The target must be a real, existing layer — surface E_NOT_FOUND otherwise.
+    _require_layer(doc, target_id, op="duck_audio")
+
+    amount: float = model._as_float(op["amount"]) if op.get("amount") is not None else -12.0
+    attack = model._as_float(op["attack"]) if op.get("attack") is not None else 0.05
+    release = model._as_float(op["release"]) if op.get("release") is not None else 0.3
+    if attack < 0 or release < 0:
+        raise LayerPatchError(
+            "E_RANGE", "duck_audio: attack and release must be >= 0"
+        )
+
+    layer.setdefault("props", {})["ducking"] = {
+        "target_id": target_id,
+        "amount": amount,
+        "attack": attack,
+        "release": release,
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════
