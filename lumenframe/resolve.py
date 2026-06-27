@@ -196,6 +196,141 @@ def _line_advance(font, line, letter_spacing):
     return total
 
 
+# --------------------------------------------------------------------------- #
+# Font resolution.
+#
+# RENDERING FIDELITY FIX: the previous text path tried a single bundled font
+# name (``DejaVuSans.ttf``) and, when that name is not resolvable on the host
+# (common on macOS, where Pillow ships no DejaVu), fell straight through to
+# ``ImageFont.load_default()``.  The legacy ``load_default()`` returns a fixed
+# ~9px bitmap font that IGNORES ``font_size`` entirely — so a title requested at
+# ``font_size=96`` rendered thin and tiny.  ``_resolve_font`` walks a list of
+# real, scalable TrueType candidates (explicit prop first, then common system
+# fonts, then an optionally-bundled asset, then Pillow's DejaVu name) so the
+# requested pixel size visibly changes glyph height.  Only when NOTHING is
+# resolvable do we fall back to the legacy ``load_default()`` path, preserving
+# the historical fallback behaviour byte-for-byte.
+# --------------------------------------------------------------------------- #
+
+# Common scalable TrueType candidates by family, in preference order. Each is a
+# (regular_path_or_name, bold_path_or_name) pair so an optional ``weight`` prop
+# can pick a heavier face. Names without a directory are resolved by Pillow's
+# own font search (it bundles ``DejaVuSans.ttf``).
+_SYSTEM_FONT_CANDIDATES = [
+    # macOS — guaranteed-present scalable faces.
+    (
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    ),
+    ("/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Helvetica.ttc"),
+    ("/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf"),
+    # Linux — DejaVu / Liberation are the usual headless-CI defaults.
+    (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ),
+    (
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ),
+    # Pillow ships DejaVuSans under this bare name; works when the wheel
+    # includes it (resolved via Pillow's internal font directory).
+    ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
+]
+
+# Directory for an optionally-bundled, permissively-licensed fallback font.
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+
+def _is_bold_weight(weight: Any) -> bool:
+    """True when ``weight`` requests a bold face (numeric >=600 or a bold name)."""
+    if weight is None:
+        return False
+    try:
+        return float(weight) >= 600.0
+    except (TypeError, ValueError):
+        return str(weight).strip().lower() in {
+            "bold", "semibold", "semi-bold", "heavy", "black", "extrabold", "extra-bold",
+        }
+
+
+def _resolve_font(font_path, font_size: int, weight: Any = None):
+    """Resolve a scalable TrueType font honoring ``font_size`` in pixels.
+
+    Returns ``(font, source, is_truetype)`` where ``source`` is a human-readable
+    label of what resolved (for proofs/debugging) and ``is_truetype`` is True
+    when a real scalable face loaded (size affects glyph height).
+
+    Order of preference:
+      1. Explicit ``font_path`` prop (a real path or a Pillow-resolvable name),
+         trying a bold sibling first when ``weight`` is bold.
+      2. Common system fonts (macOS / Linux), weight-aware.
+      3. A bundled font under ``lumenframe/assets/`` (if the operator added one).
+      4. Pillow's bundled ``DejaVuSans.ttf`` by name.
+      5. Legacy ``ImageFont.load_default()`` — fixed ~9px bitmap, size ignored.
+         Reached ONLY when no scalable face exists, preserving prior behaviour.
+    """
+    from PIL import ImageFont
+
+    bold = _is_bold_weight(weight)
+    size = int(font_size)
+
+    def _try(name_or_path):
+        if not name_or_path:
+            return None
+        try:
+            return ImageFont.truetype(str(name_or_path), size)
+        except Exception:
+            return None
+
+    # 1) Explicit prop wins. Honor bold by probing common sibling filenames.
+    if font_path:
+        if bold:
+            base = str(font_path)
+            for cand in (base.replace(".ttf", " Bold.ttf"),
+                         base.replace(".ttf", "-Bold.ttf"),
+                         base.replace(".ttf", "bd.ttf")):
+                if cand != base:
+                    f = _try(cand)
+                    if f is not None:
+                        return f, cand, True
+        f = _try(font_path)
+        if f is not None:
+            return f, str(font_path), True
+        # Explicit font unresolvable: fall through to system candidates.
+
+    # 2) System candidates, weight-aware.
+    for regular, bold_path in _SYSTEM_FONT_CANDIDATES:
+        chosen = bold_path if bold else regular
+        f = _try(chosen)
+        if f is not None:
+            return f, chosen, True
+        # If the bold sibling is missing, accept the regular face.
+        if bold:
+            f = _try(regular)
+            if f is not None:
+                return f, regular, True
+
+    # 3) Optional bundled asset (any .ttf/.otf the operator dropped in assets/).
+    try:
+        if _ASSETS_DIR.is_dir():
+            for ext in ("*.ttf", "*.otf"):
+                for asset in sorted(_ASSETS_DIR.glob(ext)):
+                    f = _try(asset)
+                    if f is not None:
+                        return f, str(asset), True
+    except Exception:
+        pass
+
+    # 4) Pillow's bundled DejaVu by bare name (redundant with #2 but cheap).
+    f = _try("DejaVuSans.ttf")
+    if f is not None:
+        return f, "DejaVuSans.ttf", True
+
+    # 5) Legacy fixed-size bitmap fallback (size ignored) — unchanged behaviour.
+    return ImageFont.load_default(), "load_default", False
+
+
 def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
     """Resolve a text layer to a canvas-sized RGBA content_fn.
 
@@ -222,6 +357,7 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
     # Extract text layer properties.
     font_size = int(props.get("font_size", 48))
     font_path = props.get("font")  # use "font" not "font_path" per spec
+    font_weight = props.get("weight")  # optional: "bold" / numeric (>=600 == bold)
 
     color = props.get("color", "#FFFFFF")
     color_rgba = _parse_color(color)
@@ -287,15 +423,13 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
         glow_intensity = float(glow_config.get("intensity", 1.0))
     use_glow = glow_radius > 0
 
-    # Load font.
+    # Load font. Prefer a real scalable TrueType face so ``font_size`` (in px)
+    # actually changes glyph height; only fall back to the legacy fixed-size
+    # ``load_default`` bitmap when no scalable face is resolvable at all.
     try:
-        if font_path:
-            font = ImageFont.truetype(font_path, font_size)
-        else:
-            try:
-                font = ImageFont.truetype("DejaVuSans.ttf", font_size)
-            except OSError:
-                font = ImageFont.load_default()
+        font, _font_source, _font_is_truetype = _resolve_font(
+            font_path, font_size, font_weight
+        )
     except Exception:
         font = ImageFont.load_default()
 

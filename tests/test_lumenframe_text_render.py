@@ -152,7 +152,13 @@ class TestOuterGlow:
         core = alpha > 0.5
         soft = (alpha > 0.02) & (alpha <= 0.5)
         assert core.any(), "glyph core must render"
-        assert soft.sum() > core.sum(), "glow halo should add many soft pixels"
+        # Glow must produce soft partial-alpha pixels. (Font-agnostic: the earlier
+        # `soft.sum() > core.sum()` only held for the broken ~9px bitmap default
+        # font whose glyphs were nearly all edge; with a real scalable TTF the
+        # filled glyph interior legitimately exceeds the thin halo rim. The real
+        # glow guarantees are asserted: soft pixels exist AND the lit region
+        # extends beyond the glyph bbox below.)
+        assert soft.sum() > 0, "glow halo should add soft (partial-alpha) pixels"
 
         cxs = np.where(core)[1]
         all_xs = np.where(alpha > 0.02)[1]
