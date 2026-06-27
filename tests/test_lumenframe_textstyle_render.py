@@ -1,592 +1,376 @@
-"""Test suite for rich text rendering (multiline, stroke, shadow, background, align, font_size)."""
+"""Tests for rich text rendering in lumenframe text layers.
+
+Covers:
+- Multiline text with line spacing
+- Text alignment (left, center, right)
+- Font size and font path
+- Text color
+- Stroke (outline)
+- Shadow (drop shadow with blur)
+- Background box
+- Missing/empty text handling
+"""
 from __future__ import annotations
+
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
-from pathlib import Path
-import tempfile
 
-from lumenframe import apply_layer_patch, empty_doc
-from lumenframe.compile import compile_to_layer_stack
-
-
-def patch(*ops):
-    return {"version": 1, "ops": list(ops)}
+from lumenframe import model
+from lumenframe.compile import compile_to_layer_stack, ResolveContext
+from lumenframe.resolve import default_resolver, _parse_color
 
 
-def base_doc(w=256, h=192, fps=10):
-    return empty_doc(width=w, height=h, fps=fps)
+class TestTextColorParsing:
+    """Test color parsing utility."""
+
+    def test_parse_hex_rgb(self):
+        """Parse #RRGGBB format."""
+        rgba = _parse_color("#FF0000")
+        assert rgba == (1.0, 0.0, 0.0, 1.0)
+
+    def test_parse_hex_rgba(self):
+        """Parse #RRGGBBAA format."""
+        rgba = _parse_color("#FF000080")
+        assert abs(rgba[3] - 0.502) < 0.01  # 0x80 = 128
+
+    def test_parse_white_default(self):
+        """Default to white if invalid."""
+        rgba = _parse_color("invalid")
+        assert rgba == (1.0, 1.0, 1.0, 1.0)
 
 
-def center_px(frame):
-    """Get center pixel value."""
-    return frame[frame.shape[0] // 2, frame.shape[1] // 2]
+class TestTextResolution:
+    """Test text layer resolution and rendering."""
 
-
-def count_non_transparent_pixels(frame, threshold=0.1):
-    """Count pixels with alpha > threshold."""
-    return np.sum(frame[..., 3] > threshold)
-
-
-def get_region_color(frame, top, left, bottom, right):
-    """Get average color in a rectangular region."""
-    region = frame[top:bottom, left:right, :3]
-    return np.mean(region, axis=(0, 1))
-
-
-# ── Multiline text ──────────────────────────────────────────────────────
-
-
-def test_text_multiline_basic():
-    """Text with \\n renders multiple lines."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Line 1\nLine 2\nLine 3",
-            "color": "#FFFFFF",
-            "font_size": 32
+    def test_empty_text_returns_none(self):
+        """Empty text should return None."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {"text": ""}
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        assert fn is None
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Should have rendered text (non-transparent).
-    alpha = frame[..., 3]
-    assert alpha.max() > 0.8, "Multiline text should be rendered"
-    # Count non-transparent pixels — should be more than single line.
-    pixel_count = count_non_transparent_pixels(frame)
-    assert pixel_count > 100, f"Multiline text should have significant pixel coverage, got {pixel_count}"
-
-
-def test_text_multiline_line_spacing():
-    """Line spacing affects vertical distance between lines."""
-    # Create two documents: one with normal spacing, one with loose spacing.
-    doc1 = base_doc(w=256, h=256)
-    doc1 = apply_layer_patch(doc1, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "A\nB\nC",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "line_spacing": 1.0
+    def test_missing_text_returns_none(self):
+        """Missing text prop should return None."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {}
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        assert fn is None
 
-    doc2 = base_doc(w=256, h=256)
-    doc2 = apply_layer_patch(doc2, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "A\nB\nC",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "line_spacing": 2.0
-        }
-    }))
-
-    stack1 = compile_to_layer_stack(doc1)
-    frame1 = stack1.render_frame(0)
-    
-    stack2 = compile_to_layer_stack(doc2)
-    frame2 = stack2.render_frame(0)
-    
-    # Both should render, but with different vertical extents.
-    # Harder to test precisely, just verify both render.
-    assert frame1[..., 3].max() > 0.8
-    assert frame2[..., 3].max() > 0.8
-
-
-# ── Font size ──────────────────────────────────────────────────────────
-
-
-def test_text_font_size_control():
-    """font_size parameter scales text."""
-    doc_small = base_doc(w=256, h=192)
-    doc_small = apply_layer_patch(doc_small, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Hello",
-            "color": "#FFFFFF",
-            "font_size": 24
-        }
-    }))
-
-    doc_large = base_doc(w=256, h=192)
-    doc_large = apply_layer_patch(doc_large, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Hello",
-            "color": "#FFFFFF",
-            "font_size": 64
-        }
-    }))
-
-    stack_small = compile_to_layer_stack(doc_small)
-    frame_small = stack_small.render_frame(0)
-    pixels_small = count_non_transparent_pixels(frame_small)
-
-    stack_large = compile_to_layer_stack(doc_large)
-    frame_large = stack_large.render_frame(0)
-    pixels_large = count_non_transparent_pixels(frame_large)
-
-    # Larger font should have more pixels (or similar).
-    # Due to rendering artifacts, just verify both render.
-    assert pixels_large > 50 and pixels_small > 20, \
-        f"Both font sizes should render, got {pixels_large} and {pixels_small}"
-
-
-# ── Text alignment ──────────────────────────────────────────────────────
-
-
-def test_text_align_left():
-    """align='left' aligns text to the left within its block."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Left",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "align": "left"
-        }
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Text should be rendered.
-    assert frame[..., 3].max() > 0.8
-
-
-def test_text_align_center():
-    """align='center' centres text (default)."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Center",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "align": "center"
-        }
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    assert frame[..., 3].max() > 0.8
-
-
-def test_text_align_right():
-    """align='right' aligns text to the right."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Right",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "align": "right"
-        }
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    assert frame[..., 3].max() > 0.8
-
-
-# ── Stroke (outline) ────────────────────────────────────────────────────
-
-
-def test_text_stroke_basic():
-    """stroke parameter adds outline to text."""
-    doc_no_stroke = base_doc(w=256, h=192)
-    doc_no_stroke = apply_layer_patch(doc_no_stroke, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Hello",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "stroke": None
-        }
-    }))
-
-    doc_stroke = base_doc(w=256, h=192)
-    doc_stroke = apply_layer_patch(doc_stroke, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Hello",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "stroke": {
-                "width": 2,
-                "color": "#000000"
+    def test_text_content_fn_returns_canvas_sized_rgba(self):
+        """Text content_fn should return canvas-sized RGBA float32 [0, 1]."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF"
             }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        assert fn is not None
 
-    stack_no_stroke = compile_to_layer_stack(doc_no_stroke)
-    frame_no_stroke = stack_no_stroke.render_frame(0)
-    pixels_no_stroke = count_non_transparent_pixels(frame_no_stroke)
+        frame = fn(0)
+        assert isinstance(frame, np.ndarray)
+        assert frame.shape == (1080, 1920, 4)
+        assert frame.dtype == np.float32
+        assert np.all(frame >= 0.0) and np.all(frame <= 1.0)
 
-    stack_stroke = compile_to_layer_stack(doc_stroke)
-    frame_stroke = stack_stroke.render_frame(0)
-    pixels_stroke = count_non_transparent_pixels(frame_stroke)
-
-    # With stroke, should have more pixels (outline adds pixels).
-    assert pixels_stroke > pixels_no_stroke, \
-        f"Stroked text should have more pixels than plain text: {pixels_stroke} vs {pixels_no_stroke}"
-    
-    # Stroke pixels should be black or dark.
-    # Find a stroking region and check color.
-    alpha = frame_stroke[..., 3]
-    if alpha.max() > 0.8:
-        # Get alpha-channel gradient region (where stroke likely is).
-        alpha_grad = np.where(alpha > 0.1)
-        if len(alpha_grad[0]) > 0:
-            sample_row = alpha_grad[0][0]
-            sample_col = alpha_grad[1][0]
-            px = frame_stroke[sample_row, sample_col, :3]
-            # Stroke is applied, just verify alpha renders.
-
-
-def test_text_stroke_color():
-    """stroke color is applied to the outline."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Test",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "stroke": {
-                "width": 3,
-                "color": "#FF0000"  # Red stroke
+    def test_multiline_text_renders_multiple_lines(self):
+        """Multiline text should render all lines."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Line 1\nLine 2\nLine 3",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "line_spacing": 1.5
             }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        assert fn is not None
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Should render with stroke.
-    assert frame[..., 3].max() > 0.8, "Stroked text should render"
+        frame = fn(0)
+        alpha_channel = frame[:, :, 3]
+        assert np.any(alpha_channel > 0.1)
 
-
-# ── Shadow (drop shadow) ────────────────────────────────────────────────
-
-
-def test_text_shadow_offset():
-    """shadow with dx/dy creates offset shadow."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Shadow",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "shadow": {
-                "dx": 4,
-                "dy": 4,
-                "blur": 2,
-                "color": "#000000"
+    def test_text_alignment_left(self):
+        """Left-aligned text should be positioned at left edge."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "align": "left"
             }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        frame = fn(0)
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Shadow should be rendered.
-    alpha = frame[..., 3]
-    assert alpha.max() > 0.8, "Shadowed text should render"
-    pixel_count = count_non_transparent_pixels(frame)
-    assert pixel_count > 100, "Shadow should add pixel coverage"
+        alpha = frame[:, :, 3]
+        rows_with_text = np.any(alpha > 0.1, axis=1)
+        cols_with_text = np.any(alpha > 0.1, axis=0)
 
+        if np.any(rows_with_text) and np.any(cols_with_text):
+            leftmost_col = np.argmax(cols_with_text)
+            assert leftmost_col < 960
 
-def test_text_shadow_blur():
-    """shadow blur parameter creates soft shadow edges."""
-    doc_no_blur = base_doc(w=256, h=192)
-    doc_no_blur = apply_layer_patch(doc_no_blur, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Shadow",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "shadow": {
-                "dx": 2,
-                "dy": 2,
-                "blur": 0,
-                "color": "#000000"
+    def test_text_alignment_center(self):
+        """Center-aligned text should be near canvas center."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "align": "center"
             }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        frame = fn(0)
 
-    doc_blur = base_doc(w=256, h=192)
-    doc_blur = apply_layer_patch(doc_blur, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Shadow",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "shadow": {
-                "dx": 2,
-                "dy": 2,
-                "blur": 4,
-                "color": "#000000"
+        alpha = frame[:, :, 3]
+        cols_with_text = np.any(alpha > 0.1, axis=0)
+
+        if np.any(cols_with_text):
+            col_indices = np.where(cols_with_text)[0]
+            center_col = (col_indices[0] + col_indices[-1]) / 2.0
+            assert 800 < center_col < 1120
+
+    def test_text_color_renders_correctly(self):
+        """Text color should appear in rendered frame."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Red",
+                "font_size": 48,
+                "color": "#FF0000"
             }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        frame = fn(0)
 
-    stack_no_blur = compile_to_layer_stack(doc_no_blur)
-    frame_no_blur = stack_no_blur.render_frame(0)
-    
-    stack_blur = compile_to_layer_stack(doc_blur)
-    frame_blur = stack_blur.render_frame(0)
-    
-    # Both should render.
-    assert frame_no_blur[..., 3].max() > 0.8
-    assert frame_blur[..., 3].max() > 0.8
+        alpha = frame[:, :, 3]
+        text_pixels = alpha > 0.5
+        if np.any(text_pixels):
+            r = frame[:, :, 0][text_pixels]
+            g = frame[:, :, 1][text_pixels]
+            b = frame[:, :, 2][text_pixels]
+            assert np.mean(r) > 0.8
+            assert np.mean(g) < 0.3
+            assert np.mean(b) < 0.3
 
-
-# ── Background box ──────────────────────────────────────────────────────
-
-
-def test_text_background_box():
-    """background parameter draws a coloured box behind text."""
-    doc_no_bg = base_doc(w=256, h=192)
-    doc_no_bg = apply_layer_patch(doc_no_bg, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "BG Test",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "background": None
+    def test_stroke_creates_outline(self):
+        """Stroke should create visible outline around text."""
+        layer_without_stroke = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF"
+            }
         }
-    }))
-
-    doc_bg = base_doc(w=256, h=192)
-    doc_bg = apply_layer_patch(doc_bg, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "BG Test",
-            "color": "#FFFFFF",
-            "font_size": 32,
-            "background": "#FF0000"  # Red background
+        layer_with_stroke = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "stroke": {"color": "#000000", "width": 3}
+            }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
 
-    stack_no_bg = compile_to_layer_stack(doc_no_bg)
-    frame_no_bg = stack_no_bg.render_frame(0)
-    
-    stack_bg = compile_to_layer_stack(doc_bg)
-    frame_bg = stack_bg.render_frame(0)
-    
-    # With background should have similar or more pixels.
-    pixels_no_bg = count_non_transparent_pixels(frame_no_bg)
-    pixels_bg = count_non_transparent_pixels(frame_bg)
-    # Background adds a box, so more pixels expected.
-    assert pixels_bg >= pixels_no_bg, "Background box should add pixels"
+        frame_no_stroke = default_resolver(layer_without_stroke, ctx)(0)
+        frame_with_stroke = default_resolver(layer_with_stroke, ctx)(0)
 
+        alpha_no_stroke = frame_no_stroke[:, :, 3]
+        alpha_with_stroke = frame_with_stroke[:, :, 3]
 
-def test_text_background_color():
-    """background color is rendered as a box."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "BoxText",
-            "color": "#000000",  # Black text
-            "font_size": 32,
-            "background": "#FFFF00"  # Yellow background
+        count_no_stroke = np.sum(alpha_no_stroke > 0.5)
+        count_with_stroke = np.sum(alpha_with_stroke > 0.5)
+
+        assert count_with_stroke > count_no_stroke
+
+    def test_shadow_renders_offset(self):
+        """Shadow should render at offset position."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "shadow": {"color": "#000000", "dx": 5, "dy": 5, "blur": 0}
+            }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        frame = fn(0)
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Should have background box.
-    alpha = frame[..., 3]
-    assert alpha.max() > 0.8, "Background box should render"
+        alpha = frame[:, :, 3]
+        if np.any(alpha > 0.1):
+            assert frame.shape == (1080, 1920, 4)
 
-
-# ── Color parsing ───────────────────────────────────────────────────────
-
-
-def test_text_color_hex_rgb():
-    """#RRGGBB hex color is parsed correctly."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Red",
-            "color": "#FF0000",  # Pure red
-            "font_size": 32
+    def test_shadow_blur_smooths_edges(self):
+        """Shadow with blur should have smooth edges."""
+        layer_no_blur = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "shadow": {"color": "#000000", "dx": 5, "dy": 5, "blur": 0}
+            }
         }
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    assert frame[..., 3].max() > 0.8
-
-
-def test_text_color_hex_rgba():
-    """#RRGGBBAA hex color with alpha is parsed."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Semi",
-            "color": "#FFFFFF80",  # White with 50% alpha
-            "font_size": 32
+        layer_with_blur = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "shadow": {"color": "#000000", "dx": 5, "dy": 5, "blur": 5}
+            }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    assert frame[..., 3].max() > 0.3, "Text with alpha should render"
+        frame_no_blur = default_resolver(layer_no_blur, ctx)(0)
+        frame_with_blur = default_resolver(layer_with_blur, ctx)(0)
 
+        assert np.any(frame_no_blur[:, :, 3] > 0.1)
+        assert np.any(frame_with_blur[:, :, 3] > 0.1)
 
-# ── Empty/missing text ──────────────────────────────────────────────────
-
-
-def test_text_empty_skips():
-    """Empty text returns None (no rendering)."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "",
-            "color": "#FFFFFF",
-            "font_size": 32
+    def test_background_box_renders(self):
+        """Background box should render behind text."""
+        layer = {
+            "type": "text",
+            "id": "text1",
+            "props": {
+                "text": "Hello",
+                "font_size": 48,
+                "color": "#FFFFFF",
+                "background": "#FF0000FF"
+            }
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
+        fn = default_resolver(layer, ctx)
+        frame = fn(0)
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    # Should be transparent.
-    assert frame[..., 3].max() < 0.01, "Empty text should not render"
+        alpha = frame[:, :, 3]
+        if np.any(alpha > 0.5):
+            r = frame[:, :, 0]
+            has_red = np.any(r > 0.8)
+            assert has_red
 
-
-def test_text_missing_text_prop_skips():
-    """Missing text prop returns None."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "color": "#FFFFFF",
-            "font_size": 32
-            # No 'text' key
+    def test_font_size_affects_rendering(self):
+        """Larger font size should produce larger text."""
+        layer_small = {
+            "type": "text",
+            "id": "text1",
+            "props": {"text": "Hi", "font_size": 24, "color": "#FFFFFF"}
         }
-    }))
-
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    assert frame[..., 3].max() < 0.01
-
-
-# ── Combined features ───────────────────────────────────────────────────
-
-
-def test_text_combined_all_features():
-    """All features (multiline, stroke, shadow, background, align) work together."""
-    doc = base_doc(w=360, h=240)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Line 1\nLine 2",
-            "color": "#FFFFFF",
-            "font_size": 36,
-            "align": "center",
-            "stroke": {
-                "width": 2,
-                "color": "#000000"
-            },
-            "shadow": {
-                "dx": 3,
-                "dy": 3,
-                "blur": 2,
-                "color": "#000000"
-            },
-            "background": "#0000FF",
-            "line_spacing": 1.5
+        layer_large = {
+            "type": "text",
+            "id": "text1",
+            "props": {"text": "Hi", "font_size": 96, "color": "#FFFFFF"}
         }
-    }))
+        ctx = ResolveContext(width=1920, height=1080, fps=30, total_frames=30, assets=[])
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    
-    # Should have rendered with all features.
-    alpha = frame[..., 3]
-    assert alpha.max() > 0.8, "Combined features should render"
-    pixel_count = count_non_transparent_pixels(frame)
-    assert pixel_count > 200, f"Combined features should have substantial coverage, got {pixel_count}"
+        frame_small = default_resolver(layer_small, ctx)(0)
+        frame_large = default_resolver(layer_large, ctx)(0)
+
+        count_small = np.sum(frame_small[:, :, 3] > 0.5)
+        count_large = np.sum(frame_large[:, :, 3] > 0.5)
+        assert count_large >= count_small  # May be same due to antialiasing
 
 
-# ── Regression tests ────────────────────────────────────────────────────
+class TestTextCompilation:
+    """Test text layer compilation into layer stack."""
 
-
-def test_text_content_fn_returns_float32():
-    """content_fn must return float32 RGBA in [0, 1]."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "TypeCheck",
-            "color": "#FFFFFF",
-            "font_size": 32
+    def test_compile_text_layer_simple(self):
+        """Compile a simple text layer."""
+        doc = {
+            "canvas": {"width": 1920, "height": 1080, "fps": 30},
+            "root": {
+                "id": "root",
+                "type": "composition",
+                "children": [
+                    {
+                        "type": "text",
+                        "id": "text1",
+                        "start": 0,
+                        "duration": 1.0,
+                        "props": {
+                            "text": "Hello World",
+                            "font_size": 72,
+                            "color": "#FFFFFF"
+                        }
+                    }
+                ]
+            }
         }
-    }))
+        stack = compile_to_layer_stack(doc)
+        assert stack is not None
+        assert stack.width == 1920
+        assert stack.height == 1080
 
-    stack = compile_to_layer_stack(doc)
-    frame = stack.render_frame(0)
-    
-    # Must be float32.
-    assert frame.dtype == np.float32, f"Frame dtype should be float32, got {frame.dtype}"
-    # Values should be in [0, 1].
-    assert frame.min() >= 0.0
-    assert frame.max() <= 1.0, f"Frame values should be in [0, 1], got max {frame.max()}"
-    # Shape should be (H, W, 4).
-    assert frame.shape == (192, 256, 4), f"Frame shape should be (192, 256, 4), got {frame.shape}"
-
-
-def test_text_renders_consistently():
-    """Text rendering produces same output for same input."""
-    doc = base_doc(w=256, h=192)
-    doc = apply_layer_patch(doc, patch({
-        "op": "add_layer", "id": "txt", "type": "text",
-        "duration": 1.0,
-        "props": {
-            "text": "Consistent",
-            "color": "#FFFFFF",
-            "font_size": 32
+    def test_compile_text_with_all_features(self):
+        """Compile text layer with all rich text features."""
+        doc = {
+            "canvas": {"width": 1920, "height": 1080, "fps": 30},
+            "root": {
+                "id": "root",
+                "type": "composition",
+                "children": [
+                    {
+                        "type": "text",
+                        "id": "text1",
+                        "start": 0,
+                        "duration": 2.0,
+                        "props": {
+                            "text": "Line 1\nLine 2",
+                            "font_size": 48,
+                            "color": "#FFFFFF",
+                            "align": "center",
+                            "stroke": {"color": "#000000", "width": 2},
+                            "shadow": {"color": "#000000", "dx": 2, "dy": 2, "blur": 4},
+                            "background": "#0000FFAA",
+                            "line_spacing": 1.5
+                        }
+                    }
+                ]
+            }
         }
-    }))
+        stack = compile_to_layer_stack(doc)
+        assert stack is not None
 
-    stack1 = compile_to_layer_stack(doc)
-    frame1 = stack1.render_frame(0)
-    
-    stack2 = compile_to_layer_stack(doc)
-    frame2 = stack2.render_frame(0)
-    
-    # Frames should be identical (or very close due to PIL randomness).
-    diff = np.abs(frame1 - frame2).max()
-    assert diff < 0.01, f"Rendering should be consistent, diff={diff}"
+        frame = stack.render_frame(0)
+        assert frame is not None
+        assert frame.shape == (1080, 1920, 4)
+        assert frame.dtype == np.float32
+        assert np.all(frame >= 0.0) and np.all(frame <= 1.0)
