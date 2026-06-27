@@ -105,6 +105,52 @@ class TestSetText:
             })
         assert exc.value.code == "E_ARG"
 
+    def test_set_text_partial_stroke_merge(self):
+        """Partial stroke update should merge with existing stroke props."""
+        doc = {
+            "root": model.new_layer("composition", children=[
+                model.new_layer("text", props={
+                    "text": "hello",
+                    "stroke": {"color": "#000000", "width": 2.0}
+                }),
+            ]),
+            "selection": [],
+        }
+        layer_id = doc["root"]["children"][0]["id"]
+
+        result = apply_layer_patch(doc, {
+            "version": 1,
+            "ops": [{"op": "set_text", "layer_id": layer_id, "stroke": {"color": "#FF0000"}}],
+        })
+
+        props = result["root"]["children"][0]["props"]
+        assert props["stroke"]["color"] == "#FF0000"
+        assert props["stroke"]["width"] == 2.0
+
+    def test_set_text_partial_shadow_merge(self):
+        """Partial shadow update should merge with existing shadow props."""
+        doc = {
+            "root": model.new_layer("composition", children=[
+                model.new_layer("text", props={
+                    "text": "hello",
+                    "shadow": {"color": "#000000", "dx": 2, "dy": 2, "blur": 4}
+                }),
+            ]),
+            "selection": [],
+        }
+        layer_id = doc["root"]["children"][0]["id"]
+
+        result = apply_layer_patch(doc, {
+            "version": 1,
+            "ops": [{"op": "set_text", "layer_id": layer_id, "shadow": {"blur": 8}}],
+        })
+
+        props = result["root"]["children"][0]["props"]
+        assert props["shadow"]["blur"] == 8
+        assert props["shadow"]["dx"] == 2
+        assert props["shadow"]["dy"] == 2
+        assert props["shadow"]["color"] == "#000000"
+
 
 class TestSetVolume:
     """Tests for set_volume op."""
@@ -548,7 +594,7 @@ class TestAnimateLayer:
             assert track[1]["value"] == 1.0
 
     def test_animate_ken_burns(self):
-        """ken_burns preset creates scale and pan keyframes over full duration."""
+        """ken_burns preset creates scale and pan keyframes over the specified duration."""
         doc = {
             "root": model.new_layer("composition", children=[
                 model.new_layer("image", start=1.0, duration=5.0),
@@ -559,17 +605,17 @@ class TestAnimateLayer:
 
         result = apply_layer_patch(doc, {
             "version": 1,
-            "ops": [{"op": "animate_layer", "layer_id": layer_id, "preset": "ken_burns"}],
+            "ops": [{"op": "animate_layer", "layer_id": layer_id, "preset": "ken_burns", "duration": 2.0}],
         })
 
         keyframes = result["root"]["children"][0]["keyframes"]
-        # Scale should span full duration
+        # Scale should span the specified duration (2.0 seconds)
         assert "transform.scale_x" in keyframes
         assert "transform.scale_y" in keyframes
         for prop in ("transform.scale_x", "transform.scale_y"):
             track = keyframes[prop]
             assert track[0]["t"] == 1.0
-            assert track[1]["t"] == 6.0  # start + duration
+            assert track[1]["t"] == 3.0  # start + duration
             assert track[0]["value"] == 1.0
             assert track[1]["value"] == 1.1
 
@@ -580,7 +626,7 @@ class TestAnimateLayer:
             track = keyframes[prop]
             assert len(track) == 2
             assert track[0]["t"] == 1.0
-            assert track[1]["t"] == 6.0
+            assert track[1]["t"] == 3.0
 
     def test_animate_easing_linear(self):
         """easing parameter maps to interp."""
@@ -671,6 +717,67 @@ class TestAnimateLayer:
                 "ops": [{"op": "animate_layer", "layer_id": layer_id}],
             })
         assert exc.value.code == "E_ARG"
+
+    def test_animate_fly_in_with_custom_canvas_size(self):
+        """fly_in_left with custom canvas size should use that width."""
+        doc = {
+            "canvas": {"width": 1280, "height": 720},
+            "root": model.new_layer("composition", children=[
+                model.new_layer("image", start=0.0, duration=2.0),
+            ]),
+            "selection": [],
+        }
+        layer_id = doc["root"]["children"][0]["id"]
+
+        result = apply_layer_patch(doc, {
+            "version": 1,
+            "ops": [{"op": "animate_layer", "layer_id": layer_id, "preset": "fly_in_left", "duration": 0.5}],
+        })
+
+        keyframes = result["root"]["children"][0]["keyframes"]
+        track = keyframes["transform.x"]
+        assert track[0]["value"] == -1280.0
+        assert track[1]["value"] == 0.0
+
+    def test_animate_fly_out_with_custom_canvas_size(self):
+        """fly_out_right with custom canvas size should use that width."""
+        doc = {
+            "canvas": {"width": 1280, "height": 720},
+            "root": model.new_layer("composition", children=[
+                model.new_layer("image", start=0.0, duration=3.0),
+            ]),
+            "selection": [],
+        }
+        layer_id = doc["root"]["children"][0]["id"]
+
+        result = apply_layer_patch(doc, {
+            "version": 1,
+            "ops": [{"op": "animate_layer", "layer_id": layer_id, "preset": "fly_out_right", "duration": 0.5}],
+        })
+
+        keyframes = result["root"]["children"][0]["keyframes"]
+        track = keyframes["transform.x"]
+        assert track[0]["value"] == 0.0
+        assert track[1]["value"] == 1280.0
+
+    def test_animate_ken_burns_with_duration(self):
+        """ken_burns should respect duration parameter."""
+        doc = {
+            "root": model.new_layer("composition", children=[
+                model.new_layer("image", start=0.0, duration=10.0),
+            ]),
+            "selection": [],
+        }
+        layer_id = doc["root"]["children"][0]["id"]
+
+        result = apply_layer_patch(doc, {
+            "version": 1,
+            "ops": [{"op": "animate_layer", "layer_id": layer_id, "preset": "ken_burns", "duration": 2.0}],
+        })
+
+        keyframes = result["root"]["children"][0]["keyframes"]
+        scale_track = keyframes["transform.scale_x"]
+        assert scale_track[1]["t"] == 2.0
 
 
 class TestCatalogSync:

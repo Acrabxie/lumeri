@@ -779,6 +779,9 @@ def _op_set_text(doc: dict[str, Any], op: dict[str, Any]) -> None:
 
     Recognised props: text, font, font_size, color, align, stroke, shadow,
     background, line_spacing. All optional; omitted props are left unchanged.
+
+    For nested dict props (stroke, shadow), performs shallow merge: new values
+    override old, but unspecified keys in the old dict are preserved.
     """
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_text")
     props = layer.setdefault("props", {})
@@ -788,7 +791,11 @@ def _op_set_text(doc: dict[str, Any], op: dict[str, Any]) -> None:
 
     for key in text_keys:
         if key in op:
-            props[key] = op[key]
+            # For nested dicts (stroke, shadow), do shallow merge; otherwise replace.
+            if key in ("stroke", "shadow") and isinstance(op[key], dict) and isinstance(props.get(key), dict):
+                props[key] = {**props[key], **op[key]}
+            else:
+                props[key] = op[key]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -834,7 +841,6 @@ _EASING_MAP: dict[str, str] = {
     "ease": "ease",
     "ease_in": "ease_in",
     "ease_out": "ease_out",
-    None: "linear",
 }
 
 
@@ -846,7 +852,8 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
     fly_in_bottom, fly_out_left, fly_out_right, fly_out_top, fly_out_bottom,
     zoom_in, zoom_out, ken_burns.
 
-    Times are relative to the layer's own start (so t=0 is at layer start).
+    Times are absolute (global document time). Fly-in/out offsets use canvas
+    dimensions from doc. Fly-out durations clamp to layer duration.
     """
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="animate_layer")
     preset = str(_require_arg(op, "preset"))
@@ -857,9 +864,13 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer_start = model._as_float(layer.get("start"))
     layer_duration = model._as_float(layer.get("duration"))
 
-    # Validate times fall within the layer.
-    if duration > layer_duration:
-        duration = layer_duration
+    # Get canvas dimensions for fly-in/out offsets.
+    canvas = doc.get("canvas", {})
+    canvas_width = int(canvas.get("width", 1920))
+    canvas_height = int(canvas.get("height", 1080))
+
+    # Clamp duration to layer duration.
+    duration = min(duration, layer_duration)
 
     if preset == "fade_in":
         # Opacity 0 → 1, from layer start to start + duration.
@@ -900,7 +911,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
-            track.append({"t": start_t, "value": -1920.0, "interp": interp})
+            track.append({"t": start_t, "value": float(-canvas_width), "interp": interp})
             track.append({"t": end_t, "value": 0.0, "interp": interp})
 
         elif preset == "fly_in_right":
@@ -910,7 +921,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
-            track.append({"t": start_t, "value": 1920.0, "interp": interp})
+            track.append({"t": start_t, "value": float(canvas_width), "interp": interp})
             track.append({"t": end_t, "value": 0.0, "interp": interp})
 
         elif preset == "fly_in_top":
@@ -920,7 +931,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
-            track.append({"t": start_t, "value": -1080.0, "interp": interp})
+            track.append({"t": start_t, "value": float(-canvas_height), "interp": interp})
             track.append({"t": end_t, "value": 0.0, "interp": interp})
 
         elif preset == "fly_in_bottom":
@@ -930,15 +941,16 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
-            track.append({"t": start_t, "value": 1080.0, "interp": interp})
+            track.append({"t": start_t, "value": float(canvas_height), "interp": interp})
             track.append({"t": end_t, "value": 0.0, "interp": interp})
 
         track.sort(key=lambda k: k["t"])
 
     elif preset in {"fly_out_left", "fly_out_right", "fly_out_top", "fly_out_bottom"}:
-        # Position goes from 0 to off-canvas at the end.
+        # Position goes from 0 to off-canvas at the end. Clamp duration upfront.
+        duration = min(duration, layer_duration)
         keyframes = layer.setdefault("keyframes", {})
-        start_t = _round_t(max(layer_start, layer_start + layer_duration - duration))
+        start_t = _round_t(layer_start + layer_duration - duration)
         end_t = _round_t(layer_start + layer_duration)
 
         if preset == "fly_out_left":
@@ -949,7 +961,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
             track.append({"t": start_t, "value": 0.0, "interp": interp})
-            track.append({"t": end_t, "value": -1920.0, "interp": interp})
+            track.append({"t": end_t, "value": float(-canvas_width), "interp": interp})
 
         elif preset == "fly_out_right":
             prop = "transform.x"
@@ -959,7 +971,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
             track.append({"t": start_t, "value": 0.0, "interp": interp})
-            track.append({"t": end_t, "value": 1920.0, "interp": interp})
+            track.append({"t": end_t, "value": float(canvas_width), "interp": interp})
 
         elif preset == "fly_out_top":
             prop = "transform.y"
@@ -969,7 +981,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
             track.append({"t": start_t, "value": 0.0, "interp": interp})
-            track.append({"t": end_t, "value": -1080.0, "interp": interp})
+            track.append({"t": end_t, "value": float(-canvas_height), "interp": interp})
 
         elif preset == "fly_out_bottom":
             prop = "transform.y"
@@ -979,7 +991,7 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
                 abs(model._as_float(k.get("t")) - end_t) < 1e-9
             )]
             track.append({"t": start_t, "value": 0.0, "interp": interp})
-            track.append({"t": end_t, "value": 1080.0, "interp": interp})
+            track.append({"t": end_t, "value": float(canvas_height), "interp": interp})
 
         track.sort(key=lambda k: k["t"])
 
@@ -1016,10 +1028,11 @@ def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
             track.sort(key=lambda k: k["t"])
 
     elif preset == "ken_burns":
-        # Pan + zoom throughout the full duration: scale 1.0 → 1.1, slight pan.
+        # Pan + zoom over the specified duration: scale 1.0 → 1.1, slight pan.
+        duration = min(duration, layer_duration)
         keyframes = layer.setdefault("keyframes", {})
         start_t = _round_t(layer_start)
-        end_t = _round_t(layer_start + layer_duration)
+        end_t = _round_t(layer_start + duration)
 
         # Scale keyframes.
         for prop in ("transform.scale_x", "transform.scale_y"):
