@@ -800,6 +800,25 @@
     return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}:${String(ff).padStart(2, "0")}`;
   }
 
+  // Full SMPTE-style timecode HH:MM:SS:FF for an integer frame at a given fps.
+  // FF is the within-second frame index (0 .. round(fps)-1); HH/MM/SS derive
+  // from total seconds. Integer-only and deterministic, mirroring fmtTimecode
+  // but with an explicit hours field so professional-length sequences read as a
+  // proper NLE timecode. Exposed as window.__lumeriTimecode for tests/DevTools.
+  //   frame 90 @ 30fps -> "00:00:03:00"
+  //   frame 47 @ 24fps -> "00:00:01:23"
+  function fmtTimecodeFull(frame, fps) {
+    const f = Math.max(1, Math.round(Number(fps) || 30));
+    const fr = Math.max(0, Math.round(Number(frame) || 0));
+    const totalSec = Math.floor(fr / f);
+    const ff = fr % f;
+    const hh = Math.floor(totalSec / 3600);
+    const mm = Math.floor((totalSec % 3600) / 60);
+    const ss = totalSec % 60;
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(hh)}:${p(mm)}:${p(ss)}:${p(ff)}`;
+  }
+
   // Derive keyframe tracks for a clip the round-2 editor can render. The backend
   // serializes per-clip animation data as either clip.keyframes or
   // clip.effects.keyframes, shaped { property: { frameIndex(string): value } }
@@ -994,6 +1013,11 @@
     step: (delta) => (state.frameRuler ? state.frameRuler.step(delta) : null),
     current: () => (state.frameRuler ? state.frameRuler.currentFrame : null),
   };
+
+  // Computed-behavior hook: full SMPTE timecode HH:MM:SS:FF for (frame, fps).
+  // Pure function, no DOM — lets DevTools/tests assert the formatting directly
+  // (e.g. (90, 30) -> "00:00:03:00", (47, 24) -> "00:00:01:23").
+  window.__lumeriTimecode = (frame, fps) => fmtTimecodeFull(frame, fps);
 
   // ── keyframe-track editor (curve-editing visual basis) ──────────────
   // Self-contained, imperative DOM (like buildFrameRuler): a horizontal track

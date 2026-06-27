@@ -14,6 +14,19 @@
   --err: #ef6c6c;
   --pending: #6c7480;
   --running: #4ea1ff;
+
+  /* Refined NLE palette (additive): track-header tint, ruler/clip depth,
+     and per-kind accents used for the polished timeline + inspector look. */
+  --track-head: #1d232b;
+  --track-head-hi: #262e38;
+  --lane: #11151a;
+  --lane-overlay: #14161f;
+  --ruler-bg: #161b21;
+  --clip-video: #18a06a;
+  --clip-image: #5a6cff;
+  --clip-text: #f59334;
+  --shadow-clip: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --radius-sm: 4px;
 }
 
 * { box-sizing: border-box; }
@@ -352,32 +365,36 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .project-timeline-title {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   font-family: ui-monospace, SF Mono, Menlo, monospace;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 .project-timeline-meta {
   font-size: 10px;
   color: var(--text-dim);
   font-family: ui-monospace, SF Mono, Menlo, monospace;
+  letter-spacing: 0.02em;
 }
-/* Playhead timecode readout (MM:SS:FF · f<frame>), pinned to the header's end. */
+/* Playhead timecode readout (MM:SS:FF · f<frame>), pinned to the header's end.
+   Styled like an NLE timecode chip: monospaced, tabular, slight glow. */
 .pt-timecode {
   margin-left: auto;
-  font: 10px/1 ui-monospace, SF Mono, Menlo, monospace;
+  font: 11px/1 ui-monospace, SF Mono, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
   white-space: nowrap;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  box-shadow: inset 0 0 0 1px rgba(78, 161, 255, 0.08);
 }
 .project-timeline-tracks {
   display: flex;
@@ -387,23 +404,29 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .pt-track-row {
   display: flex;
   align-items: stretch;
-  height: 28px;
+  height: 30px;
 }
+/* Track header: a clear, slightly raised gutter — a left rail with a kind
+   tint, heavier label weight, and a divider against the lane. */
 .pt-track-label {
-  width: 44px;
+  width: 48px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 4px;
-  background: var(--panel-soft);
+  padding: 0 6px;
+  background: linear-gradient(180deg, var(--track-head-hi) 0%, var(--track-head) 100%);
   border: 1px solid var(--border);
   border-right: none;
-  border-radius: 3px 0 0 3px;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3);
 }
 .pt-track-label span {
   font-size: 9px;
+  font-weight: 600;
   font-family: ui-monospace, SF Mono, Menlo, monospace;
-  color: var(--text-dim);
+  color: var(--text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -411,26 +434,34 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .pt-track-body {
   flex: 1;
   position: relative;
-  background: rgba(0,255,100,0.03);
+  background: var(--lane);
   border: 1px solid var(--border);
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
-.pt-track-body.overlay { background: rgba(100,100,255,0.03); }
+.pt-track-body.overlay { background: var(--lane-overlay); }
 .pt-clip {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 3px;
+  bottom: 3px;
   min-width: 2px;
-  border-radius: 2px;
+  border-radius: 3px;
   display: flex;
   align-items: center;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+  box-shadow: var(--shadow-clip);
+  transition: box-shadow 0.1s ease, filter 0.1s ease;
 }
+.pt-clip:hover { filter: brightness(1.12); }
 .pt-clip.dragging { cursor: grabbing; opacity: 0.85; z-index: 5; }
-.pt-clip.selected { outline: 1.5px solid #fff; outline-offset: -1px; box-shadow: 0 0 0 1px rgba(255,255,255,0.4); }
+.pt-clip.selected {
+  outline: 1.5px solid #fff;
+  outline-offset: -1px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
 .pt-clip-handle {
   position: absolute;
   top: 0; bottom: 0;
@@ -470,17 +501,34 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .pt-edit-btn:hover:not(:disabled) { background: rgba(255,255,255,0.10); }
 .pt-edit-btn:disabled { opacity: 0.4; cursor: default; }
-.pt-clip.video   { background: rgba(0,200,100,0.25); border: 1px solid #0a7a40; }
-.pt-clip.image   { background: rgba(100,100,255,0.25); border: 1px solid #3030aa; }
-.pt-clip.text    { background: rgba(255,150,50,0.25); border: 1px solid #aa5500; }
+/* Per-kind clip fills: a soft top-down gradient over a kind tint with a
+   matching left accent bar, so video / image / text read at a glance. */
+.pt-clip.video {
+  background: linear-gradient(180deg, rgba(24, 160, 106, 0.42) 0%, rgba(24, 160, 106, 0.24) 100%);
+  border: 1px solid #0a7a40;
+  border-left: 2px solid var(--clip-video);
+}
+.pt-clip.image {
+  background: linear-gradient(180deg, rgba(90, 108, 255, 0.42) 0%, rgba(90, 108, 255, 0.24) 100%);
+  border: 1px solid #3030aa;
+  border-left: 2px solid var(--clip-image);
+}
+.pt-clip.text {
+  background: linear-gradient(180deg, rgba(245, 147, 52, 0.42) 0%, rgba(245, 147, 52, 0.24) 100%);
+  border: 1px solid #aa5500;
+  border-left: 2px solid var(--clip-text);
+}
 .pt-clip span {
-  font-size: 8px;
+  font-size: 9px;
+  font-weight: 500;
   font-family: ui-monospace, SF Mono, Menlo, monospace;
-  padding: 0 3px;
+  padding: 0 5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: rgba(255,255,255,0.7);
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.01em;
   pointer-events: none;
 }
 .pt-track-body.empty-track { background: linear-gradient(180deg,#1a2a1a 0%,#0d1a0d 100%); border-color: #2a3a2a; }
@@ -588,11 +636,12 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   position: relative;
   height: 26px;
   flex-shrink: 0;
-  background: var(--panel-soft);
+  background: linear-gradient(180deg, var(--ruler-bg) 0%, var(--lane) 100%);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   touch-action: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .frame-ruler-ticks {
   position: absolute;
@@ -730,23 +779,24 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   margin-top: 8px;
 }
 .inspector {
-  background: var(--panel-soft);
+  background: linear-gradient(180deg, var(--panel-soft) 0%, var(--panel) 100%);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
 }
 .inspector-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
+  padding-bottom: 7px;
+  margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 .inspector-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -761,22 +811,35 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   padding: 2px 6px;
 }
 .inspector-section {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 .inspector-section:first-of-type {
   margin-top: 0;
 }
+/* Consistent section header: small uppercase label with a short accent tab so
+   every section reads the same way down the inspector. */
 .inspector-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font: 9px/1 ui-monospace, SF Mono, Menlo, monospace;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.inspector-section-title::before {
+  content: "";
+  width: 6px;
+  height: 1px;
+  background: var(--accent);
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 .inspector-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px 14px;
+  gap: 4px 16px;
 }
 .inspector-row {
   display: flex;
@@ -786,12 +849,14 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   min-width: 0;
 }
 .inspector-key {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 .inspector-val {
-  font: 11px/1.3 ui-monospace, SF Mono, Menlo, monospace;
+  font: 11px/1.35 ui-monospace, SF Mono, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
