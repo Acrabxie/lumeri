@@ -95,6 +95,29 @@ _MAX_TRANSIENT_RETRIES = 8
 # never trip it.
 _DOOM_LOOP_THRESHOLD = 3
 
+# Post-edit self-correction (ported from opencode pattern #2: append LSP
+# diagnostics to a tool_result right after an edit). After a SUCCESSFUL
+# *mutating* lumenframe verb, we append a compact POST-STATE digest (the
+# resulting layer-tree summary + any lumenframe validate_doc warnings) to that
+# tool's tool_result text the model reads next. This grounds the model in the
+# new layer state at the exact moment it edits, so it self-corrects instead of
+# editing blind. A "mutating" lumen verb is any tool whose name starts with
+# "lumen_" EXCEPT the read-only ones below.
+_LUMEN_TOOL_PREFIX = "lumen_"
+_LUMEN_READONLY_TOOLS = frozenset({"lumen_get", "lumen_render"})
+
+
+def _is_mutating_lumen_tool(name: str) -> bool:
+    """True for a lumenframe verb that changes the layer document.
+
+    Mutating == tool name starts with ``lumen_`` and is NOT one of the
+    read-only verbs (``lumen_get``, ``lumen_render``). The read-only get verb
+    is actually registered as ``get_lumenframe`` (no ``lumen_`` prefix) so it is
+    excluded automatically; ``lumen_render`` is excluded explicitly because it
+    only rasterises and does not edit the tree.
+    """
+    return name.startswith(_LUMEN_TOOL_PREFIX) and name not in _LUMEN_READONLY_TOOLS
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Stream accumulators (one stream = one model call)
@@ -438,6 +461,90 @@ class AgentLoopV3:
         self._messages.append(
             {"role": "tool", "tool_call_id": call_id, "content": content}
         )
+
+    def _lumen_post_state_digest(self) -> str:
+        """Build a compact POST-STATE digest of the live lumenframe document.
+
+        Reuses the compact tree-summary helper in ``gemia.tools.layer`` and runs
+        lumenframe's ``validate_doc`` to surface any structural warnings. Returns
+        a short text block (layer-tree summary + warning line) or ``""`` when
+        there is no document / lumenframe is unavailable. This is the LSP-style
+        feedback opencode appends after an edit, adapted to the layer tree.
+        """
+        from gemia.tools import layer as _layer
+
+        # Resolve the current doc the same way the layer dispatchers do, so the
+        # digest reflects exactly what the just-applied edit produced. Prefer the
+        # project-backed doc; fall back to the session memory cache.
+        doc: dict[str, Any] | None = None
+        try:
+            doc = _layer._lumendoc(self._tool_ctx)
+        except Exception:
+            cache = getattr(_layer, "_DOC_CACHE", {})
+            doc = cache.get(self.session_id)
+        if not isinstance(doc, dict):
+            return ""
+
+        root = doc.get("root", {})
+        tree = (
+            _layer._compact_tree_summary(root)
+            if root
+            else "(empty composition)"
+        )
+        selection = doc.get("selection", []) or []
+
+        # Run lumenframe's own validator; it raises on any invariant violation.
+        # A clean doc => "ok"; a violation => the structured message as a warning.
+        try:
+            from lumenframe import validate_doc as _validate_doc
+
+            _validate_doc(doc)
+            warnings = "none"
+        except Exception as exc:  # LayerPatchError or anything validate raises
+            code = getattr(exc, "code", None)
+            msg = getattr(exc, "message", None) or str(exc)
+            warnings = f"{code}: {msg}" if code else str(msg)
+
+        lines = [
+            "[POST-EDIT STATE — the layer document AFTER this edit. Verify it "
+            "matches your intent before the next step.]",
+            "Layer tree:",
+            tree,
+        ]
+        if selection:
+            lines.append(
+                "Selection: " + ", ".join(str(s)[:12] for s in selection)
+            )
+        lines.append(f"Validate: {warnings}")
+        return "\n".join(lines)
+
+    def _append_lumen_post_state(self, call_id: str) -> None:
+        """ADDITIVE post-edit feedback: append the POST-STATE digest to the
+        tool_result the model just received for ``call_id``.
+
+        Mirrors opencode pattern #2 (appending LSP diagnostics after an edit):
+        right after a successful mutating lumen verb, fold the resulting
+        layer-tree summary + validate warnings into that exact tool message's
+        text so the model is grounded in the new state. Fully wrapped in
+        try/except by the caller — must never break the loop.
+        """
+        digest = self._lumen_post_state_digest()
+        if not digest:
+            return
+        # The success path appended this tool_result as the last message. Find
+        # it by call_id (robust even if ordering ever changes) and append the
+        # digest to its text content. Keep it additive: we never replace.
+        for msg in reversed(self._messages):
+            if (
+                msg.get("role") == "tool"
+                and msg.get("tool_call_id") == call_id
+                and isinstance(msg.get("content"), str)
+            ):
+                existing = msg["content"]
+                msg["content"] = (
+                    f"{existing}\n\n{digest}" if existing else digest
+                )
+                return
 
     def _note_tool_failure(
         self,
@@ -856,6 +963,20 @@ class AgentLoopV3:
                     }
                 )
                 self._append_tool_result(tc.id, model_result)
+
+                # ---- post-edit self-correction (opencode pattern #2) ----
+                # After a SUCCESSFUL *mutating* lumen verb, append a compact
+                # POST-STATE digest (layer-tree summary + validate_doc
+                # warnings) to the tool_result the model just received, so it is
+                # grounded in the new layer state right where it edited —
+                # mirroring opencode appending LSP diagnostics after edits.
+                # ADDITIVE, cheap, and non-fatal: any failure here must never
+                # break the loop, so the whole thing is wrapped in try/except.
+                if _is_mutating_lumen_tool(tc.name):
+                    try:
+                        self._append_lumen_post_state(tc.id)
+                    except Exception:  # noqa: BLE001 — never break the turn
+                        pass
 
                 # Plan-B visual feedback. ONLY triggered by a
                 # dispatcher-flagged result — there is no keyword
