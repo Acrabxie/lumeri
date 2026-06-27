@@ -367,6 +367,18 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   color: var(--text-dim);
   font-family: ui-monospace, SF Mono, Menlo, monospace;
 }
+/* Playhead timecode readout (MM:SS:FF · f<frame>), pinned to the header's end. */
+.pt-timecode {
+  margin-left: auto;
+  font: 10px/1 ui-monospace, SF Mono, Menlo, monospace;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
 .project-timeline-tracks {
   display: flex;
   flex-direction: column;
@@ -658,6 +670,14 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* One host per derived property track; stack them with consistent spacing so a
+   selected clip's multiple keyframe tracks read as a tidy column. */
+.kf-track-host {
+  margin-top: 3px;
+}
+.kf-track-host:first-child {
+  margin-top: 0;
+}
 .kf-track {
   position: relative;
   height: 22px;
@@ -680,6 +700,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   white-space: nowrap;
   pointer-events: none;
   z-index: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .kf-marker {
   position: absolute;

@@ -716,9 +716,14 @@
         currentFrame: prevFrame,
       });
 
+      // Frame/timecode readout reflecting the playhead position, kept in sync
+      // whenever the ruler moves (seek/scrub/step) — see applyPlayhead wiring.
+      updatePlayheadReadout();
+
       // Keyframe-track editor strip: the visual basis for curve editing. Lives
-      // just below the ruler; built empty here (no keyframes flow from the
-      // backend yet) so add/move can be driven once a property is selected.
+      // just below the ruler. We (re)render it from the currently selected clip
+      // so the strip shows that clip's keyframe track(s); with no selection it
+      // falls back to an empty "value" track to keep the layout stable.
       let kfHost = document.getElementById("project-timeline-keyframes");
       if (!kfHost) {
         kfHost = document.createElement("div");
@@ -728,16 +733,7 @@
           rulerHost.parentNode.insertBefore(kfHost, rulerHost.nextSibling);
         }
       }
-      const prevKfs = state.keyframeEditor ? state.keyframeEditor.keyframes : [];
-      const prevProp = state.keyframeEditor ? state.keyframeEditor.property : "value";
-      kfHost.innerHTML = "";
-      buildKeyframeEditor(kfHost, {
-        property: prevProp,
-        keyframes: prevKfs,
-        durationSec: dur,
-        fps: data.fps || 30,
-        pxPerSec: (data.fps || 30) * FRAME_RULER_DEFAULT_PX_PER_FRAME,
-      });
+      renderSelectedClipKeyframes();
     }
 
     metaEl.textContent = [
@@ -785,6 +781,72 @@
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
     return `${m}:${String(sec).padStart(2, "0")}`;
+  }
+
+  // SMPTE-style timecode for an integer frame at a given fps: MM:SS:FF where
+  // FF is the within-second frame index (0 .. round(fps)-1). Deterministic and
+  // integer-only so the panel readout matches the ruler's frame model exactly.
+  function fmtTimecode(frame, fps) {
+    const f = Math.max(1, Math.round(Number(fps) || 30));
+    const fr = Math.max(0, Math.round(Number(frame) || 0));
+    const totalSec = Math.floor(fr / f);
+    const ff = fr % f;
+    const mm = Math.floor(totalSec / 60);
+    const ss = totalSec % 60;
+    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}:${String(ff).padStart(2, "0")}`;
+  }
+
+  // Derive keyframe tracks for a clip the round-2 editor can render. The backend
+  // serializes per-clip animation data as either clip.keyframes or
+  // clip.effects.keyframes, shaped { property: { frameIndex(string): value } }
+  // (e.g. { opacity: { "0": 0, "12": 0.42 } }) or { property: { points: [...] } }.
+  // We convert each frame index to seconds (t = frame / fps) so marker.left ==
+  // t * pxPerSec lines up with the frame ruler. When a clip carries no keyframe
+  // data we synthesize a single "clip" track with boundary markers at the clip's
+  // own start/end (clip-relative t = 0 and t = duration) so a selected clip
+  // always shows a meaningful, frame-snapped track.
+  function clipKeyframeTracks(clip, fps) {
+    const f = Math.max(1, Math.round(Number(fps) || 30));
+    const out = [];
+    const sources = [clip && clip.keyframes, clip && clip.effects && clip.effects.keyframes];
+    for (const src of sources) {
+      if (!src || typeof src !== "object") continue;
+      for (const [property, spec] of Object.entries(src)) {
+        const kfs = keyframePairsToSeconds(spec, f);
+        if (kfs.length) out.push({ property, keyframes: kfs });
+      }
+    }
+    if (out.length) return out;
+
+    // Fallback: boundary markers from the clip's own time bounds.
+    const dur = Math.max(0, Number(clip && clip.duration) || 0);
+    const kfs = dur > 0
+      ? [{ t: 0, value: 0 }, { t: dur, value: 1 }]
+      : [{ t: 0, value: 0 }];
+    return [{ property: "clip", keyframes: kfs }];
+  }
+
+  // Normalize one property's keyframe spec into [{ t(seconds), value }] sorted by
+  // t. Accepts { frameIndex: value } maps and { points: [{ frame|t, value }] }.
+  function keyframePairsToSeconds(spec, fps) {
+    const f = Math.max(1, Math.round(Number(fps) || 30));
+    const pairs = [];
+    if (spec && Array.isArray(spec.points)) {
+      for (const p of spec.points) {
+        if (!p || typeof p !== "object") continue;
+        const t = p.t != null ? Number(p.t)
+          : (p.frame != null ? Number(p.frame) / f : null);
+        if (t == null || !isFinite(t)) continue;
+        pairs.push({ t, value: p.value });
+      }
+    } else if (spec && typeof spec === "object") {
+      for (const [k, value] of Object.entries(spec)) {
+        const frame = Number(k);
+        if (!isFinite(frame)) continue;
+        pairs.push({ t: frame / f, value });
+      }
+    }
+    return pairs.sort((a, b) => a.t - b.t);
   }
 
   // ── frame ruler / playhead / scrubber / frame-step ──────────────────
@@ -876,6 +938,8 @@
     inst.applyPlayhead = () => {
       playhead.style.left = `${inst.currentFrame * inst.pxPerFrame}px`;
       readout.textContent = `frame ${inst.currentFrame} / ${inst.totalFrames - 1}`;
+      // Mirror the move into the panel header timecode readout when present.
+      updatePlayheadReadout();
     };
     inst.seekToFrame = (n) => {
       inst.currentFrame = clampFrame(n, inst.totalFrames);
@@ -1055,6 +1119,39 @@
     markers: () => (state.keyframeEditor ? state.keyframeEditor.markers() : null),
   };
 
+  // Integration-level debug/test hook (mirrors __lumeriFrameRuler/
+  // __lumeriKeyframeEditor): drives the WHOLE project-timeline panel render path
+  // — frame ruler wired above the tracks, selection-driven keyframe strip below
+  // it, and the header timecode readout — so DevTools and tests can assert the
+  // computed wiring without standing up a browser.
+  window.__lumeriTimelineUI = {
+    // Render the panel from a timeline payload (same shape as GET /timeline).
+    renderPanel: (data) => {
+      state.projectTimeline = data;
+      state.selectedClipId = null;
+      renderProjectTimeline(data);
+      return data;
+    },
+    // Seek the panel's frame ruler and return the resulting frame.
+    seekToFrame: (n) => (state.frameRuler ? state.frameRuler.seekToFrame(n) : null),
+    // Step the panel's frame ruler by +/-1 (clamped); returns the new frame.
+    step: (delta) => (state.frameRuler ? state.frameRuler.step(delta) : null),
+    // Current playhead frame on the panel ruler.
+    currentFrame: () => (state.frameRuler ? state.frameRuler.currentFrame : null),
+    // The header timecode readout text (frame + SMPTE), for assertions.
+    readout: () => {
+      const tc = document.getElementById("pt-timecode");
+      return tc ? tc.textContent : null;
+    },
+    // Select a clip by id (drives the keyframe strip), returns marker positions.
+    selectClip: (clipId) => {
+      selectClip(clipId);
+      return state.keyframeEditor ? state.keyframeEditor.markers() : null;
+    },
+    // Derived keyframe tracks for a clip (no DOM): [{ property, keyframes }].
+    clipKeyframeTracks: (clip, fps) => clipKeyframeTracks(clip, fps),
+  };
+
   // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
   // Every gesture compiles to ONE patches.py op applied through the SAME
   // ProjectStore path as the model's verbs — no parallel edit state.
@@ -1096,6 +1193,67 @@
       el.classList.toggle("selected", el.dataset.clipId === clipId);
     });
     updateEditHint();
+    renderSelectedClipKeyframes();
+  }
+
+  // Rebuild the keyframe-track strip from the currently selected clip's derived
+  // keyframe tracks (round-2 editor). With no selection the strip falls back to
+  // an empty "value" track so the panel layout stays stable. Markers land at
+  // marker.left == t * pxPerSec, matching the frame ruler above.
+  function renderSelectedClipKeyframes() {
+    const kfHost = document.getElementById("project-timeline-keyframes");
+    if (!kfHost) return;
+    const tl = state.projectTimeline || {};
+    const dur = Number(tl.duration) || 0;
+    if (dur <= 0) return;   // ruler/strip only exist once duration is known
+    const fps = Number(tl.fps) || 30;
+    const pxPerSec = fps * FRAME_RULER_DEFAULT_PX_PER_FRAME;
+
+    const clip = selectedClip();
+    const tracks = clip
+      ? clipKeyframeTracks(clip, fps)
+      : [{ property: "value", keyframes: [] }];
+
+    // Track-span the editor at least to the project duration so positions line
+    // up with the ruler; clip-relative keyframes are offset by the clip start so
+    // a marker sits under the same frame on the ruler.
+    const offset = clip ? (Number(clip.start) || 0) : 0;
+    kfHost.innerHTML = "";
+    let firstInst = null;
+    tracks.forEach((trk) => {
+      const sub = document.createElement("div");
+      sub.className = "kf-track-host";
+      kfHost.appendChild(sub);
+      const inst = buildKeyframeEditor(sub, {
+        property: trk.property,
+        keyframes: trk.keyframes.map((k) => ({ t: offset + k.t, value: k.value })),
+        durationSec: dur,
+        fps,
+        pxPerSec,
+      });
+      if (!firstInst) firstInst = inst;
+    });
+    // state.keyframeEditor (set by buildKeyframeEditor) points at the LAST track;
+    // keep the test/debug hook pointed at the first track for stable assertions.
+    if (firstInst) state.keyframeEditor = firstInst;
+  }
+
+  // Frame + SMPTE timecode readout for the current playhead, shown in the panel
+  // header. Created lazily next to the meta line; updated on every ruler move
+  // (seek/scrub/step) via the frame ruler's applyPlayhead callback.
+  function updatePlayheadReadout() {
+    const metaEl = document.getElementById("project-timeline-meta");
+    if (!metaEl || !metaEl.parentNode) return;
+    let tc = document.getElementById("pt-timecode");
+    if (!tc) {
+      tc = document.createElement("span");
+      tc.id = "pt-timecode";
+      tc.className = "pt-timecode";
+      metaEl.parentNode.appendChild(tc);
+    }
+    const fr = state.frameRuler;
+    if (!fr) { tc.textContent = ""; return; }
+    tc.textContent = `${fmtTimecode(fr.currentFrame, fr.fps)} · f${fr.currentFrame}`;
   }
 
   function selectedClip() {
