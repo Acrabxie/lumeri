@@ -55,6 +55,7 @@
     reconnectTimer: null,
     projectTimeline: null,      // fetched from /sessions/{id}/timeline
     timelinePollTimer: null,
+    frameRuler: null,           // active FrameRuler instance (frame ruler/playhead/scrubber)
   };
 
   function newTurn(userMessage) {
@@ -691,6 +692,30 @@
 
     panel.hidden = false;
     const dur = data.duration || 0;
+
+    // Frame ruler + playhead + scrubber + frame-step. Host lives just after the
+    // tracks; we (re)build it whenever the project's duration/fps is known so
+    // the ruler stays in sync with the timeline length.
+    if (dur > 0) {
+      let rulerHost = document.getElementById("project-timeline-ruler");
+      if (!rulerHost) {
+        rulerHost = document.createElement("div");
+        rulerHost.id = "project-timeline-ruler";
+        rulerHost.className = "project-timeline-ruler";
+        if (tracksEl.parentNode) {
+          tracksEl.parentNode.insertBefore(rulerHost, tracksEl.nextSibling);
+        }
+      }
+      const prevFrame = state.frameRuler ? state.frameRuler.currentFrame : 0;
+      rulerHost.innerHTML = "";
+      buildFrameRuler(rulerHost, {
+        durationSec: dur,
+        fps: data.fps || 30,
+        pxPerFrame: FRAME_RULER_DEFAULT_PX_PER_FRAME,
+        currentFrame: prevFrame,
+      });
+    }
+
     metaEl.textContent = [
       `${data.width || 1920}×${data.height || 1080}`,
       `${data.fps || 30}fps`,
@@ -737,6 +762,146 @@
     const sec = Math.floor(s % 60);
     return `${m}:${String(sec).padStart(2, "0")}`;
   }
+
+  // ── frame ruler / playhead / scrubber / frame-step ──────────────────
+  // Self-contained, imperative DOM (not part of render()'s innerHTML), so it is
+  // testable in isolation and never clobbered by streaming events. Mirrors the
+  // ask-modal pattern: a debug/test hook (window.__lumeriFrameRuler) drives the
+  // same build()/seekToFrame()/step() the panel render wires up.
+  //
+  // Frame model (all integer-frame, deterministic):
+  //   totalFrames = round(durationSec * fps)            (>= 1)
+  //   one tick per frame, frames 0 .. totalFrames-1     → tickCount == totalFrames
+  //   major tick (labeled) every `majorEvery` frames    (frame 0 always major)
+  //   playhead.left(px) == currentFrame * pxPerFrame
+  //   scrubber: frame = clamp(round(offsetX / pxPerFrame), 0, totalFrames-1)
+  //   step(d):  frame = clamp(currentFrame + d, 0, totalFrames-1)
+
+  const FRAME_RULER_DEFAULT_PX_PER_FRAME = 6;
+
+  function clampFrame(n, totalFrames) {
+    n = Math.round(Number(n) || 0);
+    if (n < 0) return 0;
+    const hi = Math.max(0, totalFrames - 1);
+    return n > hi ? hi : n;
+  }
+
+  // Pick a labeled-tick stride so labels stay readable regardless of zoom:
+  // aim for a major tick roughly every ~64px, snapped to a "nice" frame count.
+  function frameRulerMajorEvery(pxPerFrame) {
+    const target = pxPerFrame > 0 ? Math.round(64 / pxPerFrame) : 10;
+    const nice = [1, 2, 5, 10, 15, 20, 25, 30, 50, 60, 100, 150, 300, 600];
+    for (const n of nice) if (n >= target) return n;
+    return nice[nice.length - 1];
+  }
+
+  function buildFrameRuler(container, opts) {
+    if (!container) return null;
+    opts = opts || {};
+    const durationSec = Number(opts.durationSec) || 0;
+    const fps = Number(opts.fps) || 30;
+    const pxPerFrame = Number(opts.pxPerFrame) > 0
+      ? Number(opts.pxPerFrame) : FRAME_RULER_DEFAULT_PX_PER_FRAME;
+    const totalFrames = Math.max(1, Math.round(durationSec * fps));
+    const majorEvery = frameRulerMajorEvery(pxPerFrame);
+
+    // tear down any prior instance in this container
+    if (state.frameRuler && state.frameRuler.root && state.frameRuler.root.parentNode === container) {
+      container.removeChild(state.frameRuler.root);
+    }
+
+    const root = el("div", { class: "frame-ruler" });
+    root.style.position = "relative";
+    root.style.width = `${totalFrames * pxPerFrame}px`;
+
+    // Tick marks: one per frame; majors are labeled with the frame number.
+    const ticksWrap = el("div", { class: "frame-ruler-ticks" });
+    for (let f = 0; f < totalFrames; f++) {
+      const isMajor = (f % majorEvery) === 0;
+      const tick = el("div", { class: isMajor ? "frame-tick major" : "frame-tick" });
+      tick.style.left = `${f * pxPerFrame}px`;
+      tick.setAttribute("data-frame", String(f));
+      if (isMajor) {
+        const lbl = el("span", { class: "frame-tick-label", text: String(f) });
+        tick.appendChild(lbl);
+      }
+      ticksWrap.appendChild(tick);
+    }
+    root.appendChild(ticksWrap);
+
+    // Playhead: a vertical line at currentFrame * pxPerFrame.
+    const playhead = el("div", { class: "playhead" });
+    root.appendChild(playhead);
+
+    // Frame-step controls (prev / next frame), clamped to [0, totalFrames-1].
+    const stepWrap = el("div", { class: "frame-step" });
+    const prevBtn = el("button", { type: "button", class: "frame-step-btn", "data-step": "prev", text: "◀" });
+    const readout = el("span", { class: "frame-step-readout" });
+    const nextBtn = el("button", { type: "button", class: "frame-step-btn", "data-step": "next", text: "▶" });
+    stepWrap.appendChild(prevBtn);
+    stepWrap.appendChild(readout);
+    stepWrap.appendChild(nextBtn);
+
+    const inst = {
+      root, ticksWrap, playhead, stepWrap, readout,
+      durationSec, fps, pxPerFrame, totalFrames, majorEvery,
+      currentFrame: clampFrame(opts.currentFrame != null ? opts.currentFrame : 0, totalFrames),
+      container,
+    };
+
+    inst.applyPlayhead = () => {
+      playhead.style.left = `${inst.currentFrame * inst.pxPerFrame}px`;
+      readout.textContent = `frame ${inst.currentFrame} / ${inst.totalFrames - 1}`;
+    };
+    inst.seekToFrame = (n) => {
+      inst.currentFrame = clampFrame(n, inst.totalFrames);
+      inst.applyPlayhead();
+      return inst.currentFrame;
+    };
+    inst.step = (delta) => inst.seekToFrame(inst.currentFrame + (Math.round(Number(delta)) || 0));
+
+    // Scrubber: pointerdown + drag on the ruler snaps to the nearest frame.
+    const offsetXOf = (ev) => {
+      if (typeof ev.offsetX === "number") return ev.offsetX;
+      const rect = root.getBoundingClientRect ? root.getBoundingClientRect() : { left: 0 };
+      return (ev.clientX || 0) - (rect.left || 0);
+    };
+    const seekFromEvent = (ev) => {
+      const frame = Math.round(offsetXOf(ev) / inst.pxPerFrame);
+      inst.seekToFrame(frame);
+    };
+    root.addEventListener("pointerdown", (ev) => {
+      inst.scrubbing = true;
+      try { root.setPointerCapture && root.setPointerCapture(ev.pointerId); } catch {}
+      seekFromEvent(ev);
+      if (ev.preventDefault) ev.preventDefault();
+    });
+    root.addEventListener("pointermove", (ev) => { if (inst.scrubbing) seekFromEvent(ev); });
+    const endScrub = () => { inst.scrubbing = false; };
+    root.addEventListener("pointerup", endScrub);
+    root.addEventListener("pointercancel", endScrub);
+
+    prevBtn.addEventListener("click", () => inst.step(-1));
+    nextBtn.addEventListener("click", () => inst.step(1));
+
+    inst.applyPlayhead();
+
+    const wrap = el("div", { class: "frame-ruler-wrap" }, [root, stepWrap]);
+    inst.wrap = wrap;
+    container.appendChild(wrap);
+
+    state.frameRuler = inst;
+    return inst;
+  }
+
+  // Debug/test hook (mirrors window.__lumeriAsk): build() constructs the UI in a
+  // container; seekToFrame()/step() drive the active instance.
+  window.__lumeriFrameRuler = {
+    build: (container, opts) => buildFrameRuler(container, opts),
+    seekToFrame: (n) => (state.frameRuler ? state.frameRuler.seekToFrame(n) : null),
+    step: (delta) => (state.frameRuler ? state.frameRuler.step(delta) : null),
+    current: () => (state.frameRuler ? state.frameRuler.currentFrame : null),
+  };
 
   // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
   // Every gesture compiles to ONE patches.py op applied through the SAME
