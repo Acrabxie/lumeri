@@ -766,3 +766,295 @@ def _op_remove_keyframe(doc: dict[str, Any], op: dict[str, Any]) -> None:
         layer["keyframes"][prop] = kept
     else:
         layer["keyframes"].pop(prop, None)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Text styling
+# ════════════════════════════════════════════════════════════════════════
+
+
+@register_op("set_text", source="core")
+def _op_set_text(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Merge text props into a layer's props (only provided keys are updated).
+
+    Recognised props: text, font, font_size, color, align, stroke, shadow,
+    background, line_spacing. All optional; omitted props are left unchanged.
+
+    For nested dict props (stroke, shadow), performs shallow merge: new values
+    override old, but unspecified keys in the old dict are preserved.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_text")
+    props = layer.setdefault("props", {})
+
+    # Text props allowed in this op.
+    text_keys = {"text", "font", "font_size", "color", "align", "stroke", "shadow", "background", "line_spacing"}
+
+    for key in text_keys:
+        if key in op:
+            # For nested dicts (stroke, shadow), do shallow merge; otherwise replace.
+            if key in ("stroke", "shadow") and isinstance(op[key], dict) and isinstance(props.get(key), dict):
+                props[key] = {**props[key], **op[key]}
+            else:
+                props[key] = op[key]
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Audio properties
+# ════════════════════════════════════════════════════════════════════════
+
+
+@register_op("set_volume", source="core")
+def _op_set_volume(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Set the volume level (linear, 0..1+, default 1.0) in layer props."""
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_volume")
+    volume = model._as_float(_require_arg(op, "volume"))
+    layer.setdefault("props", {})["volume"] = volume
+
+
+@register_op("set_audio_fade", source="core")
+def _op_set_audio_fade(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Set fade-in and/or fade-out durations (in seconds) in layer props."""
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_audio_fade")
+    props = layer.setdefault("props", {})
+
+    if op.get("fade_in") is not None:
+        props["fade_in"] = model._as_float(op["fade_in"])
+    if op.get("fade_out") is not None:
+        props["fade_out"] = model._as_float(op["fade_out"])
+
+
+@register_op("mute_layer", source="core")
+def _op_mute_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Mute or unmute a layer (default muted=true) in props."""
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="mute_layer")
+    muted = bool(op.get("muted", True))
+    layer.setdefault("props", {})["muted"] = muted
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Animation presets
+# ════════════════════════════════════════════════════════════════════════
+
+
+_EASING_MAP: dict[str, str] = {
+    "linear": "linear",
+    "ease": "ease",
+    "ease_in": "ease_in",
+    "ease_out": "ease_out",
+}
+
+
+@register_op("animate_layer", source="core")
+def _op_animate_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Generate keyframes on a layer using an animation preset.
+
+    Presets: fade_in, fade_out, fly_in_left, fly_in_right, fly_in_top,
+    fly_in_bottom, fly_out_left, fly_out_right, fly_out_top, fly_out_bottom,
+    zoom_in, zoom_out, ken_burns.
+
+    Times are absolute (global document time). Fly-in/out offsets use canvas
+    dimensions from doc. Fly-out durations clamp to layer duration.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="animate_layer")
+    preset = str(_require_arg(op, "preset"))
+    duration = model._as_float(op.get("duration") or 0.5)
+    easing = str(op.get("easing") or "linear")
+    interp = _EASING_MAP.get(easing, "linear")
+
+    layer_start = model._as_float(layer.get("start"))
+    layer_duration = model._as_float(layer.get("duration"))
+
+    # Get canvas dimensions for fly-in/out offsets.
+    canvas = doc.get("canvas", {})
+    canvas_width = int(canvas.get("width", 1920))
+    canvas_height = int(canvas.get("height", 1080))
+
+    # Clamp duration to layer duration.
+    duration = min(duration, layer_duration)
+
+    if preset == "fade_in":
+        # Opacity 0 → 1, from layer start to start + duration.
+        keyframes = layer.setdefault("keyframes", {})
+        track = keyframes.setdefault("opacity", [])
+        track[:] = [k for k in track if not (
+            abs(model._as_float(k.get("t")) - layer_start) < 1e-9 or
+            abs(model._as_float(k.get("t")) - _round_t(layer_start + duration)) < 1e-9
+        )]
+        track.append({"t": _round_t(layer_start), "value": 0.0, "interp": interp})
+        track.append({"t": _round_t(layer_start + duration), "value": 1.0, "interp": interp})
+        track.sort(key=lambda k: k["t"])
+
+    elif preset == "fade_out":
+        # Opacity 1 → 0, from layer end - duration to layer end.
+        end_t = _round_t(layer_start + layer_duration)
+        start_t = _round_t(max(layer_start, end_t - duration))
+        keyframes = layer.setdefault("keyframes", {})
+        track = keyframes.setdefault("opacity", [])
+        track[:] = [k for k in track if not (
+            abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+            abs(model._as_float(k.get("t")) - end_t) < 1e-9
+        )]
+        track.append({"t": start_t, "value": 1.0, "interp": interp})
+        track.append({"t": end_t, "value": 0.0, "interp": interp})
+        track.sort(key=lambda k: k["t"])
+
+    elif preset in {"fly_in_left", "fly_in_right", "fly_in_top", "fly_in_bottom"}:
+        # Position starts off-canvas, ends at 0.
+        keyframes = layer.setdefault("keyframes", {})
+        start_t = _round_t(layer_start)
+        end_t = _round_t(layer_start + duration)
+
+        if preset == "fly_in_left":
+            prop = "transform.x"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": float(-canvas_width), "interp": interp})
+            track.append({"t": end_t, "value": 0.0, "interp": interp})
+
+        elif preset == "fly_in_right":
+            prop = "transform.x"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": float(canvas_width), "interp": interp})
+            track.append({"t": end_t, "value": 0.0, "interp": interp})
+
+        elif preset == "fly_in_top":
+            prop = "transform.y"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": float(-canvas_height), "interp": interp})
+            track.append({"t": end_t, "value": 0.0, "interp": interp})
+
+        elif preset == "fly_in_bottom":
+            prop = "transform.y"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": float(canvas_height), "interp": interp})
+            track.append({"t": end_t, "value": 0.0, "interp": interp})
+
+        track.sort(key=lambda k: k["t"])
+
+    elif preset in {"fly_out_left", "fly_out_right", "fly_out_top", "fly_out_bottom"}:
+        # Position goes from 0 to off-canvas at the end. Clamp duration upfront.
+        duration = min(duration, layer_duration)
+        keyframes = layer.setdefault("keyframes", {})
+        start_t = _round_t(layer_start + layer_duration - duration)
+        end_t = _round_t(layer_start + layer_duration)
+
+        if preset == "fly_out_left":
+            prop = "transform.x"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 0.0, "interp": interp})
+            track.append({"t": end_t, "value": float(-canvas_width), "interp": interp})
+
+        elif preset == "fly_out_right":
+            prop = "transform.x"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 0.0, "interp": interp})
+            track.append({"t": end_t, "value": float(canvas_width), "interp": interp})
+
+        elif preset == "fly_out_top":
+            prop = "transform.y"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 0.0, "interp": interp})
+            track.append({"t": end_t, "value": float(-canvas_height), "interp": interp})
+
+        elif preset == "fly_out_bottom":
+            prop = "transform.y"
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 0.0, "interp": interp})
+            track.append({"t": end_t, "value": float(canvas_height), "interp": interp})
+
+        track.sort(key=lambda k: k["t"])
+
+    elif preset == "zoom_in":
+        # Scale 1.0 → 1.5 (or similar) over duration.
+        keyframes = layer.setdefault("keyframes", {})
+        start_t = _round_t(layer_start)
+        end_t = _round_t(layer_start + duration)
+
+        for prop in ("transform.scale_x", "transform.scale_y"):
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 1.0, "interp": interp})
+            track.append({"t": end_t, "value": 1.5, "interp": interp})
+            track.sort(key=lambda k: k["t"])
+
+    elif preset == "zoom_out":
+        # Scale 1.5 → 1.0 (shrink) over duration.
+        keyframes = layer.setdefault("keyframes", {})
+        start_t = _round_t(layer_start)
+        end_t = _round_t(layer_start + duration)
+
+        for prop in ("transform.scale_x", "transform.scale_y"):
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 1.5, "interp": interp})
+            track.append({"t": end_t, "value": 1.0, "interp": interp})
+            track.sort(key=lambda k: k["t"])
+
+    elif preset == "ken_burns":
+        # Pan + zoom over the specified duration: scale 1.0 → 1.1, slight pan.
+        duration = min(duration, layer_duration)
+        keyframes = layer.setdefault("keyframes", {})
+        start_t = _round_t(layer_start)
+        end_t = _round_t(layer_start + duration)
+
+        # Scale keyframes.
+        for prop in ("transform.scale_x", "transform.scale_y"):
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": 1.0, "interp": interp})
+            track.append({"t": end_t, "value": 1.1, "interp": interp})
+            track.sort(key=lambda k: k["t"])
+
+        # Pan keyframes (gentle x, y shift).
+        for prop, start_val in [("transform.x", -30.0), ("transform.y", -20.0)]:
+            track = keyframes.setdefault(prop, [])
+            track[:] = [k for k in track if not (
+                abs(model._as_float(k.get("t")) - start_t) < 1e-9 or
+                abs(model._as_float(k.get("t")) - end_t) < 1e-9
+            )]
+            track.append({"t": start_t, "value": start_val, "interp": interp})
+            track.append({"t": end_t, "value": 0.0, "interp": interp})
+            track.sort(key=lambda k: k["t"])
+
+    else:
+        raise LayerPatchError("E_ARG", f"animate_layer: unknown preset {preset!r}")

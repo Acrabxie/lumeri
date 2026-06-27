@@ -23,6 +23,9 @@ _GROUP_LABELS: dict[str, str] = {
     "transform": "Transform & compositing",
     "interlayer": "Inter-layer (masks / clipping / adjustments)",
     "effects": "Effects & colour",
+    "text": "Text styling",
+    "audio": "Audio properties",
+    "animation": "Animation presets",
     "keyframes": "Keyframes",
 }
 
@@ -83,6 +86,19 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Upsert a single colour-grade effect (DaVinci-style controls)."},
     {"op": "add_transition", "group": "effects", "args": ["layer_id*", "kind*", "duration", "at(in|out|both)"],
      "summary": "Attach an in/out transition to a layer."},
+    # ── text styling ──
+    {"op": "set_text", "group": "text", "args": ["layer_id*", "text", "font", "font_size", "color", "align", "stroke", "shadow", "background", "line_spacing"],
+     "summary": "Set text properties (only provided keys are updated); works with text layers."},
+    # ── audio properties ──
+    {"op": "set_volume", "group": "audio", "args": ["layer_id*", "volume*"],
+     "summary": "Set audio layer volume (linear, 0..1+, default 1.0)."},
+    {"op": "set_audio_fade", "group": "audio", "args": ["layer_id*", "fade_in", "fade_out"],
+     "summary": "Set fade-in and/or fade-out durations (seconds) on an audio layer."},
+    {"op": "mute_layer", "group": "audio", "args": ["layer_id*", "muted(default true)"],
+     "summary": "Mute or unmute a layer."},
+    # ── animation presets ──
+    {"op": "animate_layer", "group": "animation", "args": ["layer_id*", "preset*", "duration", "easing"],
+     "summary": "Generate keyframes using a preset: fade_in, fade_out, fly_in/out_*, zoom_in/out, ken_burns."},
     # ── keyframes ──
     {"op": "set_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*", "value*", "interp"],
      "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity)."},
