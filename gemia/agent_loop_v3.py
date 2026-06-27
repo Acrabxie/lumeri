@@ -83,6 +83,18 @@ _MAX_CONSECUTIVE_TOOL_FAILURES = 5
 # move for them — they are not a logic error the model needs to fix.
 _MAX_TRANSIENT_RETRIES = 8
 
+# Success-BLIND doom-loop guard (ported from opencode processor.ts,
+# DOOM_LOOP_THRESHOLD=3). The per-(tool, error_code) circuit breaker above only
+# trips on FAILURES. But a loop can also get stuck repeating a call that keeps
+# "succeeding" — or whose result the model ignores — and re-issuing the exact
+# same tool with byte-identical arguments forever. That is not progress, it is a
+# stuck model echoing itself. Independent of success/failure: if the last
+# ``_DOOM_LOOP_THRESHOLD`` tool calls in a turn are the SAME tool name with the
+# SAME (byte-identical) raw args JSON, the turn is looping on itself — emit a
+# structured turn_error and stop. Distinct args (real progress / different work)
+# never trip it.
+_DOOM_LOOP_THRESHOLD = 3
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Stream accumulators (one stream = one model call)
@@ -459,6 +471,34 @@ class AgentLoopV3:
             }
         )
 
+    def _emit_doom_loop(self, name: str, count: int) -> None:
+        """Success-blind doom-loop signal: the last ``count`` tool calls were the
+        SAME tool with byte-identical args, so the turn is repeating itself
+        (regardless of whether each call succeeded). Stop the turn."""
+        self._emit(
+            {
+                "kind": "turn_error",
+                "reason": "doom_loop",
+                "tool_name": name,
+                "repeat_count": count,
+                "error": (
+                    f"doom loop: tool '{name}' was called {count} times in a row with "
+                    f"byte-identical arguments this turn; stopping. The loop is "
+                    f"repeating itself — change the arguments or the approach."
+                ),
+            }
+        )
+
+    @staticmethod
+    def _is_doom_loop(recent: list[tuple[str, str]]) -> bool:
+        """True when the last ``_DOOM_LOOP_THRESHOLD`` recorded tool calls are the
+        SAME (tool_name, raw-args-JSON) tuple, byte-for-byte. ``recent`` is the
+        per-turn rolling history of dispatched (name, args) tuples."""
+        if len(recent) < _DOOM_LOOP_THRESHOLD:
+            return False
+        window = recent[-_DOOM_LOOP_THRESHOLD:]
+        return all(item == window[0] for item in window)
+
     def _trim_rolling_window(self) -> None:
         user_idx = [i for i, m in enumerate(self._messages) if m.get("role") == "user"]
         if len(user_idx) <= _ROLLING_USER_TURNS:
@@ -496,6 +536,11 @@ class AgentLoopV3:
         visual_inspections_this_turn = 0
         # name → (last_failure_code, consecutive_streak) for the circuit breaker.
         tool_fail_counts: dict[str, tuple[str, int]] = {}
+        # Rolling history of (tool_name, raw-args-JSON) for THIS turn, used by the
+        # success-blind doom-loop guard. We only need the last few entries, but a
+        # plain list is simplest; it never grows unbounded because the turn stops
+        # the moment the breaker or doom-loop guard trips.
+        recent_tool_calls: list[tuple[str, str]] = []
 
         self._emit({"kind": "turn_start"})
 
@@ -762,6 +807,24 @@ class AgentLoopV3:
                 self.budget.commit(tc.name, actual_seconds=elapsed)
                 # Successful dispatch — clear this tool's failure streak entirely.
                 tool_fail_counts.pop(tc.name, None)
+
+                # ---- success-blind doom-loop guard -------------------
+                # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the
+                # per-tool failure breaker above only trips on FAILURES, but a
+                # turn can also get stuck re-issuing a call that keeps DISPATCHING
+                # (succeeding, or returning a result the model ignores) with the
+                # exact same arguments forever — pure echo, no progress. Record
+                # each dispatched call as (tool_name, byte-identical raw args).
+                # If the last _DOOM_LOOP_THRESHOLD dispatched calls are identical,
+                # the turn is looping on itself — emit a structured turn_error and
+                # stop. This is independent of the RESULT content (success-blind):
+                # distinct args (real work) never trip it. Like opencode, a call
+                # that did not actually dispatch (raised / gated / bad-JSON args)
+                # is not recorded here — those stay owned by the failure breaker.
+                recent_tool_calls.append((tc.name, tc.args))
+                if self._is_doom_loop(recent_tool_calls):
+                    self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
+                    return
 
                 # Model-facing tool_result: strip thumbnail_path (file
                 # path leakage), keep thumbnail_for_next_message=False
