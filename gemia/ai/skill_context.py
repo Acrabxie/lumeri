@@ -213,6 +213,23 @@ def _compressed_skill_markdown(metadata: SkillMetadata) -> str:
     ).strip()
 
 
+def _iter_yaml(root: Path) -> list[Path]:
+    """Yield ``*.yaml`` files under ``root`` ignoring dotfiles.
+
+    macOS writes AppleDouble resource-fork sidecars (``._name.yaml``) when
+    copying onto non-HFS volumes such as an external SSD.  Those files are
+    binary and match the ``*.yaml`` glob, so reading them as UTF-8 raises
+    ``UnicodeDecodeError``.  Skip any path whose name starts with ``.`` so
+    the glob only sees real skill/combo definitions.
+    """
+    out: list[Path] = []
+    for path in sorted(root.glob("*.yaml")):
+        if path.name.startswith("."):
+            continue
+        out.append(path)
+    return out
+
+
 def _combo_stubs(selected: list[str], effective_request: str) -> tuple[list[str], list[str]]:
     combos_root = Path(__file__).resolve().parent / "skills" / "_combos"
     if not combos_root.exists():
@@ -221,7 +238,7 @@ def _combo_stubs(selected: list[str], effective_request: str) -> tuple[list[str]
     request = (effective_request or "").lower()
     chunks: list[str] = []
     ids: list[str] = []
-    for path in sorted(combos_root.glob("*.yaml")):
+    for path in _iter_yaml(combos_root):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             continue

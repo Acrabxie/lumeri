@@ -446,26 +446,63 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "save_skill",
-        "Persist a workspace artifact (e.g., debugged script, utility library) as a reusable skill for future sessions. Validates path containment, slugifies name, writes metadata JSON. Host-side only (no sandbox). Use after iterating/debugging code via build+check_job.",
+        "After completing a reusable multi-step task, call save_skill to DISTILL it into a durable skill so it can be reused in future sessions. Capture name + when_to_use (the trigger) + steps (the recipe) + notes. Idempotent: re-saving the same name UPDATES it (no duplicates). (Backward-compat: if you instead pass 'source', it archives that workspace file as a skill via the build artifact path.)",
         {
-            "source": {
-                "type": "string",
-                "description": "Workspace-relative path to source file (e.g. 'builds/build_abc/script.py').",
-            },
             "name": {
                 "type": "string",
-                "description": "Human-readable skill name (slugified to lowercase/hyphens).",
+                "description": "Human-readable skill name; also the idempotent key (re-saving updates).",
+            },
+            "when_to_use": {
+                "type": "string",
+                "description": "When this skill applies — the trigger / situation that should recall it.",
+            },
+            "steps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "The reusable recipe: ordered steps/ops to reproduce the task.",
+            },
+            "notes": {
+                "type": "string",
+                "description": "Optional caveats, defaults, or extra guidance.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional keyword tags to improve recall.",
+            },
+            "source": {
+                "type": "string",
+                "description": "Backward-compat only: workspace-relative file to archive as a skill (e.g. 'builds/build_abc/script.py').",
             },
             "description": {
                 "type": "string",
-                "description": "Optional skill description.",
+                "description": "Optional description (used by the artifact/source path).",
             },
             "overwrite": {
                 "type": "boolean",
-                "description": "If true, replace existing skill of same name. Default false.",
+                "description": "Artifact path only: if true, replace existing skill of same name. Default false.",
             },
         },
-        ["source", "name"],
+        ["name"],
+    ),
+    _tool(
+        "recall_skills",
+        "Call this FIRST, before starting a task, to reuse prior know-how: returns the most relevant saved (distilled) and built-in library skills for your query/task, each with name + when_to_use + recipe steps. Reuse a matching skill instead of re-deriving it.",
+        {
+            "query": {
+                "type": "string",
+                "description": "Free-text describing the task you are about to do (matched against skill name, when_to_use, tags, steps, notes).",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max number of skills to return (default 5).",
+            },
+            "include_library": {
+                "type": "boolean",
+                "description": "Also search built-in library skills, not just user-distilled ones. Default true.",
+            },
+        },
+        [],
     ),
     # ── lumenframe layer document verbs ──────────────────────────────────
     # The session owns ONE lumenframe document (layer tree). These verbs
