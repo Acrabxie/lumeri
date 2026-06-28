@@ -33,7 +33,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from lumenframe import model, timebase
-from lumenframe.compile import Resolver, compile_to_layer_stack
+from lumenframe.compile import (
+    Resolver,
+    _lane_ordered_children,
+    compile_to_layer_stack,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import numpy as np
@@ -204,8 +208,11 @@ def state_at(doc: dict[str, Any] | None, seconds: float) -> dict[str, Any]:
         A dict ``{time, frame, active_layer_ids, layers}`` where ``time`` is the
         clamped, frame-snapped seconds actually inspected, ``frame`` is the
         clamped frame index, ``active_layer_ids`` lists active layer ids in
-        composite (bottom -> top) order, and ``layers`` is a list of per-active-
-        layer dicts ``{id, local_frame, source_frame, opacity, transform}``.
+        composite (bottom -> top) order — the SAME lane-aware order ``compile``
+        stacks them in (``_lane_ordered_children``: higher ``lane`` = later /
+        on top, ties keep tree order; default lane 0 == plain tree order) — and
+        ``layers`` is a list of per-active-layer dicts ``{id, local_frame,
+        source_frame, opacity, transform}`` in that same order.
     """
     norm = model.normalize_doc(doc or {})
     fps = _canvas_fps(norm)
@@ -215,7 +222,13 @@ def state_at(doc: dict[str, Any] | None, seconds: float) -> dict[str, Any]:
     time_snapped = timebase.to_seconds(frame, fps)
 
     root = norm.get("root") or {}
-    children = root.get("children") or []
+    # Report layers in the SAME z-order ``compile`` composites them in: lanes are
+    # stacked tracks, so children are ordered by ``(lane, tree-index)`` via
+    # ``_lane_ordered_children`` (the exact stable sort ``_populate_stack`` runs
+    # before assigning z) — a higher lane composites ABOVE (later / on top). With
+    # the default lane 0 everywhere this stable sort is the identity permutation,
+    # so the reported order stays pure tree order (bottom -> top) as before.
+    children = _lane_ordered_children(root.get("children") or [])
 
     active_layer_ids: list[str] = []
     layers: list[dict[str, Any]] = []
