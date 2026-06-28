@@ -443,6 +443,17 @@
       // which resolves the awaiting tool call on the session loop.
       if (ev.question) showAskModal(ev.question);
     },
+    turn_wrapup: (ev) => {
+      // Graceful stop (circuit-breaker / budget / stream error). Informational,
+      // not an error — surface the synthesized summary instead of dropping it.
+      state.turnInProgress = false;
+      const t = state.currentTurn;
+      if (t) {
+        t.streaming = false;
+        t.complete = true;
+        t.banners.push({ kind: "turn_wrapup", text: ev.message || `stopped: ${ev.reason || "wrap-up"}` });
+      }
+    },
   };
 
   function dispatch(ev) {
