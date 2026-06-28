@@ -1560,6 +1560,18 @@ def _ensure_gradient_layer_type() -> None:
 _ensure_gradient_layer_type()
 
 
+def _append_blur_effect(layer: dict[str, Any], radius: float) -> None:
+    """Append a ``gaussian_blur`` effect of ``radius`` px to ``layer``.
+
+    Shared by the depth-of-field sugar (``pip`` background blur and
+    ``focus_pull``): it uses the very same effect type / shape as ``add_effect``
+    so the blur composites through the standard effect chain with no new compile
+    path. The effect is *appended* (never replaces an existing chain entry).
+    """
+    effect = model._normalize_effect({"type": "gaussian_blur", "params": {"radius": radius}})
+    layer.setdefault("effects", []).append(effect)
+
+
 @register_op("set_blend", source="core")
 def _op_set_blend(doc: dict[str, Any], op: dict[str, Any]) -> None:
     """Set a layer's blend mode, validated against the supported core set.
@@ -1595,11 +1607,25 @@ def _op_pip(doc: dict[str, Any], op: dict[str, Any]) -> None:
       layer *beneath* the pip (same transform, rounded rect) carrying the
       border stroke / shadow fill, per the shape-layer schema.
 
+    Depth-of-field: when ``blur_background`` (px radius) is > 0, a
+    ``gaussian_blur`` effect of that radius is appended to *every* sibling layer
+    that sits **below** the pip in the same composition (lower z, i.e. drawn
+    behind it), so the inset pops in focus over a softened background. The pip
+    layer itself and any layers above it are left sharp. Absent or ``0`` leaves
+    the doc byte-identical to the un-blurred pip.
+
     The layer's own opacity / time range / blend are left untouched.
     """
     layer_id = str(_require_arg(op, "layer_id"))
     parent, index = _require_locate(doc, layer_id, op="pip")
     layer = parent["children"][index]
+
+    # Depth-of-field radius (px). Validate up front; the sibling-blur is applied
+    # *after* the transform/mask are set but *before* any helper shape is spliced
+    # in, so the helper (which frames the pip) never gets blurred.
+    blur_bg = model._as_float(op.get("blur_background")) if op.get("blur_background") is not None else 0.0
+    if blur_bg < 0:
+        raise LayerPatchError("E_RANGE", "pip: blur_background must be >= 0")
 
     canvas = doc.get("canvas") if isinstance(doc.get("canvas"), dict) else {}
     width = int(canvas.get("width") or model.DEFAULT_CANVAS["width"])
@@ -1650,6 +1676,14 @@ def _op_pip(doc: dict[str, Any], op: dict[str, Any]) -> None:
         "feather": 0.0,
     })
 
+    # Depth-of-field: blur every sibling that sits *below* the pip (lower index =
+    # composited first = behind it). Siblings are captured by their current
+    # position before any helper is inserted, so the pip and its frame stay sharp.
+    if blur_bg > 0:
+        for sibling in parent["children"][:index]:
+            if isinstance(sibling, dict):
+                _append_blur_effect(sibling, blur_bg)
+
     # Optional helper shape layer (border + drop shadow) directly beneath the pip.
     border = op.get("border") if isinstance(op.get("border"), dict) else None
     shadow = bool(op.get("shadow"))
@@ -1681,6 +1715,28 @@ def _op_pip(doc: dict[str, Any], op: dict[str, Any]) -> None:
         )
         # Insert just below the pip so it composites first (behind it).
         parent["children"].insert(index, helper)
+
+
+@register_op("focus_pull", source="core")
+def _op_focus_pull(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Rack-focus: keep ``layer_id`` sharp and blur every one of its siblings.
+
+    Depth-of-field sugar that pulls focus to one layer — it appends a
+    ``gaussian_blur`` effect (``blur`` px radius) to every *sibling* in the same
+    composition while leaving the focused layer (and its effect chain) untouched.
+    Unlike ``pip``'s ``blur_background`` (which blurs only what's *below* the
+    inset), ``focus_pull`` blurs *all* siblings — both behind and in front — so
+    the chosen foreground is the only sharp element. Pure effect-chain edit, no
+    compile change.
+    """
+    layer_id = str(_require_arg(op, "layer_id"))
+    parent, _index = _require_locate(doc, layer_id, op="focus_pull")
+    blur = model._as_float(op.get("blur")) if op.get("blur") is not None else 0.0
+    if blur <= 0:
+        raise LayerPatchError("E_RANGE", "focus_pull: blur must be > 0")
+    for sibling in parent["children"]:
+        if isinstance(sibling, dict) and str(sibling.get("id")) != layer_id:
+            _append_blur_effect(sibling, blur)
 
 
 @register_op("crossfade", source="core")
