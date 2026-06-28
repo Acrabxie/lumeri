@@ -583,6 +583,143 @@ def _op_ungroup_layer(doc: dict[str, Any], op: dict[str, Any]) -> None:
     _set_selection(doc, [str(c.get("id")) for c in lifted])
 
 
+def _repoint_refs(node: dict[str, Any], id_map: dict[str, str]) -> None:
+    """Re-point any cross-layer reference in ``node`` that lands in ``id_map``.
+
+    The only structural layer<->layer references in the model are the track-matte
+    ``mask.source_layer_id`` and the optional parenting hint authors may stash as
+    ``props.parent_id`` / ``parent_id``. When a subtree is lifted and re-ided, any
+    such reference that pointed *inside the moved set* must follow to the new id;
+    references that pointed outside the moved set are left untouched.
+    """
+    mask = node.get("mask")
+    if isinstance(mask, dict):
+        src = mask.get("source_layer_id")
+        if src is not None and str(src) in id_map:
+            mask["source_layer_id"] = id_map[str(src)]
+    for key in ("parent_id",):
+        if node.get(key) is not None and str(node.get(key)) in id_map:
+            node[key] = id_map[str(node[key])]
+    props = node.get("props")
+    if isinstance(props, dict):
+        for key in ("parent_id", "track_matte_id"):
+            if props.get(key) is not None and str(props.get(key)) in id_map:
+                props[key] = id_map[str(props[key])]
+
+
+def _fresh_ids_for_group(groups: list[list[dict[str, Any]]]) -> list[list[dict[str, Any]]]:
+    """Deep-copy several groups of sibling subtrees with fresh ids in ONE id-space.
+
+    Like :func:`_fresh_ids_deep` but the id-map spans *every* subtree across *all*
+    groups, so a matte or parent reference in one lifted subtree that pointed at a
+    layer in another lifted subtree — even one belonging to a different source
+    composition merged in the same call — is re-pointed to that layer's new id (a
+    per-subtree, or per-source, remap would leave such a cross reference dangling
+    at the old id). Group structure is preserved so callers can still place each
+    source's children with its own time shift.
+    """
+    cloned_groups = [[copy.deepcopy(child) for child in group] for group in groups]
+    id_map: dict[str, str] = {}
+    for group in cloned_groups:
+        for clone in group:
+            for node in model.walk(clone):
+                old = str(node.get("id"))
+                new = model.gen_id(model._id_prefix(str(node.get("type"))))
+                id_map[old] = new
+                node["id"] = new
+                for fx in node.get("effects") or []:
+                    if isinstance(fx, dict):
+                        fx["id"] = model.gen_id("fx")
+    for group in cloned_groups:
+        for clone in group:
+            for node in model.walk(clone):
+                _repoint_refs(node, id_map)
+    return cloned_groups
+
+
+@register_op("merge_compositions", source="core")
+def _op_merge_compositions(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Merge the children of one or more source compositions into a target comp.
+
+    Lifts the *children* of each ``source_ids`` composition into ``into_id`` (re-
+    timing them onto ``into_id``'s local timeline, just like ungroup), then removes
+    the now-empty source containers (unless ``keep_sources`` is set).
+
+    * ``mode="overlay"`` — children keep their original local start (+ ``offset``),
+      so the merged content composites *over* whatever ``into_id`` already holds.
+    * ``mode="append"`` — children are shifted past ``into_id``'s current extent
+      (max child end) (+ ``offset``), so the merged content plays *after* it.
+
+    Every lifted subtree is re-ided fresh (one shared id-space) so nothing collides
+    with the target, and any matte/parent reference inside the moved set follows to
+    its new id. Lane is preserved.
+    """
+    into_id = str(_require_arg(op, "into_id"))
+    target = model.find_layer(doc, into_id)
+    if target is None:
+        raise LayerPatchError("E_NOT_FOUND", f"merge_compositions: into_id not found: {into_id!r}")
+    if not _is_container(target):
+        raise LayerPatchError("E_ARG", f"merge_compositions: into_id {into_id!r} is not a composition")
+
+    raw_sources = op.get("source_ids")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise LayerPatchError("E_ARG", "merge_compositions: need source_ids")
+    source_ids = [str(s) for s in raw_sources]
+
+    mode = str(op.get("mode") or "overlay")
+    if mode not in {"overlay", "append"}:
+        raise LayerPatchError("E_ARG", f"merge_compositions: mode must be 'overlay' or 'append', got {mode!r}")
+    offset = model._as_float(op.get("offset"))
+    keep_sources = bool(op.get("keep_sources", False))
+
+    # Validate every source before mutating anything (atomic-friendly).
+    for sid in source_ids:
+        if sid == into_id:
+            raise LayerPatchError("E_ARG", "merge_compositions: into_id cannot be one of source_ids")
+        if sid == str(doc["root"].get("id")):
+            raise LayerPatchError("E_ARG", "merge_compositions: cannot merge the root composition")
+        src = model.find_layer(doc, sid)
+        if src is None:
+            raise LayerPatchError("E_NOT_FOUND", f"merge_compositions: source not found: {sid!r}")
+        if not _is_container(src):
+            raise LayerPatchError("E_ARG", f"merge_compositions: source {sid!r} is not a composition")
+        # ``into_id`` may not live inside a source subtree — lifting that source's
+        # children would move (and re-id) the target itself.
+        if into_id in {str(n.get("id")) for n in model.walk(src)}:
+            raise LayerPatchError("E_ARG", f"merge_compositions: into_id {into_id!r} is inside source {sid!r}")
+
+    # Splice every source out first so none counts toward the target's extent
+    # while we append, and so the fresh-id pass spans all of them at once (a matte
+    # in one source that points into another source must follow the new ids).
+    spliced: list[tuple[dict[str, Any], dict[str, Any], int]] = []
+    source_children: list[list[dict[str, Any]]] = []
+    for sid in source_ids:
+        src_comp, src_parent, src_index = _splice_out(doc, sid, op="merge_compositions")
+        spliced.append((src_comp, src_parent, src_index))
+        source_children.append([c for c in (src_comp.get("children") or []) if isinstance(c, dict)])
+
+    cloned_groups = _fresh_ids_for_group(source_children)
+
+    lifted_ids: list[str] = []
+    for group in cloned_groups:
+        # The shift baseline is re-read per source so successive appends stack onto
+        # the content the previous source just added.
+        shift = (model._composition_extent(target) + offset) if mode == "append" else offset
+        for clone in group:
+            clone["start"] = _round_t(model._as_float(clone.get("start")) + shift)
+        target.setdefault("children", []).extend(group)
+        lifted_ids.extend(str(c.get("id")) for c in group)
+
+    if keep_sources:
+        # Re-insert the (now child-less) source containers where they were. Restore
+        # outermost-last so each original index is still valid as we re-insert.
+        for src_comp, src_parent, src_index in reversed(spliced):
+            src_comp["children"] = []
+            src_parent["children"].insert(src_index, src_comp)
+
+    _set_selection(doc, lifted_ids)
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Time
 # ════════════════════════════════════════════════════════════════════════
