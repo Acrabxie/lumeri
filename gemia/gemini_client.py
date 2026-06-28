@@ -41,7 +41,7 @@ _DEFAULT_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
 
 # Per-provider default models (used when LUMERI_V3_MODEL is not set)
-_DEFAULT_VERTEX_MODEL    = "google/gemini-3.5-flash"
+_DEFAULT_VERTEX_MODEL    = "google/gemini-3.5-flash"  # available on the Vertex 'global' endpoint (brain default location is global)
 _DEFAULT_GEMINI_MODEL    = "gemini-2.0-flash"
 _DEFAULT_CLAUDE_MODEL    = "claude-sonnet-4-6"
 _DEFAULT_OPENROUTER_MODEL = _DEFAULT_MODEL
@@ -390,8 +390,16 @@ class GeminiClientV3:
             ).strip()
             if not project:
                 raise RuntimeError("VERTEX_PROJECT required for vertex provider (env or config.json:vertex_project).")
+            # Brain location is independent of media (Veo/Lyria/Nano Banana live in
+            # us-central1; gemini-3.x text models live on 'global'). A brain-specific
+            # override lets the orchestrator use 'global' while vertex_location stays
+            # us-central1 for media.
             location = (
-                os.environ.get("VERTEX_LOCATION") or _read_config_key("vertex_location") or "global"
+                os.environ.get("LUMERI_V3_LOCATION")
+                or _read_config_key("lumeri_v3_location")
+                or os.environ.get("VERTEX_LOCATION")
+                or _read_config_key("vertex_location")
+                or "global"
             ).strip()
             host = (
                 "aiplatform.googleapis.com"
