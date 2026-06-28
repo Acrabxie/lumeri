@@ -52,7 +52,9 @@ from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
 from gemia.tools import layer as _layer
+from gemia.tools import log_note as _log_note
 from gemia.tools import mix_audio as _mix_audio
+from gemia.tools import remember as _remember
 from gemia.tools import run_shell as _run_shell
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
@@ -107,6 +109,8 @@ _REAL: dict[str, Dispatcher] = {
     "wait_for_job":       _build.dispatch_wait,
     "save_skill":         _save_skill.dispatch_save_skill,
     "recall_skills":      _save_skill.dispatch_recall_skills,
+    "remember":           _remember.dispatch,
+    "log_note":           _log_note.dispatch,
     "get_timeline":             _timeline.dispatch_get,
     "timeline_insert_clip":     _timeline.dispatch_insert,
     "timeline_delete_clip":     _timeline.dispatch_delete,

@@ -3,7 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import os
-from datetime import date
+import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -151,7 +152,15 @@ def _has_secret_key(key: str) -> bool:
 
 
 def assert_memory_safe(payload: Any, *, path: str = "$") -> None:
-    """Reject payloads that try to store obvious secret-bearing keys."""
+    """Reject payloads that try to store obvious secret-bearing keys.
+
+    For dict/list payloads this walks every key and rejects secret-like field
+    names (api_key, token, ...). For *string* payloads (free text written by the
+    ``remember`` / ``log_note`` verbs) it additionally scans the content for
+    secret-looking material — ``sk-...`` keys, ``password = ...`` assignments,
+    bearer tokens — so a durable note or daily-log line can never smuggle a
+    credential into the memory store.
+    """
     if isinstance(payload, dict):
         for key, value in payload.items():
             key_str = str(key)
@@ -161,6 +170,35 @@ def assert_memory_safe(payload: Any, *, path: str = "$") -> None:
     elif isinstance(payload, list):
         for index, item in enumerate(payload):
             assert_memory_safe(item, path=f"{path}[{index}]")
+    elif isinstance(payload, str):
+        if _text_looks_secret(payload):
+            raise ValueError(f"Refusing to write secret-like content to Gemia memory: {path}")
+
+
+# Secret-looking free-text patterns. Conservative on purpose: matches obvious
+# credential shapes (provider key prefixes, `password = ...` / `api_key: ...`
+# assignments, `Bearer <token>`) without flagging ordinary prose. Used to guard
+# the free-text ``remember`` / ``log_note`` payloads, which carry strings rather
+# than the structured dicts ``assert_memory_safe`` was originally built for.
+_SECRET_TEXT_PATTERNS = (
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{12,}"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{16,}", re.IGNORECASE),
+    re.compile(
+        r"(?:password|passwd|secret|api[_\-]?key|access[_\-]?token|auth[_\-]?token|client[_\-]?secret|private[_\-]?key)"
+        r"\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+)
+
+
+def _text_looks_secret(text: str) -> bool:
+    if not isinstance(text, str) or not text:
+        return False
+    return any(pattern.search(text) for pattern in _SECRET_TEXT_PATTERNS)
 
 
 def write_memory_json(path: Path, payload: Any) -> None:
@@ -227,6 +265,192 @@ def bootstrap_memory(day: str | date | None = None) -> dict[str, str]:
         "model_profile": str(model_profile_path()),
         "daily": str(daily_path(day)),
     }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Prompt injection + write helpers for the v3 agent loop
+# ──────────────────────────────────────────────────────────────────────
+
+# Hard cap on the memory block injected into the system prompt. A few KB is
+# plenty for durable facts + a model-profile digest; anything larger is almost
+# certainly accumulated cruft and would bloat every model call.
+MEMORY_PROMPT_MAX_CHARS = 4000
+
+
+def _read_text_safe(path: Path, *, limit: int | None = None) -> str:
+    """Read text from ``path``, never raising. Missing/unreadable -> ""."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    if limit is not None and len(text) > limit:
+        text = text[:limit]
+    return text
+
+
+def _model_profile_digest() -> str:
+    """A one-glance summary of the canonical model defaults, never raising."""
+    try:
+        profile = _read_json(model_profile_path(), {})
+        if not isinstance(profile, dict):
+            return ""
+        models = profile.get("models")
+        if not isinstance(models, dict):
+            return ""
+        lines: list[str] = []
+        for slot in ("planner", "image", "video", "audio"):
+            info = models.get(slot)
+            if isinstance(info, dict):
+                default = _clean_string(info.get("default"))
+                if default:
+                    lines.append(f"- {slot}: {default}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def format_memory_for_prompt(*, max_chars: int = MEMORY_PROMPT_MAX_CHARS) -> str:
+    """Build a compact, size-capped memory block for the system prompt.
+
+    Combines durable memory (``MEMORY.md``) with a short model-profile digest
+    (if present). Never raises: missing files yield a short placeholder note so
+    the prompt always has something coherent in the ``{{memory}}`` slot. The
+    whole block is hard-capped at ``max_chars`` so accumulated memory cannot
+    bloat every model call.
+    """
+    sections: list[str] = []
+
+    durable = _read_text_safe(durable_memory_path()).strip()
+    if durable:
+        sections.append(durable)
+
+    digest = _model_profile_digest().strip()
+    if digest:
+        sections.append("Model defaults:\n" + digest)
+
+    if not sections:
+        return "(no durable memory recorded yet)"
+
+    block = "\n\n".join(sections).strip()
+    if len(block) > max_chars:
+        block = block[: max_chars - 1].rstrip() + "…"
+    return block
+
+
+def remember_fact(
+    content: str,
+    *,
+    title: str | None = None,
+    kind: str | None = None,
+    day: str | date | None = None,
+) -> dict[str, str]:
+    """Persist a durable fact to ``MEMORY.md``, validated against secrets.
+
+    Appends a bullet to the durable memory file. When ``title`` is given the
+    write is idempotent-ish: an existing bullet whose visible text starts with
+    the same ``**title**`` marker is REPLACED in place rather than duplicated,
+    so re-remembering an updated preference does not pile up stale copies.
+
+    Rejects secret-bearing content via :func:`assert_memory_safe` (raises
+    ``ValueError``). Creates the memory file/dirs if missing.
+    """
+    text = _clean_string(content)
+    if not text:
+        raise ValueError("remember_fact requires non-empty 'content'")
+    title_clean = _clean_string(title) if title else ""
+    kind_clean = _clean_string(kind) if kind else ""
+
+    # Content + title + kind are all free text the model supplies — guard each.
+    assert_memory_safe(text)
+    if title_clean:
+        assert_memory_safe(title_clean)
+    if kind_clean:
+        assert_memory_safe(kind_clean)
+
+    path = durable_memory_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    label_bits: list[str] = []
+    if title_clean:
+        label_bits.append(f"**{title_clean}**")
+    if kind_clean:
+        label_bits.append(f"({kind_clean})")
+    prefix = " ".join(label_bits)
+    bullet_body = f"{prefix} — {text}" if prefix else text
+    bullet = f"- {bullet_body}  _(updated {stamp})_"
+
+    existing = _read_text_safe(path)
+    updated = False
+    if title_clean and existing:
+        marker = f"- **{title_clean}**"
+        out_lines: list[str] = []
+        for line in existing.splitlines():
+            if line.startswith(marker) and not updated:
+                out_lines.append(bullet)
+                updated = True
+            else:
+                out_lines.append(line)
+        new_text = "\n".join(out_lines)
+        if not new_text.endswith("\n"):
+            new_text += "\n"
+    else:
+        new_text = existing
+        if new_text and not new_text.endswith("\n"):
+            new_text += "\n"
+        if not new_text:
+            new_text = "# Gemia Durable Memory\n\n"
+        new_text += bullet + "\n"
+
+    path.write_text(new_text, encoding="utf-8")
+    return {
+        "path": str(path),
+        "action": "updated" if updated else "appended",
+        "title": title_clean,
+        "kind": kind_clean,
+        "entry": bullet_body,
+    }
+
+
+def append_daily_entry(text: str, day: str | date | None = None) -> dict[str, Any]:
+    """Append a timestamped one-line entry to today's daily log.
+
+    Creates the daily dir/file as needed. Never raises: secret-looking content
+    is rejected with a no-op (returns ``{"written": False, ...}``) rather than
+    blowing up the caller, and any filesystem error is swallowed the same way —
+    logging must never break a turn. The entry is collapsed to a single line so
+    one call is one log row.
+    """
+    result: dict[str, Any] = {"written": False, "path": "", "entry": ""}
+    try:
+        line = _clean_string(text)
+        if not line:
+            result["reason"] = "empty"
+            return result
+        # Collapse to a single line so a multi-line ask can't break the log.
+        line = " ".join(line.split())
+        if _text_looks_secret(line):
+            result["reason"] = "secret"
+            return result
+
+        path = daily_path(day)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%H:%M")
+        entry = f"- {stamp} {line}"
+
+        header = ""
+        if not path.exists():
+            header = f"# {path.stem}\n\n"
+        with path.open("a", encoding="utf-8") as fh:
+            if header:
+                fh.write(header)
+            fh.write(entry + "\n")
+
+        result.update(written=True, path=str(path), entry=entry)
+        return result
+    except Exception as exc:  # noqa: BLE001 — logging must never break a turn
+        result["reason"] = f"error: {type(exc).__name__}"
+        return result
 
 
 def load_model_profile(*, bootstrap: bool = True) -> dict[str, Any]:
