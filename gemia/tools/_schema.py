@@ -307,7 +307,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "web_search",
-        "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned.",
+        "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned. "
+        "BYOK: pluggable search engines, each reading its key from ~/.gemia/config.json — "
+        "tavily (tavily_api_key), serper (serper_api_key), brave (brave_api_key), exa (exa_api_key), "
+        "google_cse (google_cse_key + google_cse_id), bing (bing_api_key). "
+        "With provider=auto (default) the first configured key wins (order: tavily, serper, brave, exa, google_cse, bing), "
+        "else duckduckgo (no key) is used. Set config search_provider to force one engine globally, or pass provider per call. "
+        "If a configured provider errors, the result falls back to duckduckgo and includes a 'fallback' note; the served engine is reported in 'provider'.",
         {
             "query": {
                 "type": "string",
@@ -316,6 +322,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "limit": {
                 "type": "integer",
                 "description": "Max results to return. Defaults to a full result page (10); clamped to 1..10.",
+            },
+            "provider": {
+                "type": "string",
+                "enum": [
+                    "auto",
+                    "tavily",
+                    "serper",
+                    "brave",
+                    "exa",
+                    "google_cse",
+                    "bing",
+                    "duckduckgo",
+                ],
+                "description": "Which search engine to use. 'auto' (default) picks the first BYOK provider whose key is configured (else duckduckgo). The named BYOK providers need their key(s) in ~/.gemia/config.json; duckduckgo needs no key.",
             },
         },
         ["query"],
