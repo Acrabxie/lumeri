@@ -669,6 +669,44 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         [],
     ),
+    _tool(
+        "lumen_seek",
+        "Seek/locate the current lumenframe document to a specific moment. Use when the user says 'go to', 'show me at', 'what's happening at <time>', 'jump to frame N', or wants to inspect/preview a single instant. Reports the timeline state at that moment (which layers are active and how they are placed/sampled) AND renders that exact frame to a preview image asset. Pass exactly one of seconds or frame.",
+        {
+            "seconds": {
+                "type": "number",
+                "description": "Time on the document timeline to seek to, in seconds. Mutually exclusive with 'frame'.",
+            },
+            "frame": {
+                "type": "integer",
+                "description": "Explicit frame index to seek to (0-based). Mutually exclusive with 'seconds'.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_render_range",
+        "Render or EXPORT only a time range [t_in, t_out) of the current lumenframe document, not the whole thing. Use when the user wants just a slice/segment/clip — 'render seconds 1 to 2.5', 'export the part from 0:05 to 0:10', 'preview the middle section'. Set export=true to write that range to a video (MP4) asset; otherwise returns a short preview (rendered frame count plus a representative middle-frame preview image asset). Times are seconds; require t_in < t_out.",
+        {
+            "t_in": {
+                "type": "number",
+                "description": "Inclusive start time of the range, in seconds.",
+            },
+            "t_out": {
+                "type": "number",
+                "description": "Exclusive end time of the range, in seconds. Must be greater than t_in.",
+            },
+            "step": {
+                "type": "integer",
+                "description": "Stride between rendered frames (>= 1). Default 1.",
+            },
+            "export": {
+                "type": "boolean",
+                "description": "If true, export the range to an MP4 video asset; otherwise render a short in-memory preview and report the frame count. Default false.",
+            },
+        },
+        ["t_in", "t_out"],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.

@@ -52,6 +52,8 @@ from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
 from gemia.tools import layer as _layer
+from gemia.tools import lumen_render_range as _lumen_render_range
+from gemia.tools import lumen_seek as _lumen_seek
 from gemia.tools import log_note as _log_note
 from gemia.tools import mix_audio as _mix_audio
 from gemia.tools import remember as _remember
@@ -137,6 +139,8 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_set_visibility":     _layer.dispatch_lumen_set_visibility,
     "lumen_select":             _layer.dispatch_lumen_select,
     "lumen_render":             _layer.dispatch_lumen_render,
+    "lumen_seek":               _lumen_seek.dispatch,
+    "lumen_render_range":       _lumen_render_range.dispatch,
 }
 
 
