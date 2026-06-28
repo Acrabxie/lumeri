@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
-from lumerai.patches import TimelinePatchError
+from lumerai.patches import _TRANSITION_KINDS, TimelinePatchError
 
 
 _DEFAULT_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
@@ -355,7 +355,9 @@ def _session_timeline(handler, session_id: str) -> bool:
 
 
 # User direct-edit op tokens -> the same patches.py ops the model's verbs emit.
-_USER_EDIT_OPS = {"move", "trim", "split", "delete", "set_time", "set_effects"}
+# ``set_effects`` also carries the direct-UI BLEND op (effects.blend_mode) and the
+# PIP op (effects.scale/x/y); ``add_transition`` carries the CROSSFADE op.
+_USER_EDIT_OPS = {"move", "trim", "split", "delete", "set_time", "set_effects", "add_transition"}
 
 
 def _build_user_edit_op(op_name: str, clip_id: str, body: dict) -> dict[str, Any]:
@@ -405,6 +407,19 @@ def _build_user_edit_op(op_name: str, clip_id: str, body: dict) -> dict[str, Any
         if not isinstance(effects, dict):
             raise ValueError("set_effects requires an 'effects' object")
         return {"op": "set_clip_effects", "clip_id": clip_id, "effects": effects, "provenance": prov}
+    if op_name == "add_transition":
+        # Direct-UI CROSSFADE op -> lumerai _op_add_transition. The patch op's own
+        # E_BAD_ARG validation covers adjacency/duration; we only pre-check that the
+        # kind is a known transition so a typo fails fast as a 400 here.
+        kind = str(body.get("kind") or "")
+        if kind not in _TRANSITION_KINDS:
+            raise ValueError(
+                f"add_transition.kind must be one of {sorted(_TRANSITION_KINDS)}, got {kind!r}"
+            )
+        op = {"op": "add_transition", "clip_id": clip_id, "kind": kind, "provenance": prov}
+        if body.get("duration_sec") is not None:
+            op["duration_sec"] = _num("duration_sec")
+        return op
     raise ValueError(f"unhandled op '{op_name}'")
 
 

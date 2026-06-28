@@ -664,8 +664,11 @@ def _append_plan_layer_branch(
             layer_id=layer_id,
             params={
                 "z_index": int(layer_spec.get("z_index", 0) or 0),
-                "blend_mode": str(layer_spec.get("blend_mode", "normal")),
-                "opacity": float(layer_spec.get("opacity", 1.0) or 1.0),
+                # Read blend_mode/opacity from the top level first, then fall back
+                # to a nested effects map (timeline clips store the direct-UI
+                # BLEND/PIP ops under effects). Absent => "normal"/1.0 as before.
+                "blend_mode": str(_spec_effect(layer_spec, "blend_mode", "normal")),
+                "opacity": float(_spec_effect(layer_spec, "opacity", 1.0) or 1.0),
                 "start_frame": int(layer_spec.get("start_frame", 0) or 0),
                 "end_frame": _optional_int(layer_spec.get("end_frame")),
             },
@@ -887,6 +890,24 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _spec_effect(layer_spec: Mapping[str, Any], key: str, default: Any) -> Any:
+    """Read a compositing effect from a layer spec, top-level first.
+
+    Timeline clips carry compositing settings under a nested ``effects`` map
+    (e.g. ``effects.blend_mode``, set via the direct-UI BLEND op through
+    ``set_clip_effects``), whereas Gemini layer plans put the same keys at the
+    top level. Prefer the explicit top-level value so existing plans stay
+    byte-identical; otherwise fall back to ``effects[key]``; otherwise the
+    caller's default (``"normal"`` blend / ``1.0`` opacity — same as before).
+    """
+    if key in layer_spec and layer_spec.get(key) is not None:
+        return layer_spec.get(key)
+    effects = layer_spec.get("effects")
+    if isinstance(effects, Mapping) and effects.get(key) is not None:
+        return effects.get(key)
+    return default
 
 
 def _unique_node_id(graph: CompositingGraph, base: str) -> str:
