@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from gemia.budget_guard import BudgetGuard
+from gemia.env_probe import format_environment_summary
 from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
 from gemia.project_store import ProjectHandle
@@ -378,6 +379,8 @@ class AgentLoopV3:
         """Build the messages list for the next model call.
 
         System prompt = ``system_v3.md`` with the placeholders filled in:
+        ``{{environment}}`` from a live probe of the running interpreter and
+        installed dependencies (gemia.env_probe.format_environment_summary),
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
         ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
@@ -391,6 +394,7 @@ class AgentLoopV3:
         lumenframe_text = self._get_lumenframe_prompt_text()
         system_filled = (
             self._system_template
+            .replace("{{environment}}", format_environment_summary())
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
             .replace("{{lumenframe_ops}}", lumenframe_ops)

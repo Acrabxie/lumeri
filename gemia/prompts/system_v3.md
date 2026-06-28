@@ -143,7 +143,7 @@ The function-calling schemas list the full set. The short version:
 When you need to write and execute code:
 
 - **`build` verb** — submit code to run in a sandboxed environment. Supports multiple languages:
-  - Default: Python 3 (`language: "python3"`). Full access to NumPy, PIL, OpenCV, pandas, and standard library.
+  - Default: Python 3 (`language: "python3"`). The standard library is always available. For third-party packages (NumPy, PIL/Pillow, OpenCV, scipy, librosa, pandas, etc.), do NOT assume they are present — consult the live **Runtime environment** section below, which lists exactly what is installed on THIS machine this session.
   - JavaScript/Node.js (`language: "node"`). Use for glue code, data transformation, or when types matter.
   - Bash (`language: "bash"` or `"shell"`). Use for composing system commands, file operations, or orchestrating external tools.
   - Go, Ruby, etc. on request (check availability). Pass `language` parameter; sandboxed with same workspace/credential/network isolation.
@@ -155,6 +155,19 @@ When you need to write and execute code:
   - Glue logic between assets (symlink, copy, transform, package).
 
 Both paths run in the same secure sandbox: workspace is fully writable, outside workspace allows creating new files only, credentials are blocked, network access is denied. Choose the tool that expresses your intent most naturally.
+
+---
+
+## Runtime environment (live — probed this session)
+
+This is the REAL interpreter and dependency set on the machine running your
+code right now. It is probed fresh each session, so trust it over any general
+assumption about what "should" be installed.
+
+{{environment}}
+
+- Use the exact `python_executable` shown; do not assume `python` exists.
+- Do not assume a package is installed unless it is listed.
 
 ---
 
