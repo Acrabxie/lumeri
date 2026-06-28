@@ -678,6 +678,96 @@ def _op_set_speed(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer["duration"] = _round_t(new_duration)
 
 
+@register_op("retime_segment", source="core")
+def _op_retime_segment(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Speed-change ONLY the sub-range ``[t0, t1]`` of a layer, frame-accurately.
+
+    This is the one-op ergonomic for "make just this part of the clip slow/fast".
+    It is pure *sugar* composed from the existing, already-tested primitives:
+
+    1. snap ``t0`` / ``t1`` to canvas-fps frame boundaries (so the cuts land on
+       exact frames — the same quantisation ``timebase.snap_seconds`` gives);
+    2. ``split`` the layer at ``t1`` and at ``t0`` (reusing :func:`_op_split`,
+       which is frame-precise and splits ``source_in``/``source_out`` correctly)
+       so the middle ``[t0, t1]`` piece becomes its own layer;
+    3. ``set_speed`` = ``speed`` on that middle piece (reusing
+       :func:`_op_set_speed`), so its source-frame mapping is *identical* to a
+       hand-authored split + set_speed (same numbers, same compile output).
+
+    Boundary cases are handled by skipping the unneeded cut: if ``t0`` equals the
+    layer ``start`` (resp. ``t1`` equals ``start + duration``) no split is made on
+    that edge and the existing piece *is* the segment. If the whole range covers
+    the layer exactly, this degenerates to a plain ``set_speed`` on it.
+
+    Args: ``layer_id``, ``t0``, ``t1`` (output seconds on the parent timeline,
+    snapped to frames), ``speed`` (> 0, constant).
+
+    Errors: ``E_ARG`` when ``layer_id`` / ``t0`` / ``t1`` is missing or
+    ``speed <= 0``; ``E_NOT_FOUND`` when the layer id does not exist; ``E_RANGE``
+    when ``[t0, t1]`` is not within the layer's ``[start, start + duration]`` (or
+    is empty/inverted).
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="retime_segment")
+    layer_id = str(layer["id"])
+
+    # speed validated up front (mirrors set_speed: > 0 only). E_ARG for a missing
+    # speed, E_ARG for a non-positive one (the task spec asks for E_ARG here).
+    speed = model._as_float(_require_arg(op, "speed"))
+    if speed <= 0:
+        raise LayerPatchError("E_ARG", "retime_segment: speed must be > 0")
+
+    # t0 / t1 may be given in seconds (t0/t1) or frames (frame0/frame1); the doc
+    # stays seconds-canonical. Both are required (one edge each).
+    t0 = _seconds_or_frame(doc, op, "t0", "frame0", op_name="retime_segment")
+    t1 = _seconds_or_frame(doc, op, "t1", "frame1", op_name="retime_segment")
+    if t0 is None or t1 is None:
+        raise LayerPatchError(
+            "E_ARG", "retime_segment: missing required arg 't0'/'t1' (or 'frame0'/'frame1')"
+        )
+
+    # Snap both edges to exact frame boundaries so the cuts are frame-accurate.
+    fps = _canvas_fps(doc)
+    t0 = _round_t(timebase.snap_seconds(t0, fps))
+    t1 = _round_t(timebase.snap_seconds(t1, fps))
+
+    start = _round_t(model._as_float(layer.get("start")))
+    duration = model._as_float(layer.get("duration"))
+    end = _round_t(start + duration)
+
+    # The segment must be a non-empty sub-range inside the layer's placement.
+    if not (t0 < t1):
+        raise LayerPatchError("E_RANGE", f"retime_segment: empty range [{t0}, {t1}]")
+    if t0 < start - timebase.FRAME_EPS or t1 > end + timebase.FRAME_EPS:
+        raise LayerPatchError(
+            "E_RANGE",
+            f"retime_segment: range [{t0}, {t1}] is not within the layer [{start}, {end}]",
+        )
+
+    # Cut the *back* edge first (at t1), then the *front* edge (at t0): doing t1
+    # first keeps the front piece carrying the original layer_id so the second
+    # split is found by the same id. Each split is skipped when the edge already
+    # sits on a layer boundary (split itself would reject a boundary cut). After
+    # both cuts the segment is the piece whose start == t0.
+    if t1 < end - timebase.FRAME_EPS:
+        _op_split(doc, {"op": "split", "layer_id": layer_id, "at_time": t1})
+    if t0 > start + timebase.FRAME_EPS:
+        _op_split(doc, {"op": "split", "layer_id": layer_id, "at_time": t0})
+
+    # Locate the middle piece: the sibling that now starts at t0. (When t0 ==
+    # start no front cut happened and the original layer_id still starts at t0.)
+    parent, _index = _require_locate(doc, layer_id, op="retime_segment")
+    middle = None
+    for child in parent["children"]:
+        if isinstance(child, dict) and abs(_round_t(model._as_float(child.get("start"))) - t0) <= timebase.FRAME_EPS:
+            middle = child
+            break
+    if middle is None:  # pragma: no cover — defensive; the cuts guarantee it.
+        raise LayerPatchError("E_RANGE", f"retime_segment: could not isolate segment at t0={t0}")
+
+    _op_set_speed(doc, {"op": "set_speed", "layer_id": str(middle["id"]), "speed": speed})
+    _set_selection(doc, [str(middle["id"])])
+
+
 @register_op("set_time_remap", source="core")
 def _op_set_time_remap(doc: dict[str, Any], op: dict[str, Any]) -> None:
     """Attach a time-remap (speed-ramp) curve to a layer.
