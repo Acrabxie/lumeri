@@ -173,8 +173,82 @@ def test_state_at_overlap_reports_both_in_composite_order():
     doc = add_solid(doc, "front", "#00FF00", start=0.5, duration=1.0)  # 5..14
     s = state_at(doc, 0.8)  # frame 8: both active
     assert set(s["active_layer_ids"]) == {"back", "front"}
-    # bottom -> top order (children order): back before front.
+    # All lane==0 (default): the lane-aware sort is the identity permutation, so
+    # bottom -> top order == tree order (back before front), unchanged.
     assert s["active_layer_ids"] == ["back", "front"]
+    assert [r["id"] for r in s["layers"]] == ["back", "front"]
+    # And that IS the compiler's composite order (z_index, id) — render included.
+    stack = compile_to_layer_stack(doc)
+    comp_order = [l.id for l in sorted(stack.layers, key=lambda i: (i.z_index, i.id))]
+    assert s["active_layer_ids"] == comp_order
+    # Render reality: green (front) is the topmost opaque solid => green pixel.
+    px = seek(doc, seconds=0.8)[0, 0]
+    assert px[0] == pytest.approx(0.0) and px[1] == pytest.approx(1.0)
+
+
+def test_state_at_lane_order_matches_compile_composite_not_tree_order():
+    """Lanes are stacked tracks: state_at must report z-order = compile's, NOT
+    raw tree order. Tree order is [bottom_tree, top_tree] but a higher lane on
+    the FIRST-added layer must push it ABOVE the second — and state_at's reported
+    order must match BOTH compile's composite order AND the rendered pixels.
+    """
+    doc = base_doc(fps=10)
+    # Tree order: "early" added first (red), "late" added second (green).
+    doc = add_solid(doc, "early", "#FF0000", start=0.0, duration=2.0)  # red
+    doc = add_solid(doc, "late", "#00FF00", start=0.0, duration=2.0)   # green
+    # Put the FIRST-in-tree layer onto a HIGHER lane so it composites ON TOP,
+    # making lane order (["late", "early"]) DIFFER from tree order (["early",
+    # "late"]). lane 0 stays default for "late".
+    doc = apply_layer_patch(doc, patch({
+        "op": "set_lane", "layer_id": "early", "lane": 5,
+    }))
+
+    norm = model.normalize_doc(doc)
+    tree_ids = [c["id"] for c in norm["root"]["children"]]
+    assert tree_ids == ["early", "late"]  # raw tree order (the buggy answer)
+
+    # compile's actual composite order (bottom -> top) = (z_index, id) after the
+    # lane-aware sort: lane 0 "late" bottom, lane 5 "early" top.
+    stack = compile_to_layer_stack(doc)
+    comp_order = [l.id for l in sorted(stack.layers, key=lambda i: (i.z_index, i.id))]
+    assert comp_order == ["late", "early"]
+    assert comp_order != tree_ids  # the contract violation this fixes
+
+    s = state_at(doc, 0.5)  # frame 5: both active
+    # state_at must agree with compile's composite order, NOT tree order.
+    assert s["active_layer_ids"] == comp_order == ["late", "early"]
+    assert [r["id"] for r in s["layers"]] == comp_order
+    assert s["active_layer_ids"] != tree_ids
+
+    # Render reality: the topmost layer (last in composite order, "early"=red) is
+    # the opaque solid that wins the pixel — confirming "higher lane = on top".
+    px = seek(doc, seconds=0.5)[0, 0]
+    assert px[0] == pytest.approx(1.0) and px[1] == pytest.approx(0.0)
+    assert s["active_layer_ids"][-1] == "early"  # topmost == the winning pixel
+
+
+def test_state_at_lane_order_equals_compile_for_every_frame_multilane():
+    """Golden across frames: with three layers on three different lanes, the
+    state_at active order == compile composite order (z_index, id) at every frame
+    where they overlap. Default-lane subset stays tree order (covered elsewhere).
+    """
+    doc = base_doc(fps=10)
+    # Tree order x, y, z; lanes scramble it: y(lane2) top, x(lane1) mid, z(lane0) bottom.
+    doc = add_solid(doc, "x", "#FF0000", start=0.0, duration=2.0)
+    doc = add_solid(doc, "y", "#00FF00", start=0.0, duration=2.0)
+    doc = add_solid(doc, "z", "#0000FF", start=0.0, duration=2.0)
+    doc = apply_layer_patch(doc, patch({"op": "set_lane", "layer_id": "x", "lane": 1}))
+    doc = apply_layer_patch(doc, patch({"op": "set_lane", "layer_id": "y", "lane": 2}))
+    # z keeps default lane 0.
+    stack = compile_to_layer_stack(doc)
+    comp_order = [l.id for l in sorted(stack.layers, key=lambda i: (i.z_index, i.id))]
+    assert comp_order == ["z", "x", "y"]  # bottom -> top by lane
+    fps = 10
+    for f in range(stack.total_frames):
+        active = [l.id for l in sorted(stack.layers, key=lambda i: (i.z_index, i.id))
+                  if l.is_active(f)]
+        got = state_at(doc, f / fps)["active_layer_ids"]
+        assert got == active, f"frame {f}: {got} != {active}"
 
 
 def test_state_at_matches_is_active_for_every_frame():
