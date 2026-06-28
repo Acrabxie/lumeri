@@ -433,3 +433,80 @@ def test_catalog_registry_drift_guard_still_holds():
         f"only registered: {core_ops - catalog_ops}"
     )
     assert "reverse" in core_ops and "ripple_delete" in core_ops
+
+
+# ════════════════════════════════════════════════════════════════════════
+# reverse of a layer that ALREADY carries a time_remap (regression for the
+# off-by-one pivot bug: the existing-remap branch must mirror about t_last
+# (last RENDERED frame, (N-1)/fps), NOT max(keyframe t) == duration == frame N).
+# A user-authored curve spans to `duration`; pivoting there rendered one frame
+# too far. INTERIOR source values (not at the edges) so clamping can't mask it.
+# ════════════════════════════════════════════════════════════════════════
+
+
+def _interior_remap_doc() -> dict:
+    """Clip carrying a forward remap at 1:1 RATE (no slow-mo quantization noise)
+    OFFSET +1s into the source: output [0,8] -> source [1.0s, 9.0s]. Values are
+    INTERIOR (1..9 inside the 0..10s source) so clamping cannot mask an off-by-one
+    in the reverse pivot — this is the regression case the final critic flagged."""
+    doc = normalize_doc({})
+    doc["canvas"]["fps"] = FPS
+    doc["root"]["children"] = [
+        model._normalize_layer({
+            "type": "video", "id": "clip1",
+            "start": 0.0, "duration": 8.0,
+            "source_in": 0.0, "source_out": 10.0, "speed": 1.0,
+        })
+    ]
+    doc["root"]["duration"] = 8.0
+    return apply_layer_patch(doc, {"version": 1, "ops": [
+        {"op": "set_time_remap", "layer_id": "clip1", "extrapolate": "hold",
+         "keyframes": [
+             {"t": 0.0, "value": 1.0, "interp": "linear"},
+             {"t": 8.0, "value": 9.0, "interp": "linear"},
+         ]},
+    ]})
+
+
+def test_reverse_of_existing_interior_remap_is_frame_exact():
+    """reversed[0] == forward[last] (NOT one source frame beyond it).
+
+    The off-by-one pivot bug mirrored about ``duration`` (frame N) instead of
+    ``t_last`` (frame N-1), so reversed[0] rendered one source frame too far
+    (e.g. 270 instead of 269). With the fix the reverse is an exact mirror."""
+    fwd_doc = _interior_remap_doc()
+    fwd_layer = fwd_doc["root"]["children"][0]
+    rev_doc = apply_layer_patch(fwd_doc, {"version": 1, "ops": [
+        {"op": "reverse", "layer_id": "clip1"},
+    ]})
+    rev_layer = rev_doc["root"]["children"][0]
+    assert rev_layer["duration"] == 8.0  # reverse preserves length
+
+    n_frames = int(round(rev_layer["duration"] * FPS))
+    last = n_frames - 1
+    forward = [_rendered_source_frame(fwd_layer, k) for k in range(n_frames)]
+    rev = [_rendered_source_frame(rev_layer, k) for k in range(n_frames)]
+
+    # The old bug pivoted about `duration` (frame N) and rendered forward[last]+1
+    # at output 0; with INTERIOR values that error is unmasked by clamping.
+    assert rev[0] == forward[last], (
+        f"reversed[0]={rev[0]} must equal forward[last]={forward[last]} "
+        "(off-by-one pivot would render one frame beyond)"
+    )
+    assert rev[last] == forward[0]
+    assert rev == list(reversed(forward))
+
+
+def test_reverse_twice_of_existing_remap_round_trips():
+    """Reversing an already-remapped clip twice restores the forward mapping."""
+    fwd_doc = _interior_remap_doc()
+    fwd_layer = fwd_doc["root"]["children"][0]
+    twice_doc = apply_layer_patch(
+        apply_layer_patch(fwd_doc, {"version": 1, "ops": [
+            {"op": "reverse", "layer_id": "clip1"}]}),
+        {"version": 1, "ops": [{"op": "reverse", "layer_id": "clip1"}]})
+    twice_layer = twice_doc["root"]["children"][0]
+    n_frames = int(round(fwd_layer["duration"] * FPS))
+    fwd = [_rendered_source_frame(fwd_layer, k) for k in range(n_frames)]
+    twice = [_rendered_source_frame(twice_layer, k) for k in range(n_frames)]
+    assert twice == fwd

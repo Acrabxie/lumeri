@@ -1042,9 +1042,16 @@ def _reverse_layer_in_place(doc: dict[str, Any], layer: dict[str, Any]) -> None:
 
     existing = layer.get("time_remap")
     if isinstance(existing, dict) and existing.get("keyframes"):
-        # Mirror an existing curve about its own output extent (true involution).
+        # Mirror an existing curve about ``t_last`` — the layer's LAST RENDERED
+        # output frame ((N-1)/fps), NOT ``max(keyframe t)``. A user-authored curve
+        # usually spans to ``duration`` (= N/fps, one frame past the last rendered
+        # frame); mirroring about that pivots one frame too far and renders a wrong
+        # source frame at output 0 for interior remaps. Anchoring on t_last matches
+        # the constant-speed branch and is a true involution for nearest-frame
+        # mapping (a curve produced by the else branch already maxes at t_last, so
+        # reverse-twice is unchanged).
         kfs = [pt for pt in existing["keyframes"] if isinstance(pt, dict)]
-        pivot = max((_round_t(pt.get("t")) for pt in kfs), default=t_last)
+        pivot = t_last
         points = [
             {
                 "t": _round_t(pivot - model._as_float(pt.get("t"))),
