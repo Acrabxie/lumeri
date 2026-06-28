@@ -910,3 +910,38 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .inspector-btn:hover { background: rgba(255, 255, 255, 0.10); }
 .inspector-btn:active { background: var(--accent-soft); }
+
+/* blend-mode <select> in the compositing section (additive control) */
+.inspector-blend {
+  flex: 1;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+/* compositing action buttons (Make PiP / Add gradient / Add shape / Crossfade) */
+.inspector-comp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.inspector-comp-btn {
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+.inspector-comp-btn:hover { background: rgba(255, 255, 255, 0.10); }
+.inspector-comp-btn:active { background: var(--accent-soft); }
+.inspector-comp-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.inspector-comp-btn:disabled:hover { background: rgba(255, 255, 255, 0.04); }
