@@ -9,6 +9,26 @@ import numpy as np
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _sandbox_gemia_memory_for_agent_tests(request, tmp_path, monkeypatch):
+    """Keep the agent loop's auto daily-log out of the user's real ~/.gemia.
+
+    The v3 agent writes a one-line entry to ``gemia.memory.append_daily_entry``
+    when a turn completes. Older agent-loop integration tests don't sandbox the
+    memory root, so without this they'd silently pollute the real
+    ``~/.gemia/memory/daily``. Redirect HOME to a tmp dir for those tests only
+    (same mechanism test_memory.py uses; memory_root() reads Path.home()), so
+    the real store is never touched. Scoped by node id so the rest of the suite
+    keeps its normal HOME.
+    """
+    nid = request.node.nodeid
+    if any(t in nid for t in ("test_v3_", "agent_loop", "test_automation_loop")):
+        home = tmp_path / "home"
+        (home / ".gemia" / "memory").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(home))
+    yield
+
+
 @pytest.fixture
 def sample_image() -> np.ndarray:
     """64x64 BGR gradient image, float32 [0, 1]."""
