@@ -53,6 +53,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from gemia import memory as _memory
 from gemia.budget_guard import BudgetGuard
 from gemia.env_probe import format_environment_summary
 from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
@@ -375,12 +376,62 @@ class AgentLoopV3:
         except (ImportError, Exception):
             return "(lumenframe operations not available)"
 
+    def _memory_for_prompt(self) -> str:
+        """Compact, size-capped durable-memory block for the ``{{memory}}`` slot.
+
+        Delegates to ``gemia.memory.format_memory_for_prompt`` (which reads
+        MEMORY.md + the model-profile digest, capped at a few KB) and never
+        raises: any failure degrades to a short placeholder so prompt assembly
+        cannot break on a missing or unreadable memory store.
+        """
+        try:
+            return _memory.format_memory_for_prompt()
+        except Exception:  # noqa: BLE001 — memory must never break prompt build
+            return "(durable memory unavailable this session)"
+
+    def _auto_log_turn(
+        self,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+    ) -> None:
+        """Append ONE concise line to today's daily log at turn end.
+
+        Records the user's ask (truncated) + what was done (tool / asset
+        counts). Best-effort and non-fatal by contract: secret-looking content
+        is dropped inside ``append_daily_entry`` and the whole thing is wrapped
+        in try/except so a logging failure can never break the turn. Skips
+        cleanly when there is no pinned intent (nothing to log)."""
+        try:
+            ask = (self._pinned_intent or "").strip()
+            if not ask:
+                return
+            ask = " ".join(ask.split())
+            if len(ask) > 140:
+                ask = ask[:139].rstrip() + "…"
+
+            done_bits: list[str] = []
+            if tools_succeeded:
+                done_bits.append(f"{tools_succeeded} tool call(s)")
+            if assets_produced:
+                done_bits.append(f"{assets_produced} asset(s)")
+            if tools_failed:
+                done_bits.append(f"{tools_failed} failure(s)")
+            done = ", ".join(done_bits) if done_bits else "no tool calls"
+
+            _memory.append_daily_entry(f"v3 turn — ask: {ask} | done: {done}")
+        except Exception:  # noqa: BLE001 — logging must never break the turn
+            pass
+
     def render_messages(self) -> list[dict[str, Any]]:
         """Build the messages list for the next model call.
 
         System prompt = ``system_v3.md`` with the placeholders filled in:
         ``{{environment}}`` from a live probe of the running interpreter and
         installed dependencies (gemia.env_probe.format_environment_summary),
+        ``{{memory}}`` from the durable Gemia memory store
+        (gemia.memory.format_memory_for_prompt — MEMORY.md + model defaults),
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
         ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
@@ -395,6 +446,7 @@ class AgentLoopV3:
         system_filled = (
             self._system_template
             .replace("{{environment}}", format_environment_summary())
+            .replace("{{memory}}", self._memory_for_prompt())
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
             .replace("{{lumenframe_ops}}", lumenframe_ops)
@@ -863,6 +915,14 @@ class AgentLoopV3:
                         for r in self.registry.list_records()
                         if r.asset_id not in pre_asset_ids
                     ]
+                    # Auto daily-log ONE concise line for this turn (the user's
+                    # ask + what was done). Best-effort: a logging failure must
+                    # NOT break the turn, so it is fully wrapped.
+                    self._auto_log_turn(
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=len(final_ids),
+                    )
                     self._emit(
                         {"kind": "turn_complete", "final_asset_ids": final_ids}
                     )

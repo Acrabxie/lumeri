@@ -504,6 +504,36 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         [],
     ),
+    _tool(
+        "remember",
+        "Call this to REMEMBER a durable user fact or preference across sessions — a standing constraint, a stable preference, a name/handle, a recurring workflow choice. The fact is written to durable memory (MEMORY.md) and shown back to you in the 'What you remember' section of future sessions. Pass a 'title' to make it idempotent: re-remembering the same title UPDATES the note instead of duplicating it. Do NOT store secrets, tokens, passwords, or API keys — those are rejected. For short-lived per-turn progress, use log_note instead, not remember.",
+        {
+            "content": {
+                "type": "string",
+                "description": "The durable fact/preference to remember, in plain text.",
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional short label/key. Re-remembering with the same title UPDATES the existing note (no duplicates).",
+            },
+            "kind": {
+                "type": "string",
+                "description": "Optional category hint, e.g. 'preference', 'constraint', 'fact', 'workflow'.",
+            },
+        },
+        ["content"],
+    ),
+    _tool(
+        "log_note",
+        "Append a short one-line note to TODAY'S daily log (a running breadcrumb of progress/decisions). Use for short-lived, in-this-session context worth recording — not for durable facts (use remember for those). Best-effort: empty or secret-looking notes are skipped, not stored. The host already auto-logs a turn summary at turn end; use this to add your own extra breadcrumb mid-turn.",
+        {
+            "text": {
+                "type": "string",
+                "description": "The note to append to today's daily log (collapsed to a single line).",
+            },
+        },
+        ["text"],
+    ),
     # ── lumenframe layer document verbs ──────────────────────────────────
     # The session owns ONE lumenframe document (layer tree). These verbs
     # expose the LayerPatch vocabulary: low-level lumen_patch for raw ops,
