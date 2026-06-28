@@ -700,6 +700,14 @@ def _op_merge_compositions(doc: dict[str, Any], op: dict[str, Any]) -> None:
 
     cloned_groups = _fresh_ids_for_group(source_children)
 
+    # Remember the target's explicit duration *before* we add anything. A nested
+    # comp compiles its length from this explicit duration (compile.py
+    # ``_composition_content`` sets ``sub_total = round(duration * fps)`` and clamps
+    # every local frame to ``sub_total - 1``), so children placed past it would
+    # NEVER render. We grow the duration below to cover the lifted content while
+    # never *shrinking* a comp that was authored longer than its content.
+    target_current_duration = _round_t(model._as_float(target.get("duration")))
+
     lifted_ids: list[str] = []
     for group in cloned_groups:
         # The shift baseline is re-read per source so successive appends stack onto
@@ -709,6 +717,14 @@ def _op_merge_compositions(doc: dict[str, Any], op: dict[str, Any]) -> None:
             clone["start"] = _round_t(model._as_float(clone.get("start")) + shift)
         target.setdefault("children", []).extend(group)
         lifted_ids.extend(str(c.get("id")) for c in group)
+
+    # Extend the target so the lifted content actually renders. For ``append`` this
+    # covers children placed past the original extent; for ``overlay`` it covers a
+    # lifted child that overruns the target's current duration (longer overlaid
+    # content). ``max`` keeps a comp authored longer than its content unchanged.
+    # Applies whether the target is the root or a nested comp (a no-op for root,
+    # whose timeline already auto-sizes to ``_composition_extent``).
+    target["duration"] = _round_t(max(target_current_duration, model._composition_extent(target)))
 
     if keep_sources:
         # Re-insert the (now child-less) source containers where they were. Restore
@@ -901,7 +917,31 @@ def _op_retime_segment(doc: dict[str, Any], op: dict[str, Any]) -> None:
     if middle is None:  # pragma: no cover — defensive; the cuts guarantee it.
         raise LayerPatchError("E_RANGE", f"retime_segment: could not isolate segment at t0={t0}")
 
+    # Capture the middle's placement *before* the speed change. Its current end is
+    # where the trailing piece(s) begin (the t1 cut). ``set_speed`` rescales the
+    # middle's duration, so without rippling the tail would OVERLAP the slowed
+    # middle (speed < 1) or leave a GAP after a sped-up one (speed > 1).
+    middle_start = _round_t(model._as_float(middle.get("start")))
+    old_middle_duration = model._as_float(middle.get("duration"))
+    old_middle_end = _round_t(middle_start + old_middle_duration)
+
     _op_set_speed(doc, {"op": "set_speed", "layer_id": str(middle["id"]), "speed": speed})
+
+    # Ripple: shift every trailing same-layer split piece (those that started at or
+    # past the middle's old end — i.e. the tail produced by the t1 cut, and any
+    # piece beyond it) by the duration delta, so the tail begins exactly at the
+    # middle's NEW end. No overlap, no gap; starts stay frame-snapped because the
+    # delta is a difference of frame-snapped placements.
+    new_middle_duration = model._as_float(middle.get("duration"))
+    delta = _round_t(new_middle_duration - old_middle_duration)
+    if delta != 0.0:
+        for child in parent["children"]:
+            if not isinstance(child, dict) or child is middle:
+                continue
+            child_start = _round_t(model._as_float(child.get("start")))
+            if child_start >= old_middle_end - timebase.FRAME_EPS:
+                child["start"] = _round_t(child_start + delta)
+
     _set_selection(doc, [str(middle["id"])])
 
 

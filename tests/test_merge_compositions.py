@@ -133,6 +133,126 @@ def test_multiple_sources_append_stack_sequentially():
     validate_doc(out)
 
 
+# ── append/overlay must EXTEND the target's explicit duration ─────────────
+# Regression for the silent-drop bug: a nested comp compiles its length from its
+# EXPLICIT ``duration`` (compile._composition_content sub_total = round(dur*fps),
+# clamping every local_frame to sub_total-1). Appending children past the original
+# extent without growing ``duration`` made them NEVER render.
+
+
+def test_append_extends_nested_target_duration_to_cover_lifted_content():
+    # A is a *nested* comp authored exactly to its content (extent == duration == 3.0).
+    A = _comp("A", _solid("a1", start=0.0, duration=3.0), duration=3.0)
+    B = _comp("B", _solid("b1", start=0.0, duration=2.0))  # local extent 2.0
+    doc = _doc(A, B)
+    assert model.find_layer(doc, "A")["duration"] == 3.0  # pre-condition
+
+    out = apply_layer_patch(doc, patch(
+        {"op": "merge_compositions", "source_ids": ["B"], "into_id": "A", "mode": "append"}))
+
+    merged = model.find_layer(out, "A")
+    assert _starts(merged) == [0.0, 3.0]          # b1 appended at the old extent
+    # The fix: duration grows from 3.0 to the new content extent 5.0 so the
+    # appended child is inside the comp's compiled length (was the bug: stayed 3.0).
+    assert merged["duration"] == 5.0
+    assert merged["duration"] == model._composition_extent(merged)
+    validate_doc(out)
+
+
+def test_append_never_shrinks_a_comp_authored_longer_than_its_content():
+    # A is authored to 6.0 though its content only reaches 3.0. Append must take the
+    # MAX(authored, new extent), never shrink the authored tail.
+    A = _comp("A", _solid("a1", start=0.0, duration=3.0), duration=6.0)
+    B = _comp("B", _solid("b1", start=0.0, duration=1.0))  # appended at extent 3.0 -> 3..4
+    doc = _doc(A, B)
+
+    out = apply_layer_patch(doc, patch(
+        {"op": "merge_compositions", "source_ids": ["B"], "into_id": "A", "mode": "append"}))
+
+    merged = model.find_layer(out, "A")
+    assert _starts(merged) == [0.0, 3.0]
+    # new content extent is 4.0 but authored 6.0 wins -> duration stays 6.0.
+    assert merged["duration"] == 6.0
+
+
+def test_overlay_extends_target_when_lifted_child_overruns_duration():
+    # Overlay a longer source child into a shorter authored target: the duration
+    # must grow so the overrunning overlaid content renders.
+    A = _comp("A", _solid("a1", start=0.0, duration=1.0), duration=1.0)
+    B = _comp("B", _solid("b1", start=0.0, duration=2.0))  # overlaid, overruns to 2.0
+    doc = _doc(A, B)
+
+    out = apply_layer_patch(doc, patch(
+        {"op": "merge_compositions", "source_ids": ["B"], "into_id": "A", "mode": "overlay"}))
+
+    merged = model.find_layer(out, "A")
+    assert _starts(merged) == [0.0, 0.0]          # overlay keeps local starts
+    assert merged["duration"] == 2.0              # grown to cover the overrun
+    validate_doc(out)
+
+
+def test_append_render_shows_appended_content_past_old_extent():
+    """Render-level regression: a frame in the APPENDED region of a nested comp
+    shows the appended (green) content, not a clamped blank/old frame.
+
+    Without the duration-extend fix the appended child sits past the comp's
+    compiled length (sub_total clamps local_frame to sub_total-1), so the blue
+    base below would show through instead of green.
+    """
+    from lumenframe.compile import compile_to_layer_stack
+
+    W, H, FPS = 8, 8, 10
+
+    # Blue base spans the whole 2s timeline on lane 0; the nested comp NC (lane 1,
+    # authored to its 1.0s content) sits above it holding a red 0..1 child.
+    base = _solid("base", "#0000ff", start=0.0, duration=2.0, lane=0)
+    NC = _comp("NC", _solid("red", "#ff0000", start=0.0, duration=1.0),
+               start=0.0, duration=1.0, lane=1)
+    B = _comp("B", _solid("grn", "#00ff00", start=0.0, duration=1.0))  # -> appended 1..2
+    doc = _doc(base, NC, B, width=W, height=H, fps=FPS)
+
+    out = apply_layer_patch(doc, patch(
+        {"op": "merge_compositions", "source_ids": ["B"], "into_id": "NC", "mode": "append"}))
+
+    merged = model.find_layer(out, "NC")
+    assert merged["duration"] == 2.0  # extended past old extent of 1.0
+    stack = compile_to_layer_stack(out, strict=False)
+
+    # frame 0 (t=0): NC's red over blue base.
+    f0 = stack.render_frame(0)[H // 2, W // 2]
+    assert f0[0] == pytest.approx(1.0) and f0[2] == pytest.approx(0.0), "expected red at t=0"
+
+    # frame 15 (t=1.5s): the APPENDED green region. With the bug this was the blue
+    # base showing through (green clamped away); now it must be green.
+    f15 = stack.render_frame(15)[H // 2, W // 2]
+    assert f15[1] == pytest.approx(1.0), "appended green did not render past old extent"
+    assert f15[0] == pytest.approx(0.0) and f15[2] == pytest.approx(0.0), \
+        "blue base bled through — appended content was clamped/dropped"
+
+
+def test_overlay_render_shows_overrunning_content_past_old_extent():
+    """Render-level regression for OVERLAY: a longer overlaid child renders past
+    the target's original (shorter) authored duration."""
+    from lumenframe.compile import compile_to_layer_stack
+
+    W, H, FPS = 8, 8, 10
+
+    base = _solid("base", "#0000ff", start=0.0, duration=2.0, lane=0)
+    NC = _comp("NC", _solid("red", "#ff0000", start=0.0, duration=1.0),
+               start=0.0, duration=1.0, lane=1)
+    B = _comp("B", _solid("grn", "#00ff00", start=0.0, duration=2.0))  # overruns to 2.0
+    doc = _doc(base, NC, B, width=W, height=H, fps=FPS)
+
+    out = apply_layer_patch(doc, patch(
+        {"op": "merge_compositions", "source_ids": ["B"], "into_id": "NC", "mode": "overlay"}))
+
+    assert model.find_layer(out, "NC")["duration"] == 2.0
+    stack = compile_to_layer_stack(out, strict=False)
+    f15 = stack.render_frame(15)[H // 2, W // 2]  # t=1.5s, past the old 1.0 duration
+    assert f15[1] == pytest.approx(1.0), "overrunning overlaid content did not render"
+    assert f15[2] == pytest.approx(0.0), "blue base bled through — overlay overrun was clamped"
+
+
 # ── ids are minted fresh, no collisions ──────────────────────────────────
 
 

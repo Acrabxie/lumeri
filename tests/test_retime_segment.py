@@ -201,6 +201,109 @@ def test_full_range_degenerates_to_plain_set_speed():
     assert only["duration"] == pytest.approx(5.0)
 
 
+# ── ripple: the trailing piece follows the retimed middle (no gap/overlap) ──
+# Regression for the gap/overlap bug: set_speed rescales the middle's duration but
+# the trailing split piece was NOT shifted, so speed<1 made middle+tail OVERLAP
+# and speed>1 left a GAP. The tail must start exactly at the middle's NEW end.
+
+
+def _end(layer: dict) -> float:
+    return round(float(layer["start"]) + float(layer["duration"]), 6)
+
+
+def test_ripple_speed_up_closes_gap_tail_abuts_middle():
+    # 2x on [2,6]: middle 4s of source -> 2s output. Tail (old start 6.0) must shift
+    # BACK to the middle's new end (4.0): no gap.
+    doc = apply_layer_patch(_base_doc(), {"version": 1, "ops": [
+        {"op": "retime_segment", "layer_id": "clip1", "t0": 2.0, "t1": 6.0, "speed": 2.0},
+    ]})
+    head, middle, tail = doc["root"]["children"]
+    assert middle["speed"] == 2.0 and tail["speed"] == 1.0
+    assert middle["duration"] == pytest.approx(2.0)
+    assert _end(middle) == pytest.approx(4.0)
+    # The fix: tail rippled from 6.0 back to 4.0 (was the bug: stayed at 6.0 -> gap).
+    assert tail["start"] == pytest.approx(4.0)
+    assert _end(middle) == pytest.approx(tail["start"])  # exact abut, no gap
+    assert _end(tail) == pytest.approx(8.0)              # tail length preserved (4s)
+    validate_doc(doc)
+
+
+def test_ripple_slow_down_removes_overlap_tail_abuts_middle():
+    # 0.5x on [2,6]: middle 4s of source -> 8s output. Tail (old start 6.0) must
+    # shift FORWARD to the middle's new end (10.0): no overlap.
+    doc = apply_layer_patch(_base_doc(), {"version": 1, "ops": [
+        {"op": "retime_segment", "layer_id": "clip1", "t0": 2.0, "t1": 6.0, "speed": 0.5},
+    ]})
+    head, middle, tail = doc["root"]["children"]
+    assert middle["speed"] == 0.5 and tail["speed"] == 1.0
+    assert middle["duration"] == pytest.approx(8.0)
+    assert _end(middle) == pytest.approx(10.0)
+    # The fix: tail rippled from 6.0 forward to 10.0 (was the bug: stayed at 6.0,
+    # buried entirely inside the slowed middle -> overlap).
+    assert tail["start"] == pytest.approx(10.0)
+    assert _end(middle) == pytest.approx(tail["start"])  # exact abut, no overlap
+    assert _end(tail) == pytest.approx(14.0)             # tail length preserved (4s)
+    validate_doc(doc)
+
+
+def test_ripple_on_start_edge_segment_shifts_the_tail():
+    # t0 == layer start: head split skipped, but the segment is still followed by a
+    # tail that must ripple. 2x on [1,5] of a [1,11] layer -> seg 2s, tail abuts at 3.0.
+    doc = apply_layer_patch(_base_doc(start=1.0, duration=10.0), {"version": 1, "ops": [
+        {"op": "retime_segment", "layer_id": "clip1", "t0": 1.0, "t1": 5.0, "speed": 2.0},
+    ]})
+    seg, tail = doc["root"]["children"]
+    assert seg["speed"] == 2.0 and _end(seg) == pytest.approx(3.0)
+    assert tail["start"] == pytest.approx(3.0)            # was 5.0 (gap); now abuts
+    assert _end(seg) == pytest.approx(tail["start"])
+    validate_doc(doc)
+
+
+@pytest.mark.parametrize("speed,expected_tail_start", [(2.0, 4.0), (0.5, 10.0)])
+def test_ripple_render_tail_content_appears_at_rippled_position(speed, expected_tail_start):
+    """Render-level: recolor the tail green after retime, then the green tail must
+    render starting exactly at the rippled (middle.new-end) position — proving the
+    tail content moved (no blank gap for speed>1, no buried overlap for speed<1)."""
+    from lumenframe.compile import compile_to_layer_stack
+
+    fps, W, H = 10, 8, 8
+    doc = normalize_doc({})
+    doc["canvas"]["fps"] = fps
+    doc["canvas"]["width"], doc["canvas"]["height"] = W, H
+    clip = model.new_layer("solid", id="clip1", start=0.0, duration=10.0)
+    clip["props"]["color"] = "#ffffff"
+    clip["source_in"], clip["source_out"], clip["speed"] = 0.0, 10.0, 1.0
+    doc["root"]["children"] = [clip]
+    doc["root"]["duration"] = 10.0
+
+    out = apply_layer_patch(doc, {"version": 1, "ops": [
+        {"op": "retime_segment", "layer_id": "clip1", "t0": 2.0, "t1": 6.0, "speed": speed},
+    ]})
+    kids = out["root"]["children"]
+    middle = next(k for k in kids if float(k["speed"]) == speed)
+    tail = kids[kids.index(middle) + 1]
+    assert float(tail["start"]) == pytest.approx(expected_tail_start)
+    assert _end(middle) == pytest.approx(float(tail["start"]))  # abut
+
+    # Make the tail visually distinct so we can prove WHERE it renders.
+    tail["props"]["color"] = "#00ff00"
+    stack = compile_to_layer_stack(out, strict=False)
+
+    cy, cx = H // 2, W // 2
+    # Just inside the middle: still the white middle, not the green tail.
+    mid_frame = int(round((float(middle["start"]) + 0.05) * fps))
+    pmid = stack.render_frame(mid_frame)[cy, cx]
+    assert pmid[0] == pytest.approx(1.0) and pmid[1] == pytest.approx(1.0), "middle should be white"
+
+    # At the tail onset (== middle's new end): the green tail renders — not a blank
+    # gap (speed>1) and not the still-running middle (speed<1).
+    tail_frame = int(round((expected_tail_start + 0.05) * fps))
+    ptail = stack.render_frame(tail_frame)[cy, cx]
+    assert ptail[3] == pytest.approx(1.0), "tail onset is blank — content did not ripple into place"
+    assert ptail[1] == pytest.approx(1.0) and ptail[0] == pytest.approx(0.0), \
+        "expected the green tail exactly at the rippled position"
+
+
 # ── validation ─────────────────────────────────────────────────────────────
 
 
