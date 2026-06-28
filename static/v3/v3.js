@@ -200,12 +200,98 @@
     `;
   }
 
+  // ── Claude-Code-style running activity log ──────────────────────────
+  // A tool call renders a single readable progress line:
+  //   ⏺ generate_image(prompt: "a neon city…")
+  // running -> accent dot + spinner; done -> dimmed ✓ + one-line result;
+  // failed -> ✗ in the error style. This is the "see what it's doing as it
+  // happens / catch drift" surface, on TOP of the existing detail card.
+
+  // Keys whose values must never be previewed verbatim (could be secret-ish
+  // or just noise). We show <hidden> instead of the value.
+  const SECRETISH_ARG_KEYS = /(key|token|secret|password|passwd|pwd|auth|credential|cookie|session|bearer|api[_-]?key|access[_-]?token)/i;
+  const ARG_VALUE_MAX = 48;   // truncate any single previewed value past this
+  const ARG_PREVIEW_MAX = 80; // truncate the whole assembled preview past this
+
+  function truncate(s, max) {
+    s = String(s);
+    return s.length > max ? s.slice(0, Math.max(0, max - 1)) + "…" : s;
+  }
+
+  /** Short, human-readable, secret-safe preview of a single arg value. */
+  function previewArgValue(v) {
+    if (v == null) return String(v);
+    if (typeof v === "string") return truncate(JSON.stringify(v), ARG_VALUE_MAX);
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    if (Array.isArray(v)) return truncate(`[${v.length} item${v.length === 1 ? "" : "s"}]`, ARG_VALUE_MAX);
+    if (typeof v === "object") {
+      const keys = Object.keys(v);
+      return truncate(`{${keys.slice(0, 3).join(", ")}${keys.length > 3 ? ", …" : ""}}`, ARG_VALUE_MAX);
+    }
+    return truncate(String(v), ARG_VALUE_MAX);
+  }
+
+  /** Deep copy of args with secret-ish values masked, for any verbatim display. */
+  function redactArgs(args) {
+    if (Array.isArray(args)) return args.map(redactArgs);
+    if (args && typeof args === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(args)) {
+        out[k] = SECRETISH_ARG_KEYS.test(k) ? "<hidden>" : redactArgs(v);
+      }
+      return out;
+    }
+    return args;
+  }
+
+  /** Build the "(prompt: …, size: …)" preview from a tool's args object. */
+  function buildArgPreview(args) {
+    if (!args || typeof args !== "object") return "";
+    const parts = [];
+    for (const [k, v] of Object.entries(args)) {
+      if (SECRETISH_ARG_KEYS.test(k)) { parts.push(`${k}: <hidden>`); continue; }
+      parts.push(`${k}: ${previewArgValue(v)}`);
+    }
+    return truncate(parts.join(", "), ARG_PREVIEW_MAX);
+  }
+
+  /** Marker glyph for the activity line, by status. */
+  function activityGlyph(status) {
+    if (status === "done") return "✓";
+    if (status === "failed") return "✗";
+    if (status === "gated") return "⊘";
+    return "⏺"; // pending / running
+  }
+
+  /** The one-line activity entry shown at the top of every tool card. */
+  function renderActivityLine(tc) {
+    const glyph = activityGlyph(tc.status);
+    const preview = buildArgPreview(tc.args);
+    const sig = `${escapeHTML(tc.tool_name)}(<span class="al-args">${escapeHTML(preview)}</span>)`;
+    // done -> trailing one-line result summary / asset id; failed -> error msg.
+    let tail = "";
+    if (tc.status === "done") {
+      const done = tc.summary || (tc.previewAssetId ? `→ ${tc.previewAssetId}` : "done");
+      tail = `<span class="al-result">${escapeHTML(done)}</span>`;
+    } else if (tc.status === "failed") {
+      tail = `<span class="al-error">${escapeHTML(tc.error || "error")}</span>`;
+    }
+    return `
+      <div class="activity-line ${tc.status}">
+        <span class="al-glyph">${glyph}</span>
+        <span class="al-sig">${sig}</span>
+        ${tail}
+      </div>
+    `;
+  }
+
   function renderToolCall(tc) {
     const reasoningHtml = tc.reasoning
       ? `<div class="tool-reasoning">${escapeHTML(tc.reasoning)}</div>`
       : "";
+    const activityHtml = renderActivityLine(tc);
     const argsHtml = tc.args
-      ? `<div class="tool-args">${escapeHTML(JSON.stringify(tc.args, null, 2))}</div>`
+      ? `<div class="tool-args">${escapeHTML(JSON.stringify(redactArgs(tc.args), null, 2))}</div>`
       : "";
     const summaryHtml = tc.summary
       ? `<div class="tool-summary">${escapeHTML(tc.summary)}</div>`
@@ -222,6 +308,7 @@
           <span class="tool-name">${escapeHTML(tc.tool_name)}</span>
           <span class="tool-status ${tc.status}">${tc.status}</span>
         </div>
+        ${activityHtml}
         ${argsHtml}
         ${progressHtml}
         ${summaryHtml}
@@ -470,6 +557,28 @@
     }
     handler(ev);
   }
+
+  // Debug/test hook (mirrors window.__lumeriAsk / __lumeriInspector): drives the
+  // REAL SSE event pipeline + render() so DevTools and node tests can feed a
+  // fixture event sequence and assert the COMPUTED running-activity-log output
+  // (tool name, narration, ✓ result marker, ✗ error marker) — not just that a
+  // function exists.
+  window.__lumeriNarration = {
+    // Start a turn the same way submitTurn() does, minus the network POST.
+    startTurn(userMessage) {
+      const turn = newTurn(userMessage || "");
+      state.turns.push(turn);
+      state.currentTurn = turn;
+      state.turnInProgress = true;
+      return turn;
+    },
+    dispatch,                 // real dispatch: records event + runs the real handler
+    render,                   // real render: writes els.timeline.innerHTML
+    buildArgPreview,          // pure helper, for unit-level asserts
+    renderActivityLine,       // pure helper, returns the computed line HTML
+    state,                    // read-only inspection of computed turn state
+    timelineHTML: () => els.timeline.innerHTML,
+  };
 
   // ── ask mechanism (elicit) ──────────────────────────────────────────
   // Imperative DOM (not part of render()'s innerHTML) so user input survives

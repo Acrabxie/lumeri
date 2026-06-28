@@ -187,6 +187,40 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .tool-status.failed  { color: var(--err); border-color: var(--err); }
 .tool-status.gated   { color: var(--warn); border-color: var(--warn); }
 
+/* Claude-Code-style running activity log: one readable line per tool call.
+   ⏺ tool_name(arg preview)   running=accent · done=dimmed ✓ · failed=✗ err.
+   This is the "watch it work as it happens / catch drift" surface. */
+.activity-line {
+  font: 12.5px/1.5 ui-monospace, SF Mono, Menlo, monospace;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--text);
+  word-break: break-word;
+}
+.activity-line .al-glyph { flex-shrink: 0; width: 1em; text-align: center; }
+.activity-line .al-sig { font-weight: 600; }
+.activity-line .al-args { font-weight: 400; color: var(--text-dim); }
+.activity-line .al-result { color: var(--text-dim); flex: 1; min-width: 0; }
+.activity-line .al-error { color: var(--err); flex: 1; min-width: 0; }
+/* running: accent dot, gentle pulse so the eye lands on the live line */
+.activity-line.running .al-glyph,
+.activity-line.pending .al-glyph { color: var(--accent); }
+.activity-line.running .al-glyph { animation: al-pulse 1.2s ease-in-out infinite; }
+/* done: whole line dims back, ✓ stays green */
+.activity-line.done { color: var(--text-dim); }
+.activity-line.done .al-glyph { color: var(--ok); }
+.activity-line.done .al-sig { color: var(--text-dim); font-weight: 500; }
+/* failed: ✗ + error accent so a problem is unmissable */
+.activity-line.failed .al-glyph { color: var(--err); }
+.activity-line.failed .al-sig { color: var(--err); }
+/* gated: warn */
+.activity-line.gated .al-glyph,
+.activity-line.gated .al-sig { color: var(--warn); }
+@keyframes al-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 .tool-args, .tool-summary {
   font: 12px/1.5 ui-monospace, SF Mono, Menlo, monospace;
   background: var(--bg);
