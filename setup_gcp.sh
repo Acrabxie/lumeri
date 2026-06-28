@@ -2,10 +2,20 @@
 # Lumeri test-box bootstrap for a fresh GCP VM.
 #
 # Recommended image: Ubuntu 24.04 LTS (ships Python 3.12; lumeri needs >=3.12).
-# Usage on the VM:
-#   git clone https://github.com/Acrabxie/lumeri.git
-#   cd lumeri && git checkout overnight/base-20260627
-#   bash setup_gcp.sh
+# Usage on a BARE VM (git is NOT preinstalled on a fresh Ubuntu image — install
+# it first, then clone, then run this script):
+#   sudo apt-get update -y && sudo apt-get install -y git \
+#     && git clone https://github.com/Acrabxie/lumeri.git \
+#     && cd lumeri && git checkout overnight/base-20260627 \
+#     && bash setup_gcp.sh
+#
+# Fully hands-off alternative: pass this as the VM startup-script at create time
+# (runs as root at boot; do the interactive onboarding after you SSH in):
+#   gcloud compute instances create lumeri-test ... \
+#     --metadata=startup-script='#! /bin/bash
+#       apt-get update -y && apt-get install -y git
+#       cd /opt && git clone https://github.com/Acrabxie/lumeri.git
+#       cd lumeri && git checkout overnight/base-20260627 && bash setup_gcp.sh'
 #
 # What lumeri ACTUALLY needs to run+test: Python 3.12, ffmpeg, and the pip deps.
 # NODE / codex / claude-code are NOT required to run lumeri (Node is only for the
