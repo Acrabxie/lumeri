@@ -34,6 +34,7 @@ LAYER_TYPES: set[str] = {
     "audio",
     "text",
     "shape",
+    "gradient",  # canvas-sized linear/radial gradient fill (resolver-rendered)
     "sticker",
     "adjustment",  # carries effects that apply to the layers *below* it
     "solid",       # flat colour fill
@@ -511,6 +512,7 @@ def _id_prefix(layer_type: str) -> str:
         "text": "text",
         "audio": "audio",
         "shape": "shape",
+        "gradient": "gradient",
     }.get(layer_type, "layer")
 
 
@@ -521,6 +523,7 @@ def _default_name(layer_type: str) -> str:
         "text": "Text",
         "audio": "Audio",
         "shape": "Shape",
+        "gradient": "Gradient",
         "image": "Image",
         "video": "Video",
         "solid": "Solid",

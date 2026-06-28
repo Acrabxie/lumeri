@@ -58,6 +58,12 @@ def default_resolver(
     if ltype == "text":
         return _text_resolver(layer, ctx)
 
+    if ltype == "gradient":
+        return _gradient_resolver(layer, ctx)
+
+    if ltype == "shape":
+        return _shape_resolver(layer, ctx)
+
     if ltype == "html":
         # HTML/CSS/JS motion-graphics layer: renders to an mp4 (cached) and is
         # then sampled through _video_resolver, so it composites like a video.
@@ -662,6 +668,335 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
         return arr
 
     return text_content_fn
+
+
+# --------------------------------------------------------------------------- #
+# Gradient layer.
+#
+# SHARED LAYER SCHEMA CONTRACT (resolver + ops must agree exactly):
+#   {"type": "gradient", "props": {
+#       "mode": "linear" | "radial",
+#       "stops": [[pos0..1, "#RRGGBB"], ...],   # >=1 stop; sorted by pos
+#       "angle": <deg, linear, 0 = left->right, 90 = top->bottom>,
+#       "center": [cx0..1, cy0..1],             # radial, default [0.5, 0.5]
+#       "radius": <0..1 frac of canvas>,        # radial, default 0.5
+#   }}
+# All coordinates normalised to canvas [0, 1]; output is float32 (H, W, 4).
+# Absent / unknown props degrade gracefully (never crash).
+# --------------------------------------------------------------------------- #
+
+
+def _normalize_stops(raw_stops: Any) -> list[tuple[float, tuple[float, float, float, float]]]:
+    """Parse + sort gradient stops into ``[(pos0..1, rgba), ...]``.
+
+    Tolerant: skips malformed entries, clamps positions to [0, 1], and falls
+    back to a black->white ramp when nothing usable is supplied so the layer
+    still renders something visible rather than crashing.
+    """
+    out: list[tuple[float, tuple[float, float, float, float]]] = []
+    if isinstance(raw_stops, (list, tuple)):
+        for entry in raw_stops:
+            try:
+                pos, col = entry[0], entry[1]
+            except (TypeError, IndexError, KeyError):
+                continue
+            try:
+                p = float(pos)
+            except (TypeError, ValueError):
+                continue
+            p = min(1.0, max(0.0, p))
+            out.append((p, _parse_color(col)))
+    if not out:
+        # Sensible default ramp so a malformed/absent stops list still renders.
+        out = [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (1.0, 1.0, 1.0, 1.0))]
+    out.sort(key=lambda s: s[0])
+    return out
+
+
+def _ramp_lookup(
+    t: "np.ndarray",
+    stops: list[tuple[float, tuple[float, float, float, float]]],
+) -> "np.ndarray":
+    """Map a parameter field ``t`` in [0, 1] (any shape) to RGBA via ``stops``.
+
+    Piecewise-linear interpolation between adjacent stops; clamped to the first /
+    last stop colour outside the stop span. Returns float32 RGBA of shape
+    ``t.shape + (4,)``.
+    """
+    tc = np.clip(t, 0.0, 1.0).astype(np.float32)
+    positions = np.array([s[0] for s in stops], dtype=np.float32)
+    colors = np.array([s[1] for s in stops], dtype=np.float32)  # (N, 4)
+
+    if len(stops) == 1:
+        out = np.empty(tc.shape + (4,), dtype=np.float32)
+        out[...] = colors[0]
+        return out
+
+    # For each pixel find the segment [i, i+1] with positions[i] <= t <= [i+1].
+    # np.searchsorted gives the insertion index; clamp to a valid segment.
+    idx = np.searchsorted(positions, tc, side="right") - 1
+    idx = np.clip(idx, 0, len(stops) - 2)
+
+    p0 = positions[idx]
+    p1 = positions[idx + 1]
+    c0 = colors[idx]        # (..., 4)
+    c1 = colors[idx + 1]    # (..., 4)
+
+    span = (p1 - p0)
+    # Avoid divide-by-zero for coincident stops; frac collapses to 0 there.
+    frac = np.where(span > 1e-9, (tc - p0) / np.where(span > 1e-9, span, 1.0), 0.0)
+    frac = np.clip(frac, 0.0, 1.0)[..., None].astype(np.float32)
+    return (c0 * (1.0 - frac) + c1 * frac).astype(np.float32)
+
+
+def _gradient_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
+    """Resolve a gradient layer to a canvas-sized RGBA content_fn.
+
+    ``linear``: a multi-stop ramp along ``angle`` degrees (0 = left->right,
+    90 = top->bottom). ``radial``: a multi-stop ramp from ``center`` outward,
+    reaching the last stop at ``radius`` (fraction of the canvas min dimension).
+    """
+    props = layer.get("props", {}) if isinstance(layer.get("props"), dict) else {}
+    mode = str(props.get("mode", "linear")).lower()
+    if mode not in ("linear", "radial"):
+        mode = "linear"
+
+    stops = _normalize_stops(props.get("stops"))
+
+    h, w = int(ctx.height), int(ctx.width)
+    if h <= 0 or w <= 0:
+        return None
+
+    # Normalised pixel-centre coordinate grids in [0, 1].
+    xs = (np.arange(w, dtype=np.float32) + 0.5) / float(w)
+    ys = (np.arange(h, dtype=np.float32) + 0.5) / float(h)
+    gx, gy = np.meshgrid(xs, ys)  # (H, W) each
+
+    if mode == "linear":
+        try:
+            angle = float(props.get("angle", 0.0))
+        except (TypeError, ValueError):
+            angle = 0.0
+        rad = np.deg2rad(angle)
+        # Direction unit vector: angle 0 -> (1, 0) (left->right);
+        # angle 90 -> (0, 1) (top->bottom). y already increases downward.
+        dx = float(np.cos(rad))
+        dy = float(np.sin(rad))
+        # Project each pixel onto the direction, then normalise the projection
+        # range to [0, 1] so the first stop sits at the "start" edge and the
+        # last stop at the "end" edge regardless of angle.
+        proj = gx * dx + gy * dy
+        pmin = float(proj.min())
+        pmax = float(proj.max())
+        span = pmax - pmin
+        t = (proj - pmin) / span if span > 1e-9 else np.zeros_like(proj)
+    else:  # radial
+        center = props.get("center", [0.5, 0.5])
+        try:
+            cx = float(center[0])
+            cy = float(center[1])
+        except (TypeError, ValueError, IndexError):
+            cx, cy = 0.5, 0.5
+        try:
+            radius = float(props.get("radius", 0.5))
+        except (TypeError, ValueError):
+            radius = 0.5
+        if radius <= 0.0:
+            radius = 0.5
+        # Distance from centre in normalised canvas space. Use the min canvas
+        # dimension so the radius fraction is isotropic (a true circle).
+        # Scale x/y so equal normalised distances are equal pixel distances.
+        aspect_x = float(w) / float(min(w, h))
+        aspect_y = float(h) / float(min(w, h))
+        ddx = (gx - cx) * aspect_x
+        ddy = (gy - cy) * aspect_y
+        dist = np.sqrt(ddx * ddx + ddy * ddy)
+        t = dist / radius
+
+    rgba = _ramp_lookup(t, stops)  # (H, W, 4) float32
+    frame = np.ascontiguousarray(rgba, dtype=np.float32)
+
+    def gradient_content_fn(_frame_index: int) -> np.ndarray:
+        return frame.copy()
+
+    return gradient_content_fn
+
+
+# --------------------------------------------------------------------------- #
+# Shape layer.
+#
+# SHARED LAYER SCHEMA CONTRACT (resolver + ops must agree exactly):
+#   {"type": "shape", "props": {
+#       "kind": "rect" | "ellipse" | "polygon" | "line",
+#       "fill": "#RRGGBB" | null,                  # null = no fill
+#       "stroke": {"color": "#RRGGBB", "width": <px>},   # optional
+#       "rect": [x0, y0, x1, y1],                  # normalised, rect/ellipse
+#         OR "cx","cy","rx","ry"                   # normalised, rect/ellipse
+#         OR "points": [[x, y], ...],              # normalised, polygon/line
+#       "radius": <px corner radius>,              # rect only
+#       "opacity_baked": false,
+#   }}
+# All coordinates normalised to canvas [0, 1]; output float32 (H, W, 4) with
+# alpha == 0 outside the shape. Anti-aliased via supersampling.
+# --------------------------------------------------------------------------- #
+
+
+def _shape_rect_px(props: dict[str, Any], w: int, h: int) -> Optional[tuple[float, float, float, float]]:
+    """Resolve a rect/ellipse bounding box to pixel coords ``(x0, y0, x1, y1)``.
+
+    Accepts either ``rect: [x0, y0, x1, y1]`` (normalised) or the
+    ``cx/cy/rx/ry`` (normalised centre + radii) form. Returns ``None`` if no
+    usable geometry is present.
+    """
+    rect = props.get("rect")
+    if isinstance(rect, (list, tuple)) and len(rect) >= 4:
+        try:
+            x0, y0, x1, y1 = (float(rect[0]), float(rect[1]),
+                              float(rect[2]), float(rect[3]))
+        except (TypeError, ValueError):
+            return None
+        x0, x1 = sorted((x0 * w, x1 * w))
+        y0, y1 = sorted((y0 * h, y1 * h))
+        return (x0, y0, x1, y1)
+    if all(k in props for k in ("cx", "cy", "rx", "ry")):
+        try:
+            cx = float(props["cx"]) * w
+            cy = float(props["cy"]) * h
+            rx = float(props["rx"]) * w
+            ry = float(props["ry"]) * h
+        except (TypeError, ValueError):
+            return None
+        return (cx - rx, cy - ry, cx + rx, cy + ry)
+    return None
+
+
+def _shape_points_px(props: dict[str, Any], w: int, h: int) -> Optional[list[tuple[float, float]]]:
+    """Resolve a polygon/line point list to pixel coords, or ``None``."""
+    points = props.get("points")
+    if not isinstance(points, (list, tuple)) or len(points) < 2:
+        return None
+    out: list[tuple[float, float]] = []
+    for p in points:
+        try:
+            out.append((float(p[0]) * w, float(p[1]) * h))
+        except (TypeError, ValueError, IndexError):
+            return None
+    return out
+
+
+def _to_rgba_u8(color_rgba: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+    """Float RGBA in [0, 1] -> 8-bit RGBA tuple for PIL drawing."""
+    return tuple(int(round(min(1.0, max(0.0, c)) * 255.0)) for c in color_rgba)  # type: ignore[return-value]
+
+
+def _shape_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
+    """Resolve a shape layer to an anti-aliased canvas-sized RGBA content_fn.
+
+    Renders a filled vector shape (rect with optional corner radius, ellipse,
+    polygon, or line) with an optional stroke. Anti-aliasing is done by drawing
+    at SS× resolution and box-downsampling, so edges are smooth and pixels
+    outside the shape keep ``alpha == 0``.
+    """
+    from PIL import Image as PILImage, ImageDraw
+
+    props = layer.get("props", {}) if isinstance(layer.get("props"), dict) else {}
+    kind = str(props.get("kind", "rect")).lower()
+    if kind not in ("rect", "ellipse", "polygon", "line"):
+        kind = "rect"
+
+    fill = props.get("fill", None)
+    fill_rgba = _parse_color(fill) if fill else None
+    fill_u8 = _to_rgba_u8(fill_rgba) if fill_rgba is not None else None
+
+    stroke_cfg = props.get("stroke")
+    stroke_u8 = None
+    stroke_w_px = 0.0
+    if isinstance(stroke_cfg, dict):
+        try:
+            stroke_w_px = float(stroke_cfg.get("width", 0.0))
+        except (TypeError, ValueError):
+            stroke_w_px = 0.0
+        if stroke_w_px > 0.0:
+            stroke_u8 = _to_rgba_u8(_parse_color(stroke_cfg.get("color", "#000000")))
+
+    h, w = int(ctx.height), int(ctx.width)
+    if h <= 0 or w <= 0:
+        return None
+
+    # Supersample factor for anti-aliasing (3x => 9 samples/px box average).
+    SS = 3
+    W, H = w * SS, h * SS
+
+    try:
+        corner_radius = float(props.get("radius", 0.0))
+    except (TypeError, ValueError):
+        corner_radius = 0.0
+
+    img = PILImage.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    sw_ss = int(round(stroke_w_px * SS)) if stroke_u8 is not None else 0
+
+    drew = False
+    if kind in ("rect", "ellipse"):
+        box = _shape_rect_px(props, W, H)
+        if box is not None:
+            x0, y0, x1, y1 = box
+            xy = [x0, y0, x1, y1]
+            if kind == "rect":
+                if corner_radius > 0.0:
+                    draw.rounded_rectangle(
+                        xy, radius=corner_radius * SS,
+                        fill=fill_u8,
+                        outline=stroke_u8 if sw_ss > 0 else None,
+                        width=sw_ss if sw_ss > 0 else 1,
+                    )
+                else:
+                    draw.rectangle(
+                        xy, fill=fill_u8,
+                        outline=stroke_u8 if sw_ss > 0 else None,
+                        width=sw_ss if sw_ss > 0 else 1,
+                    )
+            else:  # ellipse
+                draw.ellipse(
+                    xy, fill=fill_u8,
+                    outline=stroke_u8 if sw_ss > 0 else None,
+                    width=sw_ss if sw_ss > 0 else 1,
+                )
+            drew = True
+    elif kind == "polygon":
+        pts = _shape_points_px(props, W, H)
+        if pts is not None:
+            draw.polygon(
+                pts, fill=fill_u8,
+                outline=stroke_u8 if sw_ss > 0 else None,
+            )
+            # PIL polygon outline is hairline; redraw a thick stroke on edges.
+            if sw_ss > 0 and stroke_u8 is not None:
+                draw.line(list(pts) + [pts[0]], fill=stroke_u8, width=sw_ss,
+                          joint="curve")
+            drew = True
+    elif kind == "line":
+        pts = _shape_points_px(props, W, H)
+        if pts is not None:
+            line_color = stroke_u8 if stroke_u8 is not None else fill_u8
+            line_w = sw_ss if sw_ss > 0 else SS
+            if line_color is not None:
+                draw.line(pts, fill=line_color, width=line_w, joint="curve")
+            drew = True
+
+    if not drew:
+        # No usable geometry: fully transparent canvas (never crash).
+        return None
+
+    # Box-downsample to canvas size for anti-aliasing.
+    img_small = img.resize((w, h), PILImage.BOX)
+    arr = np.asarray(img_small, dtype=np.float32) / 255.0
+    frame = np.ascontiguousarray(arr, dtype=np.float32)
+
+    def shape_content_fn(_frame_index: int) -> np.ndarray:
+        return frame.copy()
+
+    return shape_content_fn
 
 
 def _parse_color(color: Any) -> tuple[float, float, float, float]:
