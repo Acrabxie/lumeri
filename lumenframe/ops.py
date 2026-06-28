@@ -1002,6 +1002,220 @@ def _op_set_time_remap(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer["speed"] = 1.0
 
 
+def _reverse_layer_in_place(doc: dict[str, Any], layer: dict[str, Any]) -> None:
+    """Make ``layer`` play BACKWARDS over its whole placement, frame-accurately.
+
+    Reverse is expressed through the existing ``time_remap`` machinery: a
+    ``time_remap`` is an *output_seconds -> source_seconds* curve that compile
+    turns into a nearest-frame ``time_map_fn`` (``src_frame =
+    to_frame(eval(curve, k/fps) - source_in, fps)``). So to play the clip
+    backwards we flip that curve along the OUTPUT-time axis, anchored on exact
+    frame boundaries so the result is frame-for-frame the forward clip reversed.
+
+    Let ``N = to_frame(duration, fps)`` be the layer's output-frame count and
+    ``t_last = to_seconds(N - 1, fps)`` the last output frame's time. We mirror
+    the curve about ``t_last`` (the curve's own output extent), not ``duration``:
+    mirroring about ``t_last`` is the construction for which ``time_map_fn`` lands
+    on integer-exact frames and is a true *involution* (reverse twice == original
+    mapping, frame for frame).
+
+    * **No existing remap** (constant speed ``s``): the forward source-second
+      mapping is ``src(k) = source_in + (k/fps)*s``. The reversed straight line
+      is ``t=0 -> source_in + t_last*s`` … ``t=t_last -> source_in`` — source
+      runs from its last sampled frame down to ``source_in`` over the output
+      span. (``set_time_remap`` semantics: the remap supersedes constant speed,
+      so ``speed`` resets to 1.)
+    * **Existing remap**: every keyframe ``(t, value)`` maps to
+      ``(t_curve_last - t, value)`` where ``t_curve_last`` is the largest
+      keyframe ``t`` (the curve's output extent). Re-sorted, this mirrors the
+      sampled source value about the curve mid-time, so applying it twice
+      restores the original curve exactly.
+
+    ``duration`` is unchanged (reverse preserves length), so callers never need
+    to ripple following siblings. Every value is a difference of already-rounded
+    times rounded to ``TIME_NDIGITS``, so the doc round-trips byte-stably.
+    """
+    fps = _canvas_fps(doc)
+    duration = _round_t(model._as_float(layer.get("duration")))
+    n_frames = max(1, timebase.to_frame(duration, fps))
+    t_last = _round_t(timebase.to_seconds(n_frames - 1, fps))
+
+    existing = layer.get("time_remap")
+    if isinstance(existing, dict) and existing.get("keyframes"):
+        # Mirror an existing curve about its own output extent (true involution).
+        kfs = [pt for pt in existing["keyframes"] if isinstance(pt, dict)]
+        pivot = max((_round_t(pt.get("t")) for pt in kfs), default=t_last)
+        points = [
+            {
+                "t": _round_t(pivot - model._as_float(pt.get("t"))),
+                "value": _round_t(pt.get("value")),
+                "interp": str(pt.get("interp") or "linear"),
+            }
+            for pt in kfs
+        ]
+        extrapolate = str(existing.get("extrapolate") or "hold")
+    else:
+        # Constant-speed layer: synthesise the reversed straight-line curve whose
+        # endpoints sit on exact frames (anchored on t_last, not source_out, so
+        # nearest-frame mapping mirrors the forward frames one-for-one).
+        source_in = _round_t(model._as_float(layer.get("source_in")))
+        speed = model._as_float(layer.get("speed")) or 1.0
+        hi = _round_t(source_in + t_last * speed)
+        points = [
+            {"t": 0.0, "value": hi, "interp": "linear"},
+            {"t": t_last, "value": source_in, "interp": "linear"},
+        ]
+        extrapolate = "hold"
+
+    # Route through set_time_remap so curve validation, sorting and the
+    # speed->1.0 reset are the shared, already-tested code path.
+    _op_set_time_remap(doc, {
+        "op": "set_time_remap",
+        "layer_id": str(layer["id"]),
+        "keyframes": points,
+        "extrapolate": extrapolate,
+    })
+
+
+@register_op("reverse", source="core")
+def _op_reverse(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Play a layer (or the sub-segment ``[t0, t1]``) BACKWARDS, frame-accurately.
+
+    Reverse is built entirely on the existing time machinery — it composes a
+    ``time_remap`` curve so that output time samples the source running from
+    ``source_out`` down to ``source_in`` (linear, nearest-frame) over the
+    affected span (see :func:`_reverse_layer_in_place`). Because a remap *is* the
+    output->source curve, reversing twice mirrors the curve back to its original
+    mapping (an involution), so a whole-layer reverse round-trips.
+
+    Whole layer (no ``t0``/``t1``): the layer itself is reversed in place; its
+    ``duration`` is preserved.
+
+    Sub-segment (``t0``/``t1`` given): reuses the ``split`` approach of
+    :func:`_op_retime_segment` — snap ``t0``/``t1`` to frame boundaries, ``split``
+    at ``t1`` then at ``t0`` so the middle ``[t0, t1]`` piece is its own layer,
+    and reverse *that* piece. RIPPLE is not needed: reverse keeps each piece's
+    duration, so the head/tail stay put and the timeline is unchanged in length.
+
+    Args: ``layer_id`` (required); optional ``t0`` / ``t1`` (output seconds on the
+    parent timeline; or ``frame0`` / ``frame1`` in frames), snapped to frames.
+
+    Errors: ``E_ARG`` when ``layer_id`` is missing, or only one of ``t0``/``t1``
+    is given; ``E_NOT_FOUND`` when the layer id does not exist; ``E_RANGE`` when
+    ``[t0, t1]`` is empty/inverted or not within the layer's
+    ``[start, start + duration]``.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="reverse")
+    layer_id = str(layer["id"])
+
+    t0 = _seconds_or_frame(doc, op, "t0", "frame0", op_name="reverse")
+    t1 = _seconds_or_frame(doc, op, "t1", "frame1", op_name="reverse")
+
+    # Whole-layer reverse when neither edge is given.
+    if t0 is None and t1 is None:
+        _reverse_layer_in_place(doc, layer)
+        _set_selection(doc, [layer_id])
+        return
+
+    # A partial range (only one edge) is ambiguous.
+    if t0 is None or t1 is None:
+        raise LayerPatchError(
+            "E_ARG", "reverse: give both 't0' and 't1' (or 'frame0'/'frame1'), or neither"
+        )
+
+    # Snap both edges to exact frame boundaries so the cuts are frame-accurate.
+    fps = _canvas_fps(doc)
+    t0 = _round_t(timebase.snap_seconds(t0, fps))
+    t1 = _round_t(timebase.snap_seconds(t1, fps))
+
+    start = _round_t(model._as_float(layer.get("start")))
+    duration = model._as_float(layer.get("duration"))
+    end = _round_t(start + duration)
+
+    if not (t0 < t1):
+        raise LayerPatchError("E_RANGE", f"reverse: empty range [{t0}, {t1}]")
+    if t0 < start - timebase.FRAME_EPS or t1 > end + timebase.FRAME_EPS:
+        raise LayerPatchError(
+            "E_RANGE",
+            f"reverse: range [{t0}, {t1}] is not within the layer [{start}, {end}]",
+        )
+
+    # Cut the back edge first (at t1), then the front edge (at t0): doing t1 first
+    # keeps the front piece carrying the original layer_id so the second split is
+    # found by the same id. Each split is skipped when the edge already sits on a
+    # layer boundary. After both cuts the segment is the piece whose start == t0.
+    if t1 < end - timebase.FRAME_EPS:
+        _op_split(doc, {"op": "split", "layer_id": layer_id, "at_time": t1})
+    if t0 > start + timebase.FRAME_EPS:
+        _op_split(doc, {"op": "split", "layer_id": layer_id, "at_time": t0})
+
+    parent, _index = _require_locate(doc, layer_id, op="reverse")
+    middle = None
+    for child in parent["children"]:
+        if isinstance(child, dict) and abs(_round_t(model._as_float(child.get("start"))) - t0) <= timebase.FRAME_EPS:
+            middle = child
+            break
+    if middle is None:  # pragma: no cover — defensive; the cuts guarantee it.
+        raise LayerPatchError("E_RANGE", f"reverse: could not isolate segment at t0={t0}")
+
+    _reverse_layer_in_place(doc, middle)
+    _set_selection(doc, [str(middle["id"])])
+
+
+@register_op("ripple_delete", source="core")
+def _op_ripple_delete(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Delete a layer AND close the gap by rippling later same-lane siblings.
+
+    The DaVinci-style ripple delete: removing a clip pulls every LATER clip on
+    the SAME lane earlier by the deleted clip's duration, so no hole is left
+    behind (contrast the plain ``delete_layer``, which leaves the gap).
+
+    Only direct siblings (same parent) on the SAME lane whose ``start`` is at or
+    after the deleted layer's ``start`` are shifted, each by ``-duration``. Other
+    lanes are untouched (they are independent tracks), and ``doc_duration``
+    shrinks accordingly when the deleted clip was the extent driver.
+
+    Args: ``layer_id`` (required).
+
+    Errors: ``E_ARG`` when ``layer_id`` is missing; ``E_NOT_FOUND`` when the
+    layer id does not exist; ``E_ROOT`` when targeting the root composition.
+    """
+    layer_id = str(_require_arg(op, "layer_id"))
+    if layer_id == str(doc["root"].get("id")):
+        raise LayerPatchError("E_ROOT", "ripple_delete: cannot delete the root composition")
+
+    # Capture the deleted layer's lane / start / duration BEFORE removing it.
+    target, parent, _index = _splice_out(doc, layer_id, op="ripple_delete")
+    try:
+        lane = int(model._as_float(target.get("lane")))
+    except (TypeError, ValueError):
+        lane = 0
+    deleted_start = _round_t(model._as_float(target.get("start")))
+    deleted_duration = _round_t(model._as_float(target.get("duration")))
+
+    # Drop mattes that pointed at the now-deleted layer (mirror delete_layer).
+    for node in model.walk(doc["root"]):
+        mask = node.get("mask")
+        if isinstance(mask, dict) and str(mask.get("source_layer_id")) == layer_id:
+            node["mask"] = None
+
+    # Ripple: same-parent, same-lane siblings that started at/after the deleted
+    # clip slide earlier by its duration, closing the gap. Other lanes untouched.
+    if deleted_duration > 0:
+        for child in parent.get("children") or []:
+            if not isinstance(child, dict):
+                continue
+            try:
+                child_lane = int(model._as_float(child.get("lane")))
+            except (TypeError, ValueError):
+                child_lane = 0
+            if child_lane != lane:
+                continue
+            child_start = _round_t(model._as_float(child.get("start")))
+            if child_start >= deleted_start - timebase.FRAME_EPS:
+                child["start"] = _round_t(max(0.0, child_start - deleted_duration))
+
+
 @register_op("set_lane", source="core")
 def _op_set_lane(doc: dict[str, Any], op: dict[str, Any]) -> None:
     """Assign an EXISTING layer to a timeline lane (track).
