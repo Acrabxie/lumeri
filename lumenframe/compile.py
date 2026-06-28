@@ -293,7 +293,11 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
         return None
     kind = str(mask.get("kind"))
     if kind == "shape":
-        return _shape_matte(mask, ctx)
+        # The mask travels with its layer's local time, so a path's default
+        # duration is the *layer*'s span (in frames), not the comp's.
+        dur = model._as_float(layer.get("duration"))
+        layer_frames = int(round(dur * ctx.fps))
+        return _shape_matte(mask, ctx, layer_frames=layer_frames)
     if kind not in {"alpha_matte", "luma_matte"}:
         return None
     source_id = str(mask.get("source_layer_id") or "")
@@ -404,22 +408,133 @@ def _shape_animation(mask: dict[str, Any], fps: float) -> tuple[dict[str, Any], 
     return tracks, exprs
 
 
-def _shape_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "np.ndarray"]:
+def _shape_path(mask: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract a normalised path spec that drives the mask centre, if any.
+
+    Like :func:`_shape_animation`, the spec is read from two equivalent homes so
+    it survives the doc pipeline: ``mask["path"]`` (handy for direct callers /
+    tests) and ``mask["shape"]["path"]`` (the part :func:`model._normalize_mask`
+    copies verbatim, so a path round-trips through ``normalize_doc``). The
+    shape-nested location wins on conflict.
+
+    A valid spec needs at least two ``points`` (each a 2-list of normalised
+    ``[x, y]`` in canvas space). Returns a dict with cleaned ``points`` (list of
+    ``(x, y)`` float tuples), ``kind`` (``"linear"`` | ``"bezier"``),
+    ``duration`` (seconds or ``None`` for "use the layer duration") and ``loop``
+    (bool). Returns ``None`` when no usable path is present (so the caller keeps
+    the existing static / keyframe behaviour byte-identical).
+    """
+    shape = mask.get("shape") if isinstance(mask.get("shape"), dict) else {}
+    spec = shape.get("path")
+    if not isinstance(spec, dict):
+        spec = mask.get("path")
+    if not isinstance(spec, dict):
+        return None
+
+    raw_points = spec.get("points")
+    if not isinstance(raw_points, (list, tuple)):
+        return None
+    points: list[tuple[float, float]] = []
+    for p in raw_points:
+        if isinstance(p, (list, tuple)) and len(p) >= 2:
+            try:
+                points.append((float(p[0]), float(p[1])))
+            except (TypeError, ValueError):
+                continue
+    if len(points) < 2:
+        return None
+
+    kind = str(spec.get("kind") or "linear").lower()
+    if kind not in {"linear", "bezier"}:
+        kind = "linear"
+
+    duration: float | None
+    if spec.get("duration") is None:
+        duration = None
+    else:
+        try:
+            duration = float(spec["duration"])
+        except (TypeError, ValueError):
+            duration = None
+        else:
+            if duration <= 0:
+                duration = None
+
+    return {
+        "points": points,
+        "kind": kind,
+        "duration": duration,
+        "loop": bool(spec.get("loop", False)),
+    }
+
+
+def _path_point(points: list[tuple[float, float]], kind: str, t: float) -> tuple[float, float]:
+    """Position along a normalised path at parameter ``t`` in ``[0, 1]``.
+
+    ``"bezier"`` treats ``points`` as a single cubic/higher Bezier control
+    polygon and evaluates it via De Casteljau (so the curve is pulled toward the
+    interior control points but only passes through the first and last). With
+    exactly two points it degenerates to the straight chord. ``"linear"`` walks
+    a piecewise-linear polyline through every point, with ``t`` distributed
+    uniformly across the ``n - 1`` segments.
+    """
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+
+    if kind == "bezier":
+        # De Casteljau: repeatedly linearly interpolate adjacent points.
+        pts = list(points)
+        while len(pts) > 1:
+            pts = [
+                (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+                for a, b in zip(pts, pts[1:])
+            ]
+        return pts[0]
+
+    # piecewise-linear through every point
+    n = len(points) - 1
+    if n <= 0:
+        return points[0]
+    pos = t * n
+    i = int(pos)
+    if i >= n:
+        return points[-1]
+    frac = pos - i
+    a, b = points[i], points[i + 1]
+    return (a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac)
+
+
+def _shape_matte(
+    mask: dict[str, Any],
+    ctx: ResolveContext,
+    *,
+    layer_frames: int | None = None,
+) -> Callable[[int], "np.ndarray"]:
     """A drawn vector mask (rectangle / ellipse / polygon) → per-frame alpha.
 
-    A *static* mask (no keyframes / expression on its box or centre) is
-    rasterised once in canvas space and the closure returns that cached alpha —
-    byte-identical to before. An *animated* mask (keyframes / expression on
-    ``cx/cy/rx/ry/w/h/x0/y0/x1/y1/radius``) is rasterised **per frame**: the
+    A *static* mask (no keyframes / expression on its box or centre, and no
+    path) is rasterised once in canvas space and the closure returns that cached
+    alpha — byte-identical to before. An *animated* mask (keyframes / expression
+    on ``cx/cy/rx/ry/w/h/x0/y0/x1/y1/radius``) is rasterised **per frame**: the
     animated scalars are evaluated for the requested frame, folded into a copy of
     the shape dict, and that frame's box is rasterised so the mask moves / scales
-    over time. ``feather`` and ``invert`` are baked in per frame; the backend
-    resizes the alpha onto the (transformed) layer frame, so a mask still travels
-    with its layer's transform — the After Effects semantic.
+    over time.
+
+    A mask carrying a ``path`` spec (see :func:`_shape_path`) is also rasterised
+    per frame, with the mask **centre** driven along the path as a function of
+    local time ``t in [0, 1]`` (``local_frame / path-duration-in-frames``); the
+    path duration defaults to ``layer_frames`` (the layer's own span) so the mask
+    travels the whole path over the layer's life. Path-driven ``cx`` / ``cy``
+    take precedence over static / keyframed centre values; everything else
+    (``rx/ry/type/feather/invert`` and any other keyframed fields) is preserved.
+
+    ``feather`` and ``invert`` are baked in per frame; the backend resizes the
+    alpha onto the (transformed) layer frame, so a mask still travels with its
+    layer's transform — the After Effects semantic.
     """
     fps = float(ctx.fps) or 1.0
     tracks, exprs = _shape_animation(mask, fps)
-    if not tracks and not exprs:
+    path = _shape_path(mask)
+    if not tracks and not exprs and path is None:
         alpha = _rasterise_shape_mask(mask, ctx.width, ctx.height)
 
         def matte(_local_frame: int):
@@ -428,6 +543,28 @@ def _shape_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "
         return matte
 
     base_shape = dict(mask.get("shape")) if isinstance(mask.get("shape"), dict) else {}
+
+    # Path local-time normaliser: how many frames map t: 0 -> 1. Prefer the path
+    # spec's explicit duration, else the layer's own frame span, else the comp's.
+    path_frames = 0
+    if path is not None:
+        if path["duration"] is not None:
+            path_frames = int(round(path["duration"] * fps))
+        elif layer_frames and layer_frames > 0:
+            path_frames = int(layer_frames)
+        else:
+            path_frames = int(ctx.total_frames)
+        path_frames = max(1, path_frames)
+
+    def _path_centre(frame: int) -> tuple[float, float]:
+        # t over the path's duration; loop wraps, else clamps at the final point.
+        span = max(1, path_frames - 1) if path_frames > 1 else 1
+        raw = float(frame) / float(span)
+        if path["loop"]:
+            t = raw - math.floor(raw)
+        else:
+            t = 0.0 if raw < 0.0 else 1.0 if raw > 1.0 else raw
+        return _path_point(path["points"], path["kind"], t)
 
     def _eval_field(field: str, frame: int) -> float | None:
         track = tracks.get(field)
@@ -456,6 +593,13 @@ def _shape_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "
             value = _eval_field(field, frame)
             if value is not None:
                 shape[field] = value
+        if path is not None:
+            # Path drives the CENTRE; preserve shape/size/feather/invert.
+            cx, cy = _path_centre(frame)
+            shape["cx"], shape["cy"] = cx, cy
+            shape.pop("rect", None)  # a rect box would override cx/cy in _shape_box
+            for k in ("x0", "y0", "x1", "y1"):
+                shape.pop(k, None)
         frame_mask = dict(mask)
         frame_mask["shape"] = shape
         return _rasterise_shape_mask(frame_mask, ctx.width, ctx.height)
