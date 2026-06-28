@@ -1206,89 +1206,138 @@
   const INSPECTOR_DEFAULTS = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
 
   // ── compositing ops (additive) ──────────────────────────────────────
-  // The 14 blend modes the backend accepts (lumenframe.model.BLEND_MODES /
-  // the `set_blend` op). Ordered for the inspector <select>: normal first,
-  // then the common groups (multiply/screen/overlay, lighten/darken, the
-  // light blends, difference/exclusion, the dodge/burn pair, add/subtract).
-  // Kept in lockstep with the backend; an unknown mode is rejected by set_blend.
+  // The 14 blend modes the backend accepts (gemia.video.layers.BLEND_MODES),
+  // carried as the blend_mode key on the reused set_effects op. Ordered for the
+  // inspector <select>: normal first, then the common groups (multiply/screen/
+  // overlay, lighten/darken, the light blends, difference/exclusion, the
+  // dodge/burn pair, add/subtract). Kept in lockstep with the backend; an
+  // unknown mode is rejected when set_effects validates the blend_mode value.
   const COMPOSITING_BLEND_MODES = [
     "normal", "multiply", "screen", "overlay", "add", "lighten", "darken",
     "soft_light", "hard_light", "difference", "exclusion",
     "color_dodge", "color_burn", "subtract",
   ];
-  // PiP defaults (mirror the backend pip op's own defaults: br corner, 0.3
-  // scale, a small rounded radius so the inset reads as a card).
-  const COMPOSITING_PIP_DEFAULTS = { corner: "br", scale: 0.3, margin: 0.04, radius: 24 };
+  // PiP defaults: br corner, 0.3 scale, a small margin (fraction of the canvas)
+  // so the inset reads as a card inset from the edge. The frontend computes
+  // corner -> px x,y from these + the project canvas size (see pipOffsets).
+  const COMPOSITING_PIP_DEFAULTS = { corner: "br", scale: 0.3, margin: 0.04 };
+  // Crossfade defaults: "dissolve" is a valid lumerai _TRANSITION_KINDS entry
+  // (note "crossfade" is NOT a backend kind — the add_transition op rejects it,
+  // so we default to dissolve); 1.0s overlap.
+  const COMPOSITING_CROSSFADE_DEFAULTS = { kind: "dissolve", duration_sec: 1.0 };
 
-  // The op every compositing emitter last sent through postTimelineOp — exposed
-  // via window.__lumeriCompositing.lastOp() so DevTools / node tests can assert
-  // the exact op structure without a network round-trip.
+  // The op/turn every compositing emitter last sent — exposed via
+  // window.__lumeriCompositing.lastOp() so DevTools / node tests can assert the
+  // exact structure without a network round-trip. For timeline-op emitters this
+  // is the op body posted to /timeline/op; for the agent-routed emitters
+  // (gradient/shape) it is the { kind:"turn", message } record describing the
+  // natural-language request sent to /turn.
   state.lastCompositingOp = null;
 
-  // All compositing emitters funnel through here: record the op for testability,
-  // then dispatch it down the EXISTING edit path (postTimelineOp -> /timeline/op).
-  // No new backend endpoint is invented.
+  // Timeline-op compositing emitters funnel through here: record the op for
+  // testability, then dispatch it down the EXISTING direct-edit path
+  // (postTimelineOp -> POST /sessions/{id}/timeline/op). These ops use ONLY the
+  // shapes /timeline/op accepts per the shared contract — set_effects (reused,
+  // with blend_mode / scale+x+y) and add_transition. No new endpoint, no op the
+  // backend rejects.
   function emitCompositingOp(opBody) {
     state.lastCompositingOp = opBody;
     return postTimelineOp(opBody);
+  }
+
+  // Gradient/shape are NOT timeline ops: lumerai clips are asset-backed and
+  // cannot hold generated layers. They route to the AGENT via POST /turn, which
+  // does the work with lumenframe add_gradient/add_shape. This records the turn
+  // request (for lastOp()/tests) and submits it down the EXISTING /turn path.
+  function emitCompositingTurn(message) {
+    state.lastCompositingOp = { kind: "turn", message: String(message) };
+    return submitTurn(String(message));
   }
 
   function blendOptions() {
     return COMPOSITING_BLEND_MODES.slice();
   }
 
-  // set a layer's blend mode (sugar over the `set_blend` op which rejects an
-  // unknown mode up front, unlike the raw set_blend_mode field).
+  // Set a clip's blend mode. Reuses the already-allowed set_effects op with the
+  // blend_mode effect key (one of the 14 backend BLEND_MODES) — NOT a bespoke
+  // set_blend op, which /timeline/op rejects.
   function emitSetBlend(clipId, mode) {
     if (!clipId) return null;
-    return emitCompositingOp({ op: "set_blend", layer_id: clipId, mode: String(mode) });
+    return emitCompositingOp({
+      op: "set_effects",
+      clip_id: clipId,
+      effects: { blend_mode: String(mode) },
+    });
   }
 
-  // turn a layer into a picture-in-picture inset using the backend's own pip
-  // defaults (br corner, 0.3 scale, rounded radius).
+  // Map a PiP corner + scale to px x/y offsets, then turn the clip into a
+  // picture-in-picture inset via the existing set_effects op (scale/x/y are
+  // already valid effect keys). The frontend computes corner -> x,y from the
+  // project canvas size, the inset scale, and a margin; positive x is right of
+  // centre, positive y is below centre (canvas-centred transform origin).
+  function pipOffsets(opts) {
+    const o = opts || {};
+    const corner = o.corner || COMPOSITING_PIP_DEFAULTS.corner;
+    const scale = o.scale != null ? o.scale : COMPOSITING_PIP_DEFAULTS.scale;
+    const margin = o.margin != null ? o.margin : COMPOSITING_PIP_DEFAULTS.margin;
+    const tl = state.projectTimeline || {};
+    const W = _num(o.canvasWidth, _num(tl.width, 1920));
+    const H = _num(o.canvasHeight, _num(tl.height, 1080));
+    // Inset half-size and margin in px; the inset's centre sits one half-size
+    // plus the margin in from the chosen edge.
+    const dx = W / 2 - (scale * W) / 2 - margin * W;
+    const dy = H / 2 - (scale * H) / 2 - margin * H;
+    const right = corner === "tr" || corner === "br";
+    const bottom = corner === "bl" || corner === "br";
+    return {
+      scale,
+      x: Math.round(right ? dx : -dx),
+      y: Math.round(bottom ? dy : -dy),
+    };
+  }
+
   function emitPip(clipId, opts) {
     if (!clipId) return null;
+    const { scale, x, y } = pipOffsets(opts);
+    return emitCompositingOp({
+      op: "set_effects",
+      clip_id: clipId,
+      effects: { scale, x, y },
+    });
+  }
+
+  // Gradient layers are NOT a timeline op (asset-backed clips can't hold a
+  // generated layer) — route to the agent via /turn. The agent fulfils it with
+  // lumenframe add_gradient. Default request: a deep-blue -> cyan linear gradient
+  // behind the current clips.
+  function emitAddGradient() {
+    return emitCompositingTurn(
+      "Add a linear gradient layer (deep blue to cyan) behind the current clips."
+    );
+  }
+
+  // Shape layers are NOT a timeline op either — route to the agent via /turn.
+  // The agent fulfils it with lumenframe add_shape. Default request: a centred
+  // rounded rectangle.
+  function emitAddShape() {
+    return emitCompositingTurn(
+      "Add a centred rounded-rectangle shape layer over the current clips."
+    );
+  }
+
+  // Cross-dissolve between two adjacent clips via the existing add_transition op
+  // (the lumerai _op_add_transition). Anchored on the first clip; kind defaults
+  // to a valid _TRANSITION_KINDS entry ("dissolve"); duration in seconds.
+  function emitCrossfade(fromId, toId, opts) {
+    if (!fromId || !toId) return null;
     const o = opts || {};
     return emitCompositingOp({
-      op: "pip",
-      layer_id: clipId,
-      corner: o.corner || COMPOSITING_PIP_DEFAULTS.corner,
-      scale: o.scale != null ? o.scale : COMPOSITING_PIP_DEFAULTS.scale,
-      margin: o.margin != null ? o.margin : COMPOSITING_PIP_DEFAULTS.margin,
-      radius: o.radius != null ? o.radius : COMPOSITING_PIP_DEFAULTS.radius,
-    });
-  }
-
-  // add a default 2-stop linear gradient layer (black -> blue), per the
-  // add_gradient schema (stops sorted/clamped to [0,1] on the backend).
-  function emitAddGradient() {
-    return emitCompositingOp({
-      op: "add_gradient",
-      mode: "linear",
-      stops: [[0.0, "#000000"], [1.0, "#3344ff"]],
-      angle: 90,
-    });
-  }
-
-  // add a centred rounded rectangle shape layer, per the add_shape schema.
-  function emitAddShape() {
-    return emitCompositingOp({
-      op: "add_shape",
-      kind: "rect",
-      fill: "#ff0044",
-      rect: [0.1, 0.1, 0.9, 0.9],
-      radius: 12,
-    });
-  }
-
-  // cross-dissolve from clip A into clip B over a default 1s overlap.
-  function emitCrossfade(fromId, toId) {
-    if (!fromId || !toId) return null;
-    return emitCompositingOp({
-      op: "crossfade",
-      from_id: fromId,
-      to_id: toId,
-      duration: 1.0,
+      op: "add_transition",
+      clip_id: fromId,
+      kind: o.kind || COMPOSITING_CROSSFADE_DEFAULTS.kind,
+      duration_sec: o.duration_sec != null
+        ? o.duration_sec
+        : COMPOSITING_CROSSFADE_DEFAULTS.duration_sec,
     });
   }
 
@@ -1338,9 +1387,11 @@
       rotation: _num(fx.rotation, INSPECTOR_DEFAULTS.rotation),
     };
     const opacity = clamp01(_num(fx.opacity, INSPECTOR_DEFAULTS.opacity));
-    const blend = (layer && (layer.blend || layer.blend_mode)) || fx.blend || "normal";
+    // Blend mode rides on effects.blend_mode (the reused set_effects op key);
+    // fall back to legacy layer.blend / layer.blend_mode / effects.blend.
+    const blend = fx.blend_mode || (layer && (layer.blend || layer.blend_mode)) || fx.blend || "normal";
     // Extra effects: anything on the map that isn't a named transform/opacity/blend.
-    const known = new Set([...INSPECTOR_TRANSFORM_KEYS, "opacity", "blend"]);
+    const known = new Set([...INSPECTOR_TRANSFORM_KEYS, "opacity", "blend", "blend_mode"]);
     const effects = {};
     for (const [k, v] of Object.entries(fx)) {
       if (!known.has(k)) effects[k] = v;
@@ -1413,8 +1464,9 @@
     comp.appendChild(opWrap);
 
     // ── Blend-mode <select> (additive): lists the 14 backend blend modes and
-    // emits the existing set_blend op on change. The read-only "Blend" row above
-    // stays as the at-a-glance value; this is the editable control.
+    // emits the reused set_effects op (effects:{blend_mode}) on change. The
+    // read-only "Blend" row above stays as the at-a-glance value; this is the
+    // editable control.
     const blendWrap = el("div", { class: "inspector-control" });
     blendWrap.appendChild(el("label", { class: "inspector-control-label", text: "Blend mode" }));
     const blendSel = el("select", { class: "inspector-blend" });
@@ -1567,7 +1619,7 @@
     emitPip: (clipId, opts) => emitPip(clipId, opts),
     emitAddGradient: () => emitAddGradient(),
     emitAddShape: () => emitAddShape(),
-    emitCrossfade: (aId, bId) => emitCrossfade(aId, bId),
+    emitCrossfade: (aId, bId, opts) => emitCrossfade(aId, bId, opts),
     lastOp: () => state.lastCompositingOp,
   };
 
