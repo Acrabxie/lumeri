@@ -805,6 +805,112 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["otio_path"],
     ),
+    # ── file-management verbs (host-side, OUTSIDE the session workspace) ──
+    # Like fetch/web_search these reach the user's real machine. Every write/
+    # move/copy target and source is run through _safe_path (refuses system
+    # dirs, credential/secret files, .git internals). move_file/organize_files
+    # require explicit user approval via the ask mechanism before moving.
+    _tool(
+        "read_file",
+        "Read a text file from the user's machine (OUTSIDE the session "
+        "workspace). Returns {path, text, truncated, size}. Binary files return "
+        "a short note plus size instead of raw bytes. Read-only.",
+        {
+            "path": {"type": "string", "description": "Absolute or ~-relative host path to read."},
+            "max_bytes": {
+                "type": "integer",
+                "description": "Max bytes to read (default 2000000). Larger files are truncated.",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "write_file",
+        "Write (overwrite) or append a text file on the user's machine (OUTSIDE "
+        "the session workspace). Creates parent directories. Allowed without "
+        "approval. Returns {path, bytes_written}. Refuses system/credential "
+        "paths.",
+        {
+            "path": {"type": "string", "description": "Absolute or ~-relative host path to write."},
+            "content": {"type": "string", "description": "Text content to write."},
+            "append": {
+                "type": "boolean",
+                "description": "If true, append instead of overwriting. Default false.",
+            },
+        },
+        ["path", "content"],
+    ),
+    _tool(
+        "copy_in",
+        "Copy an external file INTO the session workspace so it can be edited "
+        "safely without touching the original. Returns {workspace_path, name, "
+        "size}.",
+        {
+            "path": {"type": "string", "description": "Host path of the external file to copy in."},
+            "as_name": {
+                "type": "string",
+                "description": "Optional filename to use inside the workspace (basename only).",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "list_dir",
+        "List a directory on the user's machine (OUTSIDE the session "
+        "workspace). Returns {path, entries:[{name, is_dir, size}], truncated}. "
+        "Read-only.",
+        {
+            "path": {"type": "string", "description": "Host directory path to list."},
+            "max_entries": {
+                "type": "integer",
+                "description": "Max entries to return (default 500).",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "move_file",
+        "MOVE/RENAME a file on the user's machine (OUTSIDE the session "
+        "workspace). This REQUIRES EXPLICIT USER APPROVAL: an approval prompt "
+        "is shown and awaited before anything moves. On approval returns "
+        "{status:'moved', src, dst}; otherwise {status:'declined'} and nothing "
+        "is moved. Refuses system/credential paths.",
+        {
+            "src": {"type": "string", "description": "Host path of the file to move."},
+            "dst": {"type": "string", "description": "Destination host path (new name/location)."},
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait for approval before declining.",
+            },
+        },
+        ["src", "dst"],
+    ),
+    _tool(
+        "organize_files",
+        "Batch MOVE/RENAME several files at once with ONE approval listing all "
+        "moves. REQUIRES EXPLICIT USER APPROVAL before any move happens. On "
+        "approval executes each move and returns {status:'completed', moved, "
+        "results}; on decline returns {status:'declined'} and moves nothing. "
+        "Every src/dst is safety-checked first; a refusal aborts the batch.",
+        {
+            "moves": {
+                "type": "array",
+                "description": "List of {src, dst} pairs to move.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "src": {"type": "string"},
+                        "dst": {"type": "string"},
+                    },
+                },
+            },
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait for approval before declining.",
+            },
+        },
+        ["moves"],
+    ),
     _tool(
         "elicit",
         "Ask the user a structured question and wait for their answer before "

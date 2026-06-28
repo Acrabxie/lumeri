@@ -47,6 +47,7 @@ from gemia.tools import elicit as _elicit
 from gemia.tools import export as _export
 from gemia.tools import extract_frame as _extract_frame
 from gemia.tools import fetch as _fetch
+from gemia.tools import files as _files
 from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
@@ -92,6 +93,12 @@ _REAL: dict[str, Dispatcher] = {
     "web_search":         _web_search.dispatch,
     "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
+    "read_file":          _files.dispatch_read_file,
+    "write_file":         _files.dispatch_write_file,
+    "copy_in":            _files.dispatch_copy_in,
+    "list_dir":           _files.dispatch_list_dir,
+    "move_file":          _files.dispatch_move_file,
+    "organize_files":     _files.dispatch_organize_files,
     "elicit":             _elicit.dispatch,
     "run_shell":          _run_shell.dispatch,
     "build":              _build.dispatch,
