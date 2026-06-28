@@ -91,6 +91,14 @@ TIME_REMAP_EXTRAPOLATE: set[str] = {"hold", "loop", "pingpong"}
 #: it (a still frame) until the next keyframe.
 TIME_REMAP_INTERP: set[str] = {"linear", "hold"}
 
+#: Optional canvas-level WORK AREA (an in/out span, in seconds, on the root
+#: timeline). It is the editor's "current range of interest" — the default span
+#: that a range render/export honours when no explicit ``t_in``/``t_out`` is
+#: given. It is **strictly optional**: a doc without it normalises byte-identical
+#: to before (the ``work_area`` key is never added to ``canvas`` when absent).
+WORK_AREA_KEY = "work_area"
+
+
 #: Canonical top-level keys on a layer. Anything else an author supplies is
 #: folded into ``props`` rather than dropped.
 _SCHEMA_KEYS: frozenset[str] = frozenset({
@@ -206,6 +214,14 @@ def normalize_doc(doc: dict[str, Any] | None) -> dict[str, Any]:
     canvas["height"] = int(canvas.get("height") or DEFAULT_CANVAS["height"])
     canvas["fps"] = float(canvas.get("fps") or DEFAULT_CANVAS["fps"])
     canvas["background"] = str(canvas.get("background") or DEFAULT_CANVAS["background"])
+    # OPTIONAL work area. Only present in the output when the source supplied a
+    # valid one — a doc without it stays byte-identical (no new key, ever). The
+    # raw merge above may have carried a ``work_area`` value through ``**canvas_src``;
+    # drop it unconditionally, then re-add only a normalised, validated span.
+    canvas.pop(WORK_AREA_KEY, None)
+    work_area = _normalize_work_area(canvas_src.get(WORK_AREA_KEY))
+    if work_area is not None:
+        canvas[WORK_AREA_KEY] = work_area
 
     root_src = src.get("root") if isinstance(src.get("root"), dict) else None
     if root_src is None:
@@ -228,6 +244,97 @@ def normalize_doc(doc: dict[str, Any] | None) -> dict[str, Any]:
         "assets": assets,
         "selection": selection,
     }
+
+
+class WorkAreaError(ValueError):
+    """Raised when an explicit work area is present but malformed.
+
+    A *malformed* work area is one that is structurally a span (a dict / pair
+    carrying ``in`` and ``out``) yet violates the invariant ``in >= 0`` and
+    ``out > in``. A value that is simply *absent* or not span-shaped (``None``,
+    ``{}``) is treated as "no work area" and never raises — only a present-but-
+    invalid range is an error, so a doc without a work area never trips this.
+    """
+
+
+def _work_area_pair(raw: Any) -> tuple[float, float] | None:
+    """Extract ``(in, out)`` seconds from a span value, or ``None`` if absent.
+
+    Accepts the canonical ``{"in": seconds, "out": seconds}`` mapping; also
+    tolerates a 2-sequence ``[in, out]`` for hand-authored input. Returns
+    ``None`` when no span is supplied (``None`` / empty mapping) so the caller
+    can leave the doc untouched. Raises :class:`WorkAreaError` only when a value
+    is given but cannot be read as a numeric pair.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        if not raw:
+            return None
+        if "in" not in raw or "out" not in raw:
+            raise WorkAreaError(
+                f"work_area must carry both 'in' and 'out', got keys {sorted(raw)!r}"
+            )
+        t_in, t_out = raw.get("in"), raw.get("out")
+    elif isinstance(raw, (list, tuple)):
+        if len(raw) == 0:
+            return None
+        if len(raw) != 2:
+            raise WorkAreaError(
+                f"work_area sequence must be [in, out] (len 2), got len {len(raw)}"
+            )
+        t_in, t_out = raw[0], raw[1]
+    else:
+        raise WorkAreaError(
+            f"work_area must be a mapping or [in, out] pair, got {type(raw).__name__}"
+        )
+    try:
+        return float(t_in), float(t_out)
+    except (TypeError, ValueError) as exc:
+        raise WorkAreaError(f"work_area in/out must be numbers: {raw!r}") from exc
+
+
+def _normalize_work_area(raw: Any) -> dict[str, float] | None:
+    """Validate + canonicalise an optional work area, or ``None`` when absent.
+
+    Returns ``{"in": float, "out": float}`` with times rounded to ``TIME_NDIGITS``
+    (so the doc round-trips byte-stably). Enforces ``in >= 0`` and ``out > in``;
+    a present-but-invalid span raises :class:`WorkAreaError`. ``None`` in / out of
+    a span means "no work area" and yields ``None`` (no key added to the doc).
+    """
+    pair = _work_area_pair(raw)
+    if pair is None:
+        return None
+    t_in, t_out = pair
+    if t_in < 0:
+        raise WorkAreaError(f"work_area 'in' must be >= 0, got {t_in!r}")
+    if t_out <= t_in:
+        raise WorkAreaError(
+            f"work_area 'out' ({t_out!r}) must be > 'in' ({t_in!r})"
+        )
+    return {
+        "in": round(float(t_in), TIME_NDIGITS),
+        "out": round(float(t_out), TIME_NDIGITS),
+    }
+
+
+def get_work_area(doc: dict[str, Any] | None) -> tuple[float, float] | None:
+    """Return the document's work area as ``(in, out)`` seconds, or ``None``.
+
+    Reads ``canvas.work_area`` and returns its normalised, validated span. Returns
+    ``None`` when the doc has no work area (the common, default case), so callers
+    can do ``get_work_area(doc) or (full_range)``. A present-but-malformed work
+    area raises :class:`WorkAreaError`, mirroring :func:`normalize_doc`.
+    """
+    if not isinstance(doc, dict):
+        return None
+    canvas = doc.get("canvas")
+    if not isinstance(canvas, dict):
+        return None
+    normalized = _normalize_work_area(canvas.get(WORK_AREA_KEY))
+    if normalized is None:
+        return None
+    return normalized["in"], normalized["out"]
 
 
 def _normalize_layer(raw: dict[str, Any], *, force_type: str | None = None) -> dict[str, Any]:
