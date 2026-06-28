@@ -1205,6 +1205,111 @@
   // Default values so an un-keyframed/untouched layer still reads sensibly.
   const INSPECTOR_DEFAULTS = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
 
+  // ── compositing ops (additive) ──────────────────────────────────────
+  // The 14 blend modes the backend accepts (lumenframe.model.BLEND_MODES /
+  // the `set_blend` op). Ordered for the inspector <select>: normal first,
+  // then the common groups (multiply/screen/overlay, lighten/darken, the
+  // light blends, difference/exclusion, the dodge/burn pair, add/subtract).
+  // Kept in lockstep with the backend; an unknown mode is rejected by set_blend.
+  const COMPOSITING_BLEND_MODES = [
+    "normal", "multiply", "screen", "overlay", "add", "lighten", "darken",
+    "soft_light", "hard_light", "difference", "exclusion",
+    "color_dodge", "color_burn", "subtract",
+  ];
+  // PiP defaults (mirror the backend pip op's own defaults: br corner, 0.3
+  // scale, a small rounded radius so the inset reads as a card).
+  const COMPOSITING_PIP_DEFAULTS = { corner: "br", scale: 0.3, margin: 0.04, radius: 24 };
+
+  // The op every compositing emitter last sent through postTimelineOp — exposed
+  // via window.__lumeriCompositing.lastOp() so DevTools / node tests can assert
+  // the exact op structure without a network round-trip.
+  state.lastCompositingOp = null;
+
+  // All compositing emitters funnel through here: record the op for testability,
+  // then dispatch it down the EXISTING edit path (postTimelineOp -> /timeline/op).
+  // No new backend endpoint is invented.
+  function emitCompositingOp(opBody) {
+    state.lastCompositingOp = opBody;
+    return postTimelineOp(opBody);
+  }
+
+  function blendOptions() {
+    return COMPOSITING_BLEND_MODES.slice();
+  }
+
+  // set a layer's blend mode (sugar over the `set_blend` op which rejects an
+  // unknown mode up front, unlike the raw set_blend_mode field).
+  function emitSetBlend(clipId, mode) {
+    if (!clipId) return null;
+    return emitCompositingOp({ op: "set_blend", layer_id: clipId, mode: String(mode) });
+  }
+
+  // turn a layer into a picture-in-picture inset using the backend's own pip
+  // defaults (br corner, 0.3 scale, rounded radius).
+  function emitPip(clipId, opts) {
+    if (!clipId) return null;
+    const o = opts || {};
+    return emitCompositingOp({
+      op: "pip",
+      layer_id: clipId,
+      corner: o.corner || COMPOSITING_PIP_DEFAULTS.corner,
+      scale: o.scale != null ? o.scale : COMPOSITING_PIP_DEFAULTS.scale,
+      margin: o.margin != null ? o.margin : COMPOSITING_PIP_DEFAULTS.margin,
+      radius: o.radius != null ? o.radius : COMPOSITING_PIP_DEFAULTS.radius,
+    });
+  }
+
+  // add a default 2-stop linear gradient layer (black -> blue), per the
+  // add_gradient schema (stops sorted/clamped to [0,1] on the backend).
+  function emitAddGradient() {
+    return emitCompositingOp({
+      op: "add_gradient",
+      mode: "linear",
+      stops: [[0.0, "#000000"], [1.0, "#3344ff"]],
+      angle: 90,
+    });
+  }
+
+  // add a centred rounded rectangle shape layer, per the add_shape schema.
+  function emitAddShape() {
+    return emitCompositingOp({
+      op: "add_shape",
+      kind: "rect",
+      fill: "#ff0044",
+      rect: [0.1, 0.1, 0.9, 0.9],
+      radius: 12,
+    });
+  }
+
+  // cross-dissolve from clip A into clip B over a default 1s overlap.
+  function emitCrossfade(fromId, toId) {
+    if (!fromId || !toId) return null;
+    return emitCompositingOp({
+      op: "crossfade",
+      from_id: fromId,
+      to_id: toId,
+      duration: 1.0,
+    });
+  }
+
+  // The first two distinct selectable clips on the project timeline (in track
+  // order), used to seed the inspector Crossfade button. Selected clip first.
+  function compositingCrossfadeCandidates() {
+    const tl = state.projectTimeline || {};
+    const ids = [];
+    for (const tr of tl.tracks || []) {
+      for (const c of tr.clips || []) {
+        if (c && c.id != null && !ids.includes(c.id)) ids.push(c.id);
+      }
+    }
+    const sel = state.selectedClipId;
+    if (sel && ids.includes(sel)) {
+      const rest = ids.filter((id) => id !== sel);
+      return [sel, ...rest];
+    }
+    return ids;
+  }
+
   function _num(v, fallback) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
@@ -1306,6 +1411,63 @@
     opWrap.appendChild(slider);
     opWrap.appendChild(out);
     comp.appendChild(opWrap);
+
+    // ── Blend-mode <select> (additive): lists the 14 backend blend modes and
+    // emits the existing set_blend op on change. The read-only "Blend" row above
+    // stays as the at-a-glance value; this is the editable control.
+    const blendWrap = el("div", { class: "inspector-control" });
+    blendWrap.appendChild(el("label", { class: "inspector-control-label", text: "Blend mode" }));
+    const blendSel = el("select", { class: "inspector-blend" });
+    for (const mode of COMPOSITING_BLEND_MODES) {
+      const opt = el("option", { value: mode, text: mode });
+      if (mode === vals.blend) opt.selected = true;
+      blendSel.appendChild(opt);
+    }
+    blendSel.value = COMPOSITING_BLEND_MODES.includes(vals.blend) ? vals.blend : "normal";
+    blendSel.addEventListener("change", () => {
+      const clipId = layer && layer.id;
+      if (!clipId) return;
+      emitSetBlend(clipId, blendSel.value);
+    });
+    blendWrap.appendChild(blendSel);
+    comp.appendChild(blendWrap);
+
+    // ── Compositing actions (additive): each emits an existing op through the
+    // same postTimelineOp path the rest of the inspector uses.
+    // NOTE: a distinct class (.inspector-comp-btn, NOT .inspector-btn) so the
+    // existing inspector test's `querySelector(".inspector-btn")` still resolves
+    // to the Reset-opacity action in the actions row below — additive only.
+    const compActions = el("div", { class: "inspector-comp-actions" });
+
+    const pipBtn = el("button", { class: "inspector-comp-btn", "data-action": "pip", text: "Make PiP" });
+    pipBtn.addEventListener("click", () => {
+      const clipId = layer && layer.id;
+      if (!clipId) return;
+      emitPip(clipId);
+    });
+    compActions.appendChild(pipBtn);
+
+    const gradBtn = el("button", { class: "inspector-comp-btn", "data-action": "add-gradient", text: "Add gradient layer" });
+    gradBtn.addEventListener("click", () => { emitAddGradient(); });
+    compActions.appendChild(gradBtn);
+
+    const shapeBtn = el("button", { class: "inspector-comp-btn", "data-action": "add-shape", text: "Add shape" });
+    shapeBtn.addEventListener("click", () => { emitAddShape(); });
+    compActions.appendChild(shapeBtn);
+
+    // Crossfade needs a second clip; enabled only when the timeline has two
+    // selectable clips. Fades the selected clip into the next available one.
+    const cands = compositingCrossfadeCandidates();
+    const xfadeBtn = el("button", { class: "inspector-comp-btn", "data-action": "crossfade", text: "Crossfade" });
+    if (cands.length < 2) xfadeBtn.disabled = true;
+    xfadeBtn.addEventListener("click", () => {
+      const c2 = compositingCrossfadeCandidates();
+      if (c2.length < 2) return;
+      emitCrossfade(c2[0], c2[1]);
+    });
+    compActions.appendChild(xfadeBtn);
+
+    comp.appendChild(compActions);
     root.appendChild(comp);
 
     // ── Effects section: any remaining effects keys, readable values ──
@@ -1393,6 +1555,20 @@
     build: (container, layer) => buildInspector(container, layer),
     readControls: () => (state.inspector ? state.inspector.readControls() : null),
     values: () => (state.inspector ? state.inspector.values : null),
+  };
+
+  // Debug/test hook for the compositing controls (mirrors __lumeriInspector):
+  // pure op emitters that route through the existing postTimelineOp path, plus
+  // blendOptions() (the 14 modes) and lastOp() (the op last emitted), so DevTools
+  // and node tests can assert the exact op structure without a network call.
+  window.__lumeriCompositing = {
+    blendOptions: () => blendOptions(),
+    emitSetBlend: (clipId, mode) => emitSetBlend(clipId, mode),
+    emitPip: (clipId, opts) => emitPip(clipId, opts),
+    emitAddGradient: () => emitAddGradient(),
+    emitAddShape: () => emitAddShape(),
+    emitCrossfade: (aId, bId) => emitCrossfade(aId, bId),
+    lastOp: () => state.lastCompositingOp,
   };
 
   // ── direct edit (DE): user drag/trim via the shared /timeline/op endpoint ──
