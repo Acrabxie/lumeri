@@ -42,7 +42,7 @@ from lumenframe.model import (
     new_layer,
     normalize_doc,
 )
-from lumenframe.registry import op_handler, register_op
+from lumenframe.registry import op_handler, register_layer_type, register_op
 
 
 class LayerPatchError(ValueError):
@@ -1511,3 +1511,326 @@ def _op_apply_template(doc: dict[str, Any], op: dict[str, Any]) -> None:
         raise LayerPatchError("E_ARG", f"apply_template: bad params for {name!r}: {err}") from err
     for sub in sub_ops:
         _dispatch(doc, sub)
+
+
+# ── multi-layer compositing sugar ─────────────────────────────────────────
+#
+# These ops are *convenience macros* over the existing primitives (transform /
+# mask / opacity-keyframes / add_layer). They introduce no new compile path:
+# ``pip`` is pure transform + shape-mask (+ an optional helper shape layer),
+# ``crossfade`` only writes opacity keyframes, ``add_gradient`` / ``add_shape``
+# build plain ``gradient`` / ``shape`` layers per the shared layer schema. The
+# gradient / shape *renderers* live elsewhere (lumenframe.resolve); here we only
+# guarantee the produced layer dicts match the contract so a renderer can draw
+# them.
+
+#: Picture-in-picture corner -> (x_sign, y_sign) on the canvas-centre transform
+#: (x>0 right, y>0 down — matching DEFAULT_TRANSFORM / _centred_position).
+_PIP_CORNERS: dict[str, tuple[float, float]] = {
+    "br": (+1.0, +1.0),
+    "bl": (-1.0, +1.0),
+    "tr": (+1.0, -1.0),
+    "tl": (-1.0, -1.0),
+}
+
+
+def _ensure_gradient_layer_type() -> None:
+    """Register the ``gradient`` layer type so ``add_gradient`` validates.
+
+    ``shape`` is already a built-in (``model.LAYER_TYPES``), but ``gradient`` is
+    new sugar: register a minimal, non-container spec idempotently. The renderer
+    for it lives in :mod:`lumenframe.resolve`; this only teaches the registry /
+    validator that the type exists. Idempotent so it is safe to call after a
+    ``reset_for_tests`` (which drops non-built-in layer types).
+    """
+    from lumenframe.registry import layer_type_spec
+
+    if layer_type_spec("gradient") is None:
+        register_layer_type("gradient", {
+            "container": False,
+            "defaults": {},
+            "source": "core",
+            "description": (
+                "A gradient fill layer (linear/radial) defined by colour stops; "
+                "rasterised to a canvas-sized RGBA fill by the resolver."
+            ),
+        })
+
+
+_ensure_gradient_layer_type()
+
+
+@register_op("set_blend", source="core")
+def _op_set_blend(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Set a layer's blend mode, validated against the supported core set.
+
+    Sugar over the raw ``blend_mode`` field that, unlike ``set_blend_mode``,
+    *rejects* an unknown mode up front (``E_ARG``) so a typo never silently
+    degrades to ``normal`` at compile. The accepted set is
+    :data:`lumenframe.model.BLEND_MODES`.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_blend")
+    mode = str(_require_arg(op, "mode"))
+    if mode not in BLEND_MODES:
+        raise LayerPatchError(
+            "E_ARG",
+            f"set_blend: unknown blend mode {mode!r} (use one of {', '.join(sorted(BLEND_MODES))})",
+        )
+    layer["blend_mode"] = mode
+
+
+@register_op("pip", source="core")
+def _op_pip(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Turn a layer into a picture-in-picture inset.
+
+    Pure transform + mask (+ optional helper layer), no compile change:
+
+    * sets ``transform.scale`` and ``transform.x/y`` so the scaled layer tucks
+      into the chosen ``corner`` (br|bl|tr|tl) with ``margin`` (fraction of the
+      canvas), or to an explicit ``x``/``y`` pixel offset if given;
+    * attaches a full-frame rounded-rect ``shape`` mask so the inset has rounded
+      corners (``radius`` in px, stored normalised as a fraction of the smaller
+      canvas dimension so the mask is resolution-independent);
+    * when ``border`` or ``shadow`` is requested, inserts one extra ``shape``
+      layer *beneath* the pip (same transform, rounded rect) carrying the
+      border stroke / shadow fill, per the shape-layer schema.
+
+    The layer's own opacity / time range / blend are left untouched.
+    """
+    layer_id = str(_require_arg(op, "layer_id"))
+    parent, index = _require_locate(doc, layer_id, op="pip")
+    layer = parent["children"][index]
+
+    canvas = doc.get("canvas") if isinstance(doc.get("canvas"), dict) else {}
+    width = int(canvas.get("width") or model.DEFAULT_CANVAS["width"])
+    height = int(canvas.get("height") or model.DEFAULT_CANVAS["height"])
+
+    scale = model._as_float(op.get("scale")) if op.get("scale") is not None else 0.3
+    if scale <= 0:
+        raise LayerPatchError("E_RANGE", "pip: scale must be > 0")
+    margin = model._as_float(op.get("margin")) if op.get("margin") is not None else 0.04
+
+    # Position: explicit x/y (pixels) wins; otherwise tuck into the named corner.
+    if op.get("x") is not None or op.get("y") is not None:
+        tx = model._as_float(op.get("x"))
+        ty = model._as_float(op.get("y"))
+    else:
+        corner = str(op.get("corner") or "br")
+        signs = _PIP_CORNERS.get(corner)
+        if signs is None:
+            raise LayerPatchError(
+                "E_ARG",
+                f"pip: unknown corner {corner!r} (use br|bl|tr|tl, or pass x/y)",
+            )
+        # Push the scaled content's edge to (margin) from the canvas edge: its
+        # centre sits at half-canvas minus margin minus half the scaled size.
+        x_mag = width * (0.5 - margin - scale / 2.0)
+        y_mag = height * (0.5 - margin - scale / 2.0)
+        tx = signs[0] * x_mag
+        ty = signs[1] * y_mag
+
+    transform = {**DEFAULT_TRANSFORM, **(layer.get("transform") or {})}
+    transform["scale_x"] = scale
+    transform["scale_y"] = scale
+    transform["x"] = round(tx, 6)
+    transform["y"] = round(ty, 6)
+    layer["transform"] = transform
+
+    # Rounded-rect mask over the whole (pre-transform) layer frame. The radius is
+    # given in px; the mask rasteriser reads it as a fraction of min(W,H), so
+    # convert. radius<=0 => square corners (still a valid full-frame mask).
+    radius_px = model._as_float(op.get("radius")) if op.get("radius") is not None else 0.0
+    if radius_px < 0:
+        raise LayerPatchError("E_RANGE", "pip: radius must be >= 0")
+    radius_frac = radius_px / float(min(width, height)) if radius_px > 0 else 0.0
+    layer["mask"] = model._normalize_mask({
+        "kind": "shape",
+        "shape": {"type": "rectangle", "rect": [0.0, 0.0, 1.0, 1.0], "radius": radius_frac},
+        "invert": False,
+        "feather": 0.0,
+    })
+
+    # Optional helper shape layer (border + drop shadow) directly beneath the pip.
+    border = op.get("border") if isinstance(op.get("border"), dict) else None
+    shadow = bool(op.get("shadow"))
+    if border or shadow:
+        helper_props: dict[str, Any] = {
+            "kind": "rect",
+            "fill": None,
+            "rect": [0.0, 0.0, 1.0, 1.0],
+            "radius": radius_px,
+            "opacity_baked": False,
+        }
+        if border:
+            helper_props["stroke"] = {
+                "color": str(border.get("color") or "#ffffff"),
+                "width": model._as_float(border.get("width")) if border.get("width") is not None else 2.0,
+            }
+        if shadow:
+            # A soft dark fill behind the inset reads as a drop shadow.
+            helper_props["fill"] = "#000000"
+            helper_props["shadow"] = True
+        helper = new_layer(
+            "shape",
+            id=str(op["border_id"]) if op.get("border_id") else None,
+            name=f"{layer.get('name', 'PiP')} frame",
+            start=model._as_float(layer.get("start")),
+            duration=model._as_float(layer.get("duration")),
+            transform=dict(transform),
+            props=helper_props,
+        )
+        # Insert just below the pip so it composites first (behind it).
+        parent["children"].insert(index, helper)
+
+
+@register_op("crossfade", source="core")
+def _op_crossfade(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Overlap two layers in time and cross-dissolve A → B via opacity keyframes.
+
+    Over ``duration`` seconds starting at output time ``at``: ``from_id`` ramps
+    opacity 1 → 0 while ``to_id`` ramps 0 → 1, so the outgoing layer dissolves
+    into the incoming one. Only opacity keyframes are written (the same channel
+    ``animate_layer``'s fade presets use); no compile change.
+    """
+    from_id = str(_require_arg(op, "from_id"))
+    to_id = str(_require_arg(op, "to_id"))
+    from_layer = _require_layer(doc, from_id, op="crossfade")
+    to_layer = _require_layer(doc, to_id, op="crossfade")
+    duration = model._as_float(op.get("duration")) if op.get("duration") is not None else 0.5
+    if duration <= 0:
+        raise LayerPatchError("E_RANGE", "crossfade: duration must be > 0")
+    at = _round_t(op.get("at")) if op.get("at") is not None else _round_t(from_layer.get("start"))
+    end = _round_t(at + duration)
+
+    def _ramp(layer: dict[str, Any], v_start: float, v_end: float) -> None:
+        track = layer.setdefault("keyframes", {}).setdefault("opacity", [])
+        track[:] = [
+            k for k in track
+            if abs(model._as_float(k.get("t")) - at) > 1e-9
+            and abs(model._as_float(k.get("t")) - end) > 1e-9
+        ]
+        track.append({"t": at, "value": v_start, "interp": "linear"})
+        track.append({"t": end, "value": v_end, "interp": "linear"})
+        track.sort(key=lambda k: k["t"])
+
+    _ramp(from_layer, 1.0, 0.0)  # outgoing fades out
+    _ramp(to_layer, 0.0, 1.0)    # incoming fades in
+
+
+@register_op("add_gradient", source="core")
+def _op_add_gradient(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Create a ``gradient`` layer per the shared layer schema.
+
+    props = {mode: linear|radial, stops: [[pos,#rrggbb], ...], angle (linear),
+    center: [cx, cy] / radius (radial)}. Stops are sorted by position and clamped
+    to ``[0, 1]``; positions/colours are otherwise passed through untouched.
+    """
+    _ensure_gradient_layer_type()  # survive a prior reset_for_tests()
+    mode = str(op.get("mode") or "linear")
+    if mode not in {"linear", "radial"}:
+        raise LayerPatchError("E_ARG", f"add_gradient: mode must be linear|radial, got {mode!r}")
+    raw_stops = _require_arg(op, "stops")
+    if not isinstance(raw_stops, list) or len(raw_stops) < 2:
+        raise LayerPatchError("E_ARG", "add_gradient: need at least 2 stops [[pos, '#rrggbb'], ...]")
+    stops: list[list[Any]] = []
+    for stop in raw_stops:
+        if not isinstance(stop, (list, tuple)) or len(stop) < 2:
+            raise LayerPatchError("E_ARG", "add_gradient: each stop must be [pos(0..1), '#rrggbb']")
+        pos = max(0.0, min(1.0, model._as_float(stop[0])))
+        stops.append([round(pos, 6), str(stop[1])])
+    stops.sort(key=lambda s: s[0])
+
+    props: dict[str, Any] = {"mode": mode, "stops": stops}
+    if mode == "linear":
+        props["angle"] = model._as_float(op.get("angle")) if op.get("angle") is not None else 0.0
+    else:  # radial
+        center = op.get("center") if isinstance(op.get("center"), (list, tuple)) else (0.5, 0.5)
+        props["center"] = [
+            max(0.0, min(1.0, model._as_float(center[0]))),
+            max(0.0, min(1.0, model._as_float(center[1]))),
+        ]
+        props["radius"] = model._as_float(op.get("radius")) if op.get("radius") is not None else 0.5
+
+    _add_visual_layer(doc, op, "gradient", "Gradient", props)
+
+
+@register_op("add_shape", source="core")
+def _op_add_shape(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Create a ``shape`` layer per the shared layer schema.
+
+    kind = rect|ellipse|polygon|line. Geometry follows the kind: rect/ellipse use
+    ``rect`` (normalised [x0,y0,x1,y1]) or a centre form; polygon/line use
+    ``points`` [[x,y], ...]. ``fill`` (or null), optional ``stroke``
+    {color,width}, optional rect corner ``radius`` (px). ``opacity_baked`` stays
+    ``False`` so the compositor applies layer opacity.
+    """
+    kind = str(_require_arg(op, "kind"))
+    if kind not in {"rect", "ellipse", "polygon", "line"}:
+        raise LayerPatchError("E_ARG", f"add_shape: kind must be rect|ellipse|polygon|line, got {kind!r}")
+
+    props: dict[str, Any] = {"kind": kind, "opacity_baked": False}
+    props["fill"] = str(op["fill"]) if op.get("fill") else None
+    if isinstance(op.get("stroke"), dict):
+        stroke = op["stroke"]
+        props["stroke"] = {
+            "color": str(stroke.get("color") or "#000000"),
+            "width": model._as_float(stroke.get("width")) if stroke.get("width") is not None else 1.0,
+        }
+
+    if kind in {"polygon", "line"}:
+        pts = op.get("points")
+        if not isinstance(pts, list) or len(pts) < 2:
+            raise LayerPatchError("E_ARG", f"add_shape: {kind} needs points [[x, y], ...]")
+        props["points"] = [
+            [round(model._as_float(p[0]), 6), round(model._as_float(p[1]), 6)]
+            for p in pts if isinstance(p, (list, tuple)) and len(p) >= 2
+        ]
+        if len(props["points"]) < 2:
+            raise LayerPatchError("E_ARG", f"add_shape: {kind} needs >= 2 valid points")
+    else:  # rect / ellipse
+        if isinstance(op.get("rect"), (list, tuple)) and len(op["rect"]) >= 4:
+            props["rect"] = [round(model._as_float(v), 6) for v in op["rect"][:4]]
+        elif op.get("cx") is not None and op.get("cy") is not None:
+            for key in ("cx", "cy", "rx", "ry"):
+                if op.get(key) is not None:
+                    props[key] = round(model._as_float(op[key]), 6)
+        else:
+            props["rect"] = [0.0, 0.0, 1.0, 1.0]
+        if kind == "rect" and op.get("radius") is not None:
+            props["radius"] = model._as_float(op["radius"])
+
+    _add_visual_layer(doc, op, "shape", "Shape", props)
+
+
+def _add_visual_layer(
+    doc: dict[str, Any],
+    op: dict[str, Any],
+    ltype: str,
+    default_name: str,
+    props: dict[str, Any],
+) -> None:
+    """Insert a freshly-built ``ltype`` layer carrying ``props`` (gradient/shape).
+
+    Shared tail of :func:`_op_add_gradient` / :func:`_op_add_shape`: honours the
+    same ``parent_id`` / ``index`` / ``at_time`` / ``duration`` / ``select``
+    controls as ``add_layer`` so the sugar feels native.
+    """
+    parent = doc["root"]
+    if op.get("parent_id"):
+        parent = _require_layer(doc, op["parent_id"], op=f"add_{ltype}")
+        if not _is_container(parent):
+            raise LayerPatchError("E_CONTAINER", f"add_{ltype}: parent {parent.get('id')} cannot hold children")
+    layer = new_layer(
+        ltype,
+        id=str(op["id"]) if op.get("id") else None,
+        name=str(op.get("name") or default_name),
+        start=_round_t(op.get("at_time") if op.get("at_time") is not None else op.get("start") or 0.0),
+        duration=_round_t(op.get("duration") or 0.0),
+        props=props,
+    )
+    if model.find_layer(doc, layer["id"]) is not None:
+        layer["id"] = model.gen_id(model._id_prefix(ltype))
+    index = op.get("index")
+    _insert(parent, layer, int(index) if index is not None else None)
+    if op.get("select", True):
+        _set_selection(doc, [layer["id"]])
