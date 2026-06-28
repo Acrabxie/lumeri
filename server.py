@@ -5301,6 +5301,17 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def main(host: str | None = None, port: int | None = None) -> None:
+    # First-run onboarding: if no usable model provider is configured, prompt
+    # interactively (TTY) or print instructions and exit cleanly (headless).
+    # When a provider is already configured this is a no-op, so existing
+    # startup behaviour is unchanged.
+    from gemia.onboarding import ensure_onboarded
+
+    if not ensure_onboarded():
+        # Headless + unconfigured: instructions already printed. Do NOT bind a
+        # brain-less server.
+        return
+
     _load_config_keys()  # Load API keys from ~/.gemia/config.json on startup
     host = host or _configured_server_host()
     port = int(port or os.environ.get("LUMERI_PORT") or os.environ.get("GEMIA_PORT") or 7788)

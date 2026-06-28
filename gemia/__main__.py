@@ -205,6 +205,8 @@ def main() -> None:
     p_server.add_argument("--host", default=None, help="Bind host; defaults to GEMIA_HOST/LUMERI_HOST or 0.0.0.0")
     p_server.add_argument("--port", type=int, default=None, help="Bind port; defaults to GEMIA_PORT/LUMERI_PORT or 7788")
 
+    p_setup = sub.add_parser("setup", help="Run (or re-run) the first-run onboarding wizard")
+
     p_bridge_init = sub.add_parser("bridge-init", help="Create bridge inbox/outbox directories")
     p_bridge_init.add_argument("--root", default="~/.gemia/bridge")
 
@@ -282,6 +284,27 @@ def main() -> None:
     p_agent_daemon.add_argument("--cwd", default=None)
 
     args = parser.parse_args()
+
+    # ── First-run onboarding gate ──────────────────────────────────────
+    # The "setup" subcommand always re-runs the wizard. For commands that need
+    # a model, if no provider is configured, run onboarding interactively on a
+    # TTY or print instructions (and exit) otherwise. Non-LLM commands (e.g.
+    # render-layer-plan, get-task, bridge-*) keep working even when unconfigured
+    # and never hang non-interactively.
+    from .onboarding import ensure_onboarded, needs_onboarding, run_setup
+
+    if args.command == "setup":
+        raise SystemExit(run_setup())
+
+    _LLM_COMMANDS = {
+        "run", "plan", "run-skill", "run-skill-v2", "save-skill", "revise-task",
+        "lumerai-script", "lumerai-agent",
+    }
+    if args.command in _LLM_COMMANDS and needs_onboarding():
+        if not ensure_onboarded():
+            # Headless + unconfigured: instructions already printed; exit cleanly
+            # rather than hang or crash deep in a model call.
+            raise SystemExit(1)
 
     if args.command == "run":
         _cmd_run(args)
