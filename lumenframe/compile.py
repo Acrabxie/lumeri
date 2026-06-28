@@ -108,10 +108,39 @@ def compile_to_layer_stack(
     return stack
 
 
+def _lane_ordered_children(children: list) -> list:
+    """Order a comp's children by ``(lane, original-tree-index)`` as stacked tracks.
+
+    Lanes act as parallel timeline tracks: a HIGHER ``lane`` composites ABOVE a
+    lower lane, and WITHIN a lane the existing bottom->top tree order is kept.
+    Implemented as a STABLE sort keyed only on ``lane`` (Python's ``sorted`` is
+    stable, so equal-lane children keep their relative tree order — i.e. the
+    original index is the implicit tie-break). A layer without an explicit/valid
+    ``lane`` is treated as lane 0.
+
+    CRITICAL: when every child has ``lane == 0`` (the default) this is the
+    identity permutation, so the resulting z-order — and therefore every byte of
+    the compiled render — is exactly what it is today (pure tree order).
+    """
+    def _lane(layer) -> int:
+        if isinstance(layer, dict):
+            try:
+                return int(layer.get("lane") or 0)
+            except (TypeError, ValueError):
+                return 0
+        return 0
+
+    return sorted(children, key=_lane)
+
+
 def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, strict) -> None:
     from gemia.video.layers import Layer
 
-    children = comp.get("children") or []
+    # Lanes are real stacked tracks: order children by (lane, tree-index) before
+    # anything reads tree order (z assignment below, adjustment composite-below
+    # via children[:z], and track-matte sibling lookups all inherit this order).
+    # Stable sort on lane => identity when all lane==0 => byte-identical default.
+    children = _lane_ordered_children(comp.get("children") or [])
     # Resolve content_fn for every non-adjustment child first so track mattes can
     # borrow a sibling.
     resolved: dict[str, ContentFn] = {}
