@@ -330,22 +330,97 @@ def _flatten_rgba_for_video(
     return rgb[..., ::-1].astype(np.float32)
 
 
+#: Blend modes whose separable RGB mix function ``f(cb, cs)`` the compositor
+#: implements. ``normal`` / ``multiply`` / ``screen`` / ``overlay`` are the
+#: original four (kept byte-identical); the rest are the W3C compositing set plus
+#: the photographic ``add`` / ``subtract`` family. Unknown modes degrade to
+#: ``normal`` (safe, no crash) so a stray spec never breaks a render.
+BLEND_MODES: tuple[str, ...] = (
+    "normal",
+    "multiply",
+    "screen",
+    "overlay",
+    "add",
+    "linear_dodge",
+    "lighten",
+    "darken",
+    "difference",
+    "exclusion",
+    "subtract",
+    "hard_light",
+    "soft_light",
+    "color_dodge",
+    "color_burn",
+)
+
+
+def _blend_rgb(cb: np.ndarray, cs: np.ndarray, blend_mode: str) -> np.ndarray:
+    """Separable per-channel blend function ``f(cb, cs)`` for the W3C model.
+
+    ``cb`` is the backdrop colour, ``cs`` the source colour, both float32 in
+    ``[0, 1]``. The original four modes (normal / multiply / screen / overlay)
+    return exactly the same expression as before, so the premultiplied-alpha
+    composite around this stays golden-identical. Unknown modes fall back to
+    ``normal`` (return ``cs``) — never raise — so the renderer cannot crash on a
+    stray blend name.
+    """
+    if blend_mode == "normal":
+        return cs
+    if blend_mode == "multiply":
+        return cb * cs
+    if blend_mode == "screen":
+        return 1.0 - (1.0 - cb) * (1.0 - cs)
+    if blend_mode == "overlay":
+        return np.where(cb <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
+    if blend_mode in ("add", "linear_dodge"):
+        return _clamp01(cb + cs)
+    if blend_mode == "lighten":
+        return np.maximum(cb, cs)
+    if blend_mode == "darken":
+        return np.minimum(cb, cs)
+    if blend_mode == "difference":
+        return np.abs(cb - cs)
+    if blend_mode == "exclusion":
+        return cb + cs - 2.0 * cb * cs
+    if blend_mode == "subtract":
+        return _clamp01(cb - cs)
+    if blend_mode == "hard_light":
+        # Overlay with backdrop/source swapped (drive by the source).
+        return np.where(cs <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
+    if blend_mode == "soft_light":
+        # W3C soft-light: a smooth dodge/burn that pivots on cs == 0.5.
+        d = np.where(cb <= 0.25, ((16.0 * cb - 12.0) * cb + 4.0) * cb, np.sqrt(cb))
+        return np.where(
+            cs <= 0.5,
+            cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
+            cb + (2.0 * cs - 1.0) * (d - cb),
+        )
+    if blend_mode == "color_dodge":
+        # cb / (1 - cs): cb==0 stays 0, cs==1 saturates to 1 (W3C edge cases).
+        denom = 1.0 - cs
+        return np.where(
+            cb <= 0.0,
+            np.zeros_like(cb),
+            np.where(denom <= 0.0, np.ones_like(cb), _clamp01(cb / np.where(denom <= 0.0, 1.0, denom))),
+        )
+    if blend_mode == "color_burn":
+        # 1 - (1 - cb) / cs: cb==1 stays 1, cs==0 burns to 0 (W3C edge cases).
+        return np.where(
+            cb >= 1.0,
+            np.ones_like(cb),
+            np.where(cs <= 0.0, np.zeros_like(cb), _clamp01(1.0 - (1.0 - cb) / np.where(cs <= 0.0, 1.0, cs))),
+        )
+    # Unknown mode: degrade to normal rather than raising (renderer-safe).
+    return cs
+
+
 def _blend_colors(backdrop: RGBAFrame, source: RGBAFrame, blend_mode: str) -> RGBAFrame:
     cb = backdrop[..., :3]
     cs = source[..., :3]
     ab = backdrop[..., 3:4]
     a_s = source[..., 3:4]
 
-    if blend_mode == "normal":
-        blend_rgb = cs
-    elif blend_mode == "multiply":
-        blend_rgb = cb * cs
-    elif blend_mode == "screen":
-        blend_rgb = 1.0 - (1.0 - cb) * (1.0 - cs)
-    elif blend_mode == "overlay":
-        blend_rgb = np.where(cb <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
-    else:
-        raise ValueError(f"Unsupported blend mode: {blend_mode}")
+    blend_rgb = _blend_rgb(cb, cs, blend_mode)
 
     out_alpha = a_s + ab * (1.0 - a_s)
     out_rgb_premul = (
@@ -1005,6 +1080,7 @@ def _transcode_browser_mp4(source_path: Path, output_path: Path) -> None:
 
 
 __all__ = [
+    "BLEND_MODES",
     "Layer",
     "LayerStack",
     "execute_layer_plan",
