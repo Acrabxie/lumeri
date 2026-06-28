@@ -222,11 +222,13 @@ def _prompt(input_fn: Callable[[str], str], output_fn: Callable[[str], Any], mes
 
     We route the visible prompt through output_fn (not input's prompt arg) so
     tests that capture output see the prompt text, and scripted input_fns can
-    ignore the argument.
+    ignore the argument. The read uses an EMPTY prompt so the builtin input()
+    does NOT echo the message a second time (that caused the prompt to appear
+    twice, e.g. "exa key (exa_api_key):" printed on two lines).
     """
     output_fn(message)
     try:
-        return str(input_fn(message)).strip()
+        return str(input_fn("")).strip()
     except (EOFError, KeyboardInterrupt):
         return ""
 
