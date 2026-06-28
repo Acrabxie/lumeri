@@ -962,6 +962,78 @@ def _op_set_time_remap(doc: dict[str, Any], op: dict[str, Any]) -> None:
     layer["speed"] = 1.0
 
 
+@register_op("set_lane", source="core")
+def _op_set_lane(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Assign an EXISTING layer to a timeline lane (track).
+
+    ``lane`` is the stacked-track index ``compile`` reads via
+    ``_lane_ordered_children`` (a stable sort): a HIGHER lane composites ABOVE a
+    lower one, ties keep tree order, and the default lane ``0`` reproduces plain
+    tree order byte-for-byte. This op is the explicit, single-purpose way to put a
+    layer onto a second timeline / track (``move_layer`` can also relane, but
+    ``set_lane`` says exactly that and nothing else).
+
+    Args: ``layer_id``, ``lane`` (int — negatives sink below lane 0).
+
+    Errors: ``E_ARG`` when ``layer_id`` / ``lane`` is missing or ``lane`` is not
+    an integer; ``E_NOT_FOUND`` when the layer id does not exist.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_lane")
+    raw = _require_arg(op, "lane")
+    # Accept ints (and bools are rejected) and integral floats like 2.0; anything
+    # with a fractional part — or a non-number — is a lane error (E_ARG), because
+    # lanes index discrete tracks.
+    if isinstance(raw, bool):
+        raise LayerPatchError("E_ARG", "set_lane: lane must be an integer")
+    if isinstance(raw, int):
+        lane = raw
+    elif isinstance(raw, float) and float(raw).is_integer():
+        lane = int(raw)
+    else:
+        raise LayerPatchError("E_ARG", f"set_lane: lane must be an integer, got {raw!r}")
+    layer["lane"] = lane
+
+
+@register_op("set_range", source="core")
+def _op_set_range(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Frame-native one-shot placement: set start + duration from a frame range.
+
+    Given an EXISTING layer and an inclusive-of-``frame_in`` / exclusive-of-
+    ``frame_out`` frame window, this sets the layer's parent-timeline placement
+    directly from frames via the canvas timebase::
+
+        start    = to_seconds(frame_in,             fps)
+        duration = to_seconds(frame_out - frame_in, fps)
+
+    Both edges are snapped to exact frame boundaries (``timebase.snap_seconds``)
+    so the placement is frame-accurate regardless of float noise in the inputs.
+    This is the ergonomic counterpart to ``set_time`` for agents that think in
+    frames rather than seconds; it leaves ``source_in`` / ``source_out`` and
+    speed untouched (it places the clip on the timeline, it does not retime it).
+
+    Args: ``layer_id``, ``frame_in`` (int frame), ``frame_out`` (int frame, must
+    be ``> frame_in``).
+
+    Errors: ``E_ARG`` when ``layer_id`` / ``frame_in`` / ``frame_out`` is missing
+    or ``frame_out <= frame_in``; ``E_NOT_FOUND`` when the layer id does not exist.
+    """
+    layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_range")
+    frame_in = model._as_float(_require_arg(op, "frame_in"))
+    frame_out = model._as_float(_require_arg(op, "frame_out"))
+    if not (frame_out > frame_in):
+        raise LayerPatchError(
+            "E_ARG", f"set_range: frame_out ({frame_out}) must be greater than frame_in ({frame_in})"
+        )
+
+    fps = _canvas_fps(doc)
+    # Snap each frame-derived second to its exact frame boundary so the result is
+    # frame-accurate (snap_seconds == to_seconds(to_frame(...))).
+    start = _round_t(timebase.snap_seconds(timebase.to_seconds(frame_in, fps), fps))
+    duration = _round_t(timebase.snap_seconds(timebase.to_seconds(frame_out - frame_in, fps), fps))
+    layer["start"] = start
+    layer["duration"] = duration
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Per-layer (intra) ops
 # ════════════════════════════════════════════════════════════════════════

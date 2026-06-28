@@ -1,0 +1,112 @@
+=== set_lane / set_range demo (frame-native time ops) ===
+
+--- set_lane: assign 'a' to lane 5, 'c' to lane -2 ---
+  layer a: lane = 5
+  layer b: lane = 0
+  layer c: lane = -2
+  compile track order (bottom->top) = ['c', 'b', 'a']   # -2:c, 0:b, 5:a
+
+--- set_range: place 'b' on frames [30,90) at fps=10 ---
+  start    = 3.0  (= to_seconds(30,10) = 3.0)
+  duration = 6.0  (= to_seconds(90-30,10) = 6.0)
+  snapped to frames: start->frame 30, duration->frame 60
+
+--- set_lane / set_range result layer docs ---
+set_lane result (layer a):
+{
+  "id": "a",
+  "type": "solid",
+  "name": "Solid",
+  "children": [],
+  "start": 0.0,
+  "duration": 1.0,
+  "source_in": 0.0,
+  "source_out": 0.0,
+  "speed": 1.0,
+  "lane": 5,
+  "transform": {
+    "x": 0.0,
+    "y": 0.0,
+    "scale_x": 1.0,
+    "scale_y": 1.0,
+    "rotation": 0.0,
+    "anchor_x": 0.5,
+    "anchor_y": 0.5
+  },
+  "opacity": 1.0,
+  "blend_mode": "normal",
+  "visible": true,
+  "locked": false,
+  "mask": null,
+  "clip_to_below": false,
+  "effects": [],
+  "keyframes": {},
+  "asset_id": null,
+  "props": {
+    "color": "#ffffff"
+  },
+  "merged": false
+}
+
+set_range result (layer b):
+{
+  "id": "b",
+  "type": "solid",
+  "name": "Solid",
+  "children": [],
+  "start": 3.0,
+  "duration": 6.0,
+  "source_in": 0.0,
+  "source_out": 0.0,
+  "speed": 1.0,
+  "lane": 0,
+  "transform": {
+    "x": 0.0,
+    "y": 0.0,
+    "scale_x": 1.0,
+    "scale_y": 1.0,
+    "rotation": 0.0,
+    "anchor_x": 0.5,
+    "anchor_y": 0.5
+  },
+  "opacity": 1.0,
+  "blend_mode": "normal",
+  "visible": true,
+  "locked": false,
+  "mask": null,
+  "clip_to_below": false,
+  "effects": [],
+  "keyframes": {},
+  "asset_id": null,
+  "props": {
+    "color": "#ffffff"
+  },
+  "merged": false
+}
+
+=== catalog entries (example + error codes) ===
+
+[set_lane] group=time
+  example: {"op": "set_lane", "layer_id": "clip1", "lane": 2}
+  error:   E_ARG when layer_id or lane is missing, or lane is not an integer
+  error:   E_NOT_FOUND when the layer id does not exist
+
+[set_range] group=time
+  example: {"op": "set_range", "layer_id": "clip1", "frame_in": 30, "frame_out": 90}
+  error:   E_ARG when layer_id/frame_in/frame_out is missing or frame_out <= frame_in
+  error:   E_NOT_FOUND when the layer id does not exist
+
+[retime_segment] group=time
+  example: {"op": "retime_segment", "layer_id": "clip1", "t0": 2.0, "t1": 6.0, "speed": 2.0}
+  error:   E_ARG when layer_id/t0/t1 is missing or speed <= 0
+  error:   E_NOT_FOUND when the layer id does not exist
+  error:   E_RANGE when [t0,t1] is empty or not within the layer's [start, start+duration]
+
+[merge_compositions] group=layer
+  example: {"op": "merge_compositions", "source_ids": ["scene_b"], "into_id": "scene_a", "mode": "append"}
+  error:   E_ARG when source_ids is empty, into_id arg is missing or not a composition, a source is not a composition, a source is into_id or the root, mode is unknown, or into_id sits inside a source
+  error:   E_NOT_FOUND when into_id or a source id does not exist
+
+=== drift-guard (op <-> catalog) ===
+  catalog == registry core: True
+  set_lane,set_range in both: {'set_lane','set_range'} <= both = {'set_lane','set_range'} <= (catalog & registry) = True
