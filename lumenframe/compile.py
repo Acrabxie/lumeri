@@ -324,18 +324,141 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
 # ── shape masks ───────────────────────────────────────────────────────────
 
 
+#: Per-frame-animatable scalar fields of a shape mask's box/centre. Each may
+#: carry a keyframe track or an expression; anything not animated keeps its
+#: static value from the shape dict.
+_ANIMATABLE_SHAPE_FIELDS: tuple[str, ...] = (
+    "cx", "cy", "rx", "ry", "w", "h",
+    "x0", "y0", "x1", "y1", "radius",
+)
+
+
+def _shape_animation(mask: dict[str, Any], fps: float) -> tuple[dict[str, Any], dict[str, str]]:
+    """Collect a shape mask's keyframe tracks and expressions, if any.
+
+    Animation data is read from two equivalent locations so it survives the doc
+    pipeline: ``mask["keyframes"]`` / ``mask["expression(s)"]`` (handy for direct
+    callers and tests) and the same keys nested inside ``mask["shape"]`` (which
+    is the part :func:`lumenframe.model._normalize_mask` preserves verbatim, so
+    an animated mask round-trips through ``normalize_doc``). The shape-nested
+    location wins on conflict (it is the canonical, persisted home).
+
+    Returns ``(tracks, exprs)`` where ``tracks`` maps an animatable field name to
+    a built ``KeyframeTrack`` whose time axis is *frames* (keyframe ``t`` seconds
+    times ``fps`` — the same convention as :func:`_keyframe_tracks`), and
+    ``exprs`` maps a field name to its expression string. Either may be empty;
+    both empty means the mask is static (and the caller takes the byte-identical
+    cached path).
+    """
+    from gemia.video.keyframe import KeyframeTrack
+
+    shape = mask.get("shape") if isinstance(mask.get("shape"), dict) else {}
+
+    def _merge(name: str) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        top = mask.get(name)
+        if isinstance(top, dict):
+            merged.update(top)
+        nested = shape.get(name)
+        if isinstance(nested, dict):
+            merged.update(nested)  # shape-nested wins
+        return merged
+
+    raw_keyframes = _merge("keyframes")
+    raw_exprs = _merge("expression")
+    extra_exprs = _merge("expressions")
+    if extra_exprs:
+        merged_exprs = dict(raw_exprs)
+        merged_exprs.update(extra_exprs)
+        raw_exprs = merged_exprs
+
+    tracks: dict[str, Any] = {}
+    for field, points in raw_keyframes.items():
+        if field not in _ANIMATABLE_SHAPE_FIELDS or not isinstance(points, list):
+            continue
+        track = KeyframeTrack()
+        added = 0
+        for pt in points:
+            if not isinstance(pt, dict) or pt.get("value") is None:
+                continue
+            try:
+                value = float(pt["value"])
+            except (TypeError, ValueError):
+                continue
+            frame = float(model._as_float(pt.get("t")) * fps)
+            easing = _easing_for(str(pt.get("interp") or "linear"))
+            track.add_keyframe(frame, value, easing)
+            added += 1
+        if added:
+            tracks[field] = track
+
+    exprs: dict[str, str] = {}
+    for field, expr in raw_exprs.items():
+        if field not in _ANIMATABLE_SHAPE_FIELDS:
+            continue
+        if isinstance(expr, dict):
+            expr = expr.get("expr")
+        if isinstance(expr, str) and expr.strip():
+            exprs[field] = expr
+
+    return tracks, exprs
+
+
 def _shape_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "np.ndarray"]:
     """A drawn vector mask (rectangle / ellipse / polygon) → per-frame alpha.
 
-    The shape is rasterised once in canvas space (it does not animate yet), so
-    the closure just returns the cached alpha. ``feather`` and ``invert`` are
-    baked in; the backend resizes the alpha onto the (transformed) layer frame,
-    so a mask travels with its layer's transform — the After Effects semantic.
+    A *static* mask (no keyframes / expression on its box or centre) is
+    rasterised once in canvas space and the closure returns that cached alpha —
+    byte-identical to before. An *animated* mask (keyframes / expression on
+    ``cx/cy/rx/ry/w/h/x0/y0/x1/y1/radius``) is rasterised **per frame**: the
+    animated scalars are evaluated for the requested frame, folded into a copy of
+    the shape dict, and that frame's box is rasterised so the mask moves / scales
+    over time. ``feather`` and ``invert`` are baked in per frame; the backend
+    resizes the alpha onto the (transformed) layer frame, so a mask still travels
+    with its layer's transform — the After Effects semantic.
     """
-    alpha = _rasterise_shape_mask(mask, ctx.width, ctx.height)
+    fps = float(ctx.fps) or 1.0
+    tracks, exprs = _shape_animation(mask, fps)
+    if not tracks and not exprs:
+        alpha = _rasterise_shape_mask(mask, ctx.width, ctx.height)
 
-    def matte(_local_frame: int):
-        return alpha
+        def matte(_local_frame: int):
+            return alpha
+
+        return matte
+
+    base_shape = dict(mask.get("shape")) if isinstance(mask.get("shape"), dict) else {}
+
+    def _eval_field(field: str, frame: int) -> float | None:
+        track = tracks.get(field)
+        if track is not None:
+            return float(track.evaluate(float(frame)))
+        expr = exprs.get(field)
+        if expr is not None:
+            try:
+                from gemia.expressions import SafeEvaluator
+
+                time_sec = float(frame) / fps if fps > 0 else 0.0
+                evaluator = SafeEvaluator(
+                    time=time_sec,
+                    width=float(ctx.width),
+                    height=float(ctx.height),
+                )
+                return float(evaluator.eval(expr))
+            except Exception:
+                return None
+        return None
+
+    def matte(local_frame: int):
+        frame = max(0, int(local_frame))
+        shape = dict(base_shape)
+        for field in _ANIMATABLE_SHAPE_FIELDS:
+            value = _eval_field(field, frame)
+            if value is not None:
+                shape[field] = value
+        frame_mask = dict(mask)
+        frame_mask["shape"] = shape
+        return _rasterise_shape_mask(frame_mask, ctx.width, ctx.height)
 
     return matte
 
@@ -589,9 +712,12 @@ def _time_remap_fn(layer: dict[str, Any], fps: float) -> Callable[[int], int] | 
 
 
 def _safe_blend(mode: Any) -> str:
-    # The backend only implements a few modes; unknown ones degrade to normal.
-    from gemia.video.layers import _blend_colors  # noqa: F401 - existence probe
-    supported = {"normal", "multiply", "screen", "overlay"}
+    # The whitelist is sourced from the backend's BLEND_MODES so the two never
+    # drift; any mode the compositor implements passes validation. Unknown modes
+    # degrade to normal (the compositor itself also falls back safely, so a stray
+    # name can never crash a render).
+    from gemia.video.layers import BLEND_MODES
+    supported = set(BLEND_MODES)
     m = str(mode or "normal")
     return m if m in supported else "normal"
 
