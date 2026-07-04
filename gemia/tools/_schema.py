@@ -366,6 +366,80 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["command"],
     ),
     _tool(
+        "file_list",
+        "List files in a directory. Relative paths resolve inside the session workspace. Credential paths are hidden.",
+        {
+            "path": {
+                "type": "string",
+                "description": "Directory path. Relative paths are inside the session workspace. Default '.'.",
+            },
+            "max_entries": {
+                "type": "integer",
+                "description": "Maximum entries to return, clamped to 1..500. Default 100.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "file_read",
+        "Read a UTF-8 text file. Relative paths resolve inside the session workspace. Credential paths are blocked.",
+        {
+            "path": {"type": "string", "description": "File path to read."},
+            "max_bytes": {
+                "type": "integer",
+                "description": "Maximum bytes to read; default 512000, max 2000000.",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "file_write",
+        "Write a UTF-8 text file. Inside workspace, full permission including overwrite when overwrite=true. Outside workspace, only creates a NEW file under approved create roots; never overwrites existing outside files or credential paths.",
+        {
+            "path": {"type": "string", "description": "Target file path. Relative paths are inside the session workspace."},
+            "content": {"type": "string", "description": "UTF-8 text content to write."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Allow replacing an existing file inside the workspace. Ignored outside workspace, where overwrites are refused.",
+            },
+        },
+        ["path", "content"],
+    ),
+    _tool(
+        "file_copy",
+        "Copy a file. Sources may be workspace or readable non-credential files. Destinations inside workspace may overwrite with overwrite=true; outside workspace only NEW files under approved create roots are allowed.",
+        {
+            "source": {"type": "string", "description": "Source file path."},
+            "dest": {"type": "string", "description": "Destination file path."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Allow replacing an existing file inside the workspace only.",
+            },
+        },
+        ["source", "dest"],
+    ),
+    _tool(
+        "file_move",
+        "Move a file. Sources may be workspace or readable non-credential files. Destinations inside workspace may overwrite with overwrite=true; outside workspace only NEW files under approved create roots are allowed.",
+        {
+            "source": {"type": "string", "description": "Source file path."},
+            "dest": {"type": "string", "description": "Destination file path."},
+            "overwrite": {
+                "type": "boolean",
+                "description": "Allow replacing an existing file inside the workspace only.",
+            },
+        },
+        ["source", "dest"],
+    ),
+    _tool(
+        "file_delete",
+        "Delete a file inside the session workspace. Deleting outside workspace is refused.",
+        {
+            "path": {"type": "string", "description": "Workspace file path to delete."},
+        },
+        ["path"],
+    ),
+    _tool(
         "build",
         "Async submit Python code to a sandboxed subprocess. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
         {

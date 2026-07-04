@@ -39,6 +39,12 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "web_open":           {"usd": 0.00, "eta_sec": 5.0},     # Host-side page text extraction
     "fetch":              {"usd": 0.00, "eta_sec": 5.0},     # Host-side https download
     "run_shell":          {"usd": 0.00, "eta_sec": 10.0},    # Sandboxed bash execution
+    "file_list":          {"usd": 0.00, "eta_sec": 0.2},     # Host-side file inspection
+    "file_read":          {"usd": 0.00, "eta_sec": 0.2},
+    "file_write":         {"usd": 0.00, "eta_sec": 0.2},
+    "file_copy":          {"usd": 0.00, "eta_sec": 0.5},
+    "file_move":          {"usd": 0.00, "eta_sec": 0.5},
+    "file_delete":        {"usd": 0.00, "eta_sec": 0.2},
     # M4 verbs (async code execution + job polling + skill persistence).
     "build":              {"usd": 0.00, "eta_sec": 15.0},    # Async Python sandbox submit
     "check_job":          {"usd": 0.00, "eta_sec": 0.5},     # Job status poll
