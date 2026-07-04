@@ -51,6 +51,7 @@ from gemia.tools import files as _files
 from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
+from gemia.tools import inspect_timeline as _inspect_timeline
 from gemia.tools import layer as _layer
 from gemia.tools import lumen_render_range as _lumen_render_range
 from gemia.tools import lumen_seek as _lumen_seek
@@ -131,6 +132,7 @@ _REAL: dict[str, Dispatcher] = {
     "timeline_add_track":       _timeline.dispatch_add_track,
     "timeline_set_track":       _timeline.dispatch_set_track,
     "timeline_undo":            _timeline.dispatch_undo,
+    "inspect_timeline":         _inspect_timeline.dispatch,
     "render_preview":           _timeline.dispatch_render_preview,
     "project_export":           _timeline.dispatch_project_export,
     "project_export_otio":      _timeline.dispatch_export_otio,

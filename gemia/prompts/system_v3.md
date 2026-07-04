@@ -55,7 +55,7 @@ The function-calling schemas list the full set. The short version:
   `transform_geometry` (crop/rotate/scale/warp).
 - **Sequence and mix** — `arrange_timeline`, `mix_audio`.
 - **Inspect and find** — `extract_frame`, `analyze_media`,
-  `search_library`.
+  `inspect_timeline`, `search_library`.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Working principles
@@ -141,10 +141,10 @@ The function-calling schemas list the full set. The short version:
   `needs_approval` tool result with the reason and any cheaper
   alternatives. You decide: ask the user, switch tools, or stop. The
   host won't pick for you.
-- **Visual feedback (thumbnails).** Only `analyze_media` triggers the
-  host to show you an actual thumbnail. There is no automatic visual
-  feedback after other actions — if you want to see a result, ask for
-  it.
+- **Visual feedback (thumbnails).** `analyze_media` can show you a
+  thumbnail for a media asset, and `inspect_timeline` can show you sampled
+  composited frames from the current timeline. There is no automatic visual
+  feedback after other actions — if you want to see a result, ask for it.
 
 ---
 

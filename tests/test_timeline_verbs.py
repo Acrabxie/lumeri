@@ -188,6 +188,23 @@ def test_render_preview_registers_video_asset(sample_video_path: str, tmp_path: 
     assert out["duration"] == pytest.approx(2.0, abs=0.3)
 
 
+def test_inspect_timeline_registers_composited_frame(sample_video_path: str, tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path)
+    aid = _register_video(ctx, sample_video_path)
+    _call("timeline_insert_clip", {"asset_id": aid}, ctx)
+
+    out = _call("inspect_timeline", {"time_sec": 0.5, "label": "inspect-smoke"}, ctx)
+
+    assert ctx.registry.contains(out["preview_asset_id"])
+    assert len(out["frame_asset_ids"]) == 1
+    frame_id = out["frame_asset_ids"][0]
+    assert ctx.registry.contains(frame_id)
+    assert ctx.registry.get(frame_id).path.exists()
+    assert out["sample_times"][0] == pytest.approx(0.5, abs=0.05)
+    assert out["thumbnail_for_next_message"] is True
+    assert Path(out["thumbnail_path"]).exists()
+
+
 # ── M7: track-level ducking verb ─────────────────────────────────────────
 
 

@@ -1036,8 +1036,26 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         [],
     ),
     _tool(
+        "inspect_timeline",
+        "Render the current project timeline as a low-res composited proxy and sample actual visual frames from it. Use after timeline/layout edits, before diagnosing visual timing/composition, or when you need to see what the timeline currently looks like. Accepts either a single time/frame or a range; returns image asset_ids and attaches a preview thumbnail for the next model turn.",
+        {
+            "time_sec": {"type": "number", "description": "Single timeline time to inspect, in seconds. Alias: time."},
+            "time": {"type": "number", "description": "Alias for time_sec."},
+            "frame": {"type": "integer", "description": "Single 0-based project frame to inspect. Mutually exclusive with time_sec/time."},
+            "start_sec": {"type": "number", "description": "Start second for range sampling. Alias: start."},
+            "end_sec": {"type": "number", "description": "End second for range sampling, exclusive. Alias: end."},
+            "start": {"type": "number", "description": "Alias for start_sec."},
+            "end": {"type": "number", "description": "Alias for end_sec."},
+            "start_frame": {"type": "integer", "description": "Start frame for range sampling."},
+            "end_frame": {"type": "integer", "description": "End frame for range sampling, exclusive."},
+            "max_frames": {"type": "integer", "description": "Maximum sampled frames for a range, clamped to 1..12. Default 1."},
+            "label": {"type": "string", "description": "Short label for render artifacts (default 'inspect')."},
+        },
+        [],
+    ),
+    _tool(
         "render_preview",
-        "Render the current timeline document into a low-res proxy MP4 and register it as a new video asset. Use after a batch of timeline edits, then analyze_media to look at it. Final quality comes from export.",
+        "Render the current timeline document into a low-res proxy MP4 and register it as a new video asset. Use for a playable preview asset; use inspect_timeline when you need the model to see composited frames directly. Final quality comes from export.",
         {
             "label": {"type": "string", "description": "Short label for the render manifest (default 'preview')."},
         },

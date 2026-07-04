@@ -63,6 +63,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "timeline_add_track":       {"usd": 0.00, "eta_sec": 0.2},
     "timeline_set_track":       {"usd": 0.00, "eta_sec": 0.2},
     "timeline_undo":            {"usd": 0.00, "eta_sec": 0.2},
+    "inspect_timeline":         {"usd": 0.00, "eta_sec": 12.0},  # render proxy + sampled frames
     "render_preview":           {"usd": 0.00, "eta_sec": 20.0},  # ffmpeg low-res proxy
     "project_export":           {"usd": 0.00, "eta_sec": 60.0},  # full-quality multi-track export
     # Lumenframe layer/time verbs (pure document patch unless rendering).
