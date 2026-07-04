@@ -110,6 +110,7 @@
     els.sendBtn.disabled = busy;
     els.uploadBtn.disabled = busy;
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
+    updateEditHint();   // selection-aware split/delete rule wins over the blanket disable above
 
     if (!state.turns.length) {
       els.timeline.hidden = true;
@@ -258,6 +259,20 @@
   }
 
   function renderAssets() {
+    // Guard: only touch the DOM when the asset set actually changed. render() runs
+    // on every SSE event (see es.onmessage) and every 3s timeline poll; without
+    // this guard each call reset assetGrid.innerHTML, destroying and recreating
+    // every <video>/<audio>/<img> and forcing the browser to re-fetch each
+    // /sessions/{id}/assets/{aid}. While a turn streamed that was several
+    // re-fetches per second per asset — the "endless /assets/v_002 requests".
+    const sig = !state.assets.length
+      ? "empty"
+      : state.sessionId + "|" + state.assets.map((a) =>
+          `${a.asset_id}:${a.kind}:${a.final ? 1 : 0}:${a.source}:${a.summary || ""}`
+        ).join(",");
+    if (sig === state._assetsSig) return;
+    state._assetsSig = sig;
+
     if (!state.assets.length) {
       els.assetGrid.innerHTML = `<p class="placeholder">No assets yet.</p>`;
       return;
@@ -503,7 +518,430 @@
     state.eventSource = es;
   }
 
-  // ── Project timeline ────────────────────────────────────────────────
+  // ── Project timeline (CapCut-style editor) ──────────────────────────
+  // A px/second timeline: adaptive ruler, wheel/key zoom, multi video+audio
+  // tracks, per-clip filmstrip + waveform (when the clip exposes asset_id),
+  // draggable playhead, client-side markers, and drag/move/trim/split/delete
+  // wired to the SAME /sessions/{id}/timeline/op endpoint as the model verbs.
+
+  const TL = {
+    pps: 64, minPps: 8, maxPps: 480,
+    snap: true,
+    playhead: 0,
+    scrubbing: false,
+    drag: null,
+    markers: [],            // {time,label,color} — client-side only (no backend marker model yet)
+    extraTracks: [],        // client-added empty display lanes (no backend add_track op)
+    built: false,
+    model: null,
+    rulerCtx: null,
+    filmstrip: new Map(),   // key -> string[] (data URLs)
+    filmstripBusy: new Set(),
+    wave: new Map(),        // assetId -> number[] peaks
+    waveBusy: new Set(),
+    audioCtx: null,
+  };
+  const TL_RULER_H = 26, TL_TRACK_H = 58, TL_MIN_CONTENT = 30;
+  const TL_MARKER_COLORS = ["#ff3b4e", "#ffb13b", "#4ea1ff", "#7a5cff", "#2fd178"];
+  const TL_CLIP_COLOR = {
+    video:   ["#1d4a34", "#37a06a"],
+    image:   ["#34295f", "#7a5cff"],
+    audio:   ["#1f3a5c", "#4ea1ff"],
+    text:    ["#4a2c18", "#d98a4e"],
+    overlay: ["#34295f", "#7a5cff"],
+  };
+
+  const tlPanel   = () => document.getElementById("project-timeline-panel");
+  const tlScroll  = () => document.getElementById("ptl-scroll");
+  const tlContent = () => document.getElementById("ptl-content");
+  const tlRuler   = () => document.getElementById("ptl-ruler");
+  const tlHeaders = () => document.getElementById("ptl-headers");
+  const timeToX = (t) => t * TL.pps;
+  const pxToTime = (px) => px / TL.pps;
+
+  function fmtTC(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    const fps = Math.round((TL.model && TL.model.fps) || 30);
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    const f = Math.floor((s - Math.floor(s)) * fps);
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}:${String(f).padStart(2, "0")}`;
+  }
+
+  function trackCompatible(mediaKind, trackKind) {
+    if (mediaKind === "audio") return trackKind === "audio";
+    return trackKind === "video" || trackKind === "overlay" || trackKind === "text";
+  }
+
+  // Build the model the editor lays out: real tracks if present, else default
+  // empty Video+Audio lanes so the timeline shows on load. Client-added lanes
+  // (extraTracks) are merged in unless a real track already uses the id.
+  function timelineModel(data) {
+    const d = data || state.projectTimeline || {};
+    let tracks = Array.isArray(d.tracks) ? d.tracks.map((t) => ({ ...t })) : [];
+    if (!tracks.length) {
+      tracks = [
+        { id: "V1", kind: "video", name: "视频", clips: [] },
+        { id: "A1", kind: "audio", name: "音频", clips: [] },
+      ];
+    }
+    const rank = (k) => (k === "audio" ? 2 : k === "overlay" || k === "text" ? 0 : 1);
+    tracks = tracks.map((t, i) => ({ ...t, _i: i })).sort((a, b) => rank(a.kind) - rank(b.kind) || a._i - b._i);
+    let lastEnd = 0;
+    for (const t of tracks) for (const c of (t.clips || [])) lastEnd = Math.max(lastEnd, (c.start || 0) + (c.duration || 0));
+    const contentDur = Math.max(d.duration || 0, lastEnd, TL_MIN_CONTENT);
+    return { tracks, duration: d.duration || 0, contentDur, fps: d.fps || 30, width: d.width || 1920, height: d.height || 1080, patch_seq: d.patch_seq || 0 };
+  }
+
+  function buildTimelineShell() {
+    if (TL.built) return;
+    const panel = tlPanel();
+    if (!panel) return;
+    panel.hidden = false;
+    panel.classList.add("ptl");
+    panel.innerHTML = `
+      <div class="ptl-toolbar">
+        <div class="ptl-tgroup">
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-undo" title="撤销 (⌘Z)"><svg viewBox="0 0 16 16"><path d="M6.5 4 3.5 7l3 3"/><path d="M3.5 7H10a3.5 3.5 0 0 1 0 7H7.5"/></svg></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-redo" title="重做"><svg viewBox="0 0 16 16"><path d="M9.5 4l3 3-3 3"/><path d="M12.5 7H6a3.5 3.5 0 0 0 0 7h2.5"/></svg></button>
+        </div>
+        <div class="ptl-sep"></div>
+        <div class="ptl-tgroup">
+          <button class="ptl-btn pt-edit-btn" id="ptl-split" title="在指针处分割 (S)"><svg viewBox="0 0 16 16"><path d="M8 2.5v11"/><rect x="2.6" y="5" width="3.4" height="6" rx="1.1"/><rect x="10" y="5" width="3.4" height="6" rx="1.1"/></svg><span>分割</span></button>
+          <button class="ptl-btn pt-edit-btn" id="ptl-delete" title="删除所选 (Del)"><svg viewBox="0 0 16 16"><path d="M3 4.5h10"/><path d="M6 4.5V3h4v1.5"/><path d="M4.6 4.5 5.1 13.3h5.8l.5-8.8"/><path d="M6.9 6.8v4.3M9.1 6.8v4.3"/></svg><span>删除</span></button>
+          <button class="ptl-btn pt-edit-btn" id="ptl-marker" title="在指针处加标记 (M)"><svg viewBox="0 0 16 16"><path d="M4.5 2v12"/><path d="M4.5 2.8h7.3l-1.8 2.6 1.8 2.6H4.5"/></svg><span>标记</span></button>
+        </div>
+        <div class="ptl-sep"></div>
+        <button class="ptl-btn ptl-toggle" id="ptl-snap" title="吸附对齐"><svg viewBox="0 0 16 16"><path d="M4 2.5v5a4 4 0 0 0 8 0v-5"/><path d="M4 2.5h2.4M9.6 2.5H12M4 6h2.4M9.6 6H12"/></svg><span>吸附</span></button>
+        <div class="ptl-spacer"></div>
+        <div class="ptl-tc" id="ptl-tc">00:00:00</div>
+        <div class="ptl-zoom">
+          <button class="ptl-btn ptl-ico-btn" id="ptl-zoom-out" title="缩小 (−)"><svg viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="3.8"/><path d="M9.6 9.6 13.5 13.5"/><path d="M5 6.8h3.6"/></svg></button>
+          <input type="range" id="ptl-zoom" class="ptl-range" min="${TL.minPps}" max="${TL.maxPps}" value="${TL.pps}" />
+          <button class="ptl-btn ptl-ico-btn" id="ptl-zoom-in" title="放大 (＋)"><svg viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="3.8"/><path d="M9.6 9.6 13.5 13.5"/><path d="M5 6.8h3.6M6.8 5v3.6"/></svg></button>
+        </div>
+      </div>
+      <div class="ptl-main">
+        <div class="ptl-ruler-row">
+          <div class="ptl-corner">轨道</div>
+          <canvas id="ptl-ruler"></canvas>
+        </div>
+        <div class="ptl-lanes-row">
+          <div class="ptl-headers" id="ptl-headers"></div>
+          <div class="ptl-scroll" id="ptl-scroll"><div class="ptl-content" id="ptl-content"></div></div>
+        </div>
+      </div>
+      <div class="pt-quick-actions" id="pt-quick-actions">
+        <button class="pt-action-btn" data-cmd="export the project at 1080p quality">↑ 导出 1080p</button>
+        <button class="pt-action-btn" data-cmd="export the project as draft quality">草稿导出</button>
+        <button class="pt-action-btn" data-cmd="add a title overlay at the start of the timeline">加标题</button>
+        <button class="pt-action-btn" data-cmd="get the current timeline layout">获取布局</button>
+      </div>`;
+
+    TL.rulerCtx = tlRuler().getContext("2d");
+    TL.built = true;
+    loadMarkers();
+
+    document.getElementById("ptl-undo").onclick = () => { if (editingEnabled()) postTimelineOp({ op: "undo", steps: 1 }); };
+    document.getElementById("ptl-redo").onclick = () => { /* backend exposes no redo op yet */ };
+    document.getElementById("ptl-split").onclick = splitSelected;
+    document.getElementById("ptl-delete").onclick = deleteSelected;
+    document.getElementById("ptl-marker").onclick = () => addMarker(TL.playhead);
+    const snapBtn = document.getElementById("ptl-snap");
+    const syncSnap = () => snapBtn.classList.toggle("on", TL.snap);
+    snapBtn.onclick = () => { TL.snap = !TL.snap; syncSnap(); };
+    syncSnap();
+    const zoom = document.getElementById("ptl-zoom");
+    zoom.oninput = () => setPps(+zoom.value);
+    document.getElementById("ptl-zoom-in").onclick = () => setPps(TL.pps * 1.25);
+    document.getElementById("ptl-zoom-out").onclick = () => setPps(TL.pps / 1.25);
+
+    const scroll = tlScroll();
+    scroll.addEventListener("scroll", () => {
+      drawRuler();
+      tlHeaders().style.transform = `translateY(${-scroll.scrollTop}px)`;
+    });
+    // Mouse wheel = zoom anchored at the cursor (like 剪映). Shift-wheel or a
+    // horizontal-dominant wheel = pan. ⌘/ctrl also zoom (trackpad pinch).
+    const wheelZoom = (e, rectEl) => {
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        scroll.scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
+        return;
+      }
+      if (!e.deltaY) return;
+      e.preventDefault();
+      const px = e.clientX - rectEl.getBoundingClientRect().left;
+      setPps(TL.pps * (e.deltaY < 0 ? 1.12 : 0.89), pxToTime(scroll.scrollLeft + px), px);
+    };
+    scroll.addEventListener("wheel", (e) => wheelZoom(e, scroll), { passive: false });
+
+    const ruler = tlRuler();
+    const seek = (clientX) => {
+      const r = ruler.getBoundingClientRect();
+      setPlayhead(Math.max(0, pxToTime(scroll.scrollLeft + (clientX - r.left))));
+    };
+    ruler.addEventListener("pointerdown", (e) => { try { ruler.setPointerCapture(e.pointerId); } catch {} TL.scrubbing = true; seek(e.clientX); });
+    ruler.addEventListener("pointermove", (e) => { if (TL.scrubbing) seek(e.clientX); });
+    ruler.addEventListener("pointerup", () => { TL.scrubbing = false; });
+    ruler.addEventListener("dblclick", (e) => {
+      const r = ruler.getBoundingClientRect();
+      addMarker(Math.max(0, pxToTime(scroll.scrollLeft + (e.clientX - r.left))));
+    });
+    ruler.addEventListener("wheel", (e) => wheelZoom(e, ruler), { passive: false });
+
+    setupClipPointer();
+    setupTimelineKeys();
+    window.addEventListener("resize", () => { sizeRuler(); drawRuler(); });
+    renderProjectTimeline(state.projectTimeline);   // show empty editor immediately
+  }
+
+  // ── ruler ───────────────────────────────────────────────────────────
+  function sizeRuler() {
+    const ruler = tlRuler(); if (!ruler || !TL.rulerCtx) return;
+    const w = ruler.clientWidth || 1, dpr = window.devicePixelRatio || 1;
+    ruler.width = Math.max(1, Math.floor(w * dpr));
+    ruler.height = Math.floor(TL_RULER_H * dpr);
+    TL.rulerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function chooseStep() {
+    const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    for (const s of steps) if (s * TL.pps >= 66) return s;
+    return 600;
+  }
+  function fmtRulerLabel(t, step) {
+    const m = Math.floor(t / 60), s = t % 60;
+    if (step < 1) return `${m}:${String(Math.floor(s)).padStart(2, "0")}.${Math.round((s - Math.floor(s)) * 10)}`;
+    return `${m}:${String(Math.floor(s)).padStart(2, "0")}`;
+  }
+  function drawRuler() {
+    const ruler = tlRuler(), ctx = TL.rulerCtx, scroll = tlScroll();
+    if (!ruler || !ctx || !scroll) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (ruler.width !== Math.floor((ruler.clientWidth || 1) * dpr)) sizeRuler();
+    const w = ruler.clientWidth || 1, h = TL_RULER_H, left = scroll.scrollLeft;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#0c0f13"; ctx.fillRect(0, 0, w, h);
+    const step = chooseStep();
+    const minor = step / (step >= 5 ? 5 : 2);
+    const tEnd = pxToTime(left + w);
+    ctx.font = "10px ui-monospace, Menlo, monospace";
+    ctx.strokeStyle = "#222a33"; ctx.beginPath();
+    for (let t = Math.floor(left / TL.pps / minor) * minor; t <= tEnd + minor; t += minor) {
+      const x = Math.round(timeToX(t) - left) + 0.5;
+      if (x < -2 || x > w + 2) continue;
+      ctx.moveTo(x, h - 6); ctx.lineTo(x, h);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = "#3c4654"; ctx.fillStyle = "#9aa4b2"; ctx.beginPath();
+    for (let t = Math.floor(left / TL.pps / step) * step; t <= tEnd + step; t += step) {
+      const x = Math.round(timeToX(t) - left) + 0.5;
+      if (x < -40 || x > w + 40) continue;
+      ctx.moveTo(x, 5); ctx.lineTo(x, h);
+      ctx.fillText(fmtRulerLabel(t, step), x + 3, 13);
+    }
+    ctx.stroke();
+    for (const mk of TL.markers) {
+      const x = timeToX(mk.time) - left;
+      if (x < -6 || x > w + 6) continue;
+      ctx.fillStyle = mk.color || "#ffcf3b";
+      ctx.beginPath(); ctx.moveTo(x, 2); ctx.lineTo(x + 5, 8); ctx.lineTo(x, 14); ctx.lineTo(x - 5, 8); ctx.closePath(); ctx.fill();
+    }
+    const px = timeToX(TL.playhead) - left;
+    if (px >= -6 && px <= w + 6) {
+      ctx.fillStyle = "#ff3b4e";
+      ctx.beginPath(); ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 7); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // ── zoom / playhead / markers ───────────────────────────────────────
+  function setPps(next, anchorTime, anchorPx) {
+    const scroll = tlScroll(); if (!scroll) return;
+    if (state.ptDrag) return;   // don't zoom mid-drag: clip DOM can't reflow under the render guard
+    if (anchorTime == null) {
+      anchorTime = pxToTime(scroll.scrollLeft + scroll.clientWidth / 2);
+      anchorPx = scroll.clientWidth / 2;
+    }
+    TL.pps = Math.max(TL.minPps, Math.min(TL.maxPps, next));
+    const z = document.getElementById("ptl-zoom"); if (z) z.value = String(Math.round(TL.pps));
+    renderProjectTimeline(state.projectTimeline);
+    scroll.scrollLeft = Math.max(0, timeToX(anchorTime) - anchorPx);
+    drawRuler();
+  }
+  function positionPlayhead() {
+    const ph = document.getElementById("ptl-playhead");
+    if (ph) ph.style.left = timeToX(TL.playhead) + "px";
+    const tc = document.getElementById("ptl-tc");
+    if (tc) tc.textContent = fmtTC(TL.playhead);
+  }
+  function setPlayhead(t) {
+    TL.playhead = Math.max(0, t);
+    positionPlayhead();
+    drawRuler();
+  }
+  function markerKey() { return `lumeri:v3:markers:${state.sessionId || "_"}`; }
+  function loadMarkers() {
+    try { TL.markers = JSON.parse(window.localStorage.getItem(markerKey()) || "[]") || []; } catch { TL.markers = []; }
+  }
+  function saveMarkers() {
+    try { window.localStorage.setItem(markerKey(), JSON.stringify(TL.markers)); } catch {}
+  }
+  function positionMarkers() {
+    const layer = document.getElementById("ptl-markers");
+    if (!layer) return;
+    layer.innerHTML = TL.markers.map((m) =>
+      `<div class="ptl-marker" style="left:${timeToX(m.time)}px;border-color:${m.color || "#ffcf3b"}" title="${escapeHTML(m.label || "")}"></div>`
+    ).join("");
+  }
+  function addMarker(time) {
+    const m = { time: Math.max(0, +Number(time).toFixed(3)), label: `标记 ${TL.markers.length + 1}`, color: TL_MARKER_COLORS[TL.markers.length % TL_MARKER_COLORS.length] };
+    const near = TL.markers.findIndex((x) => Math.abs(x.time - m.time) < 0.15);
+    if (near >= 0) TL.markers.splice(near, 1); else TL.markers.push(m);
+    TL.markers.sort((a, b) => a.time - b.time);
+    saveMarkers(); positionMarkers(); drawRuler();
+  }
+
+  // ── clip element + lazy media (filmstrip / waveform) ────────────────
+  function buildClipEl(clip, track) {
+    const el = document.createElement("div");
+    const kind = clip.media_kind || "video";
+    el.className = `ptl-clip ${kind}` + (clip.id === state.selectedClipId ? " selected" : "");
+    el.dataset.clipId = clip.id;
+    el.dataset.trackId = clip.track_id || track.id;
+    el.dataset.start = clip.start;
+    el.dataset.duration = clip.duration;
+    el.dataset.sourceIn = clip.source_in ?? 0;
+    el.dataset.sourceOut = clip.source_out ?? 0;
+    el.dataset.mediaKind = kind;
+    el.dataset.assetId = clip.asset_id || "";
+    el.style.left = timeToX(clip.start) + "px";
+    el.style.width = Math.max(timeToX(clip.duration), 8) + "px";
+    const col = TL_CLIP_COLOR[kind] || TL_CLIP_COLOR.video;
+    el.style.setProperty("--cfill", col[0]);
+    el.style.setProperty("--cedge", col[1]);
+    const label = kind === "text" ? (clip.text_config?.content?.slice(0, 24) || clip.name) : clip.name;
+    el.innerHTML =
+      `<div class="ptl-clip-media"></div><div class="ptl-clip-grad"></div>` +
+      `<span class="ptl-clip-label">${escapeHTML(label || "clip")}</span>` +
+      `<div class="ptl-handle l" data-handle="left"></div><div class="ptl-handle r" data-handle="right"></div>`;
+    return el;
+  }
+  function hydrateMedia() {
+    const content = tlContent(); if (!content) return;
+    content.querySelectorAll(".ptl-clip").forEach((el) => {
+      const assetId = el.dataset.assetId;
+      if (!assetId) return;                       // no source → solid color (graceful)
+      if (el.dataset.mediaKind === "audio") ensureWaveform(el, assetId);
+      else if (el.dataset.mediaKind === "video") ensureFilmstrip(el, assetId);
+    });
+  }
+  function ensureFilmstrip(el, assetId) {
+    const w = el.clientWidth || timeToX(+el.dataset.duration);
+    const tiles = Math.max(1, Math.min(16, Math.round(w / 88)));
+    const inS = +el.dataset.sourceIn, outS = +el.dataset.sourceOut;
+    const key = `${assetId}|${inS.toFixed(2)}|${outS.toFixed(2)}|${tiles}`;
+    const media = el.querySelector(".ptl-clip-media");
+    const paint = (urls) => { if (media) media.innerHTML = urls.map((u) => `<div class="fs-tile" style="background-image:url(${u})"></div>`).join(""); };
+    const cached = TL.filmstrip.get(key);
+    if (cached) { paint(cached); return; }              // cached (incl. empty) → no re-extract
+    if (TL.filmstripBusy.has(key)) return;
+    TL.filmstripBusy.add(key);
+    extractFilmstrip(assetId, inS, outS, tiles).then((urls) => {
+      TL.filmstripBusy.delete(key);
+      TL.filmstrip.set(key, urls || []);                // negative-cache failures: stops the retry storm
+      if (document.body.contains(el)) paint(urls || []);
+    }).catch(() => TL.filmstripBusy.delete(key));
+  }
+  function extractFilmstrip(assetId, inS, outS, tiles) {
+    return new Promise((resolve) => {
+      const url = `/sessions/${state.sessionId}/assets/${assetId}`;
+      const video = document.createElement("video");
+      video.muted = true; video.preload = "auto"; video.crossOrigin = "anonymous";
+      const out = [];
+      let done = false;
+      const teardown = () => { try { video.pause(); video.removeAttribute("src"); video.load(); } catch {} };
+      const finishUp = () => { if (!done) { done = true; clearTimeout(timer); teardown(); resolve(out); } };
+      const timer = setTimeout(finishUp, 12000);
+      video.addEventListener("error", finishUp, { once: true });
+      video.addEventListener("loadedmetadata", async () => {
+        const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : (outS || 1);
+        const a = inS || 0, b = (outS && outS > a) ? outS : dur;
+        const span = Math.max(0.05, b - a);
+        const th = 46, tw = Math.round(th * ((video.videoWidth / Math.max(1, video.videoHeight)) || 1.7));
+        const canvas = document.createElement("canvas");
+        canvas.width = tw; canvas.height = th;
+        const ctx = canvas.getContext("2d");
+        for (let i = 0; i < tiles && !done; i++) {
+          const t = Math.min(a + span * ((i + 0.5) / tiles), dur - 0.02);
+          await seekVideo(video, Math.max(0, t));
+          try { ctx.drawImage(video, 0, 0, tw, th); out.push(canvas.toDataURL("image/jpeg", 0.55)); } catch { break; }
+        }
+        finishUp();
+      }, { once: true });
+      video.src = url;   // set src last, after listeners are attached
+    });
+  }
+  function seekVideo(video, t) {
+    return new Promise((res) => {
+      let settled = false;
+      const on = () => { if (!settled) { settled = true; video.removeEventListener("seeked", on); clearTimeout(guard); res(); } };
+      video.addEventListener("seeked", on);
+      const guard = setTimeout(on, 1500);
+      try { video.currentTime = t; } catch { on(); }
+    });
+  }
+  function ensureWaveform(el, assetId) {
+    const inS = +el.dataset.sourceIn, outS = +el.dataset.sourceOut;
+    const key = `${assetId}|${inS.toFixed(2)}|${outS.toFixed(2)}`;   // trim-aware: each slice gets its own peaks
+    const media = el.querySelector(".ptl-clip-media");
+    const draw = (peaks) => { if (peaks && peaks.length && media && document.body.contains(el)) drawWave(media, peaks); };
+    const cached = TL.wave.get(key);
+    if (cached) { draw(cached); return; }
+    if (TL.waveBusy.has(key)) return;
+    TL.waveBusy.add(key);
+    decodeWave(assetId, inS, outS).then((peaks) => {
+      TL.waveBusy.delete(key);
+      TL.wave.set(key, peaks || []);                    // cache (incl. empty) → no re-decode storm
+      draw(peaks);
+    }).catch(() => TL.waveBusy.delete(key));
+  }
+  async function decodeWave(assetId, inS, outS, samples = 240) {
+    const res = await fetch(`/sessions/${state.sessionId}/assets/${assetId}`);
+    if (!res.ok) throw new Error("wave fetch " + res.status);
+    const buf = await res.arrayBuffer();
+    if (!TL.audioCtx) TL.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await TL.audioCtx.decodeAudioData(buf.slice(0));
+    const ch = decoded.getChannelData(0);
+    const sr = decoded.sampleRate || 44100;
+    const s0 = inS > 0 ? Math.min(ch.length, Math.floor(inS * sr)) : 0;
+    const s1 = (outS && outS > inS) ? Math.min(ch.length, Math.floor(outS * sr)) : ch.length;
+    const len = Math.max(1, s1 - s0);
+    const bucket = Math.max(1, Math.floor(len / samples));
+    const peaks = new Array(samples).fill(0);
+    let max = 0.0001;
+    for (let i = 0; i < samples; i++) {
+      let p = 0; const s = s0 + i * bucket, e = Math.min(s + bucket, s1);
+      for (let j = s; j < e; j++) { const v = Math.abs(ch[j]); if (v > p) p = v; }
+      peaks[i] = p; if (p > max) max = p;
+    }
+    for (let i = 0; i < samples; i++) peaks[i] /= max;
+    return peaks;
+  }
+  function drawWave(media, peaks) {
+    const w = Math.max(2, media.clientWidth), h = Math.max(2, media.clientHeight);
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.strokeStyle = "rgba(180,225,255,0.85)"; ctx.lineWidth = 1; ctx.beginPath();
+    const mid = h / 2;
+    for (let x = 0; x < w; x++) {
+      const p = peaks[Math.floor((x / w) * peaks.length)] || 0;
+      const amp = p * (h / 2 - 2);
+      ctx.moveTo(x + 0.5, mid - amp); ctx.lineTo(x + 0.5, mid + amp);
+    }
+    ctx.stroke();
+    media.innerHTML = ""; media.appendChild(canvas);
+  }
 
   async function fetchProjectTimeline() {
     if (!state.sessionId) return;
@@ -513,12 +951,14 @@
       if (!r.ok) return;
       const data = await r.json();
       state.projectTimeline = data;
+      if (data.patch_seq === TL._renderedSeq) return;   // unchanged → skip 3s DOM rebuild + media re-hydrate
       renderProjectTimeline(data);
     } catch { /* ignore network errors */ }
   }
 
   function startTimelinePoll() {
     stopTimelinePoll();
+    TL._renderedSeq = null;   // force the first fetch of a (new) session to render authoritative state
     state.timelinePollTimer = setInterval(fetchProjectTimeline, 3000);
     fetchProjectTimeline();
   }
@@ -532,57 +972,44 @@
 
   function renderProjectTimeline(data) {
     if (state.ptDrag) return;   // defensive: don't rebuild the DOM under an active drag
-    const panel = document.getElementById("project-timeline-panel");
-    const tracksEl = document.getElementById("project-timeline-tracks");
-    const metaEl = document.getElementById("project-timeline-meta");
-    if (!panel || !tracksEl || !metaEl) return;
+    if (!TL.built) { buildTimelineShell(); return; }   // build() calls back into render once
+    const model = timelineModel(data);
+    TL.model = model;
+    TL._renderedSeq = model.patch_seq;   // poll skips re-render until patch_seq changes
+    const content = tlContent(), headers = tlHeaders();
+    if (!content || !headers) return;
 
-    const tracks = (data.tracks || []).filter(t => t.clips && t.clips.length > 0);
-    if (tracks.length === 0 && (!data.duration || data.duration <= 0)) {
-      panel.hidden = true;
-      return;
-    }
+    const contentW = Math.ceil(model.contentDur * TL.pps);
+    content.style.width = contentW + "px";
+    content.style.height = (model.tracks.length * TL_TRACK_H) + "px";
 
-    panel.hidden = false;
-    const dur = data.duration || 0;
-    metaEl.textContent = [
-      `${data.width || 1920}×${data.height || 1080}`,
-      `${data.fps || 30}fps`,
-      dur > 0 ? fmtSec(dur) : "",
-      `seq ${data.patch_seq || 0}`,
-    ].filter(Boolean).join(" · ");
-
-    if (tracks.length === 0) {
-      tracksEl.innerHTML = `<div style="font-size:10px;color:var(--text-dim);padding:4px 0">No clips yet</div>`;
-      return;
-    }
-
-    tracksEl.innerHTML = tracks.map(track => {
-      const isOverlay = track.kind === "overlay";
-      const clipHtml = track.clips.map(clip => {
-        if (!dur) return "";
-        const left = (clip.start / dur) * 100;
-        const width = Math.max((clip.duration / dur) * 100, 0.3);
-        const sel = clip.id === state.selectedClipId ? " selected" : "";
-        const cls = `pt-clip ${clip.media_kind}${sel}`;
-        const label = clip.media_kind === "text"
-          ? (clip.text_config?.content?.slice(0, 20) || clip.name)
-          : clip.name;
-        const title = `${clip.name} (${clip.media_kind}) ${fmtSec(clip.start)}–${fmtSec(clip.start + clip.duration)}`;
-        // data-* carry clip identity + current values so the direct-edit
-        // pointer handlers can compute ops without a re-fetch.
-        return `<div class="${cls}" data-clip-id="${clip.id}" data-track-id="${clip.track_id}"`
-          + ` data-start="${clip.start}" data-duration="${clip.duration}" data-media-kind="${clip.media_kind}"`
-          + ` data-source-in="${clip.source_in ?? 0}" data-source-out="${clip.source_out ?? 0}"`
-          + ` style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${title}">`
-          + `<span>${label}</span><div class="pt-clip-handle right" data-handle="right"></div></div>`;
-      }).join("");
-      const bodyCls = `pt-track-body${isOverlay ? " overlay" : ""}`;
-      return `<div class="pt-track-row">
-        <div class="pt-track-label"><span>${track.id}</span></div>
-        <div class="${bodyCls}" data-track-id="${track.id}">${clipHtml}</div>
-      </div>`;
+    headers.innerHTML = model.tracks.map((t) => {
+      const isA = t.kind === "audio";
+      return `<div class="ptl-head ${escapeHTML(t.kind)}" style="height:${TL_TRACK_H}px">`
+        + `<span class="ptl-head-name">${escapeHTML(t.name || t.id)}</span>`
+        + `<span class="ptl-head-kind">${isA ? "♪" : "▦"} ${escapeHTML(t.id)}</span></div>`;
     }).join("");
+
+    content.innerHTML = "";
+    model.tracks.forEach((t, i) => {
+      const lane = document.createElement("div");
+      lane.className = `ptl-lane ${t.kind}`;
+      lane.dataset.trackId = t.id;
+      lane.dataset.trackKind = t.kind;
+      lane.style.top = (i * TL_TRACK_H) + "px";
+      lane.style.height = TL_TRACK_H + "px";
+      (t.clips || []).forEach((clip) => lane.appendChild(buildClipEl(clip, t)));
+      content.appendChild(lane);
+    });
+    const ph = document.createElement("div"); ph.className = "ptl-playhead"; ph.id = "ptl-playhead"; content.appendChild(ph);
+    const mk = document.createElement("div"); mk.id = "ptl-markers"; content.appendChild(mk);
+
+    positionPlayhead();
+    positionMarkers();
+    sizeRuler();
+    drawRuler();
+    updateEditHint();
+    requestAnimationFrame(hydrateMedia);
   }
 
   function fmtSec(s) {
@@ -629,7 +1056,7 @@
 
   function selectClip(clipId) {
     state.selectedClipId = clipId;
-    document.querySelectorAll("#project-timeline-tracks .pt-clip").forEach((el) => {
+    document.querySelectorAll("#ptl-content .ptl-clip").forEach((el) => {
       el.classList.toggle("selected", el.dataset.clipId === clipId);
     });
     updateEditHint();
@@ -647,125 +1074,163 @@
   }
 
   function updateEditHint() {
-    const hint = document.getElementById("pt-edit-hint");
-    if (!hint) return;
-    const c = selectedClip();
-    hint.textContent = c
-      ? `${c.id} · ${fmtSec(c.start)}–${fmtSec(c.start + c.duration)}`
-      : "select a clip to edit";
+    const has = !!selectedClip() && editingEnabled();
+    const split = document.getElementById("ptl-split");
+    const del = document.getElementById("ptl-delete");
+    if (split) split.disabled = !has;
+    if (del) del.disabled = !has;
   }
 
-  function setupTimelineDirectEdit() {
-    const root = document.getElementById("project-timeline-tracks");
-    if (!root) return;
+  function splitSelected() {
+    const c = selectedClip();
+    if (!c || !editingEnabled()) return;
+    const inside = TL.playhead > c.start + 0.04 && TL.playhead < c.start + c.duration - 0.04;
+    const at = inside ? TL.playhead : c.start + c.duration / 2;
+    postTimelineOp({ op: "split", clip_id: c.id, at_time: +at.toFixed(6) });
+  }
+  function deleteSelected() {
+    const c = selectedClip();
+    if (!c || !editingEnabled()) return;
+    postTimelineOp({ op: "delete", clip_id: c.id }).then((r) => { if (r) { state.selectedClipId = null; updateEditHint(); } });
+  }
 
-    root.addEventListener("pointerdown", (ev) => {
-      const clipEl = ev.target.closest(".pt-clip");
+  function laneUnder(clientY) {
+    const content = tlContent(); if (!content) return null;
+    let found = null;
+    content.querySelectorAll(".ptl-lane").forEach((lane) => {
+      const r = lane.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) found = lane;
+    });
+    return found;
+  }
+
+  // Pointer drag/trim on the content layer. Every gesture compiles to ONE
+  // patches.py op (move/trim/set_time) through the shared /timeline/op path.
+  function setupClipPointer() {
+    const content = tlContent();
+    if (!content) return;
+
+    content.addEventListener("pointerdown", (ev) => {
+      const clipEl = ev.target.closest(".ptl-clip");
       if (!clipEl) return;
-      selectClip(clipEl.dataset.clipId);            // always select on press
-      if (!editingEnabled()) return;                // busy gate: select only mid-turn
-
-      const body = clipEl.closest(".pt-track-body");
-      const dur = (state.projectTimeline && state.projectTimeline.duration) || 0;
-      if (!body || dur <= 0) return;
-      const rect = body.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const handle = ev.target.closest(".pt-clip-handle");
-      state.ptDrag = {
+      selectClip(clipEl.dataset.clipId);
+      if (!editingEnabled()) return;
+      const handle = ev.target.closest(".ptl-handle");
+      const d = {
         clipId: clipEl.dataset.clipId,
-        mode: handle ? handle.dataset.handle : "move",   // "right" | "move"
+        mode: handle ? handle.dataset.handle : "move",   // left | right | move
         startX: ev.clientX,
-        bodyW: rect.width,
-        dur,
         origStart: parseFloat(clipEl.dataset.start) || 0,
         origDur: parseFloat(clipEl.dataset.duration) || 0,
         sourceIn: parseFloat(clipEl.dataset.sourceIn) || 0,
+        sourceOut: parseFloat(clipEl.dataset.sourceOut) || 0,
         mediaKind: clipEl.dataset.mediaKind,
+        origTrack: clipEl.dataset.trackId,
         el: clipEl,
       };
+      TL.drag = d;
+      state.ptDrag = d;             // pauses polling/reconcile mid-gesture
       clipEl.classList.add("dragging");
       try { clipEl.setPointerCapture(ev.pointerId); } catch {}
       ev.preventDefault();
     });
 
-    root.addEventListener("pointermove", (ev) => {
-      const d = state.ptDrag;
+    content.addEventListener("pointermove", (ev) => {
+      const d = TL.drag;
       if (!d) return;
-      const deltaSec = ((ev.clientX - d.startX) / d.bodyW) * d.dur;
-      if (d.mode === "right") {
-        // Snap the trailing edge to neighbour edges / grid, derive duration.
-        const newEnd = snapSeconds(d.origStart + d.origDur + deltaSec, d);
-        const newDur = Math.max(0.1, newEnd - d.origStart);
-        d.pendingDur = newDur;
-        d.el.style.width = `${Math.max((newDur / d.dur) * 100, 0.3).toFixed(2)}%`;
-      } else {
-        const newStart = snapSeconds(d.origStart + deltaSec, d);
-        d.pendingStart = newStart;
-        d.el.style.left = `${((newStart / d.dur) * 100).toFixed(2)}%`;
+      const dt = pxToTime(ev.clientX - d.startX);
+      if (d.mode === "move") {
+        d.pendStart = Math.max(0, snapSeconds(d.origStart + dt, d));
+        d.el.style.left = timeToX(d.pendStart) + "px";
+        const lane = laneUnder(ev.clientY);
+        const tid = lane && lane.dataset.trackId;
+        if (lane && tid && !tid.endsWith("*") && trackCompatible(d.mediaKind, lane.dataset.trackKind) && tid !== d.origTrack) {
+          d.pendTrack = tid;                            // only real (persisted) lanes are drop targets
+          if (d.el.parentNode !== lane) lane.appendChild(d.el);
+        }
+      } else if (d.mode === "right") {
+        const end = snapSeconds(d.origStart + d.origDur + dt, d);
+        d.pendDur = Math.max(0.1, end - d.origStart);
+        d.el.style.width = Math.max(timeToX(d.pendDur), 8) + "px";
+      } else { // left-trim head
+        const ns = snapSeconds(d.origStart + dt, d);
+        const lo = Math.max(0, d.origStart - d.sourceIn);   // can't pull the head before the source start
+        d.pendStart = Math.max(lo, Math.min(ns, d.origStart + d.origDur - 0.1));
+        d.pendDur = d.origDur - (d.pendStart - d.origStart);
+        d.el.style.left = timeToX(d.pendStart) + "px";
+        d.el.style.width = Math.max(timeToX(d.pendDur), 8) + "px";
       }
     });
 
     const finish = () => {
-      const d = state.ptDrag;
+      const d = TL.drag;
       if (!d) return;
-      state.ptDrag = null;
+      TL.drag = null; state.ptDrag = null;
       d.el.classList.remove("dragging");
-      if (d.mode === "right" && d.pendingDur != null) {
+      if (d.mode === "move" && d.pendStart != null) {
+        const op = { op: "move", clip_id: d.clipId, start: +d.pendStart.toFixed(6) };
+        if (d.pendTrack && d.pendTrack !== d.origTrack) op.track_id = d.pendTrack;
+        postTimelineOp(op);
+      } else if (d.mode === "right" && d.pendDur != null) {
+        if (d.mediaKind === "video" || d.mediaKind === "audio")
+          postTimelineOp({ op: "trim", clip_id: d.clipId, source_out: +(d.sourceIn + d.pendDur).toFixed(6) });
+        else
+          postTimelineOp({ op: "set_time", clip_id: d.clipId, duration: +d.pendDur.toFixed(6) });
+      } else if (d.mode === "left" && d.pendStart != null) {
         if (d.mediaKind === "video" || d.mediaKind === "audio") {
-          postTimelineOp({ op: "trim", clip_id: d.clipId, source_out: +(d.sourceIn + d.pendingDur).toFixed(6) });
-        } else {                                  // image/text: duration via set_time
-          postTimelineOp({ op: "set_time", clip_id: d.clipId, duration: +d.pendingDur.toFixed(6) });
+          const newIn = Math.max(0, d.sourceIn + (d.pendStart - d.origStart));
+          if (d.pendStart < d.origStart) {
+            // expanding head leftward: move first (frees the right side), then extend the in-point
+            postTimelineOp({ op: "move", clip_id: d.clipId, start: +d.pendStart.toFixed(6) })
+              .then((r) => { if (r) postTimelineOp({ op: "trim", clip_id: d.clipId, source_in: +newIn.toFixed(6) }); });
+          } else {
+            // shrinking head rightward: trim in place first, then slide into the freed space
+            postTimelineOp({ op: "trim", clip_id: d.clipId, source_in: +newIn.toFixed(6) })
+              .then((r) => { if (r) postTimelineOp({ op: "move", clip_id: d.clipId, start: +d.pendStart.toFixed(6) }); });
+          }
+        } else {
+          postTimelineOp({ op: "set_time", clip_id: d.clipId, start: +d.pendStart.toFixed(6), duration: +d.pendDur.toFixed(6) });
         }
-      } else if (d.mode === "move" && d.pendingStart != null) {
-        postTimelineOp({ op: "move", clip_id: d.clipId, start: +d.pendingStart.toFixed(6) });
+      } else {
+        renderProjectTimeline(state.projectTimeline);   // plain click: re-sync layout
       }
     };
-    root.addEventListener("pointerup", finish);
-    root.addEventListener("pointercancel", finish);
+    content.addEventListener("pointerup", finish);
+    content.addEventListener("pointercancel", finish);
+  }
 
-    // DE-C: split / delete / undo controls + Delete key (all via /timeline/op).
-    document.getElementById("pt-split-btn")?.addEventListener("click", () => {
-      const c = selectedClip();
-      if (!c || !editingEnabled()) return;
-      postTimelineOp({ op: "split", clip_id: c.id, at_time: +(c.start + c.duration / 2).toFixed(6) });
-    });
-    document.getElementById("pt-delete-btn")?.addEventListener("click", () => {
-      const c = selectedClip();
-      if (!c || !editingEnabled()) return;
-      postTimelineOp({ op: "delete", clip_id: c.id }).then(() => { state.selectedClipId = null; updateEditHint(); });
-    });
-    document.getElementById("pt-undo-btn")?.addEventListener("click", () => {
-      if (!editingEnabled()) return;
-      postTimelineOp({ op: "undo", steps: 1 });
-    });
+  function setupTimelineKeys() {
     document.addEventListener("keydown", (ev) => {
-      if (ev.key !== "Delete" && ev.key !== "Backspace") return;
       const t = ev.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const c = selectedClip();
-      if (!c || !editingEnabled()) return;
-      ev.preventDefault();
-      postTimelineOp({ op: "delete", clip_id: c.id }).then(() => { state.selectedClipId = null; updateEditHint(); });
+      if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); deleteSelected(); return; }
+      if (ev.key === "s" || ev.key === "S") { splitSelected(); return; }
+      if (ev.key === "m" || ev.key === "M") { addMarker(TL.playhead); return; }
+      if ((ev.metaKey || ev.ctrlKey) && (ev.key === "z" || ev.key === "Z")) { ev.preventDefault(); if (editingEnabled()) postTimelineOp({ op: "undo", steps: 1 }); return; }
+      if (ev.key === "+" || ev.key === "=") { setPps(TL.pps * 1.25); return; }
+      if (ev.key === "-" || ev.key === "_") { setPps(TL.pps / 1.25); return; }
     });
   }
 
-  // DE-D snapping: snap a timeline second to nearby edges of OTHER clips
-  // (within ~6px) and otherwise to a coarse 0.1s grid; clamp >= 0.
+  function setupTimelineDirectEdit() {
+    buildTimelineShell();   // builds the panel DOM + wires every interaction
+  }
+
+  // Snap a timeline-second to nearby clip edges / playhead / markers (≈8px),
+  // else to a 0.5s grid; clamp >= 0.
   function snapSeconds(sec, d) {
     sec = Math.max(0, sec);
-    if (!d || d.dur <= 0 || d.bodyW <= 0) return sec;
-    const tolSec = (6 / d.bodyW) * d.dur;
-    let best = sec, bestDist = tolSec;
-    document.querySelectorAll("#project-timeline-tracks .pt-clip").forEach((el) => {
-      if (el.dataset.clipId === d.clipId) return;
+    if (!TL.snap) return sec;
+    const tol = pxToTime(8);
+    let best = sec, bestDist = tol;
+    const cand = [TL.playhead, ...TL.markers.map((m) => m.time)];
+    document.querySelectorAll("#ptl-content .ptl-clip").forEach((el) => {
+      if (d && el.dataset.clipId === d.clipId) return;
       const s = parseFloat(el.dataset.start) || 0;
-      const e = s + (parseFloat(el.dataset.duration) || 0);
-      for (const edge of [s, e]) {
-        const dist = Math.abs(sec - edge);
-        if (dist < bestDist) { best = edge; bestDist = dist; }
-      }
+      cand.push(s, s + (parseFloat(el.dataset.duration) || 0));
     });
-    if (bestDist === tolSec) best = Math.round(sec * 10) / 10;   // no edge → 0.1s grid
+    for (const c of cand) { const dist = Math.abs(sec - c); if (dist < bestDist) { best = c; bestDist = dist; } }
+    if (bestDist === tol) best = Math.round(sec * 2) / 2;
     return Math.max(0, best);
   }
 
@@ -783,6 +1248,11 @@
     if (!r.ok) throw new Error(`POST /sessions failed: ${r.status}`);
     const data = await r.json();
     state.sessionId = data.session_id;
+    // reset per-session timeline view state so nothing leaks across sessions
+    loadMarkers();              // markers are per-session (localStorage); reload under the real key
+    TL.extraTracks = [];        // client-added display lanes
+    TL.playhead = 0;
+    state.selectedClipId = null;
     state.turns = [];
     state.currentTurn = null;
     state.assets = [];
@@ -907,7 +1377,8 @@
   });
 
   els.promptInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    // Enter sends; Shift+Enter = newline. Never send mid-IME-composition (中文输入法候选).
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       els.sendBtn.click();
     }
@@ -952,6 +1423,186 @@
   });
   syncSandbox();
   setupTimelineDirectEdit();
+
+  // ── account / login (Google + email one-time-code) ──────────────────
+  function setupAuth() {
+    const modal = $("#auth-modal");
+    const accountBtn = $("#account-btn");
+    if (!modal || !accountBtn) return;
+    const viewSignin = $("#auth-view-signin");
+    const viewAccount = $("#auth-view-account");
+    const googleBtn = $("#auth-google-btn");
+    const divider = $("#auth-divider");
+    const emailForm = $("#auth-email-form");
+    const codeForm = $("#auth-code-form");
+    const emailInput = $("#auth-email");
+    const codeInput = $("#auth-code");
+    const sendBtn = $("#auth-send-code");
+    const verifyBtn = $("#auth-verify");
+    const resendBtn = $("#auth-resend");
+    const changeBtn = $("#auth-change-email");
+    const codeTarget = $("#auth-code-target");
+    const errBox = $("#auth-error");
+    const logoutBtn = $("#auth-logout");
+    const acctEmail = $("#auth-account-email");
+    const avatar = $("#auth-avatar");
+
+    let session = null;
+    let pendingEmail = "";
+    let resendTimer = null;
+
+    const showErr = (msg) => { errBox.textContent = msg || ""; errBox.hidden = !msg; };
+    const clearErr = () => showErr("");
+
+    function applySession(data) {
+      session = data || {};
+      const acct = session.account;
+      if (acct && acct.email) {
+        accountBtn.textContent = acct.email;
+        accountBtn.classList.add("signed-in");
+      } else {
+        accountBtn.textContent = "登录";
+        accountBtn.classList.remove("signed-in");
+      }
+    }
+
+    async function refreshSession() {
+      try {
+        const r = await fetch("/auth/session");
+        if (r.ok) applySession(await r.json());
+      } catch {}
+    }
+
+    async function postAuth(url, body) {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      let data = {};
+      try { data = await r.json(); } catch {}
+      if (!r.ok) throw new Error(data.user_message || data.error || `请求失败 (${r.status})`);
+      return data;
+    }
+
+    function stopResend() { if (resendTimer) { clearInterval(resendTimer); resendTimer = null; } }
+    function startResend(secs) {
+      stopResend();
+      let left = secs;
+      const tick = () => {
+        resendBtn.disabled = left > 0;
+        resendBtn.textContent = left > 0 ? `重新发送（${left}s）` : "重新发送";
+        if (left <= 0) { stopResend(); return; }
+        left -= 1;
+      };
+      tick();
+      resendTimer = setInterval(tick, 1000);
+    }
+
+    function showEmailStep() { emailForm.hidden = false; codeForm.hidden = true; stopResend(); }
+    function showCodeStep(email) {
+      pendingEmail = email;
+      codeTarget.textContent = email;
+      emailForm.hidden = true;
+      codeForm.hidden = false;
+      codeInput.value = "";
+      startResend(60);
+      codeInput.focus();
+    }
+
+    function renderModal() {
+      clearErr();
+      const acct = session && session.account;
+      viewAccount.hidden = !acct;
+      viewSignin.hidden = !!acct;
+      if (acct) {
+        acctEmail.textContent = acct.email || acct.name || "已登录";
+        avatar.textContent = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+        return;
+      }
+      const hasGoogle = !!(session && session.has_google_client_id);
+      googleBtn.hidden = !hasGoogle;
+      divider.hidden = !hasGoogle;
+      showEmailStep();
+    }
+
+    function openModal() {
+      renderModal();
+      modal.hidden = false;
+      if (!(session && session.account)) emailInput.focus();
+    }
+    function closeModal() { modal.hidden = true; stopResend(); clearErr(); }
+
+    async function requestCode(email) {
+      clearErr();
+      sendBtn.disabled = true; sendBtn.textContent = "发送中…";
+      try {
+        await postAuth("/auth/email/start", { email });
+        showCodeStep(email);
+      } catch (e) {
+        showErr(e.message);
+      } finally {
+        sendBtn.disabled = false; sendBtn.textContent = "发送验证码";
+      }
+    }
+
+    accountBtn.addEventListener("click", () => { modal.hidden ? openModal() : closeModal(); });
+    modal.querySelectorAll("[data-auth-close]").forEach((el) => el.addEventListener("click", closeModal));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+
+    googleBtn.addEventListener("click", async () => {
+      clearErr();
+      try {
+        const data = await postAuth("/auth/google/start", {});
+        if (!data.authorization_url) throw new Error("Google 登录未配置");
+        const win = window.open(data.authorization_url, "lumeri-google-login", "width=480,height=640");
+        const onMsg = async (ev) => {
+          if (ev.origin !== location.origin) return;
+          if (!ev.data || ev.data.type !== "lumeri-auth-complete") return;
+          window.removeEventListener("message", onMsg);
+          try { win && win.close(); } catch {}
+          await refreshSession();
+          if (session && session.account) { renderModal(); setTimeout(closeModal, 600); }
+          else showErr("Google 登录未完成");
+        };
+        window.addEventListener("message", onMsg);
+      } catch (e) { showErr(e.message); }
+    });
+
+    emailForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = emailInput.value.trim();
+      if (v) requestCode(v);
+    });
+    resendBtn.addEventListener("click", () => { if (pendingEmail) requestCode(pendingEmail); });
+    changeBtn.addEventListener("click", () => { showEmailStep(); clearErr(); emailInput.focus(); });
+
+    codeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearErr();
+      const code = codeInput.value.replace(/\D/g, "");
+      if (code.length !== 6) { showErr("请输入 6 位数字验证码"); return; }
+      verifyBtn.disabled = true; verifyBtn.textContent = "登录中…";
+      try {
+        const data = await postAuth("/auth/email/verify", { email: pendingEmail, code });
+        applySession(data);
+        renderModal();
+        setTimeout(closeModal, 500);
+      } catch (e2) {
+        showErr(e2.message);
+      } finally {
+        verifyBtn.disabled = false; verifyBtn.textContent = "登录";
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      try { applySession(await postAuth("/auth/logout", {})); } catch {}
+      renderModal();
+    });
+
+    refreshSession();
+  }
+  setupAuth();
 
   // boot
   createSession().catch((err) => {

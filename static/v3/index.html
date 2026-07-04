@@ -4,18 +4,23 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lumeri v3</title>
+<link rel="icon" type="image/svg+xml" href="/v3/lumeri-favicon.svg" />
 <link rel="stylesheet" href="/v3/v3.css" />
 </head>
 <body>
 <header class="app-header">
   <div class="title-block">
-    <h1>Lumeri v3</h1>
+    <span class="brand">
+      <img class="brand-logo" src="/v3/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
+      <h1>Lumeri v3</h1>
+    </span>
     <span class="session-id" id="session-id-label">—</span>
   </div>
   <div class="header-actions">
     <button type="button" id="sandbox-toggle-btn" class="sandbox-toggle" title="沙盒已开启（点击关闭）">沙盒</button>
     <span class="status-pill" id="connection-pill">offline</span>
     <button type="button" id="new-session-btn">new session</button>
+    <button type="button" id="account-btn" class="account-btn" title="登录 / 账户">登录</button>
   </div>
 </header>
 
@@ -36,26 +41,8 @@
   </section>
 </main>
 
-<!-- Project timeline: shows track/clip layout from ProjectStore -->
-<section id="project-timeline-panel" class="project-timeline-panel" hidden>
-  <div class="project-timeline-header">
-    <span class="project-timeline-title">Timeline</span>
-    <span class="project-timeline-meta" id="project-timeline-meta"></span>
-  </div>
-  <div class="project-timeline-tracks" id="project-timeline-tracks"></div>
-  <div class="pt-edit-actions" id="pt-edit-actions">
-    <span class="pt-edit-hint" id="pt-edit-hint">select a clip to edit</span>
-    <button class="pt-edit-btn" id="pt-split-btn" title="Split the selected clip at its midpoint">split</button>
-    <button class="pt-edit-btn" id="pt-delete-btn" title="Delete the selected clip (or press Delete)">delete</button>
-    <button class="pt-edit-btn" id="pt-undo-btn" title="Undo the last timeline change">↶ undo</button>
-  </div>
-  <div class="pt-quick-actions" id="pt-quick-actions">
-    <button class="pt-action-btn" data-cmd="export the project at 1080p quality">↑ export 1080p</button>
-    <button class="pt-action-btn" data-cmd="export the project as draft quality">draft export</button>
-    <button class="pt-action-btn" data-cmd="add a title overlay at the start of the timeline">add title</button>
-    <button class="pt-action-btn" data-cmd="get the current timeline layout">get timeline</button>
-  </div>
-</section>
+<!-- Project timeline: CapCut-style editor, built dynamically by v3.js -->
+<section id="project-timeline-panel" class="ptl"></section>
 
 <footer class="composer">
   <input type="file" id="upload-input" hidden />
@@ -67,6 +54,70 @@
   ></textarea>
   <button type="button" id="send-btn" class="composer-btn primary" disabled>send</button>
 </footer>
+
+<!-- Login dialog: Google + email one-time-code, built/handled in v3.js -->
+<div id="auth-modal" class="auth-modal" hidden>
+  <div class="auth-backdrop" data-auth-close></div>
+  <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <button type="button" class="auth-x" data-auth-close aria-label="关闭">×</button>
+
+    <!-- Signed-out view -->
+    <div class="auth-view" id="auth-view-signin">
+      <div class="auth-brand">
+        <img src="/v3/lumeri-mark.svg" alt="" width="40" height="29" />
+        <h2 id="auth-title">登录 Lumeri</h2>
+        <p class="auth-sub">登录后即可在多设备间同步会话与记忆</p>
+      </div>
+
+      <button type="button" id="auth-google-btn" class="auth-google" hidden>
+        <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+        </svg>
+        使用 Google 账号登录
+      </button>
+
+      <div class="auth-divider" id="auth-divider" hidden><span>或使用邮箱验证码</span></div>
+
+      <!-- Email step 1: request a code -->
+      <form class="auth-step" id="auth-email-form">
+        <label class="auth-field">
+          <span>邮箱</span>
+          <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
+        </label>
+        <button type="submit" id="auth-send-code" class="auth-primary">发送验证码</button>
+      </form>
+
+      <!-- Email step 2: enter the code -->
+      <form class="auth-step" id="auth-code-form" hidden>
+        <p class="auth-code-hint">验证码已发送至 <strong id="auth-code-target"></strong></p>
+        <label class="auth-field">
+          <span>验证码</span>
+          <input type="text" id="auth-code" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code" />
+        </label>
+        <button type="submit" id="auth-verify" class="auth-primary">登录</button>
+        <div class="auth-code-actions">
+          <button type="button" id="auth-resend" class="auth-link" disabled>重新发送</button>
+          <button type="button" id="auth-change-email" class="auth-link">换个邮箱</button>
+        </div>
+      </form>
+
+      <p class="auth-error" id="auth-error" hidden></p>
+    </div>
+
+    <!-- Signed-in view -->
+    <div class="auth-view" id="auth-view-account" hidden>
+      <div class="auth-brand">
+        <div class="auth-avatar" id="auth-avatar" aria-hidden="true"></div>
+        <h2>账户</h2>
+        <p class="auth-sub" id="auth-account-email"></p>
+      </div>
+      <button type="button" id="auth-logout" class="auth-secondary">退出登录</button>
+    </div>
+  </div>
+</div>
 
 <script src="/v3/v3.js" defer></script>
 </body>

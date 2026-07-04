@@ -4231,6 +4231,23 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 400, _error_payload(exc))
             return
 
+        if route == "/auth/email/start":
+            try:
+                payload = _read_json_body(self)
+                _json_response(self, 200, accounts.start_email_login(payload.get("email", "")))
+            except Exception as exc:
+                _json_response(self, 400, _error_payload(exc))
+            return
+
+        if route == "/auth/email/verify":
+            try:
+                payload = _read_json_body(self)
+                profile = accounts.verify_email_login(payload.get("email", ""), payload.get("code", ""))
+                _json_response(self, 200, {"ok": True, "account": profile, **accounts.auth_session_payload()})
+            except Exception as exc:
+                _json_response(self, 400, _error_payload(exc))
+            return
+
         if route == "/auth/logout":
             accounts.sign_out()
             _json_response(self, 200, {"ok": True, **accounts.auth_session_payload()})

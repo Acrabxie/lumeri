@@ -3,6 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from gemia.errors import (
+    RECOVERY_FIX_ARGS,
+    RECOVERY_SWITCH_TOOL,
+    RECOVERY_TRANSIENT_RETRY,
+    RECOVERY_NONE,
+    ToolError,
+)
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration, run_ffmpeg_with_progress
 
@@ -56,17 +63,36 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
 
     src = ctx.registry.get(asset_id)
     if src.kind != "video":
-        raise ValueError(f"export currently supports video assets only, got {src.kind!r}")
+        raise ToolError(
+            f"export applies to video assets; {asset_id} is a {src.kind}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_SWITCH_TOOL,
+            hint="Pass a video asset_id, or use a different verb for this asset type.",
+        )
 
     if fmt not in _FORMAT_TUNING:
-        raise ValueError(f"unknown format {fmt!r}. Known: {', '.join(_FORMAT_TUNING.keys())}")
+        raise ToolError(
+            f"unknown format {fmt!r}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_FIX_ARGS,
+            valid_options=list(_FORMAT_TUNING.keys()),
+            hint=f"Format must be one of: {', '.join(_FORMAT_TUNING.keys())}",
+        )
     if quality not in _QUALITY_PROFILES:
-        raise ValueError(
-            f"unknown quality {quality!r}. Known: {', '.join(_QUALITY_PROFILES.keys())}"
+        raise ToolError(
+            f"unknown quality {quality!r}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_FIX_ARGS,
+            valid_options=list(_QUALITY_PROFILES.keys()),
+            hint=f"Quality must be one of: {', '.join(_QUALITY_PROFILES.keys())}",
         )
     if platform not in _PLATFORM_TWEAKS:
-        raise ValueError(
-            f"unknown platform {platform!r}. Known: {', '.join(_PLATFORM_TWEAKS.keys())}"
+        raise ToolError(
+            f"unknown platform {platform!r}.",
+            code="E_UNSUPPORTED",
+            recovery=RECOVERY_FIX_ARGS,
+            valid_options=list(_PLATFORM_TWEAKS.keys()),
+            hint=f"Platform must be one of: {', '.join(_PLATFORM_TWEAKS.keys())}",
         )
 
     profile = _QUALITY_PROFILES[quality]

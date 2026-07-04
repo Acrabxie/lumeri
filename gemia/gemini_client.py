@@ -390,8 +390,15 @@ class GeminiClientV3:
             ).strip()
             if not project:
                 raise RuntimeError("VERTEX_PROJECT required for vertex provider (env or config.json:vertex_project).")
+            # Brain location is independent of media (Veo/Lyria/Nano Banana live in
+            # us-central1; gemini-3.x text models live on 'global'). lumeri_v3_location
+            # lets the orchestrator use 'global' while vertex_location stays us-central1.
             location = (
-                os.environ.get("VERTEX_LOCATION") or _read_config_key("vertex_location") or "global"
+                os.environ.get("LUMERI_V3_LOCATION")
+                or _read_config_key("lumeri_v3_location")
+                or os.environ.get("VERTEX_LOCATION")
+                or _read_config_key("vertex_location")
+                or "global"
             ).strip()
             host = (
                 "aiplatform.googleapis.com"

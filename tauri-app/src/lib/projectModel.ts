@@ -82,17 +82,20 @@ export function canonicalProjectFromState(state: ProjectState, accountId: string
 }
 
 function assetFromClip(clip: MediaClip, now: string): ProjectAsset {
-  const mediaKind = clip.mediaKind || mediaKindForName(clip.name, clip.mimeType || clip.metadata?.mime_type || "");
+  const metaMime = typeof clip.metadata?.mime_type === "string" ? (clip.metadata.mime_type as string) : "";
+  const mimeType = clip.mimeType || metaMime || "";
+  const mediaKind = clip.mediaKind || mediaKindForName(clip.name, mimeType);
   const duration = clipDuration(clip, mediaKind);
+  const sourcePath = clip.serverPath ?? "";
   return {
-    id: clip.assetId || `asset_${hashString(clip.serverPath || clip.name)}`,
-    asset_id: clip.assetId || `asset_${hashString(clip.serverPath || clip.name)}`,
+    id: clip.assetId || `asset_${hashString(sourcePath || clip.name)}`,
+    asset_id: clip.assetId || `asset_${hashString(sourcePath || clip.name)}`,
     name: clip.name,
     media_kind: mediaKind,
-    mime_type: clip.mimeType || clip.metadata?.mime_type || "",
-    source_path: clip.serverPath,
+    mime_type: mimeType,
+    source_path: sourcePath,
     preview_src: clip.previewSrc && !clip.previewSrc.startsWith("blob:") ? clip.previewSrc : null,
-    thumbnail_src: clip.thumbnailSrc,
+    thumbnail_src: clip.thumbnailSrc ?? null,
     thumbnails: clip.thumbnailStrip,
     waveform_peaks: clip.waveformPeaks,
     duration,

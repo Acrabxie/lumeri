@@ -16,8 +16,43 @@
   --blue: #2277ee;
   --font-ui: "Outfit", "Helvetica Neue", sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Menlo", monospace;
-  --r: 7px;
-  --r-sm: 4px;
+
+  /* Rounded-corner scale — softer, more layered than before */
+  --r-xs: 4px;
+  --r-sm: 7px;
+  --r: 11px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+
+  /* ── Timeline (dark panel) ───────────────────────────────────────────── */
+  --tl-bg: #0c0f13;
+  --tl-panel: #14181e;
+  --tl-panel-soft: #1a1f27;
+  --tl-header: #161b22;
+  --tl-line: #272d36;
+  --tl-line-soft: #1e242c;
+  --tl-text: #e6ebf2;
+  --tl-text-dim: #8b95a3;
+  --tl-text-faint: #5b6573;
+  --tl-accent: #4ea1ff;
+  --tl-accent-soft: rgba(78, 161, 255, 0.16);
+  --tl-playhead: #ff3b4e;
+  --tl-snap: #ffcf3b;
+  --tl-radius: 8px;
+  --tl-radius-sm: 5px;
+
+  /* Clip colors by media kind (fill / edge) */
+  --clip-video: #1d4a34;
+  --clip-video-edge: #2f7a54;
+  --clip-audio: #1f3a5c;
+  --clip-audio-edge: #3a73b8;
+  --clip-image: #34295f;
+  --clip-text: #4a2c18;
+  --clip-text-edge: #8a5026;
+  --clip-wave: #6fd3a6;
 }
 
 * {
@@ -54,17 +89,31 @@ textarea {
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border2);
-  border-radius: 2px;
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text3);
+  background-clip: padding-box;
+}
+
+/* Dark scrollbars inside the timeline */
+.tl-scroll::-webkit-scrollbar-thumb {
+  background: #353d48;
+  background-clip: padding-box;
+}
+.tl-scroll::-webkit-scrollbar-thumb:hover {
+  background: #4a5462;
+  background-clip: padding-box;
 }
 
 @keyframes pulse-dot {
@@ -94,7 +143,7 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-pill);
   outline: none;
   cursor: pointer;
   user-select: none;
@@ -111,5 +160,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 input[type="range"]::-webkit-slider-runnable-track {
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-pill);
+}
+
+/* Timeline scrubber range (compact, dark) */
+.tl-range {
+  height: 4px;
+}
+.tl-range::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  background: var(--tl-accent);
+  margin-top: -3.5px;
 }

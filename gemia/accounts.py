@@ -28,6 +28,14 @@ GOOGLE_OAUTH_SCOPE = "openid email profile"
 PENDING_OAUTH_TTL_SECONDS = 10 * 60
 _PENDING_OAUTH_STATES: dict[str, dict[str, Any]] = {}
 
+# Email one-time-code login (coexists with Google sign-in).
+EMAIL_CODE_TTL_SECONDS = 10 * 60
+EMAIL_CODE_LENGTH = 6
+EMAIL_CODE_MAX_ATTEMPTS = 5
+EMAIL_CODE_RESEND_COOLDOWN_SECONDS = 60
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PENDING_EMAIL_CODES: dict[str, dict[str, Any]] = {}
+
 
 class AuthError(GemiaError, ValueError):
     """Raised when a local auth operation cannot be completed safely.
@@ -164,11 +172,14 @@ def list_accounts() -> list[dict[str, Any]]:
 
 
 def auth_session_payload() -> dict[str, Any]:
+    from gemia import email_delivery
+
     return {
         "account": current_account(),
         "accounts": list_accounts(),
         "google_client_id": google_client_id(),
         "has_google_client_id": bool(google_client_id()),
+        "email_login_enabled": email_delivery.is_configured(),
     }
 
 
@@ -197,19 +208,39 @@ def sign_in_with_google(credential: str, *, client_id: str | None = None) -> dic
     if not email_verified:
         raise AuthError("Google email is not verified")
 
-    account_id = account_id_for("google", sub)
+    return _activate_account(
+        provider="google",
+        subject=sub,
+        email=_clean_string(claims.get("email")),
+        name=_clean_string(claims.get("name")),
+        picture=_clean_string(claims.get("picture")),
+        email_verified=email_verified,
+    )
+
+
+def _activate_account(
+    *,
+    provider: str,
+    subject: str,
+    email: str,
+    name: str,
+    picture: str = "",
+    email_verified: bool = True,
+) -> dict[str, Any]:
+    """Create or update a local account for ``provider`` and make it active."""
+    account_id = account_id_for(provider, subject)
     now = _utc_now()
     existing = _read_json(account_profile_path(account_id), {})
     created_at = existing.get("created_at") if isinstance(existing, dict) else None
     profile = {
         "version": ACCOUNT_SCHEMA_VERSION,
         "account_id": account_id,
-        "provider": "google",
-        "provider_subject": sub,
-        "email": _clean_string(claims.get("email")),
-        "email_verified": email_verified,
-        "name": _clean_string(claims.get("name")),
-        "picture": _clean_string(claims.get("picture")),
+        "provider": provider,
+        "provider_subject": subject,
+        "email": _clean_string(email),
+        "email_verified": bool(email_verified),
+        "name": _clean_string(name),
+        "picture": _clean_string(picture),
         "created_at": created_at or now,
         "updated_at": now,
     }
@@ -218,6 +249,99 @@ def sign_in_with_google(credential: str, *, client_id: str | None = None) -> dic
     _bootstrap_account_memory(profile)
     _write_active(account_id)
     return _public_profile(profile)
+
+
+def normalize_email(email: str) -> str:
+    """Lower-case and validate an email address, or raise ``AuthError``."""
+    value = _clean_string(email).lower()
+    if not value or len(value) > 254 or not _EMAIL_RE.match(value):
+        raise AuthError("邮箱地址格式不正确")
+    return value
+
+
+def start_email_login(email: str) -> dict[str, Any]:
+    """Generate a one-time login code, email it, and remember only its hash."""
+    from gemia import email_delivery
+
+    address = normalize_email(email)
+    _prune_pending_email_codes()
+    now = time.time()
+    existing = _PENDING_EMAIL_CODES.get(address)
+    if existing:
+        next_allowed = float(existing.get("sent_at") or 0) + EMAIL_CODE_RESEND_COOLDOWN_SECONDS
+        if next_allowed > now:
+            wait = int(next_allowed - now) + 1
+            raise AuthError(f"验证码发送过于频繁，请 {wait} 秒后再试")
+
+    code = _generate_email_code()
+    expires_at = now + EMAIL_CODE_TTL_SECONDS
+    # Send first; only remember the pending code if delivery succeeded.
+    email_delivery.send_login_code(address, code, ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60)
+    _PENDING_EMAIL_CODES[address] = {
+        "code_hash": _hash_email_code(address, code),
+        "expires_at": expires_at,
+        "sent_at": now,
+        "attempts": 0,
+    }
+    return {
+        "ok": True,
+        "email": address,
+        "expires_at": int(expires_at),
+        "ttl_seconds": EMAIL_CODE_TTL_SECONDS,
+        "resend_after": int(now + EMAIL_CODE_RESEND_COOLDOWN_SECONDS),
+    }
+
+
+def verify_email_login(email: str, code: str) -> dict[str, Any]:
+    """Validate a one-time code and activate (or create) the email account."""
+    address = normalize_email(email)
+    submitted = re.sub(r"\D", "", _clean_string(code))
+    _prune_pending_email_codes()
+    pending = _PENDING_EMAIL_CODES.get(address)
+    if not pending:
+        raise AuthError("验证码不存在或已过期，请重新获取")
+    if float(pending.get("expires_at") or 0) <= time.time():
+        _PENDING_EMAIL_CODES.pop(address, None)
+        raise AuthError("验证码已过期，请重新获取")
+    if int(pending.get("attempts") or 0) >= EMAIL_CODE_MAX_ATTEMPTS:
+        _PENDING_EMAIL_CODES.pop(address, None)
+        raise AuthError("验证码尝试次数过多，请重新获取")
+    if len(submitted) != EMAIL_CODE_LENGTH:
+        pending["attempts"] = int(pending.get("attempts") or 0) + 1
+        raise AuthError(f"请输入 {EMAIL_CODE_LENGTH} 位数字验证码")
+
+    expected = str(pending.get("code_hash") or "")
+    if not secrets.compare_digest(expected, _hash_email_code(address, submitted)):
+        pending["attempts"] = int(pending.get("attempts") or 0) + 1
+        remaining = EMAIL_CODE_MAX_ATTEMPTS - int(pending["attempts"])
+        if remaining <= 0:
+            _PENDING_EMAIL_CODES.pop(address, None)
+            raise AuthError("验证码错误次数过多，请重新获取")
+        raise AuthError(f"验证码不正确，还可尝试 {remaining} 次")
+
+    _PENDING_EMAIL_CODES.pop(address, None)
+    return _activate_account(
+        provider="email",
+        subject=address,
+        email=address,
+        name=address.split("@", 1)[0],
+        email_verified=True,
+    )
+
+
+def _generate_email_code() -> str:
+    return str(secrets.randbelow(10 ** EMAIL_CODE_LENGTH)).zfill(EMAIL_CODE_LENGTH)
+
+
+def _hash_email_code(email: str, code: str) -> str:
+    return hashlib.sha256(f"{email}:{code}".encode("utf-8")).hexdigest()
+
+
+def _prune_pending_email_codes() -> None:
+    now = time.time()
+    for key, pending in list(_PENDING_EMAIL_CODES.items()):
+        if float(pending.get("expires_at") or 0) <= now:
+            _PENDING_EMAIL_CODES.pop(key, None)
 
 
 def verify_google_id_token(id_token: str, *, client_id: str | None = None) -> dict[str, Any]:
@@ -518,10 +642,13 @@ __all__ = [
     "google_client_secret",
     "finish_google_oauth",
     "list_accounts",
+    "normalize_email",
     "save_google_client_id",
+    "start_email_login",
     "start_google_oauth",
     "sign_in_with_google",
     "sign_out",
     "switch_account",
+    "verify_email_login",
     "verify_google_id_token",
 ]

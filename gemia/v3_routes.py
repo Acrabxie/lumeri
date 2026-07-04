@@ -273,6 +273,9 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
         asset = asset_map.get(str(clip.get("asset_id") or "")) or {}
         clips_by_track.setdefault(tid, []).append({
             "id": str(clip.get("id") or ""),
+            # asset_id is surfaced so the frontend can fetch the clip's source
+            # media (/sessions/{id}/assets/{asset_id}) for filmstrip + waveform.
+            "asset_id": str(clip.get("asset_id") or ""),
             "name": str(clip.get("name") or asset.get("name") or "clip"),
             "start": float(clip.get("start") or 0.0),
             "duration": float(clip.get("duration") or 0.1),
