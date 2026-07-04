@@ -307,7 +307,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "web_search",
-        "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned.",
+        "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned. "
+        "BYOK: pluggable search engines, each reading its key from ~/.gemia/config.json — "
+        "tavily (tavily_api_key), serper (serper_api_key), brave (brave_api_key), exa (exa_api_key), "
+        "google_cse (google_cse_key + google_cse_id), bing (bing_api_key). "
+        "With provider=auto (default) the first configured key wins (order: tavily, serper, brave, exa, google_cse, bing), "
+        "else duckduckgo (no key) is used. Set config search_provider to force one engine globally, or pass provider per call. "
+        "If a configured provider errors, the result falls back to duckduckgo and includes a 'fallback' note; the served engine is reported in 'provider'.",
         {
             "query": {
                 "type": "string",
@@ -316,6 +322,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "limit": {
                 "type": "integer",
                 "description": "Max results to return. Defaults to a full result page (10); clamped to 1..10.",
+            },
+            "provider": {
+                "type": "string",
+                "enum": [
+                    "auto",
+                    "tavily",
+                    "serper",
+                    "brave",
+                    "exa",
+                    "google_cse",
+                    "bing",
+                    "duckduckgo",
+                ],
+                "description": "Which search engine to use. 'auto' (default) picks the first BYOK provider whose key is configured (else duckduckgo). The named BYOK providers need their key(s) in ~/.gemia/config.json; duckduckgo needs no key.",
             },
         },
         ["query"],
@@ -441,11 +461,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "build",
-        "Async submit Python code to a sandboxed subprocess. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
+        "Async submit code to a sandboxed subprocess. Supports Python (default), Node.js, Bash, Go, Ruby, Rust. Executes immediately in a new process group with workspace full r/w and network denied. Returns job_id immediately; use check_job or wait_for_job to poll status. Perfect for long-running code, iteration loops (see→modify→rerun), and skill development.",
         {
             "code": {
                 "type": "string",
-                "description": "Python source code to execute in sandbox.",
+                "description": "Source code to execute in sandbox (language determined by 'language' parameter).",
+            },
+            "language": {
+                "type": "string",
+                "enum": ["python3", "node", "bash", "go", "ruby", "rust"],
+                "description": "Programming language (default 'python3'). Choose based on your intent: python3 for data/media work, node for glue code with types, bash for system commands and pipelines.",
             },
             "filename": {
                 "type": "string",
@@ -495,26 +520,364 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "save_skill",
-        "Persist a workspace artifact (e.g., debugged script, utility library) as a reusable skill for future sessions. Validates path containment, slugifies name, writes metadata JSON. Host-side only (no sandbox). Use after iterating/debugging code via build+check_job.",
+        "After completing a reusable multi-step task, call save_skill to DISTILL it into a durable skill so it can be reused in future sessions. Capture name + when_to_use (the trigger) + steps (the recipe) + notes. Idempotent: re-saving the same name UPDATES it (no duplicates). (Backward-compat: if you instead pass 'source', it archives that workspace file as a skill via the build artifact path.)",
         {
-            "source": {
-                "type": "string",
-                "description": "Workspace-relative path to source file (e.g. 'builds/build_abc/script.py').",
-            },
             "name": {
                 "type": "string",
-                "description": "Human-readable skill name (slugified to lowercase/hyphens).",
+                "description": "Human-readable skill name; also the idempotent key (re-saving updates).",
+            },
+            "when_to_use": {
+                "type": "string",
+                "description": "When this skill applies — the trigger / situation that should recall it.",
+            },
+            "steps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "The reusable recipe: ordered steps/ops to reproduce the task.",
+            },
+            "notes": {
+                "type": "string",
+                "description": "Optional caveats, defaults, or extra guidance.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional keyword tags to improve recall.",
+            },
+            "source": {
+                "type": "string",
+                "description": "Backward-compat only: workspace-relative file to archive as a skill (e.g. 'builds/build_abc/script.py').",
             },
             "description": {
                 "type": "string",
-                "description": "Optional skill description.",
+                "description": "Optional description (used by the artifact/source path).",
             },
             "overwrite": {
                 "type": "boolean",
-                "description": "If true, replace existing skill of same name. Default false.",
+                "description": "Artifact path only: if true, replace existing skill of same name. Default false.",
             },
         },
-        ["source", "name"],
+        ["name"],
+    ),
+    _tool(
+        "recall_skills",
+        "Call this FIRST, before starting a task, to reuse prior know-how: returns the most relevant saved (distilled) and built-in library skills for your query/task, each with name + when_to_use + recipe steps. Reuse a matching skill instead of re-deriving it.",
+        {
+            "query": {
+                "type": "string",
+                "description": "Free-text describing the task you are about to do (matched against skill name, when_to_use, tags, steps, notes).",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max number of skills to return (default 5).",
+            },
+            "include_library": {
+                "type": "boolean",
+                "description": "Also search built-in library skills, not just user-distilled ones. Default true.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "remember",
+        "Call this to REMEMBER a durable user fact or preference across sessions — a standing constraint, a stable preference, a name/handle, a recurring workflow choice. The fact is written to durable memory (MEMORY.md) and shown back to you in the 'What you remember' section of future sessions. Pass a 'title' to make it idempotent: re-remembering the same title UPDATES the note instead of duplicating it. Do NOT store secrets, tokens, passwords, or API keys — those are rejected. For short-lived per-turn progress, use log_note instead, not remember.",
+        {
+            "content": {
+                "type": "string",
+                "description": "The durable fact/preference to remember, in plain text.",
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional short label/key. Re-remembering with the same title UPDATES the existing note (no duplicates).",
+            },
+            "kind": {
+                "type": "string",
+                "description": "Optional category hint, e.g. 'preference', 'constraint', 'fact', 'workflow'.",
+            },
+        },
+        ["content"],
+    ),
+    _tool(
+        "log_note",
+        "Append a short one-line note to TODAY'S daily log (a running breadcrumb of progress/decisions). Use for short-lived, in-this-session context worth recording — not for durable facts (use remember for those). Best-effort: empty or secret-looking notes are skipped, not stored. The host already auto-logs a turn summary at turn end; use this to add your own extra breadcrumb mid-turn.",
+        {
+            "text": {
+                "type": "string",
+                "description": "The note to append to today's daily log (collapsed to a single line).",
+            },
+        },
+        ["text"],
+    ),
+    # ── lumenframe layer document verbs ──────────────────────────────────
+    # The session owns ONE lumenframe document (layer tree). These verbs
+    # expose the LayerPatch vocabulary: low-level lumen_patch for raw ops,
+    # or convenience verbs (add_layer, set_transform, etc.) wrapping it.
+    _tool(
+        "get_lumenframe",
+        "Inspect the session lumenframe layer document: layer tree (id, type, name, visibility), selection, and canvas settings.",
+        {
+            "history": {
+                "type": "integer",
+                "description": "Reserved for future patch history (currently 0).",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_patch",
+        "Low-level: apply a raw LayerPatch (one or more ops atomically). Each op names its type (add_layer, set_transform, set_opacity, delete_layer, move_layer, set_visibility, select, etc.) and carries the required arguments. Refer to lumenframe.catalog for the complete op vocabulary.",
+        {
+            "ops": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "List of LayerPatch operations: [{op: 'add_layer', type: 'video', ...}, {op: 'set_transform', layer_id: '...', x: 100}, ...].",
+            },
+        },
+        ["ops"],
+    ),
+    _tool(
+        "lumen_add_layer",
+        "Convenience verb: create a new layer (video/image/text/shape/audio/adjustment/solid/null/composition).",
+        {
+            "type": {
+                "type": "string",
+                "enum": ["video", "image", "text", "shape", "audio", "adjustment", "solid", "null", "composition"],
+                "description": "Layer type.",
+            },
+            "name": {"type": "string", "description": "Optional layer name."},
+            "parent_id": {"type": "string", "description": "Optional parent layer id (default: root)."},
+            "index": {"type": "integer", "description": "Optional insert position (default: end)."},
+            "at_time": {"type": "number", "description": "Optional start time on parent timeline."},
+        },
+        ["type"],
+    ),
+    _tool(
+        "lumen_set_transform",
+        "Convenience verb: move/scale/rotate a layer. Anchor-relative, canvas-centre origin.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to transform."},
+            "x": {"type": "number", "description": "Canvas x offset (px from centre)."},
+            "y": {"type": "number", "description": "Canvas y offset."},
+            "scale": {"type": "number", "description": "Uniform scale (overrides scale_x/scale_y)."},
+            "scale_x": {"type": "number", "description": "Horizontal scale."},
+            "scale_y": {"type": "number", "description": "Vertical scale."},
+            "rotation": {"type": "number", "description": "Rotation in degrees."},
+            "anchor_x": {"type": "number", "description": "Anchor point x (0..1)."},
+            "anchor_y": {"type": "number", "description": "Anchor point y (0..1)."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_set_opacity",
+        "Convenience verb: set layer opacity.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id."},
+            "opacity": {"type": "number", "description": "Opacity value 0..1."},
+        },
+        ["layer_id", "opacity"],
+    ),
+    _tool(
+        "lumen_delete_layer",
+        "Convenience verb: delete one or more layers.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id to delete (or use layer_ids for multiple)."},
+            "layer_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Multiple layer ids to delete.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_move_layer",
+        "Convenience verb: reparent, reorder (z), retime, or relane a layer.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to move."},
+            "parent_id": {"type": "string", "description": "Optional new parent."},
+            "index": {"type": "integer", "description": "Optional new z-order within parent."},
+            "lane": {"type": "string", "description": "Optional new lane hint."},
+            "start": {"type": "number", "description": "Optional new start time on parent."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_set_visibility",
+        "Convenience verb: show or hide a layer.",
+        {
+            "layer_id": {"type": "string", "description": "Layer id."},
+            "visible": {"type": "boolean", "description": "True to show, false to hide."},
+        },
+        ["layer_id", "visible"],
+    ),
+    _tool(
+        "lumen_select",
+        "Convenience verb: change the current selection.",
+        {
+            "layer_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Layer ids to select (empty list + mode='clear' clears selection).",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["replace", "add", "toggle", "clear"],
+                "description": "Selection mode. Default 'replace'.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_render",
+        "Render the current lumenframe document to a video (MP4) or still frame (PNG). Missing media assets degrade gracefully. Returns asset_id for playback or analysis via analyze_media.",
+        {
+            "format": {
+                "type": "string",
+                "enum": ["video", "frame"],
+                "description": "Output format. Default 'video' (MP4); 'frame' renders a single PNG.",
+            },
+            "frame_index": {
+                "type": "integer",
+                "description": "For format='frame', which frame to render (0-based). Default 0.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_set_range",
+        "Place an existing layer on an exact frame range. Use when the user says 'put this from frame A to B' or when frame-accurate placement matters.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to place."},
+            "frame_in": {"type": "number", "description": "Inclusive timeline start frame."},
+            "frame_out": {"type": "number", "description": "Exclusive timeline end frame; must be > frame_in."},
+        },
+        ["layer_id", "frame_in", "frame_out"],
+    ),
+    _tool(
+        "lumen_set_lane",
+        "Assign an existing layer to a lane/track. Higher lanes composite above lower lanes.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to relane."},
+            "lane": {"type": "integer", "description": "Lane index. 0 is the default; higher lanes are above."},
+        },
+        ["layer_id", "lane"],
+    ),
+    _tool(
+        "lumen_retime_segment",
+        "Speed-change only a sub-range of a layer. The tool splits the segment, applies speed, and ripples the tail so there is no gap/overlap.",
+        {
+            "layer_id": {"type": "string", "description": "Layer containing the segment."},
+            "t0": {"type": "number", "description": "Segment start time in seconds. Use either t0/t1 or frame0/frame1."},
+            "t1": {"type": "number", "description": "Segment end time in seconds."},
+            "frame0": {"type": "integer", "description": "Segment start frame. Use instead of t0."},
+            "frame1": {"type": "integer", "description": "Segment end frame. Use instead of t1."},
+            "speed": {"type": "number", "description": "Playback speed for the segment; > 0. 0.5 slow, 2 fast."},
+        },
+        ["layer_id", "speed"],
+    ),
+    _tool(
+        "lumen_reverse",
+        "Reverse a whole layer or only a selected sub-range. Duration is preserved.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to reverse."},
+            "t0": {"type": "number", "description": "Optional segment start seconds; provide with t1."},
+            "t1": {"type": "number", "description": "Optional segment end seconds; provide with t0."},
+            "frame0": {"type": "integer", "description": "Optional segment start frame; provide with frame1."},
+            "frame1": {"type": "integer", "description": "Optional segment end frame; provide with frame0."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_time_remap",
+        "Attach an explicit output-time to source-time remap curve for speed ramps, freeze frames, loops, and custom timing.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to retime."},
+            "keyframes": {
+                "type": "array",
+                "description": "List of {t, value, interp?}; t is output seconds, value is source seconds, interp is linear|hold.",
+                "items": {"type": "object"},
+            },
+            "extrapolate": {"type": "string", "enum": ["hold", "loop", "pingpong"], "description": "Behavior outside the curve. Default hold."},
+        },
+        ["layer_id", "keyframes"],
+    ),
+    _tool(
+        "lumen_speed_ramp",
+        "Apply a named speed-ramp preset while preserving layer duration.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to ramp."},
+            "preset": {"type": "string", "enum": ["hero", "montage", "bullet", "ease_in", "ease_out"], "description": "Ramp profile."},
+            "extrapolate": {"type": "string", "enum": ["hold", "loop", "pingpong"], "description": "Optional remap extrapolation."},
+        },
+        ["layer_id", "preset"],
+    ),
+    _tool(
+        "lumen_ripple_delete",
+        "Delete a layer and close the gap by shifting later same-lane siblings left.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to delete."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_merge_compositions",
+        "Merge source composition timelines into another composition. mode=append places them after existing content; mode=overlay stacks them at their local times.",
+        {
+            "source_ids": {"type": "array", "items": {"type": "string"}, "description": "Source composition layer ids."},
+            "into_id": {"type": "string", "description": "Target composition id, often the root id."},
+            "mode": {"type": "string", "enum": ["append", "overlay"], "description": "Merge mode. Default overlay."},
+            "offset": {"type": "number", "description": "Optional seconds offset."},
+            "keep_sources": {"type": "boolean", "description": "Keep empty source containers instead of removing them."},
+        },
+        ["source_ids", "into_id"],
+    ),
+    _tool(
+        "lumen_set_work_area",
+        "Set or clear the canvas work area. lumen_render_range can default to this range when bounds are omitted.",
+        {
+            "t_in": {"type": "number", "description": "Work-area start seconds."},
+            "t_out": {"type": "number", "description": "Work-area end seconds; must be > t_in."},
+            "clear": {"type": "boolean", "description": "If true, clear the work area and ignore t_in/t_out."},
+        },
+        [],
+    ),
+    _tool(
+        "lumen_seek",
+        "Seek/locate the current lumenframe document to a specific moment. Use when the user says 'go to', 'show me at', 'what's happening at <time>', 'jump to frame N', or wants to inspect/preview a single instant. Reports the timeline state at that moment (which layers are active and how they are placed/sampled) AND renders that exact frame to a preview image asset. Pass exactly one of seconds or frame.",
+        {
+            "seconds": {
+                "type": "number",
+                "description": "Time on the document timeline to seek to, in seconds. Mutually exclusive with 'frame'.",
+            },
+            "frame": {
+                "type": "integer",
+                "description": "Explicit frame index to seek to (0-based). Mutually exclusive with 'seconds'.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "lumen_render_range",
+        "Render or EXPORT only a time range [t_in, t_out) of the current lumenframe document, not the whole thing. Use when the user wants just a slice/segment/clip — 'render seconds 1 to 2.5', 'export the part from 0:05 to 0:10', 'preview the middle section'. Set export=true to write that range to a video (MP4) asset; otherwise returns a short preview (rendered frame count plus a representative middle-frame preview image asset). Times are seconds; require t_in < t_out.",
+        {
+            "t_in": {
+                "type": "number",
+                "description": "Inclusive start time of the range, in seconds.",
+            },
+            "t_out": {
+                "type": "number",
+                "description": "Exclusive end time of the range, in seconds. Must be greater than t_in.",
+            },
+            "step": {
+                "type": "integer",
+                "description": "Stride between rendered frames (>= 1). Default 1.",
+            },
+            "export": {
+                "type": "boolean",
+                "description": "If true, export the range to an MP4 video asset; otherwise render a short in-memory preview and report the frame count. Default false.",
+            },
+        },
+        ["t_in", "t_out"],
     ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
@@ -718,6 +1081,144 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
         ["otio_path"],
+    ),
+    # ── file-management verbs (host-side, OUTSIDE the session workspace) ──
+    # Like fetch/web_search these reach the user's real machine. Every write/
+    # move/copy target and source is run through _safe_path (refuses system
+    # dirs, credential/secret files, .git internals). move_file/organize_files
+    # require explicit user approval via the ask mechanism before moving.
+    _tool(
+        "read_file",
+        "Read a text file from the user's machine (OUTSIDE the session "
+        "workspace). Returns {path, text, truncated, size}. Binary files return "
+        "a short note plus size instead of raw bytes. Read-only.",
+        {
+            "path": {"type": "string", "description": "Absolute or ~-relative host path to read."},
+            "max_bytes": {
+                "type": "integer",
+                "description": "Max bytes to read (default 2000000). Larger files are truncated.",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "write_file",
+        "Write (overwrite) or append a text file on the user's machine (OUTSIDE "
+        "the session workspace). Creates parent directories. Allowed without "
+        "approval. Returns {path, bytes_written}. Refuses system/credential "
+        "paths.",
+        {
+            "path": {"type": "string", "description": "Absolute or ~-relative host path to write."},
+            "content": {"type": "string", "description": "Text content to write."},
+            "append": {
+                "type": "boolean",
+                "description": "If true, append instead of overwriting. Default false.",
+            },
+        },
+        ["path", "content"],
+    ),
+    _tool(
+        "copy_in",
+        "Copy an external file INTO the session workspace so it can be edited "
+        "safely without touching the original. Returns {workspace_path, name, "
+        "size}.",
+        {
+            "path": {"type": "string", "description": "Host path of the external file to copy in."},
+            "as_name": {
+                "type": "string",
+                "description": "Optional filename to use inside the workspace (basename only).",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "list_dir",
+        "List a directory on the user's machine (OUTSIDE the session "
+        "workspace). Returns {path, entries:[{name, is_dir, size}], truncated}. "
+        "Read-only.",
+        {
+            "path": {"type": "string", "description": "Host directory path to list."},
+            "max_entries": {
+                "type": "integer",
+                "description": "Max entries to return (default 500).",
+            },
+        },
+        ["path"],
+    ),
+    _tool(
+        "move_file",
+        "MOVE/RENAME a file on the user's machine (OUTSIDE the session "
+        "workspace). This REQUIRES EXPLICIT USER APPROVAL: an approval prompt "
+        "is shown and awaited before anything moves. On approval returns "
+        "{status:'moved', src, dst}; otherwise {status:'declined'} and nothing "
+        "is moved. Refuses system/credential paths.",
+        {
+            "src": {"type": "string", "description": "Host path of the file to move."},
+            "dst": {"type": "string", "description": "Destination host path (new name/location)."},
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait for approval before declining.",
+            },
+        },
+        ["src", "dst"],
+    ),
+    _tool(
+        "organize_files",
+        "Batch MOVE/RENAME several files at once with ONE approval listing all "
+        "moves. REQUIRES EXPLICIT USER APPROVAL before any move happens. On "
+        "approval executes each move and returns {status:'completed', moved, "
+        "results}; on decline returns {status:'declined'} and moves nothing. "
+        "Every src/dst is safety-checked first; a refusal aborts the batch.",
+        {
+            "moves": {
+                "type": "array",
+                "description": "List of {src, dst} pairs to move.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "src": {"type": "string"},
+                        "dst": {"type": "string"},
+                    },
+                },
+            },
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait for approval before declining.",
+            },
+        },
+        ["moves"],
+    ),
+    _tool(
+        "elicit",
+        "Ask the user a structured question and wait for their answer before "
+        "continuing. Use this when a creative/destructive choice is genuinely the "
+        "user's to make and you cannot infer it (which of N options, a value to "
+        "tune, free-text naming). Renders rich controls in the UI and returns the "
+        "validated answer as this tool's result; do NOT proceed on assumptions when "
+        "an elicit is warranted. Each control is keyed; 'controls' maps control_key "
+        "-> spec. Control types: select {options} single-choice; multi_select "
+        "{options, min?, max?} returns a list; text {placeholder?, multiline?, "
+        "pattern?, min_length?, max_length?}; slider {min, max, step?, default?} "
+        "returns a number; panel {fields: {key->spec}, description?} a grouped form; "
+        "custom_panel {schema} an extensible schema-driven form. 'options' may be a "
+        "list of strings or of {label, value} objects.",
+        {
+            "title": {"type": "string", "description": "Short question title shown to the user."},
+            "description": {"type": "string", "description": "Optional longer explanation."},
+            "controls": {
+                "type": "object",
+                "description": (
+                    "Map of control_key -> control spec. Each spec has a 'type' "
+                    "(select|multi_select|text|slider|panel|custom_panel) plus that "
+                    "type's parameters."
+                ),
+            },
+            "timeout": {
+                "type": "number",
+                "description": "Optional seconds to wait before falling back to control defaults.",
+            },
+        },
+        ["title", "controls"],
     ),
 ]
 

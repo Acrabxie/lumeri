@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from gemia.budget_guard import BudgetGuard
+from gemia.errors import ToolError
 from gemia.tools import DISPATCHER
 from gemia.tools._context import AssetRegistry, ToolContext
 from gemia.tools import files as file_tools
@@ -27,19 +28,26 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     return asyncio.run(DISPATCHER[name](args, ctx))
 
 
+def _schema_names() -> set[str]:
+    from gemia.tools._schema import TOOL_SCHEMAS
+
+    return {tool["function"]["name"] for tool in TOOL_SCHEMAS}
+
+
 def test_file_tools_are_registered_and_budgeted() -> None:
     guard = BudgetGuard()
     for name in ("file_list", "file_read", "file_write", "file_copy", "file_move", "file_delete"):
         assert name in DISPATCHER
         assert not DISPATCHER[name].__name__.startswith("stub_")
-        assert name in [tool["function"]["name"] for tool in file_tools_schema_names()]
+        assert name in _schema_names()
         assert guard.estimate(name)[0] == 0.0
 
 
-def file_tools_schema_names() -> list[dict]:
-    from gemia.tools._schema import TOOL_SCHEMAS
-
-    return TOOL_SCHEMAS
+def test_legacy_file_tools_are_registered() -> None:
+    for name in ("read_file", "write_file", "copy_in", "list_dir", "move_file", "organize_files"):
+        assert name in DISPATCHER
+        assert not DISPATCHER[name].__name__.startswith("stub_")
+    assert hasattr(file_tools, "dispatch_read_file")
 
 
 def test_workspace_has_full_file_permissions(tmp_path: Path) -> None:
@@ -131,3 +139,30 @@ def test_credential_paths_are_blocked(tmp_path: Path) -> None:
 
     with pytest.raises(PermissionError):
         _run("file_list", {"path": str(Path.home() / ".ssh")}, ctx)
+
+
+def test_legacy_read_write_copy_in_and_move(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path / "ws")
+    out = _run("write_file", {"path": "legacy.txt", "content": "hello"}, ctx)
+    assert out["bytes_written"] == 5
+    assert _run("read_file", {"path": "legacy.txt"}, ctx)["text"] == "hello"
+
+    outside = Path("/private/tmp") / f"lumeri_filetools_{uuid.uuid4().hex[:8]}"
+    outside.mkdir(parents=True)
+    try:
+        src = outside / "import.txt"
+        src.write_text("copy-in", encoding="utf-8")
+        copied = _run("copy_in", {"source": str(src)}, ctx)
+        assert Path(copied["path"]).read_text(encoding="utf-8") == "copy-in"
+
+        moved = _run("move_file", {"source": "legacy.txt", "dest": "legacy-moved.txt"}, ctx)
+        assert Path(moved["dest"]["path"]).exists()
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def test_legacy_read_missing_raises_tool_error(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path / "ws")
+    with pytest.raises(ToolError) as ei:
+        _run("read_file", {"path": "missing.txt"}, ctx)
+    assert ei.value.code == "E_NOT_FOUND"

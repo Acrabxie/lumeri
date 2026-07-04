@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
-from lumerai.patches import TimelinePatchError
+from lumerai.patches import _TRANSITION_KINDS, TimelinePatchError
 
 
 _DEFAULT_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
@@ -91,7 +91,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -106,6 +106,8 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _upload_asset(handler, runner)
     if action == "close":
         return _close_session(handler, runner)
+    if action == "ask_response":
+        return _ask_response(handler, runner)
     return False
 
 
@@ -171,6 +173,27 @@ def _submit_turn(handler, runner: SessionRunner) -> bool:
         _json_error(handler, 409, "turn already in progress for this session")
         return True
     _json_response(handler, 202, {"session_id": runner.session_id, "accepted": True})
+    return True
+
+
+def _ask_response(handler, runner: SessionRunner) -> bool:
+    """Deliver a user's answer to a pending ``elicit`` question."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    question_id = body.get("question_id")
+    answers = body.get("answers")
+    if not isinstance(question_id, str) or not question_id:
+        _json_error(handler, 400, "request body must include 'question_id' string")
+        return True
+    if not isinstance(answers, dict):
+        _json_error(handler, 400, "request body must include 'answers' object")
+        return True
+    delivered = runner.deliver_ask_answer(question_id, answers)
+    if not delivered:
+        _json_error(handler, 404, f"no pending question: {question_id}")
+        return True
+    _json_response(handler, 200, {"question_id": question_id, "delivered": True})
     return True
 
 
@@ -335,7 +358,9 @@ def _session_timeline(handler, session_id: str) -> bool:
 
 
 # User direct-edit op tokens -> the same patches.py ops the model's verbs emit.
-_USER_EDIT_OPS = {"move", "trim", "split", "delete", "set_time", "set_effects"}
+# ``set_effects`` also carries the direct-UI BLEND op (effects.blend_mode) and the
+# PIP op (effects.scale/x/y); ``add_transition`` carries the CROSSFADE op.
+_USER_EDIT_OPS = {"move", "trim", "split", "delete", "set_time", "set_effects", "add_transition"}
 
 
 def _build_user_edit_op(op_name: str, clip_id: str, body: dict) -> dict[str, Any]:
@@ -385,6 +410,19 @@ def _build_user_edit_op(op_name: str, clip_id: str, body: dict) -> dict[str, Any
         if not isinstance(effects, dict):
             raise ValueError("set_effects requires an 'effects' object")
         return {"op": "set_clip_effects", "clip_id": clip_id, "effects": effects, "provenance": prov}
+    if op_name == "add_transition":
+        # Direct-UI CROSSFADE op -> lumerai _op_add_transition. The patch op's own
+        # E_BAD_ARG validation covers adjacency/duration; we only pre-check that the
+        # kind is a known transition so a typo fails fast as a 400 here.
+        kind = str(body.get("kind") or "")
+        if kind not in _TRANSITION_KINDS:
+            raise ValueError(
+                f"add_transition.kind must be one of {sorted(_TRANSITION_KINDS)}, got {kind!r}"
+            )
+        op = {"op": "add_transition", "clip_id": clip_id, "kind": kind, "provenance": prov}
+        if body.get("duration_sec") is not None:
+            op["duration_sec"] = _num("duration_sec")
+        return op
     raise ValueError(f"unhandled op '{op_name}'")
 
 

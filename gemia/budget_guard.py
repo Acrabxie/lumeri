@@ -65,6 +65,28 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "timeline_undo":            {"usd": 0.00, "eta_sec": 0.2},
     "render_preview":           {"usd": 0.00, "eta_sec": 20.0},  # ffmpeg low-res proxy
     "project_export":           {"usd": 0.00, "eta_sec": 60.0},  # full-quality multi-track export
+    # Lumenframe layer/time verbs (pure document patch unless rendering).
+    "get_lumenframe":           {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_patch":              {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_add_layer":          {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_transform":      {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_opacity":        {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_delete_layer":       {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_move_layer":         {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_visibility":     {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_select":             {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_range":          {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_lane":           {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_retime_segment":     {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_reverse":            {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_time_remap":         {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_speed_ramp":         {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_ripple_delete":      {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_merge_compositions": {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_work_area":      {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_render":             {"usd": 0.00, "eta_sec": 20.0},
+    "lumen_seek":               {"usd": 0.00, "eta_sec": 1.0},
+    "lumen_render_range":       {"usd": 0.00, "eta_sec": 5.0},
 }
 
 

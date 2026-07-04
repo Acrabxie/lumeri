@@ -330,22 +330,97 @@ def _flatten_rgba_for_video(
     return rgb[..., ::-1].astype(np.float32)
 
 
+#: Blend modes whose separable RGB mix function ``f(cb, cs)`` the compositor
+#: implements. ``normal`` / ``multiply`` / ``screen`` / ``overlay`` are the
+#: original four (kept byte-identical); the rest are the W3C compositing set plus
+#: the photographic ``add`` / ``subtract`` family. Unknown modes degrade to
+#: ``normal`` (safe, no crash) so a stray spec never breaks a render.
+BLEND_MODES: tuple[str, ...] = (
+    "normal",
+    "multiply",
+    "screen",
+    "overlay",
+    "add",
+    "linear_dodge",
+    "lighten",
+    "darken",
+    "difference",
+    "exclusion",
+    "subtract",
+    "hard_light",
+    "soft_light",
+    "color_dodge",
+    "color_burn",
+)
+
+
+def _blend_rgb(cb: np.ndarray, cs: np.ndarray, blend_mode: str) -> np.ndarray:
+    """Separable per-channel blend function ``f(cb, cs)`` for the W3C model.
+
+    ``cb`` is the backdrop colour, ``cs`` the source colour, both float32 in
+    ``[0, 1]``. The original four modes (normal / multiply / screen / overlay)
+    return exactly the same expression as before, so the premultiplied-alpha
+    composite around this stays golden-identical. Unknown modes fall back to
+    ``normal`` (return ``cs``) — never raise — so the renderer cannot crash on a
+    stray blend name.
+    """
+    if blend_mode == "normal":
+        return cs
+    if blend_mode == "multiply":
+        return cb * cs
+    if blend_mode == "screen":
+        return 1.0 - (1.0 - cb) * (1.0 - cs)
+    if blend_mode == "overlay":
+        return np.where(cb <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
+    if blend_mode in ("add", "linear_dodge"):
+        return _clamp01(cb + cs)
+    if blend_mode == "lighten":
+        return np.maximum(cb, cs)
+    if blend_mode == "darken":
+        return np.minimum(cb, cs)
+    if blend_mode == "difference":
+        return np.abs(cb - cs)
+    if blend_mode == "exclusion":
+        return cb + cs - 2.0 * cb * cs
+    if blend_mode == "subtract":
+        return _clamp01(cb - cs)
+    if blend_mode == "hard_light":
+        # Overlay with backdrop/source swapped (drive by the source).
+        return np.where(cs <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
+    if blend_mode == "soft_light":
+        # W3C soft-light: a smooth dodge/burn that pivots on cs == 0.5.
+        d = np.where(cb <= 0.25, ((16.0 * cb - 12.0) * cb + 4.0) * cb, np.sqrt(cb))
+        return np.where(
+            cs <= 0.5,
+            cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
+            cb + (2.0 * cs - 1.0) * (d - cb),
+        )
+    if blend_mode == "color_dodge":
+        # cb / (1 - cs): cb==0 stays 0, cs==1 saturates to 1 (W3C edge cases).
+        denom = 1.0 - cs
+        return np.where(
+            cb <= 0.0,
+            np.zeros_like(cb),
+            np.where(denom <= 0.0, np.ones_like(cb), _clamp01(cb / np.where(denom <= 0.0, 1.0, denom))),
+        )
+    if blend_mode == "color_burn":
+        # 1 - (1 - cb) / cs: cb==1 stays 1, cs==0 burns to 0 (W3C edge cases).
+        return np.where(
+            cb >= 1.0,
+            np.ones_like(cb),
+            np.where(cs <= 0.0, np.zeros_like(cb), _clamp01(1.0 - (1.0 - cb) / np.where(cs <= 0.0, 1.0, cs))),
+        )
+    # Unknown mode: degrade to normal rather than raising (renderer-safe).
+    return cs
+
+
 def _blend_colors(backdrop: RGBAFrame, source: RGBAFrame, blend_mode: str) -> RGBAFrame:
     cb = backdrop[..., :3]
     cs = source[..., :3]
     ab = backdrop[..., 3:4]
     a_s = source[..., 3:4]
 
-    if blend_mode == "normal":
-        blend_rgb = cs
-    elif blend_mode == "multiply":
-        blend_rgb = cb * cs
-    elif blend_mode == "screen":
-        blend_rgb = 1.0 - (1.0 - cb) * (1.0 - cs)
-    elif blend_mode == "overlay":
-        blend_rgb = np.where(cb <= 0.5, 2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs))
-    else:
-        raise ValueError(f"Unsupported blend mode: {blend_mode}")
+    blend_rgb = _blend_rgb(cb, cs, blend_mode)
 
     out_alpha = a_s + ab * (1.0 - a_s)
     out_rgb_premul = (
@@ -373,8 +448,10 @@ class Layer:
     rotation_deg: float = 0.0
     content_fn: Callable[[int], RGBAFrame] = lambda _frame_index: np.zeros((1, 1, 4), dtype=np.float32)
     mask_fn: Callable[[int], np.ndarray] | None = None
+    time_map_fn: Callable[[int], int] | None = None
     keyframes: dict[str, KeyframeTrack] = field(default_factory=dict)
     position: tuple[int, int] = (0, 0)
+    expressions: dict[str, dict] = field(default_factory=dict)  # property_name -> {"expr": str, ...}
 
     def is_active(self, frame_index: int) -> bool:
         if frame_index < self.start_frame:
@@ -384,6 +461,24 @@ class Layer:
         return frame_index < self.end_frame
 
     def property_value(self, name: str, frame_index: int, fps: float) -> float:
+        # Precedence: expressions > keyframes > static value
+        if name in self.expressions:
+            expr_data = self.expressions[name]
+            expr_str = expr_data.get("expr", "")
+            if expr_str:
+                try:
+                    from gemia.expressions import SafeEvaluator
+                    time_sec = float(frame_index) / fps if fps > 0 else 0.0
+                    # Get layer duration (end_frame - start_frame) / fps
+                    duration_frames = (self.end_frame or self.start_frame) - self.start_frame
+                    duration_sec = float(duration_frames) / fps if fps > 0 else 1.0
+                    evaluator = SafeEvaluator(time=time_sec, duration=duration_sec)
+                    result = evaluator.eval(expr_str)
+                    return float(result)
+                except Exception:
+                    # If expression fails, fall through to keyframes
+                    pass
+        
         base = getattr(self, name)
         track = self.keyframes.get(name)
         if track is None:
@@ -403,6 +498,7 @@ class Layer:
 
     def frame_content(self, frame_index: int) -> RGBAFrame:
         local_frame = frame_index - self.start_frame
+        local_frame = self.time_map_fn(local_frame) if self.time_map_fn is not None else local_frame
         frame = _to_rgba(self.content_fn(local_frame))
         scale = max(0.001, float(self.keyframes.get("scale").evaluate(float(frame_index)))) if "scale" in self.keyframes else float(self.scale)
         rotation_deg = float(self.keyframes.get("rotation_deg").evaluate(float(frame_index))) if "rotation_deg" in self.keyframes else float(self.rotation_deg)
@@ -984,6 +1080,7 @@ def _transcode_browser_mp4(source_path: Path, output_path: Path) -> None:
 
 
 __all__ = [
+    "BLEND_MODES",
     "Layer",
     "LayerStack",
     "execute_layer_plan",

@@ -26,10 +26,263 @@ Usage::
 from __future__ import annotations
 
 import json
+import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def distilled_skills_dir() -> Path:
+    """Return the directory where DISTILLED (user-authored) skills are stored.
+
+    Resolution order:
+    1. ``GEMIA_SKILL_STORE_DIR`` environment variable (used by tests via
+       monkeypatch to redirect into a tmp dir).
+    2. ``~/.gemia/skills`` — the durable per-user store.
+
+    The directory is created on demand by callers that write into it.
+    """
+    override = os.environ.get("GEMIA_SKILL_STORE_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".gemia" / "skills"
+
+
+def _distill_slug(text: str) -> str:
+    """Slug for a distilled-skill filename (keeps CJK, reuses :func:`_slugify`)."""
+    return _slugify(text)
+
+
+def _coerce_steps(steps: Any) -> list[str]:
+    """Normalize the ``steps``/``ops``/``recipe`` arg into a list of strings."""
+    if steps is None:
+        return []
+    if isinstance(steps, str):
+        text = steps.strip()
+        return [text] if text else []
+    if isinstance(steps, (list, tuple)):
+        out: list[str] = []
+        for item in steps:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                value = item.strip()
+                if value:
+                    out.append(value)
+            else:
+                out.append(json.dumps(item, ensure_ascii=False))
+        return out
+    return [str(steps)]
+
+
+class DistilledSkillStore:
+    """Durable store for skills DISTILLED ("沉淀") from completed agent tasks.
+
+    Unlike :class:`SkillStore` (which derives plan templates from v2 task
+    runs), this store captures a compact human/agent-authored recipe:
+    ``{name, when_to_use, steps, notes}``.  One JSON file per skill name,
+    so re-distilling the same name UPDATES in place (idempotent, no dups).
+
+    Stored under :func:`distilled_skills_dir` (``~/.gemia/skills`` or the
+    ``GEMIA_SKILL_STORE_DIR`` override).
+    """
+
+    def __init__(self, root_dir: str | Path | None = None) -> None:
+        self.root_dir = Path(root_dir).expanduser() if root_dir else distilled_skills_dir()
+
+    def _ensure_dir(self) -> Path:
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        return self.root_dir
+
+    def distill(
+        self,
+        name: str,
+        *,
+        when_to_use: str = "",
+        steps: Any = None,
+        notes: str = "",
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Distill a completed reusable task into a durable skill.
+
+        Idempotent by ``name``: re-distilling the same name overwrites the
+        existing file (no duplicates) while preserving ``created_at``.
+
+        Returns the stored skill dict (including ``file`` path).
+        """
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("distill requires a non-empty 'name'")
+
+        self._ensure_dir()
+        slug = _distill_slug(clean_name)
+        path = self.root_dir / f"{slug}.json"
+
+        created_at = datetime.now(timezone.utc).isoformat()
+        if path.exists():
+            try:
+                prior = json.loads(path.read_text(encoding="utf-8"))
+                created_at = prior.get("created_at", created_at)
+            except Exception:
+                pass
+
+        skill = {
+            "name": clean_name,
+            "source": "distilled",
+            "when_to_use": str(when_to_use or "").strip(),
+            "steps": _coerce_steps(steps),
+            "notes": str(notes or "").strip(),
+            "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
+            "created_at": created_at,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        path.write_text(json.dumps(skill, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        result = dict(skill)
+        result["file"] = str(path)
+        return result
+
+    def list_distilled(self) -> list[dict[str, Any]]:
+        """Return all distilled skills (ignoring dotfile/AppleDouble sidecars)."""
+        if not self.root_dir.exists():
+            return []
+        skills: list[dict[str, Any]] = []
+        for p in sorted(self.root_dir.glob("*.json")):
+            if p.name.startswith("."):
+                continue
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+            data.setdefault("source", "distilled")
+            data["file"] = str(p)
+            skills.append(data)
+        return skills
+
+    def load(self, name: str) -> dict[str, Any]:
+        """Load a distilled skill by exact name (or slug filename)."""
+        target = str(name or "").strip()
+        for data in self.list_distilled():
+            if data.get("name") == target:
+                return data
+        path = self.root_dir / f"{_distill_slug(target)}.json"
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["file"] = str(path)
+            return data
+        raise FileNotFoundError(f"Distilled skill not found: {name}")
+
+
+def _library_skills() -> list[dict[str, Any]]:
+    """Return the static library skills as recall-shaped dicts.
+
+    Sourced from :func:`gemia.ai.skill_router.load_skill_metadata` so recall
+    can surface built-in skills alongside user-distilled ones.  Import is
+    done lazily and defensively so the store stays usable even if the AI
+    package or its YAML deps are unavailable.
+    """
+    try:
+        from gemia.ai.skill_router import load_skill_metadata
+    except Exception:
+        return []
+    try:
+        metadata = load_skill_metadata()
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    for meta in metadata.values():
+        triggers = list(meta.primary_triggers) + list(meta.secondary_triggers)
+        out.append({
+            "name": meta.id,
+            "source": "library",
+            "when_to_use": meta.description,
+            "steps": list(meta.primitives),
+            "notes": "",
+            "tags": list(meta.primary_triggers),
+            "triggers": triggers,
+        })
+    return out
+
+
+def _relevance(skill: dict[str, Any], query_terms: list[str], query: str) -> float:
+    """Score a skill against a lowercased query (substring + token overlap)."""
+    haystacks: list[tuple[str, float]] = [
+        (str(skill.get("name", "")), 3.0),
+        (str(skill.get("when_to_use", "")), 2.0),
+        (" ".join(str(t) for t in skill.get("tags", []) or []), 2.0),
+        (" ".join(str(t) for t in skill.get("triggers", []) or []), 2.0),
+        (" ".join(str(s) for s in skill.get("steps", []) or []), 1.0),
+        (str(skill.get("notes", "")), 1.0),
+    ]
+    score = 0.0
+    for text, weight in haystacks:
+        lowered = text.lower()
+        if not lowered:
+            continue
+        if query and query in lowered:
+            score += weight * 2.0
+        for term in query_terms:
+            if term and term in lowered:
+                score += weight
+    return score
+
+
+def recall_skills(
+    query: str,
+    *,
+    store: "DistilledSkillStore | None" = None,
+    include_library: bool = True,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Recall the most relevant saved/library skills for ``query``.
+
+    Searches BOTH user-distilled skills (from :class:`DistilledSkillStore`)
+    and the static skill library, ranks by relevance, and returns up to
+    ``limit`` skills (name + when_to_use + steps + source).  When the query
+    is empty, returns the most recent distilled skills first.
+    """
+    store = store or DistilledSkillStore()
+    candidates: list[dict[str, Any]] = list(store.list_distilled())
+    if include_library:
+        candidates.extend(_library_skills())
+
+    query = str(query or "").strip().lower()
+    query_terms = [t for t in re.split(r"[\s,，。、/]+", query) if t]
+
+    if not query:
+        # No query: prefer freshly distilled skills, then library order.
+        def _recency(skill: dict[str, Any]) -> tuple[int, str]:
+            is_distilled = 0 if skill.get("source") == "distilled" else 1
+            return (is_distilled, str(skill.get("updated_at") or ""))
+        candidates.sort(key=_recency, reverse=False)
+        distilled = [s for s in candidates if s.get("source") == "distilled"]
+        distilled.sort(key=lambda s: str(s.get("updated_at") or ""), reverse=True)
+        others = [s for s in candidates if s.get("source") != "distilled"]
+        ranked = distilled + others
+        return [_recall_view(s) for s in ranked[:limit]]
+
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for idx, skill in enumerate(candidates):
+        score = _relevance(skill, query_terms, query)
+        if score > 0:
+            scored.append((score, idx, skill))
+    # Highest score first; stable on original order for ties.
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [_recall_view(item[2]) for item in scored[:limit]]
+
+
+def _recall_view(skill: dict[str, Any]) -> dict[str, Any]:
+    """Project a stored skill into a compact recall result."""
+    return {
+        "name": skill.get("name", ""),
+        "source": skill.get("source", "distilled"),
+        "when_to_use": skill.get("when_to_use", ""),
+        "steps": list(skill.get("steps", []) or []),
+        "notes": skill.get("notes", ""),
+        "tags": list(skill.get("tags", []) or []),
+    }
 
 
 class SkillStore:

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Callable
 
 from gemia.project_model import IMAGE_DURATION, _normalize_timeline_clip, normalize_project
+from gemia.video.layers import BLEND_MODES
 
 # Timeline v1 (M1) contract: seconds as floats, rounded to 6 places on write,
 # compared with EPSILON tolerance. See docs/timeline-v1/01-op-vocabulary.md.
@@ -16,9 +17,13 @@ _TRANSITION_KINDS = {"cut", "dissolve", "wipe", "fade"}
 # Audio attributes ride on the same effects map (M6): gain_db/fade_in/fade_out
 # join the existing `muted` so timeline_set_clip_effects covers the whole audio
 # surface with no extra verb, and they round-trip through OTIO metadata for free.
+# Compositing (direct-UI BLEND op): blend_mode rides the same effects map so the
+# existing set_clip_effects op stores it on the clip and the renderer reads it
+# off effects (compositing_graph -> Layer.blend_mode). Validated against the
+# renderer's canonical BLEND_MODES set (gemia.video.layers).
 _EFFECT_KEYS = {
     "rotation", "mirrored", "muted", "speed", "blur_radius", "opacity", "x", "y", "scale",
-    "gain_db", "fade_in", "fade_out",
+    "gain_db", "fade_in", "fade_out", "blend_mode",
 }
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -631,6 +636,16 @@ def _validated_effect_value(key: str, value: Any) -> Any:
     if key in {"mirrored", "muted"}:
         if not isinstance(value, bool):
             raise TimelinePatchError("E_BAD_ARG", f"effects.{key} must be a boolean")
+        return value
+    if key == "blend_mode":
+        # Direct-UI BLEND op. Validate against the renderer's canonical set so a
+        # stored mode is always one compositing_graph -> Layer.blend_mode can
+        # actually composite (gemia.video.layers._blend_rgb).
+        if not isinstance(value, str) or value not in BLEND_MODES:
+            raise TimelinePatchError(
+                "E_BAD_ARG",
+                f"effects.blend_mode must be one of {sorted(BLEND_MODES)}, got {value!r}",
+            )
         return value
     number = _number(value, f"effects.{key}")
     if key == "rotation":

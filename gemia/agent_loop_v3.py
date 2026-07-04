@@ -53,17 +53,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from gemia import memory as _memory
 from gemia.budget_guard import BudgetGuard
+from gemia.env_probe import format_environment_summary
 from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
+from gemia.tools._ask_bridge import AskBridge
 from gemia.tools._context import ProgressUpdate
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_v3.md"
 _ROLLING_USER_TURNS = 8
+
+# RC4: one-shot completion-check gate before ending on no-tool-calls
+COMPLETION_CHECK_ENABLED = True
 
 # Circuit breaker: there is no cap on the TOTAL number of tool steps in a turn
 # (a research + see→modify→rerun build loop legitimately needs many). Instead,
@@ -78,6 +84,41 @@ _MAX_CONSECUTIVE_TOOL_FAILURES = 5
 # get more headroom, because re-issuing the identical call is the *correct*
 # move for them — they are not a logic error the model needs to fix.
 _MAX_TRANSIENT_RETRIES = 8
+
+# Success-BLIND doom-loop guard (ported from opencode processor.ts,
+# DOOM_LOOP_THRESHOLD=3). The per-(tool, error_code) circuit breaker above only
+# trips on FAILURES. But a loop can also get stuck repeating a call that keeps
+# "succeeding" — or whose result the model ignores — and re-issuing the exact
+# same tool with byte-identical arguments forever. That is not progress, it is a
+# stuck model echoing itself. Independent of success/failure: if the last
+# ``_DOOM_LOOP_THRESHOLD`` tool calls in a turn are the SAME tool name with the
+# SAME (byte-identical) raw args JSON, the turn is looping on itself — emit a
+# structured turn_error and stop. Distinct args (real progress / different work)
+# never trip it.
+_DOOM_LOOP_THRESHOLD = 3
+
+# Post-edit self-correction (ported from opencode pattern #2: append LSP
+# diagnostics to a tool_result right after an edit). After a SUCCESSFUL
+# *mutating* lumenframe verb, we append a compact POST-STATE digest (the
+# resulting layer-tree summary + any lumenframe validate_doc warnings) to that
+# tool's tool_result text the model reads next. This grounds the model in the
+# new layer state at the exact moment it edits, so it self-corrects instead of
+# editing blind. A "mutating" lumen verb is any tool whose name starts with
+# "lumen_" EXCEPT the read-only ones below.
+_LUMEN_TOOL_PREFIX = "lumen_"
+_LUMEN_READONLY_TOOLS = frozenset({"lumen_get", "lumen_render"})
+
+
+def _is_mutating_lumen_tool(name: str) -> bool:
+    """True for a lumenframe verb that changes the layer document.
+
+    Mutating == tool name starts with ``lumen_`` and is NOT one of the
+    read-only verbs (``lumen_get``, ``lumen_render``). The read-only get verb
+    is actually registered as ``get_lumenframe`` (no ``lumen_`` prefix) so it is
+    excluded automatically; ``lumen_render`` is excluded explicitly because it
+    only rasterises and does not edit the tree.
+    """
+    return name.startswith(_LUMEN_TOOL_PREFIX) and name not in _LUMEN_READONLY_TOOLS
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -218,12 +259,19 @@ class AgentLoopV3:
             on_patch=lambda info: self._emit({"kind": "timeline_op", **info}),
         )
 
+        # Human-in-the-loop bridge for the ``elicit`` verb: lets a tool dispatcher
+        # emit an ask_question event and await the user's answer (delivered from the
+        # HTTP thread via deliver_ask_answer).
+        self._ask_bridge = AskBridge(self._emit)
+
+        _extra = dict(extra or {})
+        _extra.setdefault("ask_bridge", self._ask_bridge)
         self._tool_ctx = ToolContext(
             session_id=session_id,
             output_dir=self.output_dir,
             registry=self.registry,
             emit_progress=lambda _u: None,
-            extra=dict(extra or {}),
+            extra=_extra,
             project=self.project,
         )
 
@@ -258,29 +306,208 @@ class AgentLoopV3:
     def _emit_via_sse_registry(self, event: dict[str, Any]) -> None:
         SSE_REGISTRY.emit(self.session_id, event)
 
+    def deliver_ask_answer(self, question_id: str, answers: dict[str, Any]) -> bool:
+        """Deliver a user's answer to a pending ``elicit`` question.
+
+        Thread-safe: called from the HTTP handler thread; the bridge hops back onto
+        this session's event loop to resolve the awaiting future. Returns True if a
+        matching pending question was found.
+        """
+        return self._ask_bridge.deliver(question_id, answers)
+
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
         record = self.registry.add_external(Path(path), summary=summary or None)
         return record.asset_id
+
+    def _get_lumenframe_prompt_text(self) -> str:
+        """Get lumenframe document summary for prompt injection.
+
+        If lumenframe is available, returns a compact summary of the layer
+        tree and selection. Otherwise returns a placeholder.
+        """
+        try:
+            from gemia.tools import layer as _layer
+            # Access the session-local document cache
+            if not hasattr(_layer, "_DOC_CACHE") or self.session_id not in _layer._DOC_CACHE:
+                return "(no lumenframe document in session yet)"
+            doc = _layer._DOC_CACHE[self.session_id]
+            root = doc.get("root", {})
+            selection = doc.get("selection", [])
+            canvas = doc.get("canvas", {})
+
+            lines = []
+            lines.append(f"Canvas: {canvas.get('width')}×{canvas.get('height')} @ {canvas.get('fps')} fps")
+            if root:
+                lines.append("Layer tree:")
+                # Use the compact tree summary function from layer.py
+                tree_summary = _layer._compact_tree_summary(root)
+                lines.append(tree_summary)
+            if selection:
+                lines.append(f"Selection: {', '.join(str(id)[:12] for id in selection)}")
+            return "\n".join(lines) if lines else "(empty document)"
+        except (ImportError, AttributeError, KeyError):
+            return "(lumenframe not available)"
+
+    def _get_lumenframe_ops_catalog(self) -> str:
+        """Get lumenframe operations catalog for prompt injection.
+
+        **Conditional injection (on-demand):**
+        - If the session has a non-empty lumenframe doc (root.children with ≥1 layer),
+          inject the complete operation vocabulary from lumenframe.describe_ops().
+        - If the doc is empty or absent, return a minimal one-line pointer instead
+          of the full 3200+ character catalog, avoiding noise for non-layer tasks.
+          Once the user starts a lumenframe edit, the full vocabulary auto-injects.
+        """
+        try:
+            from gemia.tools import layer as _layer
+            from lumenframe import describe_ops
+
+            # Check if doc exists and has layers
+            if hasattr(_layer, "_DOC_CACHE") and self.session_id in _layer._DOC_CACHE:
+                doc = _layer._DOC_CACHE[self.session_id]
+                root = doc.get("root", {})
+                children = root.get("children", [])
+                # Non-empty doc: inject full ops catalog
+                if children:
+                    return describe_ops()
+
+            # Empty or missing doc: minimal pointer
+            return "Layer editing available via lumen_* tools — call lumen_get to start."
+        except (ImportError, Exception):
+            return "(lumenframe operations not available)"
+
+    def _memory_for_prompt(self) -> str:
+        """Compact, size-capped durable-memory block for the ``{{memory}}`` slot.
+
+        Delegates to ``gemia.memory.format_memory_for_prompt`` (which reads
+        MEMORY.md + the model-profile digest, capped at a few KB) and never
+        raises: any failure degrades to a short placeholder so prompt assembly
+        cannot break on a missing or unreadable memory store.
+        """
+        try:
+            return _memory.format_memory_for_prompt()
+        except Exception:  # noqa: BLE001 — memory must never break prompt build
+            return "(durable memory unavailable this session)"
+
+    def _auto_log_turn(
+        self,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+    ) -> None:
+        """Append ONE concise line to today's daily log at turn end.
+
+        Records the user's ask (truncated) + what was done (tool / asset
+        counts). Best-effort and non-fatal by contract: secret-looking content
+        is dropped inside ``append_daily_entry`` and the whole thing is wrapped
+        in try/except so a logging failure can never break the turn. Skips
+        cleanly when there is no pinned intent (nothing to log)."""
+        try:
+            ask = (self._pinned_intent or "").strip()
+            if not ask:
+                return
+            ask = " ".join(ask.split())
+            if len(ask) > 140:
+                ask = ask[:139].rstrip() + "…"
+
+            done_bits: list[str] = []
+            if tools_succeeded:
+                done_bits.append(f"{tools_succeeded} tool call(s)")
+            if assets_produced:
+                done_bits.append(f"{assets_produced} asset(s)")
+            if tools_failed:
+                done_bits.append(f"{tools_failed} failure(s)")
+            done = ", ".join(done_bits) if done_bits else "no tool calls"
+
+            _memory.append_daily_entry(f"v3 turn — ask: {ask} | done: {done}")
+        except Exception:  # noqa: BLE001 — logging must never break the turn
+            pass
 
     def render_messages(self) -> list[dict[str, Any]]:
         """Build the messages list for the next model call.
 
         System prompt = ``system_v3.md`` with the placeholders filled in:
+        ``{{environment}}`` from a live probe of the running interpreter and
+        installed dependencies (gemia.env_probe.format_environment_summary),
+        ``{{memory}}`` from the durable Gemia memory store
+        (gemia.memory.format_memory_for_prompt — MEMORY.md + model defaults),
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
+        ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
+        ``{{lumenframe}}`` from the session lumenframe document state (if any),
         ``{{timeline}}`` from the session project's compact timeline summary,
         and ``{{pinned_intent}}`` from the user's first message in this
         session. After the system message comes the rolling
         user/assistant/tool window in chronological order.
         """
+        lumenframe_ops = self._get_lumenframe_ops_catalog()
+        lumenframe_text = self._get_lumenframe_prompt_text()
         system_filled = (
             self._system_template
+            .replace("{{environment}}", format_environment_summary())
+            .replace("{{memory}}", self._memory_for_prompt())
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
+            .replace("{{lumenframe_ops}}", lumenframe_ops)
+            .replace("{{lumenframe}}", lumenframe_text)
             .replace("{{timeline}}", self.project.compact_text())
             .replace("{{pinned_intent}}", self._pinned_intent or "(not yet provided)")
         )
-        return [{"role": "system", "content": system_filled}, *self._messages]
+        msgs = [{"role": "system", "content": system_filled}, *self._messages]
+
+        # Recency grounding: the live state already lives in the system prompt, but
+        # it sits in a low-attention slot while the pinned first request is re-shown
+        # every turn — so the model over-anchors on the original framing and
+        # under-reads the current reality. Surface a short state digest in the most
+        # RECENT message (the slot the model attends to most) so each next step is
+        # grounded in what is actually there now. We append into the last message's
+        # content rather than adding a message, to preserve the alternating-role
+        # contract the client requires (consecutive tool results fold into one user
+        # message; a second user message would break it).
+        digest = self._env_recency_digest()
+        if digest and len(msgs) > 1:
+            tail = msgs[-1]
+            if tail.get("role") in ("user", "tool") and isinstance(tail.get("content"), str):
+                tail = dict(tail)
+                tail["content"] = f"{tail['content']}\n\n{digest}" if tail["content"] else digest
+                msgs[-1] = tail
+        return msgs
+
+    def _env_recency_digest(self) -> str:
+        """A short snapshot of the live state for the recency slot.
+
+        Deliberately brief: the full Timeline / Layer Document / asset registry are
+        in the system prompt. This is the *pointer* that pulls attention back to the
+        present and tells the model to act on current reality, not on the pinned
+        original request or its memory of earlier turns.
+        """
+        def _first(text: str) -> str:
+            for line in (text or "").splitlines():
+                line = line.strip()
+                if line:
+                    return line
+            return ""
+
+        snaps: list[str] = []
+        tl = _first(self.project.compact_text())
+        if tl:
+            snaps.append(f"Timeline: {tl}")
+        lf = self._get_lumenframe_prompt_text() or ""
+        if lf and not lf.startswith("("):
+            snaps.append("Layers: " + " | ".join(s.strip() for s in lf.splitlines() if s.strip())[:240])
+        assets = [r.asset_id for r in self.registry.list_records()][-4:]
+        if assets:
+            snaps.append("Latest assets: " + ", ".join(assets))
+        if not snaps:
+            return ""
+        return (
+            "[Current state — ground your NEXT step in this present reality, not the "
+            "original request or your memory of earlier turns. Re-read the full "
+            "Timeline / Layer Document / asset registry above before a consequential "
+            "step; after a change, confirm the result here and correct course if it "
+            "diverged.]\n" + "\n".join(snaps)
+        )
 
     def _append_tool_result(self, call_id: str, payload: Any) -> None:
         if isinstance(payload, str):
@@ -290,6 +517,90 @@ class AgentLoopV3:
         self._messages.append(
             {"role": "tool", "tool_call_id": call_id, "content": content}
         )
+
+    def _lumen_post_state_digest(self) -> str:
+        """Build a compact POST-STATE digest of the live lumenframe document.
+
+        Reuses the compact tree-summary helper in ``gemia.tools.layer`` and runs
+        lumenframe's ``validate_doc`` to surface any structural warnings. Returns
+        a short text block (layer-tree summary + warning line) or ``""`` when
+        there is no document / lumenframe is unavailable. This is the LSP-style
+        feedback opencode appends after an edit, adapted to the layer tree.
+        """
+        from gemia.tools import layer as _layer
+
+        # Resolve the current doc the same way the layer dispatchers do, so the
+        # digest reflects exactly what the just-applied edit produced. Prefer the
+        # project-backed doc; fall back to the session memory cache.
+        doc: dict[str, Any] | None = None
+        try:
+            doc = _layer._lumendoc(self._tool_ctx)
+        except Exception:
+            cache = getattr(_layer, "_DOC_CACHE", {})
+            doc = cache.get(self.session_id)
+        if not isinstance(doc, dict):
+            return ""
+
+        root = doc.get("root", {})
+        tree = (
+            _layer._compact_tree_summary(root)
+            if root
+            else "(empty composition)"
+        )
+        selection = doc.get("selection", []) or []
+
+        # Run lumenframe's own validator; it raises on any invariant violation.
+        # A clean doc => "ok"; a violation => the structured message as a warning.
+        try:
+            from lumenframe import validate_doc as _validate_doc
+
+            _validate_doc(doc)
+            warnings = "none"
+        except Exception as exc:  # LayerPatchError or anything validate raises
+            code = getattr(exc, "code", None)
+            msg = getattr(exc, "message", None) or str(exc)
+            warnings = f"{code}: {msg}" if code else str(msg)
+
+        lines = [
+            "[POST-EDIT STATE — the layer document AFTER this edit. Verify it "
+            "matches your intent before the next step.]",
+            "Layer tree:",
+            tree,
+        ]
+        if selection:
+            lines.append(
+                "Selection: " + ", ".join(str(s)[:12] for s in selection)
+            )
+        lines.append(f"Validate: {warnings}")
+        return "\n".join(lines)
+
+    def _append_lumen_post_state(self, call_id: str) -> None:
+        """ADDITIVE post-edit feedback: append the POST-STATE digest to the
+        tool_result the model just received for ``call_id``.
+
+        Mirrors opencode pattern #2 (appending LSP diagnostics after an edit):
+        right after a successful mutating lumen verb, fold the resulting
+        layer-tree summary + validate warnings into that exact tool message's
+        text so the model is grounded in the new state. Fully wrapped in
+        try/except by the caller — must never break the loop.
+        """
+        digest = self._lumen_post_state_digest()
+        if not digest:
+            return
+        # The success path appended this tool_result as the last message. Find
+        # it by call_id (robust even if ordering ever changes) and append the
+        # digest to its text content. Keep it additive: we never replace.
+        for msg in reversed(self._messages):
+            if (
+                msg.get("role") == "tool"
+                and msg.get("tool_call_id") == call_id
+                and isinstance(msg.get("content"), str)
+            ):
+                existing = msg["content"]
+                msg["content"] = (
+                    f"{existing}\n\n{digest}" if existing else digest
+                )
+                return
 
     def _note_tool_failure(
         self,
@@ -322,6 +633,142 @@ class AgentLoopV3:
                 ),
             }
         )
+
+    def _emit_doom_loop(self, name: str, count: int) -> None:
+        """Success-blind doom-loop signal: the last ``count`` tool calls were the
+        SAME tool with byte-identical args, so the turn is repeating itself
+        (regardless of whether each call succeeded). Stop the turn."""
+        self._emit(
+            {
+                "kind": "turn_error",
+                "reason": "doom_loop",
+                "tool_name": name,
+                "repeat_count": count,
+                "error": (
+                    f"doom loop: tool '{name}' was called {count} times in a row with "
+                    f"byte-identical arguments this turn; stopping. The loop is "
+                    f"repeating itself — change the arguments or the approach."
+                ),
+            }
+        )
+
+    @staticmethod
+    def _synthesize_wrapup_message(
+        reason: str,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+        tool_name: str | None = None,
+    ) -> str:
+        """Build a short 'stopped because X; here's what was / wasn't done'
+        summary LOCALLY from the known stop reason and the turn's tool / asset
+        counts. No model API call — this is a cheap deterministic synthesis so a
+        circuit-breaker / budget / doom-loop / stream-error stop is *explained*
+        to the user instead of being a bare silent halt.
+
+        ``reason`` is a short machine code (e.g. ``"failure_breaker"``,
+        ``"doom_loop"``, ``"budget_exhausted"``, ``"stream_error"``); the rest
+        is synthesized from the turn state that is already on hand at the exit
+        point."""
+        why = {
+            "failure_breaker": (
+                f"tool '{tool_name}' kept failing the same way and the failure "
+                f"circuit-breaker tripped"
+                if tool_name
+                else "a tool kept failing the same way and the failure "
+                "circuit-breaker tripped"
+            ),
+            "doom_loop": (
+                f"tool '{tool_name}' was called repeatedly with identical "
+                f"arguments (a doom loop) and was stopped"
+                if tool_name
+                else "the same call was repeated with identical arguments "
+                "(a doom loop) and was stopped"
+            ),
+            "budget_exhausted": "the per-turn budget (cost / time) was exhausted",
+            "stream_error": "the model stream errored out",
+        }.get(reason, f"the turn stopped ({reason})")
+
+        done_bits: list[str] = []
+        if assets_produced:
+            done_bits.append(
+                f"{assets_produced} asset" + ("s" if assets_produced != 1 else "")
+            )
+        if tools_succeeded:
+            done_bits.append(
+                f"{tools_succeeded} tool call"
+                + ("s" if tools_succeeded != 1 else "")
+                + " succeeded"
+            )
+        done = ", ".join(done_bits) if done_bits else "nothing was completed"
+
+        not_done = (
+            f"{tools_failed} tool call"
+            + ("s" if tools_failed != 1 else "")
+            + " failed"
+            if tools_failed
+            else "no failures were recorded before the stop"
+        )
+
+        return (
+            f"Stopped because {why}. "
+            f"What was done: {done}. "
+            f"What wasn't: {not_done}. "
+            "Ask me to continue or adjust the approach if you'd like more."
+        )
+
+    def _emit_turn_wrapup(
+        self,
+        reason: str,
+        *,
+        tools_succeeded: int,
+        tools_failed: int,
+        assets_produced: int,
+        tool_name: str | None = None,
+    ) -> None:
+        """ADDITIVE graceful wrap-up (ported from opencode pattern #5): at a
+        non-success exit point (failure breaker, budget exhaustion, doom loop,
+        stream error) emit a short assistant-facing ``turn_wrapup`` event that
+        explains the stop, *in addition to* the existing breaker / turn_error
+        event — so the user gets a 'stopped because X; here's what was / wasn't
+        done' summary instead of a bare halt.
+
+        Cheap and non-fatal by contract: the message is synthesized LOCALLY
+        (no extra model call) and the whole thing is wrapped in try/except so a
+        failure here can never break the loop. ``WHEN`` the turn stops is
+        unchanged — this only ADDS the explanatory emission."""
+        try:
+            message = self._synthesize_wrapup_message(
+                reason,
+                tools_succeeded=tools_succeeded,
+                tools_failed=tools_failed,
+                assets_produced=assets_produced,
+                tool_name=tool_name,
+            )
+            self._emit(
+                {
+                    "kind": "turn_wrapup",
+                    "reason": reason,
+                    "message": message,
+                    "tools_succeeded": tools_succeeded,
+                    "tools_failed": tools_failed,
+                    "assets_produced": assets_produced,
+                    **({"tool_name": tool_name} if tool_name else {}),
+                }
+            )
+        except Exception:  # noqa: BLE001 — wrap-up must never break the turn
+            pass
+
+    @staticmethod
+    def _is_doom_loop(recent: list[tuple[str, str]]) -> bool:
+        """True when the last ``_DOOM_LOOP_THRESHOLD`` recorded tool calls are the
+        SAME (tool_name, raw-args-JSON) tuple, byte-for-byte. ``recent`` is the
+        per-turn rolling history of dispatched (name, args) tuples."""
+        if len(recent) < _DOOM_LOOP_THRESHOLD:
+            return False
+        window = recent[-_DOOM_LOOP_THRESHOLD:]
+        return all(item == window[0] for item in window)
 
     def _trim_rolling_window(self) -> None:
         user_idx = [i for i, m in enumerate(self._messages) if m.get("role") == "user"]
@@ -360,8 +807,29 @@ class AgentLoopV3:
         visual_inspections_this_turn = 0
         # name → (last_failure_code, consecutive_streak) for the circuit breaker.
         tool_fail_counts: dict[str, tuple[str, int]] = {}
+        # Rolling history of (tool_name, raw-args-JSON) for THIS turn, used by the
+        # success-blind doom-loop guard. We only need the last few entries, but a
+        # plain list is simplest; it never grows unbounded because the turn stops
+        # the moment the breaker or doom-loop guard trips.
+        recent_tool_calls: list[tuple[str, str]] = []
+        # Running tallies for the graceful wrap-up summary at non-success exits
+        # (opencode pattern #5). Cheap counters, no extra model call: a
+        # dispatch that returned is a success; any error / gate / parse-fail is
+        # a failure. Asset count is computed from the registry at exit time.
+        tools_succeeded = 0
+        tools_failed = 0
+
+        def _assets_produced() -> int:
+            return sum(
+                1
+                for r in self.registry.list_records()
+                if r.asset_id not in pre_asset_ids
+            )
 
         self._emit({"kind": "turn_start"})
+
+        # RC4: per-turn one-shot completion check guard (not per-loop iteration).
+        completion_check_done = False
 
         while True:
             accum = _StreamAccumulator()
@@ -400,6 +868,12 @@ class AgentLoopV3:
                     accum.finish_reason = str(delta["reason"])
                 elif kind == "error":
                     self._emit({"kind": "turn_error", "error": str(delta["error"])})
+                    self._emit_turn_wrapup(
+                        "stream_error",
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=_assets_produced(),
+                    )
                     return
 
             # ---- persist the assistant message ---------------------
@@ -414,17 +888,45 @@ class AgentLoopV3:
                 ]
             self._messages.append(assistant_msg)
 
-            # ---- model called no tools → turn ends ------------------
+            # ---- model called no tools → RC4 completion gate --------
             if not accum.tool_calls:
-                final_ids = [
-                    r.asset_id
-                    for r in self.registry.list_records()
-                    if r.asset_id not in pre_asset_ids
-                ]
-                self._emit(
-                    {"kind": "turn_complete", "final_asset_ids": final_ids}
-                )
-                return
+                if COMPLETION_CHECK_ENABLED and not completion_check_done:
+                    # One-shot nudge before honest stop (RC4 host-side gate).
+                    # Inject a user message prompting the model to verify completion.
+                    pinned_summary = (
+                        f"原始请求：{self._pinned_intent}"
+                        if self._pinned_intent
+                        else "原始请求：（未提供）"
+                    )
+                    nudge_msg = (
+                        f"目标核对：{pinned_summary}。"
+                        "若已完全完成，简短确认做了什么然后停下。"
+                        "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
+                        "若确实被卡住需要用户输入，明确说明。"
+                    )
+                    self._messages.append({"role": "user", "content": nudge_msg})
+                    completion_check_done = True
+                    self._emit({"kind": "completion_check"})
+                    continue
+                else:
+                    # Already did one-shot check or gate is disabled → honest stop.
+                    final_ids = [
+                        r.asset_id
+                        for r in self.registry.list_records()
+                        if r.asset_id not in pre_asset_ids
+                    ]
+                    # Auto daily-log ONE concise line for this turn (the user's
+                    # ask + what was done). Best-effort: a logging failure must
+                    # NOT break the turn, so it is fully wrapped.
+                    self._auto_log_turn(
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=len(final_ids),
+                    )
+                    self._emit(
+                        {"kind": "turn_complete", "final_asset_ids": final_ids}
+                    )
+                    return
 
             # ---- dispatch each tool call sequentially --------------
             for tc in accum.tool_calls:
@@ -464,12 +966,20 @@ class AgentLoopV3:
                             "raw_arguments": tc.args,
                         },
                     )
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BAD_ARG",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -499,12 +1009,20 @@ class AgentLoopV3:
                     )
                     # A gate is a non-dispatch: count it so the model cannot
                     # spin forever re-requesting an over-budget tool.
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BUDGET",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "budget_exhausted",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -531,12 +1049,20 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {"needs_approval": True, "reason": cap_reason}
                     )
+                    tools_failed += 1
                     tripped, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_VISUAL_CAP",
                         limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -586,6 +1112,7 @@ class AgentLoopV3:
                     self._append_tool_result(
                         tc.id, {**err_payload, "tool_name": tc.name}
                     )
+                    tools_failed += 1
                     limit = (
                         _MAX_TRANSIENT_RETRIES
                         if recovery == RECOVERY_TRANSIENT_RETRY
@@ -596,6 +1123,13 @@ class AgentLoopV3:
                     )
                     if tripped:
                         self._emit_tool_breaker(tc.name, streak)
+                        self._emit_turn_wrapup(
+                            "failure_breaker",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
                         return
                     continue
 
@@ -603,6 +1137,32 @@ class AgentLoopV3:
                 self.budget.commit(tc.name, actual_seconds=elapsed)
                 # Successful dispatch — clear this tool's failure streak entirely.
                 tool_fail_counts.pop(tc.name, None)
+                tools_succeeded += 1
+
+                # ---- success-blind doom-loop guard -------------------
+                # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the
+                # per-tool failure breaker above only trips on FAILURES, but a
+                # turn can also get stuck re-issuing a call that keeps DISPATCHING
+                # (succeeding, or returning a result the model ignores) with the
+                # exact same arguments forever — pure echo, no progress. Record
+                # each dispatched call as (tool_name, byte-identical raw args).
+                # If the last _DOOM_LOOP_THRESHOLD dispatched calls are identical,
+                # the turn is looping on itself — emit a structured turn_error and
+                # stop. This is independent of the RESULT content (success-blind):
+                # distinct args (real work) never trip it. Like opencode, a call
+                # that did not actually dispatch (raised / gated / bad-JSON args)
+                # is not recorded here — those stay owned by the failure breaker.
+                recent_tool_calls.append((tc.name, tc.args))
+                if self._is_doom_loop(recent_tool_calls):
+                    self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
+                    self._emit_turn_wrapup(
+                        "doom_loop",
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=_assets_produced(),
+                        tool_name=tc.name,
+                    )
+                    return
 
                 # Model-facing tool_result: strip thumbnail_path (file
                 # path leakage), keep thumbnail_for_next_message=False
@@ -634,6 +1194,20 @@ class AgentLoopV3:
                     }
                 )
                 self._append_tool_result(tc.id, model_result)
+
+                # ---- post-edit self-correction (opencode pattern #2) ----
+                # After a SUCCESSFUL *mutating* lumen verb, append a compact
+                # POST-STATE digest (layer-tree summary + validate_doc
+                # warnings) to the tool_result the model just received, so it is
+                # grounded in the new layer state right where it edited —
+                # mirroring opencode appending LSP diagnostics after edits.
+                # ADDITIVE, cheap, and non-fatal: any failure here must never
+                # break the loop, so the whole thing is wrapped in try/except.
+                if _is_mutating_lumen_tool(tc.name):
+                    try:
+                        self._append_lumen_post_state(tc.id)
+                    except Exception:  # noqa: BLE001 — never break the turn
+                        pass
 
                 # Plan-B visual feedback. ONLY triggered by a
                 # dispatcher-flagged result — there is no keyword

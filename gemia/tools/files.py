@@ -1,10 +1,13 @@
-"""First-class file tools for the v3 agent loop.
+"""Host-side file tools for the v3 agent loop.
 
-Policy:
-- Inside the session workspace: full read/write/copy/move/delete.
-- Outside the workspace: read allowed except credential paths; writes are limited
-  to explicit create/copy/move targets under approved create roots and do not
-  overwrite existing files.
+Two surfaces intentionally coexist:
+
+- ``file_*``: first-class Codex-like file tools. Workspace paths are fully
+  writable; outside targets may only be newly created/copied/moved under the
+  approved outside roots and are never overwritten.
+- legacy ``read_file`` / ``write_file`` / ``copy_in`` / ``list_dir`` /
+  ``move_file`` / ``organize_files``: compatibility wrappers used by the
+  overnight agent/tool schema.
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_NONE, ToolError
 from gemia.sandbox_v4 import DEFAULT_CREDENTIAL_DENY, DEFAULT_OUTSIDE_CREATE_ROOTS
 from gemia.tools._context import ToolContext
 
@@ -61,6 +65,10 @@ def _is_allowed_outside_target(path: Path) -> bool:
     return any(_is_within(path, root) or path == root for root in _outside_roots())
 
 
+def _tool_error(message: str, *, code: str = "E_BAD_ARG", hint: str | None = None) -> ToolError:
+    return ToolError(message, code=code, recovery=RECOVERY_FIX_ARGS, hint=hint)
+
+
 def _ensure_readable(path: Path, ctx: ToolContext) -> None:
     if _is_credential_path(path):
         raise PermissionError(f"credential path is not readable: {path}")
@@ -75,7 +83,9 @@ def _ensure_movable_source(path: Path, ctx: ToolContext) -> None:
     if _is_workspace(path, ctx) or _is_allowed_outside_target(path):
         return
     roots = ", ".join(str(root) for root in _outside_roots())
-    raise PermissionError(f"outside move source must be inside workspace or an approved outside root ({roots}): {path}")
+    raise PermissionError(
+        f"outside move source must be inside workspace or an approved outside root ({roots}): {path}"
+    )
 
 
 def _ensure_write_target(path: Path, ctx: ToolContext, *, overwrite: bool) -> None:
@@ -112,6 +122,17 @@ def _payload(path: Path, ctx: ToolContext) -> dict[str, Any]:
     }
 
 
+def _read_text(path: Path, *, max_bytes: int) -> tuple[str, bool, int, bool]:
+    size = path.stat().st_size
+    limit = max(1, min(int(max_bytes), 2_000_000))
+    data = path.read_bytes()[:limit]
+    truncated = size > limit
+    binary = b"\x00" in data
+    if binary:
+        return f"<binary file: {size} bytes>", truncated, size, True
+    return data.decode("utf-8"), truncated, size, False
+
+
 async def dispatch_list(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     root = _resolve(args.get("path") or ".", ctx)
     if _is_credential_path(root):
@@ -120,21 +141,18 @@ async def dispatch_list(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
         raise FileNotFoundError(f"directory does not exist: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"expected a directory: {root}")
-    max_entries = int(args.get("max_entries") or 100)
-    max_entries = max(1, min(max_entries, 500))
+    max_entries = max(1, min(int(args.get("max_entries") or 100), 500))
     entries = []
     for child in sorted(root.iterdir(), key=lambda p: p.name)[:max_entries]:
         if _is_credential_path(child):
             continue
-        entries.append(
-            {
-                "name": child.name,
-                "path": str(child),
-                "workspace_relative_path": _rel(child, ctx) if _is_workspace(child, ctx) else "",
-                "kind": "dir" if child.is_dir() else "file",
-                "size_bytes": child.stat().st_size if child.is_file() else None,
-            }
-        )
+        entries.append({
+            "name": child.name,
+            "path": str(child),
+            "workspace_relative_path": _rel(child, ctx) if _is_workspace(child, ctx) else "",
+            "kind": "dir" if child.is_dir() else "file",
+            "size_bytes": child.stat().st_size if child.is_file() else None,
+        })
     return {"directory": str(root), "inside_workspace": _is_workspace(root, ctx), "entries": entries}
 
 
@@ -142,11 +160,11 @@ async def dispatch_read(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
     path = _resolve(args.get("path"), ctx)
     _ensure_readable(path, ctx)
     max_bytes = int(args.get("max_bytes") or _MAX_READ_BYTES)
-    max_bytes = max(1, min(max_bytes, 2_000_000))
     size = path.stat().st_size
-    if size > max_bytes:
+    if size > max(1, min(max_bytes, 2_000_000)):
         raise ValueError(f"file is {size} bytes, above max_bytes={max_bytes}")
-    return {**_payload(path, ctx), "content": path.read_text(encoding="utf-8")}
+    text, _truncated, _size, _binary = _read_text(path, max_bytes=max_bytes)
+    return {**_payload(path, ctx), "content": text}
 
 
 async def dispatch_write(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
@@ -194,6 +212,71 @@ async def dispatch_delete(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     return {"status": "deleted", "path": str(path), "workspace_relative_path": _rel(path, ctx)}
 
 
+async def dispatch_read_file(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    path = _resolve(args.get("path"), ctx)
+    try:
+        _ensure_readable(path, ctx)
+        text, truncated, size, binary = _read_text(path, max_bytes=int(args.get("max_bytes") or _MAX_READ_BYTES))
+    except FileNotFoundError as exc:
+        raise ToolError(str(exc), code="E_NOT_FOUND", recovery=RECOVERY_FIX_ARGS) from exc
+    except PermissionError as exc:
+        raise ToolError(str(exc), code="E_DENIED", recovery=RECOVERY_NONE) from exc
+    return {"path": str(path), "text": text, "truncated": truncated, "size": size, "binary": binary}
+
+
+async def dispatch_write_file(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    path = _resolve(args.get("path"), ctx)
+    content = args.get("content", "")
+    if not isinstance(content, str):
+        raise _tool_error("content must be a string")
+    if bool(args.get("append", False)):
+        if _is_credential_path(path):
+            raise ToolError(f"credential path is not writable: {path}", code="E_DENIED", recovery=RECOVERY_NONE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(content)
+    else:
+        await dispatch_write({"path": str(path), "content": content, "overwrite": True}, ctx)
+    return {"path": str(path), "bytes_written": len(content.encode("utf-8"))}
+
+
+async def dispatch_copy_in(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    source = _resolve(args.get("source") or args.get("path"), ctx)
+    _ensure_readable(source, ctx)
+    dest_name = str(args.get("dest_name") or source.name)
+    dest = _workspace(ctx) / dest_name
+    await dispatch_copy({"source": str(source), "dest": str(dest), "overwrite": bool(args.get("overwrite", False))}, ctx)
+    return {"source": str(source), "path": str(dest), "bytes_copied": dest.stat().st_size}
+
+
+async def dispatch_list_dir(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    out = await dispatch_list(args, ctx)
+    return {"path": out["directory"], "entries": out["entries"]}
+
+
+async def dispatch_move_file(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    try:
+        return await dispatch_move({
+            "source": args.get("source") or args.get("src") or args.get("path"),
+            "dest": args.get("dest") or args.get("destination"),
+            "overwrite": bool(args.get("overwrite", False)),
+        }, ctx)
+    except PermissionError as exc:
+        raise ToolError(str(exc), code="E_DENIED", recovery=RECOVERY_NONE) from exc
+
+
+async def dispatch_organize_files(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    moves = args.get("moves")
+    if not isinstance(moves, list):
+        raise _tool_error("organize_files requires moves=[{source,dest}, ...]")
+    results = []
+    for move in moves:
+        if not isinstance(move, dict):
+            continue
+        results.append(await dispatch_move_file(move, ctx))
+    return {"status": "organized", "count": len(results), "moves": results}
+
+
 __all__ = [
     "dispatch_list",
     "dispatch_read",
@@ -201,4 +284,10 @@ __all__ = [
     "dispatch_copy",
     "dispatch_move",
     "dispatch_delete",
+    "dispatch_read_file",
+    "dispatch_write_file",
+    "dispatch_copy_in",
+    "dispatch_list_dir",
+    "dispatch_move_file",
+    "dispatch_organize_files",
 ]

@@ -43,6 +43,7 @@ from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
 from gemia.tools import edit_image as _edit_image
 from gemia.tools import edit_video as _edit_video
+from gemia.tools import elicit as _elicit
 from gemia.tools import export as _export
 from gemia.tools import extract_frame as _extract_frame
 from gemia.tools import fetch as _fetch
@@ -50,8 +51,14 @@ from gemia.tools import files as _files
 from gemia.tools import generate_audio as _generate_audio
 from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
+from gemia.tools import layer as _layer
+from gemia.tools import lumen_render_range as _lumen_render_range
+from gemia.tools import lumen_seek as _lumen_seek
+from gemia.tools import log_note as _log_note
 from gemia.tools import mix_audio as _mix_audio
+from gemia.tools import remember as _remember
 from gemia.tools import run_shell as _run_shell
+from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
 from gemia.tools import timeline as _timeline
 from gemia.tools import transform_geometry as _transform_geometry
@@ -91,6 +98,13 @@ _REAL: dict[str, Dispatcher] = {
     "web_search":         _web_search.dispatch,
     "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
+    "read_file":          _files.dispatch_read_file,
+    "write_file":         _files.dispatch_write_file,
+    "copy_in":            _files.dispatch_copy_in,
+    "list_dir":           _files.dispatch_list_dir,
+    "move_file":          _files.dispatch_move_file,
+    "organize_files":     _files.dispatch_organize_files,
+    "elicit":             _elicit.dispatch,
     "run_shell":          _run_shell.dispatch,
     "file_list":          _files.dispatch_list,
     "file_read":          _files.dispatch_read,
@@ -101,7 +115,10 @@ _REAL: dict[str, Dispatcher] = {
     "build":              _build.dispatch,
     "check_job":          _build.dispatch_check,
     "wait_for_job":       _build.dispatch_wait,
-    "save_skill":         _build.dispatch_save_skill,
+    "save_skill":         _save_skill.dispatch_save_skill,
+    "recall_skills":      _save_skill.dispatch_recall_skills,
+    "remember":           _remember.dispatch,
+    "log_note":           _log_note.dispatch,
     "get_timeline":             _timeline.dispatch_get,
     "timeline_insert_clip":     _timeline.dispatch_insert,
     "timeline_delete_clip":     _timeline.dispatch_delete,
@@ -118,6 +135,27 @@ _REAL: dict[str, Dispatcher] = {
     "project_export":           _timeline.dispatch_project_export,
     "project_export_otio":      _timeline.dispatch_export_otio,
     "project_import_otio":      _timeline.dispatch_import_otio,
+    "get_lumenframe":           _layer.dispatch_get_lumenframe,
+    "lumen_patch":              _layer.dispatch_lumen_patch,
+    "lumen_add_layer":          _layer.dispatch_lumen_add_layer,
+    "lumen_set_transform":      _layer.dispatch_lumen_set_transform,
+    "lumen_set_opacity":        _layer.dispatch_lumen_set_opacity,
+    "lumen_delete_layer":       _layer.dispatch_lumen_delete_layer,
+    "lumen_move_layer":         _layer.dispatch_lumen_move_layer,
+    "lumen_set_visibility":     _layer.dispatch_lumen_set_visibility,
+    "lumen_select":             _layer.dispatch_lumen_select,
+    "lumen_render":             _layer.dispatch_lumen_render,
+    "lumen_set_range":          _layer.dispatch_lumen_set_range,
+    "lumen_set_lane":           _layer.dispatch_lumen_set_lane,
+    "lumen_retime_segment":     _layer.dispatch_lumen_retime_segment,
+    "lumen_reverse":            _layer.dispatch_lumen_reverse,
+    "lumen_time_remap":         _layer.dispatch_lumen_time_remap,
+    "lumen_speed_ramp":         _layer.dispatch_lumen_speed_ramp,
+    "lumen_ripple_delete":      _layer.dispatch_lumen_ripple_delete,
+    "lumen_merge_compositions": _layer.dispatch_lumen_merge_compositions,
+    "lumen_set_work_area":      _layer.dispatch_lumen_set_work_area,
+    "lumen_seek":               _lumen_seek.dispatch,
+    "lumen_render_range":       _lumen_render_range.dispatch,
 }
 
 
