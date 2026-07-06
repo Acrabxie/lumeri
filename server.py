@@ -3755,6 +3755,10 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, accounts.auth_session_payload())
             return
 
+        if path == "/accounts":
+            _json_response(self, 200, {"accounts": accounts.list_accounts(), **accounts.auth_session_payload()})
+            return
+
         if path == "/agent-links/status":
             from gemia.agent_links import status_payload
 
@@ -4020,6 +4024,21 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, {"assets": list_assets(account_id, kind=kind, q=q, limit=limit)})
             return
 
+        if path.startswith("/media-library/") and path.endswith("/annotations"):
+            from gemia.media_annotations import MediaAnnotationError, list_annotations
+
+            account_id = accounts.current_account_id()
+            if not account_id:
+                _json_response(self, 401, {"error": "not signed in"})
+                return
+            parts = path.split("/")
+            asset_id = parts[2] if len(parts) >= 4 else ""
+            try:
+                _json_response(self, 200, {"annotations": list_annotations(account_id, asset_id)})
+            except MediaAnnotationError as exc:
+                _json_response(self, 404, {"error": str(exc)})
+            return
+
         if path.startswith("/media-library/file/"):
             from gemia.media_library import MediaLibraryError, resolve_asset_file
 
@@ -4197,6 +4216,23 @@ class _Handler(BaseHTTPRequestHandler):
         if self._security_gate(mutating=True):
             return
         route = unquote(urlparse(self.path).path).rstrip("/")
+        if route.startswith("/media-library/") and "/annotations/" in route:
+            try:
+                from gemia.media_annotations import MediaAnnotationError, delete_annotation
+
+                account_id = accounts.current_account_id()
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                parts = route.split("/")
+                asset_id = parts[2] if len(parts) >= 5 else ""
+                annotation_id = parts[4] if len(parts) >= 5 else ""
+                _json_response(self, 200, {"annotation": delete_annotation(account_id, asset_id, annotation_id)})
+            except MediaAnnotationError as exc:
+                _json_response(self, 404, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, {"error": str(exc)})
+            return
         if route.startswith("/media-library/"):
             try:
                 from gemia.media_library import MediaLibraryError, soft_delete_asset
@@ -4665,6 +4701,71 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 200, upload_response_for_asset(asset))
             except MediaLibraryError as exc:
                 _json_response(self, 400, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, {"error": str(exc)})
+            return
+
+        if route == "/media-library/annotate":
+            try:
+                from gemia.media_annotations import MediaAnnotationError, annotate_asset_heuristic
+                from gemia.media_library import list_assets
+
+                payload = _read_json_body(self)
+                account_id = accounts.current_account_id()
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                asset_ids = payload.get("asset_ids") or payload.get("assets") or []
+                if isinstance(asset_ids, str):
+                    asset_ids = [asset_ids]
+                if not isinstance(asset_ids, list):
+                    _json_response(self, 400, {"error": "asset_ids must be a list"})
+                    return
+                if not asset_ids and payload.get("all"):
+                    asset_ids = [asset.get("asset_id") for asset in list_assets(account_id, kind="video", limit=int(payload.get("max_assets") or 20))]
+                if not asset_ids:
+                    _json_response(self, 400, {"error": "asset_ids is required"})
+                    return
+                max_assets = max(1, min(int(payload.get("max_assets") or len(asset_ids)), 100))
+                results = []
+                for asset_id in [str(item) for item in asset_ids[:max_assets]]:
+                    results.append(
+                        annotate_asset_heuristic(
+                            account_id,
+                            asset_id,
+                            mode=str(payload.get("mode") or "quick"),
+                            language=str(payload.get("language") or "auto"),
+                            tags=payload.get("tags") if isinstance(payload.get("tags"), list) else None,
+                            replace_existing=bool(payload.get("replace_existing", True)),
+                        )
+                    )
+                _json_response(self, 200, {"results": results, "asset_count": len(results)})
+            except MediaAnnotationError as exc:
+                _json_response(self, 404, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, {"error": str(exc)})
+            return
+
+        if route.startswith("/media-library/") and "/annotations" in route:
+            try:
+                from gemia.media_annotations import MediaAnnotationError, create_annotation, update_annotation
+
+                payload = _read_json_body(self)
+                account_id = accounts.current_account_id()
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                parts = route.split("/")
+                asset_id = parts[2] if len(parts) >= 4 else ""
+                if len(parts) >= 5 and parts[3] == "annotations" and parts[4]:
+                    _json_response(self, 200, {"annotation": update_annotation(account_id, asset_id, parts[4], payload)})
+                    return
+                if len(parts) >= 4 and parts[3] == "annotations":
+                    _json_response(self, 200, {"annotation": create_annotation(account_id, asset_id, payload)})
+                    return
+                _json_response(self, 404, {"error": "not found"})
+            except MediaAnnotationError as exc:
+                _json_response(self, 404, {"error": str(exc)})
             except Exception as exc:
                 _json_response(self, 500, {"error": str(exc)})
             return

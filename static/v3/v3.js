@@ -29,6 +29,9 @@
     timeline: $("#timeline"),
     emptyState: $("#empty-state"),
     assetGrid: $("#asset-grid"),
+    mediaLibraryGrid: $("#media-library-grid"),
+    libraryRefreshBtn: $("#library-refresh-btn"),
+    libraryAnnotateBtn: $("#library-annotate-btn"),
     uploadInput: $("#upload-input"),
     uploadBtn: $("#upload-btn"),
     promptInput: $("#prompt-input"),
@@ -55,6 +58,9 @@
     reconnectTimer: null,
     projectTimeline: null,      // fetched from /sessions/{id}/timeline
     timelinePollTimer: null,
+    mediaLibrary: [],
+    mediaAnnotations: new Map(), // media-library asset_id -> annotations[]
+    mediaLibraryStatus: "idle",
   };
 
   function newTurn(userMessage) {
@@ -122,6 +128,7 @@
     }
 
     renderAssets();
+    renderMediaLibrary();
   }
 
   function renderTurn(turn, idx) {
@@ -296,6 +303,74 @@
     }).join("");
   }
 
+  function renderMediaLibrary() {
+    if (!els.mediaLibraryGrid) return;
+    if (state.mediaLibraryStatus === "loading") {
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">Loading media library…</p>`;
+      return;
+    }
+    if (state.mediaLibraryStatus === "signed-out") {
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">Sign in to load media library.</p>`;
+      return;
+    }
+    if (!state.mediaLibrary.length) {
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">No media-library assets yet.</p>`;
+      return;
+    }
+    els.mediaLibraryGrid.innerHTML = state.mediaLibrary.map((asset) => {
+      const assetId = asset.asset_id || asset.id || "";
+      const summary = asset.annotation_summary || {};
+      const tags = (summary.tags || []).slice(0, 5);
+      const labels = (summary.labels || []).slice(0, 3);
+      const anns = state.mediaAnnotations.get(assetId) || [];
+      const annHtml = anns.length
+        ? `<div class="annotation-list">${anns.map(renderAnnotation).join("")}</div>`
+        : "";
+      const thumb = asset.thumbnail_src
+        ? `<img class="library-thumb" src="${escapeHTML(asset.thumbnail_src)}" alt="" loading="lazy" />`
+        : `<div class="library-thumb blank">${escapeHTML(asset.media_kind || "media")}</div>`;
+      return `
+        <div class="library-card" data-library-asset="${escapeHTML(assetId)}">
+          ${thumb}
+          <div class="library-card-body">
+            <div class="library-title">${escapeHTML(asset.name || assetId)}</div>
+            <div class="library-meta">${escapeHTML(assetId)} · ${escapeHTML(asset.media_kind || "media")} · ${formatSeconds(asset.duration)}</div>
+            <div class="library-tags">
+              <span>${Number(summary.count || 0)} mark(s)</span>
+              ${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}
+              ${labels.map((label) => `<span>${escapeHTML(label)}</span>`).join("")}
+            </div>
+            <div class="library-card-actions">
+              <button type="button" class="library-small-btn" data-library-annotate="${escapeHTML(assetId)}">annotate</button>
+              <button type="button" class="library-small-btn" data-library-load="${escapeHTML(assetId)}">markers</button>
+            </div>
+            ${annHtml}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderAnnotation(annotation) {
+    const range = annotation.scope === "time_range"
+      ? `${formatSeconds(annotation.start_sec)}-${formatSeconds(annotation.end_sec)}`
+      : annotation.scope;
+    const tags = (annotation.tags || []).slice(0, 4).map((tag) => `<span>${escapeHTML(tag)}</span>`).join("");
+    return `
+      <div class="annotation-item">
+        <div><strong>${escapeHTML(annotation.label || "marker")}</strong> <span>${escapeHTML(range)}</span></div>
+        ${annotation.note ? `<p>${escapeHTML(annotation.note)}</p>` : ""}
+        ${tags ? `<div class="library-tags">${tags}</div>` : ""}
+      </div>
+    `;
+  }
+
+  function formatSeconds(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return "0.0s";
+    return `${n.toFixed(1)}s`;
+  }
+
   // ── event handlers (one per kind, no silent drop) ──────────────────
 
   const handlers = {
@@ -399,7 +474,7 @@
     timeline_op: () => {
       // Timeline patch landed: refresh the project timeline panel immediately
       // rather than waiting for the next poll interval.
-      fetchProjectTimeline();
+      fetchProjectTimeline({ force: true });
     },
     replay_gap: (ev) => {
       const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
@@ -438,7 +513,7 @@
       }
       // Refresh timeline after every completed turn — verb results may have
       // updated the project even if no timeline_op event was fired this turn.
-      fetchProjectTimeline();
+      fetchProjectTimeline({ force: true });
     },
     turn_error: (ev) => {
       state.turnInProgress = false;
@@ -546,6 +621,8 @@
   const TL_CLIP_COLOR = {
     video:   ["#1d4a34", "#37a06a"],
     image:   ["#34295f", "#7a5cff"],
+    lottie:  ["#203f46", "#35c3b8"],
+    paint:   ["#4c2148", "#ff5ac8"],
     audio:   ["#1f3a5c", "#4ea1ff"],
     text:    ["#4a2c18", "#d98a4e"],
     overlay: ["#34295f", "#7a5cff"],
@@ -804,7 +881,8 @@
   function buildClipEl(clip, track) {
     const el = document.createElement("div");
     const kind = clip.media_kind || "video";
-    el.className = `ptl-clip ${kind}` + (clip.id === state.selectedClipId ? " selected" : "");
+    const isPaint = String(clip.name || "").startsWith("paint:");
+    el.className = `ptl-clip ${kind}` + (isPaint ? " paint" : "") + (clip.id === state.selectedClipId ? " selected" : "");
     el.dataset.clipId = clip.id;
     el.dataset.trackId = clip.track_id || track.id;
     el.dataset.start = clip.start;
@@ -815,7 +893,7 @@
     el.dataset.assetId = clip.asset_id || "";
     el.style.left = timeToX(clip.start) + "px";
     el.style.width = Math.max(timeToX(clip.duration), 8) + "px";
-    const col = TL_CLIP_COLOR[kind] || TL_CLIP_COLOR.video;
+    const col = isPaint ? TL_CLIP_COLOR.paint : (TL_CLIP_COLOR[kind] || TL_CLIP_COLOR.video);
     el.style.setProperty("--cfill", col[0]);
     el.style.setProperty("--cedge", col[1]);
     const label = kind === "text" ? (clip.text_config?.content?.slice(0, 24) || clip.name) : clip.name;
@@ -943,7 +1021,7 @@
     media.innerHTML = ""; media.appendChild(canvas);
   }
 
-  async function fetchProjectTimeline() {
+  async function fetchProjectTimeline(options = {}) {
     if (!state.sessionId) return;
     if (state.ptDrag) return;   // never re-fetch/reconcile mid-drag (would detach the dragged clip)
     try {
@@ -951,7 +1029,7 @@
       if (!r.ok) return;
       const data = await r.json();
       state.projectTimeline = data;
-      if (data.patch_seq === TL._renderedSeq) return;   // unchanged → skip 3s DOM rebuild + media re-hydrate
+      if (!options.force && data.patch_seq === TL._renderedSeq) return;   // unchanged → skip 3s DOM rebuild + media re-hydrate
       renderProjectTimeline(data);
     } catch { /* ignore network errors */ }
   }
@@ -1260,8 +1338,10 @@
     state.turnInProgress = false;
     state.lastEventId = null;
     state.projectTimeline = null;
+    state.mediaAnnotations = new Map();
     connectSse(state.sessionId);
     startTimelinePoll();
+    fetchMediaLibrary().catch(() => {});
     render();
   }
 
@@ -1281,6 +1361,56 @@
     if (data.latest_event_id !== null && data.latest_event_id !== undefined) {
       saveLastEventId(state.sessionId, data.latest_event_id);
     }
+  }
+
+  async function fetchMediaLibrary() {
+    state.mediaLibraryStatus = "loading";
+    render();
+    try {
+      const r = await fetch("/media-library/list?limit=100");
+      if (r.status === 401) {
+        state.mediaLibrary = [];
+        state.mediaLibraryStatus = "signed-out";
+        render();
+        return;
+      }
+      if (!r.ok) throw new Error(`GET /media-library/list failed: ${r.status}`);
+      const data = await r.json();
+      state.mediaLibrary = Array.isArray(data.assets) ? data.assets : [];
+      state.mediaLibraryStatus = "ready";
+    } catch (err) {
+      state.mediaLibrary = [];
+      state.mediaLibraryStatus = "error";
+      state.errors.push(`media library failed: ${err.message}`);
+    }
+    render();
+  }
+
+  async function annotateLibraryAsset(assetId) {
+    const body = assetId
+      ? { asset_ids: [assetId], mode: "quick", language: promptLanguage() }
+      : { all: true, kind: "video", mode: "quick", max_assets: 20, language: promptLanguage() };
+    const r = await fetch("/media-library/annotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`annotate failed: ${r.status}`);
+    await r.json();
+    await fetchMediaLibrary();
+    if (assetId) await loadMediaAnnotations(assetId);
+  }
+
+  async function loadMediaAnnotations(assetId) {
+    const r = await fetch(`/media-library/${encodeURIComponent(assetId)}/annotations`);
+    if (!r.ok) throw new Error(`annotations failed: ${r.status}`);
+    const data = await r.json();
+    state.mediaAnnotations.set(assetId, Array.isArray(data.annotations) ? data.annotations : []);
+    render();
+  }
+
+  function promptLanguage() {
+    return /[\u4e00-\u9fff]/.test(els.promptInput?.value || "") ? "zh" : "en";
   }
 
   async function uploadFile(file) {
@@ -1311,6 +1441,7 @@
       final: false,
     });
     setUploadStatus(`uploaded as ${data.asset_id}`);
+    fetchMediaLibrary().catch(() => {});
     render();
     return data.asset_id;
   }
@@ -1364,6 +1495,40 @@
       state.errors.push(`upload failed: ${err.message}`);
       render();
     }).finally(() => { els.uploadInput.value = ""; });
+  });
+
+  els.libraryRefreshBtn?.addEventListener("click", () => {
+    fetchMediaLibrary().catch((err) => {
+      state.errors.push(`media library failed: ${err.message}`);
+      render();
+    });
+  });
+
+  els.libraryAnnotateBtn?.addEventListener("click", () => {
+    annotateLibraryAsset("").catch((err) => {
+      state.errors.push(`annotate media failed: ${err.message}`);
+      render();
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    const annotateBtn = e.target.closest("[data-library-annotate]");
+    if (annotateBtn) {
+      const assetId = annotateBtn.dataset.libraryAnnotate;
+      annotateLibraryAsset(assetId).catch((err) => {
+        state.errors.push(`annotate ${assetId} failed: ${err.message}`);
+        render();
+      });
+      return;
+    }
+    const loadBtn = e.target.closest("[data-library-load]");
+    if (loadBtn) {
+      const assetId = loadBtn.dataset.libraryLoad;
+      loadMediaAnnotations(assetId).catch((err) => {
+        state.errors.push(`load annotations failed: ${err.message}`);
+        render();
+      });
+    }
   });
 
   els.sendBtn.addEventListener("click", () => {
@@ -1471,6 +1636,7 @@
         const r = await fetch("/auth/session");
         if (r.ok) applySession(await r.json());
       } catch {}
+      return session;
     }
 
     async function postAuth(url, body) {
@@ -1600,7 +1766,10 @@
       renderModal();
     });
 
-    refreshSession();
+    refreshSession().then(() => {
+      const params = new URLSearchParams(location.search || "");
+      if (params.get("login") === "1" || params.get("auth") === "1") openModal();
+    });
   }
   setupAuth();
 

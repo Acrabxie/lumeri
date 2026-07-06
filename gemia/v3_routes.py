@@ -315,16 +315,39 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
         clips.sort(key=lambda c: float(c.get("start") or 0.0))
 
     tracks = []
+    emitted_track_ids: set[str] = set()
     for track in tracks_raw:
         if not isinstance(track, dict):
             continue
         tid = str(track.get("id") or "")
+        if not tid:
+            continue
+        emitted_track_ids.add(tid)
         tracks.append({
             "id": tid,
             "kind": str(track.get("kind") or "video"),
             "name": str(track.get("name") or tid),
             "duck_under": track.get("duck_under") if isinstance(track.get("duck_under"), str) else None,
             "clips": clips_by_track.get(tid, []),
+        })
+    for tid in sorted(clips_by_track):
+        if tid in emitted_track_ids:
+            continue
+        clips = clips_by_track[tid]
+        kinds = {str(c.get("media_kind") or "") for c in clips if isinstance(c, dict)}
+        if "audio" in kinds:
+            kind = "audio"
+        elif "image" in kinds or "text" in kinds or tid.startswith("OV"):
+            kind = "overlay"
+        else:
+            kind = "video"
+        label = {"audio": "Audio", "overlay": "Overlay"}.get(kind, "Video")
+        tracks.append({
+            "id": tid,
+            "kind": kind,
+            "name": f"{label} {tid}",
+            "duck_under": None,
+            "clips": clips,
         })
 
     return {

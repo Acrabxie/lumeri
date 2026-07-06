@@ -161,3 +161,72 @@ def test_upload_media_route_round_trips_asset_library(monkeypatch, tmp_path: Pat
         status, _, raw = app.request("GET", "/media-library/list")
         assert status == 200
         assert json.loads(raw)["assets"] == []
+
+
+def test_media_annotation_routes_and_search(monkeypatch, tmp_path: Path) -> None:
+    _patch_account_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr(server, "_INPUTS_DIR", tmp_path / "inputs")
+    monkeypatch.setattr(
+        accounts,
+        "verify_google_id_token",
+        lambda credential, client_id=None: _claims("g-2", "two@example.com"),
+    )
+    accounts.sign_in_with_google("two")
+    source = _make_image(tmp_path / "still.png")
+
+    with _TestServer() as app:
+        status, _, raw = app.request(
+            "POST",
+            "/upload-media",
+            data=source.read_bytes(),
+            headers={"Content-Type": "image/png", "X-Filename": "still.png"},
+        )
+        assert status == 200
+        asset_id = json.loads(raw)["asset_id"]
+
+        status, _, raw = app.request(
+            "POST",
+            f"/media-library/{asset_id}/annotations",
+            {
+                "scope": "time_range",
+                "start_sec": 1,
+                "end_sec": 99,
+                "label": "good take",
+                "note": "use this for the opening",
+                "tags": ["opening", "keeper"],
+                "category": "cut_candidate",
+                "source": "user",
+            },
+        )
+        assert status == 200, raw
+        ann = json.loads(raw)["annotation"]
+        assert ann["scope"] == "time_range"
+        assert ann["label"] == "good take"
+        assert ann["end_sec"] >= ann["start_sec"]
+
+        status, _, raw = app.request("GET", f"/media-library/{asset_id}/annotations")
+        assert status == 200
+        assert [item["annotation_id"] for item in json.loads(raw)["annotations"]] == [ann["annotation_id"]]
+
+        status, _, raw = app.request("GET", "/media-library/list?q=keeper")
+        assert status == 200
+        listed = json.loads(raw)["assets"]
+        assert [item["asset_id"] for item in listed] == [asset_id]
+        assert listed[0]["annotation_summary"]["count"] == 1
+        assert "keeper" in listed[0]["annotation_summary"]["tags"]
+
+        status, _, raw = app.request(
+            "POST",
+            f"/media-library/{asset_id}/annotations/{ann['annotation_id']}",
+            {"label": "best opening"},
+        )
+        assert status == 200
+        assert json.loads(raw)["annotation"]["label"] == "best opening"
+
+        status, _, raw = app.request("DELETE", f"/media-library/{asset_id}/annotations/{ann['annotation_id']}")
+        assert status == 200
+        assert json.loads(raw)["annotation"]["annotation_id"] == ann["annotation_id"]
+
+        status, _, raw = app.request("GET", f"/media-library/{asset_id}/annotations")
+        assert status == 200
+        assert json.loads(raw)["annotations"] == []
