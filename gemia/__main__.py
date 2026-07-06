@@ -174,33 +174,6 @@ def main() -> None:
     p_lumerai_render.add_argument("--timeout-sec", type=int, default=120)
     p_lumerai_render.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
 
-    p_lumerai_agent = sub.add_parser(
-        "lumerai-agent",
-        help="Run the experimental agent loop (gated by LUMERAI_SCRIPT_MODE=1)",
-    )
-    p_lumerai_agent.add_argument("--project-id", required=True)
-    p_lumerai_agent.add_argument("--session-id", required=True)
-    p_lumerai_agent.add_argument("--goal", required=True)
-    p_lumerai_agent.add_argument("--max-turns", type=int, default=3)
-    p_lumerai_agent.add_argument("--ai-model", default="agent-loop")
-    p_lumerai_agent.add_argument(
-        "--ai-agent",
-        default=None,
-        help="Adapter agent name passed to AIClient (provider routing)",
-    )
-    p_lumerai_agent.add_argument(
-        "--canned-script",
-        default=None,
-        help="Experimental smoke-test path: read a fixed Python script instead of calling a live model",
-    )
-    p_lumerai_agent.add_argument(
-        "--deny",
-        action="append",
-        default=[],
-        help="Deny a permission action (repeatable). E.g. --deny patch:apply",
-    )
-    p_lumerai_agent.add_argument("--root", default=None, help="Override Gemia root_dir (used in tests)")
-
     p_server = sub.add_parser("server", help="Start the web server")
     p_server.add_argument("--host", default=None, help="Bind host; defaults to GEMIA_HOST/LUMERI_HOST or 0.0.0.0")
     p_server.add_argument("--port", type=int, default=None, help="Bind port; defaults to GEMIA_PORT/LUMERI_PORT or 7788")
@@ -298,7 +271,7 @@ def main() -> None:
 
     _LLM_COMMANDS = {
         "run", "plan", "run-skill", "run-skill-v2", "save-skill", "revise-task",
-        "lumerai-script", "lumerai-agent",
+        "lumerai-script",
     }
     if args.command in _LLM_COMMANDS and needs_onboarding():
         if not ensure_onboarded():
@@ -347,8 +320,6 @@ def main() -> None:
         raise SystemExit(_cmd_lumerai_inspect(args))
     elif args.command == "lumerai-render":
         raise SystemExit(_cmd_lumerai_render(args))
-    elif args.command == "lumerai-agent":
-        raise SystemExit(_cmd_lumerai_agent(args))
     elif args.command == "server":
         import importlib.util, pathlib
         _spec = importlib.util.spec_from_file_location(
@@ -715,81 +686,6 @@ def _cmd_lumerai_render(args: argparse.Namespace) -> int:
         indent=2,
     ))
     return 0
-
-
-def _cmd_lumerai_agent(args: argparse.Namespace) -> int:
-    """Run the experimental Lumeri agent loop end-to-end."""
-    import os
-
-    from .agent_loop import run_agent_loop
-    from .permissions import DENY, PermissionSet
-
-    def _emit_error(code: str, message: str) -> int:
-        print(json.dumps(
-            {"status": "failed", "error": {"code": code, "message": message}},
-            ensure_ascii=False,
-            indent=2,
-        ))
-        return 1
-
-    if os.environ.get("LUMERAI_SCRIPT_MODE", "0") != "1":
-        return _emit_error(
-            "feature_flag_disabled",
-            "LUMERAI_SCRIPT_MODE=1 is required to run lumerai-agent",
-        )
-
-    orch = GemiaOrchestrator(root_dir=args.root) if getattr(args, "root", None) else GemiaOrchestrator()
-    if not orch.project_store.exists(args.project_id):
-        return _emit_error("project_not_found", f"project not found: {args.project_id}")
-
-    perms = PermissionSet({action: DENY for action in (args.deny or [])})
-    if args.canned_script:
-        script_path = Path(args.canned_script).expanduser()
-        if not script_path.exists():
-            return _emit_error("canned_script_not_found", f"Script file does not exist: {script_path}")
-        try:
-            script_text = script_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            return _emit_error("canned_script_read_failed", f"Cannot read canned script: {exc}")
-
-        class _CannedScriptClient:
-            async def generate_script(self, request, **kwargs):
-                return script_text
-
-        ai_client = _CannedScriptClient()
-    else:
-        from .ai.ai_client import AIClient
-
-        client_kwargs: dict = {}
-        ai_client = AIClient(**client_kwargs)
-        if args.ai_agent:
-            original = ai_client.generate_script
-
-            async def _wrapped(request, **kwargs):
-                kwargs.setdefault("agent", args.ai_agent)
-                return await original(request, **kwargs)
-
-            ai_client.generate_script = _wrapped  # type: ignore[assignment]
-
-    try:
-        result = run_agent_loop(
-            orch,
-            ai_client,
-            project_id=args.project_id,
-            goal=args.goal,
-            session_id=args.session_id,
-            max_turns=int(args.max_turns),
-            ai_model=args.ai_model,
-            permissions=perms,
-        )
-    except RuntimeError as exc:
-        return _emit_error("feature_flag_disabled", str(exc))
-    except Exception as exc:  # pragma: no cover - defensive
-        return _emit_error("agent_loop_failed", f"{type(exc).__name__}: {exc}")
-
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    benign_statuses = {"done_marker", "max_turns_reached", "no_progress", "no_patch"}
-    return 0 if result.get("status") in benign_statuses else 1
 
 
 def _cmd_render_layer_plan(args: argparse.Namespace) -> None:

@@ -43,7 +43,6 @@ import hashlib
 import mimetypes
 import os
 import re
-import shlex
 import socket
 import subprocess
 import threading
@@ -306,7 +305,7 @@ from gemia.stability import (
     normalize_task_status as _normalize_task_status,
     stability_gate_enabled as _stability_gate_enabled,
 )
-from gemia.orchestrator import GemiaOrchestrator, get_assets, get_task, run_skill, plan_from_primitives
+from gemia.orchestrator import GemiaOrchestrator, get_task, run_skill, plan_from_primitives
 from gemia.ai.sub_agents import SubAgentRegistry
 from lumerai.sandbox import sandbox_ctx as _sandbox_ctx
 from gemia.sandbox_v4 import set_sandbox_disabled as _set_v4_sandbox_disabled, is_sandbox_disabled as _is_v4_sandbox_disabled
@@ -317,9 +316,6 @@ _pending_asks: dict[str, dict] = {}
 _PENDING_ASK_TTL_SEC = 30 * 60  # 30 minutes
 # In-memory store for task execution progress {task_id: {current_step, total_steps, current_function}}
 _task_progress: dict[str, dict] = {}
-# In-memory store for vNext Runtime Kernel background message tasks.
-_runtime_tasks: dict[str, dict] = {}
-_runtime_tasks_lock = threading.Lock()
 _task_write_lock = threading.Lock()
 _LIVE_LOG_SECRET_RE = re.compile(
     r"(?i)(authorization|api[_-]?key|token|secret|password)(['\"\s:=]+)([A-Za-z0-9._\-+/=]{8,})"
@@ -541,158 +537,10 @@ def _vnext_index_path() -> Path:
     return _web_index_path()
 
 
-def _runtime_service():
-    from gemia.runtime_vnext import RuntimeService
-
-    return RuntimeService(_BASE_DIR)
-
-
 def _creative_sandbox_service():
     from gemia.creative_sandbox import CreativeSandboxService
 
     return CreativeSandboxService(_BASE_DIR)
-
-
-def _runtime_error_response(handler: BaseHTTPRequestHandler, exc: Exception) -> None:
-    from gemia.runtime_vnext import runtime_error_payload
-
-    status, payload = runtime_error_payload(exc)
-    _json_response(handler, status, payload)
-
-
-def _runtime_message_sync_requested(payload: dict, query: dict[str, list[str]]) -> bool:
-    raw_query = str((query.get("sync") or [""])[0]).strip().lower()
-    raw_payload = payload.get("sync")
-    return raw_query in {"1", "true", "yes"} or raw_payload is True or str(raw_payload).lower() in {"1", "true", "yes"}
-
-
-def _runtime_task_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _runtime_task_public(task: dict) -> dict:
-    payload = dict(task)
-    payload.pop("thread", None)
-    return payload
-
-
-def _runtime_task_payload(task_id: str) -> dict:
-    with _runtime_tasks_lock:
-        task = _runtime_tasks.get(task_id)
-        if not task:
-            return {"status": "failed", "error": {"code": "task_not_found", "message": f"找不到运行任务：{task_id}"}}
-        return _runtime_task_public(task)
-
-
-def _update_runtime_task(task_id: str, **updates: object) -> dict:
-    with _runtime_tasks_lock:
-        task = _runtime_tasks.get(task_id)
-        if not task:
-            task = {"task_id": task_id, "created_at": _runtime_task_now()}
-            _runtime_tasks[task_id] = task
-        task.update(updates)
-        task["updated_at"] = _runtime_task_now()
-        return _runtime_task_public(task)
-
-
-def _validate_runtime_message_for_async(service: object, payload: dict) -> tuple[str, str]:
-    from gemia.runtime_vnext import RuntimeApiError
-
-    session_id = str(payload.get("session_id") or payload.get("sessionId") or "").strip()
-    if not session_id:
-        raise RuntimeApiError("missing_session_id", "缺少 session_id")
-    if not service.sessions.exists(session_id):  # type: ignore[attr-defined]
-        raise RuntimeApiError("session_not_found", f"找不到会话：{session_id}", status=404)
-    meta = service.sessions.load_meta(session_id)  # type: ignore[attr-defined]
-    project_id = str(payload.get("project_id") or meta.get("project_id") or "")
-    if not project_id or not service.orchestrator.project_store.exists(project_id):  # type: ignore[attr-defined]
-        raise RuntimeApiError("project_not_found", f"找不到项目：{project_id}", status=404)
-    message = str(payload.get("message") or payload.get("prompt") or "").strip()
-    if not message:
-        raise RuntimeApiError("empty_message", "请输入要执行的内容")
-    return session_id, project_id
-
-
-def _start_runtime_message_task(service: object, payload: dict) -> dict:
-    session_id, project_id = _validate_runtime_message_for_async(service, payload)
-    task_id = f"rtask_{uuid.uuid4().hex[:12]}"
-    now = _runtime_task_now()
-    task = {
-        "status": "running",
-        "task_id": task_id,
-        "session_id": session_id,
-        "project_id": project_id,
-        "created_at": now,
-        "updated_at": now,
-        "result": None,
-        "error": None,
-    }
-    with _runtime_tasks_lock:
-        _runtime_tasks[task_id] = task
-
-    try:
-        service.sessions.append_event(  # type: ignore[attr-defined]
-            session_id,
-            "runtime_task_started",
-            {"task_id": task_id, "project_id": project_id, "message": str(payload.get("message") or "")[:240]},
-        )
-    except Exception:
-        pass
-
-    task_payload = deepcopy(payload)
-
-    def run() -> None:
-        worker_service = _runtime_service()
-        try:
-            result = worker_service.post_message(task_payload)
-            status = str(result.get("status") or "succeeded")
-            existing_events = []
-            try:
-                existing_events = worker_service.sessions.read_events(session_id)
-            except Exception:
-                existing_events = []
-            if status == "succeeded" and not any(event.get("type") == "succeeded" for event in existing_events):
-                worker_service.sessions.append_event(
-                    session_id,
-                    "succeeded",
-                    {"task_id": task_id, "project_id": project_id},
-                )
-                result = {**result, "events": worker_service.sessions.read_events(session_id)}
-            _update_runtime_task(task_id, status=status, result=result, error=result.get("error"))
-        except Exception as exc:
-            from gemia.runtime_vnext import runtime_error_payload
-
-            _, error_payload = runtime_error_payload(exc)
-            try:
-                worker_service.sessions.append_event(
-                    session_id,
-                    "failed",
-                    {
-                        "task_id": task_id,
-                        "project_id": project_id,
-                        "error_code": (error_payload.get("error") or {}).get("code"),
-                        "user_message": (error_payload.get("error") or {}).get("message"),
-                    },
-                )
-            except Exception:
-                pass
-            error_payload = {**error_payload, "session_id": session_id, "project_id": project_id}
-            try:
-                error_payload["events"] = worker_service.sessions.read_events(session_id)
-            except Exception:
-                pass
-            _update_runtime_task(task_id, status="failed", result=error_payload, error=error_payload.get("error"))
-
-    thread = threading.Thread(target=run, name=f"lumeri-runtime-{task_id}", daemon=True)
-    _update_runtime_task(task_id, thread=thread)
-    thread.start()
-    return {
-        "status": "accepted",
-        "session_id": session_id,
-        "project_id": project_id,
-        "task_id": task_id,
-        "events": service.sessions.read_events(session_id),  # type: ignore[attr-defined]
-    }
 
 
 def _creative_sandbox_error_response(handler: BaseHTTPRequestHandler, exc: Exception) -> None:
@@ -700,121 +548,6 @@ def _creative_sandbox_error_response(handler: BaseHTTPRequestHandler, exc: Excep
 
     status, payload = creative_sandbox_error_payload(exc)
     _json_response(handler, status, payload)
-
-
-def _opencode_compat_service():
-    from gemia.opencode_compat import OpenCodeCompatService
-
-    return OpenCodeCompatService(_BASE_DIR)
-
-
-def _opencode_compat_path(path: str) -> str | None:
-    if path.startswith("/runtime/opencode"):
-        trimmed = path.removeprefix("/runtime/opencode") or "/"
-        return trimmed if trimmed.startswith("/") else f"/{trimmed}"
-    if path in {"/event", "/global/event", "/session", "/project", "/project/current", "/file", "/file/content", "/file/status", "/find", "/find/file"}:
-        return path
-    if path.startswith("/session/"):
-        return path
-    return None
-
-
-def _opencode_compat_error_response(handler: BaseHTTPRequestHandler, exc: Exception) -> None:
-    from gemia.opencode_compat import opencode_error_payload
-
-    status, payload = opencode_error_payload(exc)
-    _json_response(handler, status, payload)
-
-
-def _sse_response(handler: BaseHTTPRequestHandler, status: int, body: str) -> None:
-    data = body.encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("Connection", "close")
-    handler.send_header("Content-Length", str(len(data)))
-    handler.end_headers()
-    handler.wfile.write(data)
-
-
-def _opencode_create_session(payload: dict, *, account_id: str | None) -> dict:
-    service = _runtime_service()
-    result = service.create_session(payload, account_id=account_id)
-    return _opencode_compat_service().session_payload(str(result.get("session_id") or payload.get("session_id") or ""))
-
-
-def _opencode_shell(session_id: str, payload: dict) -> dict:
-    command = str(payload.get("command") or payload.get("message") or "").strip()
-    if not command:
-        from gemia.opencode_compat import OpenCodeCompatError
-
-        raise OpenCodeCompatError("empty_command", "Shell command is required")
-    try:
-        args = shlex.split(command)
-    except ValueError as exc:
-        from gemia.opencode_compat import OpenCodeCompatError
-
-        raise OpenCodeCompatError("invalid_command", str(exc)) from exc
-    if not args:
-        from gemia.opencode_compat import OpenCodeCompatError
-
-        raise OpenCodeCompatError("empty_command", "Shell command is required")
-
-    service = _creative_sandbox_service()
-    service.create_workspace({"session_id": session_id, "goal": "opencode shell"}, account_id=accounts.current_account_id())
-    command_id = f"cmd_{uuid.uuid4().hex[:12]}"
-    service.append_event(
-        session_id,
-        "dev_command_started",
-        {"command_id": command_id, "command": command[:240], "label": "opencode.shell", "executed": True},
-    )
-    from gemia.creative_sandbox_runner import CreativeSandboxRunner
-
-    runner = CreativeSandboxRunner(_BASE_DIR, session_id=session_id)
-    result = runner.run(
-        args,
-        cwd=payload.get("cwd"),
-        timeout_sec=float(payload.get("timeout_sec") or payload.get("timeoutSec") or 30),
-        declared_artifact_paths=payload.get("declared_artifact_paths") or (),
-        command_id=command_id,
-    ).to_dict()
-    service.append_event(
-        session_id,
-        "dev_command_finished",
-        {
-            "command_id": result.get("command_id"),
-            "command": command[:240],
-            "status": result.get("status"),
-            "exit_code": result.get("exit_code"),
-            "duration_ms": result.get("duration_ms"),
-            "stdout_tail": result.get("stdout_tail"),
-            "stderr_tail": result.get("stderr_tail"),
-            "artifact_count": len(result.get("artifacts") or []),
-            "executed": True,
-        },
-    )
-    for artifact in result.get("artifacts") or []:
-        service.append_event(
-            session_id,
-            "dev_artifact_ready",
-            {
-                "path": artifact.get("rel_path") or artifact.get("path"),
-                "size": artifact.get("size"),
-                "declared": artifact.get("declared"),
-                "command_id": result.get("command_id"),
-            },
-        )
-    compat = _opencode_compat_service()
-    message = compat.shell_message(session_id, command, result)
-    preview = _creative_sandbox_preview_payload(service, session_id)
-    return {
-        **message,
-        "status": "succeeded" if result.get("status") == "succeeded" else result.get("status"),
-        "events": service.read_events(session_id),
-        "artifacts": service.list_artifacts(session_id).get("artifacts", []),
-        "preview": preview,
-        "report": service.report(session_id),
-    }
 
 
 def _creative_sandbox_preview_payload(service, session_id: str) -> dict:
@@ -3776,68 +3509,6 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, {"ok": True, "messages": list_messages(limit=limit)})
             return
 
-        opencode_path = _opencode_compat_path(path)
-        if opencode_path is not None:
-            if not _vnext_enabled():
-                _json_response(self, 404, {"error": "vNext runtime is disabled"})
-                return
-            try:
-                from gemia.opencode_compat import sse_lines
-
-                query = parse_qs(parsed_url.query)
-                compat = _opencode_compat_service()
-                if opencode_path in {"/event", "/global/event"}:
-                    session_id = str((query.get("sessionID") or query.get("session_id") or query.get("id") or [""])[0] or "").strip()
-                    _sse_response(self, 200, sse_lines(compat.event_stream(session_id or None)))
-                    return
-                if opencode_path == "/session":
-                    _json_response(self, 200, compat.list_sessions())
-                    return
-                if opencode_path == "/session/status":
-                    _json_response(self, 200, compat.session_status())
-                    return
-                if opencode_path == "/project":
-                    _json_response(self, 200, compat.list_projects())
-                    return
-                if opencode_path == "/project/current":
-                    project_id = str((query.get("projectID") or query.get("project_id") or [""])[0] or "").strip()
-                    _json_response(self, 200, compat.current_project(project_id or None))
-                    return
-                if opencode_path == "/file":
-                    _json_response(self, 200, compat.file_list(str((query.get("path") or ["."])[0] or ".")))
-                    return
-                if opencode_path == "/file/content":
-                    _json_response(self, 200, compat.file_read(str((query.get("path") or [""])[0] or "")))
-                    return
-                if opencode_path == "/file/status":
-                    _json_response(self, 200, compat.file_status())
-                    return
-                if opencode_path == "/find/file":
-                    limit = int((query.get("limit") or ["80"])[0] or 80)
-                    kind = str((query.get("type") or [""])[0] or "") or None
-                    include_dirs = str((query.get("dirs") or ["false"])[0] or "").lower() == "true"
-                    _json_response(self, 200, compat.find_files(str((query.get("query") or [""])[0] or ""), include_dirs=include_dirs, kind=kind, limit=limit))
-                    return
-                if opencode_path == "/find":
-                    _json_response(self, 200, compat.find_text(str((query.get("pattern") or [""])[0] or "")))
-                    return
-                parts = opencode_path.strip("/").split("/")
-                if len(parts) >= 2 and parts[0] == "session":
-                    session_id = parts[1]
-                    if len(parts) == 2:
-                        _json_response(self, 200, compat.session_payload(session_id))
-                        return
-                    if len(parts) == 3 and parts[2] == "message":
-                        _json_response(self, 200, compat.messages(session_id))
-                        return
-                    if len(parts) == 4 and parts[2] == "message":
-                        _json_response(self, 200, compat.message(session_id, parts[3]))
-                        return
-                _json_response(self, 404, {"error": "opencode compatibility route not found"})
-            except Exception as exc:
-                _opencode_compat_error_response(self, exc)
-            return
-
         if path.startswith("/runtime/dev/workspace"):
             if not _vnext_enabled():
                 _json_response(self, 404, {"error": "vNext runtime is disabled"})
@@ -3894,28 +3565,6 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 404, {"error": "creative sandbox route not found"})
             except Exception as exc:
                 _creative_sandbox_error_response(self, exc)
-            return
-
-        if path.startswith("/runtime/task/") or path.startswith("/runtime/events/") or path.startswith("/runtime/project/"):
-            if not _vnext_enabled():
-                _json_response(self, 404, {"error": "vNext runtime is disabled"})
-                return
-            try:
-                if path.startswith("/runtime/task/"):
-                    task_id = unquote(path.removeprefix("/runtime/task/")).strip()
-                    payload = _runtime_task_payload(task_id)
-                    status = 404 if (payload.get("error") or {}).get("code") == "task_not_found" else 200
-                    _json_response(self, status, payload)
-                    return
-                service = _runtime_service()
-                if path.startswith("/runtime/events/"):
-                    session_id = unquote(path.removeprefix("/runtime/events/")).strip()
-                    _json_response(self, 200, service.events(session_id))
-                    return
-                project_id = unquote(path.removeprefix("/runtime/project/")).strip()
-                _json_response(self, 200, service.project(project_id))
-            except Exception as exc:
-                _runtime_error_response(self, exc)
             return
 
         if path == "/auth/google/callback":
@@ -4289,59 +3938,6 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, {"ok": True, **accounts.auth_session_payload()})
             return
 
-        opencode_path = _opencode_compat_path(route)
-        if opencode_path is not None:
-            if not _vnext_enabled():
-                _json_response(self, 404, {"error": "vNext runtime is disabled"})
-                return
-            try:
-                from gemia.opencode_compat import prompt_payload_to_runtime
-
-                post_query = parse_qs(urlparse(self.path).query)
-                payload = _read_json_body(self)
-                if opencode_path == "/session":
-                    _json_response(self, 200, _opencode_create_session(payload, account_id=accounts.current_account_id()))
-                    return
-                parts = opencode_path.strip("/").split("/")
-                if len(parts) >= 3 and parts[0] == "session":
-                    session_id = parts[1]
-                    action = parts[2]
-                    if action == "prompt_async":
-                        service = _runtime_service()
-                        task_payload = prompt_payload_to_runtime(session_id, payload)
-                        if "sync" in post_query:
-                            _json_response(self, 200, service.post_message(task_payload))
-                        else:
-                            _start_runtime_message_task(service, task_payload)
-                            _empty_response(self)
-                        return
-                    if action == "message":
-                        service = _runtime_service()
-                        task_payload = prompt_payload_to_runtime(session_id, payload)
-                        if _runtime_message_sync_requested(task_payload, post_query):
-                            result = service.post_message(task_payload)
-                            messages = _opencode_compat_service().messages(session_id)
-                            _json_response(self, 200, messages[-1] if messages else result)
-                        else:
-                            _start_runtime_message_task(service, task_payload)
-                            messages = _opencode_compat_service().messages(session_id)
-                            _json_response(self, 202, messages[-1] if messages else {"status": "accepted"})
-                        return
-                    if action == "shell":
-                        _json_response(self, 200, _opencode_shell(session_id, payload))
-                        return
-                    if action == "command":
-                        service = _runtime_service()
-                        command_text = str(payload.get("command") or payload.get("message") or payload.get("name") or "").strip()
-                        task_payload = {"session_id": session_id, "message": command_text}
-                        _start_runtime_message_task(service, task_payload)
-                        _empty_response(self)
-                        return
-                _json_response(self, 404, {"error": "opencode compatibility route not found"})
-            except Exception as exc:
-                _opencode_compat_error_response(self, exc)
-            return
-
         if route.startswith("/runtime/"):
             if not _vnext_enabled():
                 _json_response(self, 404, {"error": "vNext runtime is disabled"})
@@ -4445,29 +4041,9 @@ class _Handler(BaseHTTPRequestHandler):
                             return
                     _json_response(self, 404, {"error": "creative sandbox route not found"})
                     return
-                service = _runtime_service()
-                account_id = accounts.current_account_id()
-                if route == "/runtime/session":
-                    _json_response(self, 200, service.create_session(payload, account_id=account_id))
-                    return
-                if route == "/runtime/message":
-                    if _runtime_message_sync_requested(payload, post_query):
-                        _json_response(self, 200, service.post_message(payload))
-                    else:
-                        _json_response(self, 202, _start_runtime_message_task(service, payload))
-                    return
-                if route == "/runtime/approval":
-                    _json_response(self, 200, service.approval(payload))
-                    return
-                if route == "/runtime/feedback":
-                    _json_response(self, 200, service.feedback(payload))
-                    return
                 _json_response(self, 404, {"error": "runtime route not found"})
             except Exception as exc:
-                if route.startswith("/runtime/dev/workspace"):
-                    _creative_sandbox_error_response(self, exc)
-                else:
-                    _runtime_error_response(self, exc)
+                _creative_sandbox_error_response(self, exc)
             return
 
         if route == "/agent-links/link":

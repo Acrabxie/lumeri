@@ -42,12 +42,8 @@ def test_workspace_diagnostics_explain_missing_runtime_files(tmp_path: Path) -> 
     diagnostics_path = Path(str(manifest["workspace_diagnostics"]["path"]))
     diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
 
-    if (cwd / "gemia" / "runtime_vnext.py").exists():
-        assert "gemia/runtime_vnext.py" not in [gap["path"] for gap in diagnostics["gaps"]]
-    else:
-        runtime_gap = next(gap for gap in diagnostics["gaps"] if gap["path"] == "gemia/runtime_vnext.py")
-        assert runtime_gap["capability"] == "Runtime Kernel natural-language execution path"
-        assert "Runtime Kernel" in runtime_gap["restore_hint"]
+    # runtime_vnext was retired (2026-07-06); it must never be reported as a gap.
+    assert "gemia/runtime_vnext.py" not in [gap["path"] for gap in diagnostics["gaps"]]
 
 
 def test_context_redacts_secret_like_shared_lines(tmp_path: Path, monkeypatch) -> None:

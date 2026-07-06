@@ -80,13 +80,9 @@ def git_status(cwd: Path) -> dict[str, object]:
 def collect_project_snapshot(cwd: Path) -> dict[str, object]:
     key_paths = list(expected_workspace_files())
     files = {path: (cwd / path).exists() for path in key_paths}
-    static_next = cwd / "static" / "next.html"
-    runtime_vnext = cwd / "gemia" / "runtime_vnext.py"
     return {
         "cwd": str(cwd),
         "files": files,
-        "has_vnext_ui": static_next.exists(),
-        "has_runtime_vnext_source": runtime_vnext.exists(),
         "git_status": git_status(cwd),
     }
 
@@ -96,14 +92,6 @@ def expected_workspace_files() -> dict[str, dict[str, str]]:
         "server.py": {
             "capability": "HTTP runtime/API entrypoint",
             "restore_hint": "Keep server routes available before adding vNext integration tests.",
-        },
-        "static/next.html": {
-            "capability": "vNext Codex-style browser workspace",
-            "restore_hint": "Restore or rebuild /next before live browser smoke tests.",
-        },
-        "gemia/runtime_vnext.py": {
-            "capability": "Runtime Kernel natural-language execution path",
-            "restore_hint": "Restore Runtime Kernel before task hydration or async result work.",
         },
         "gemia/creative_sandbox.py": {
             "capability": "Creative Dev Sandbox script execution",
