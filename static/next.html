@@ -784,7 +784,93 @@
       .composer { grid-template-columns: 1fr 82px; }
       .mode { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
     }
-  </style>
+
+/* Auth Modal */
+.auth-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.auth-modal[hidden] { display: none; }
+.auth-backdrop { position: absolute; inset: 0; background: rgba(4, 8, 12, 0.66); backdrop-filter: blur(3px); }
+.auth-dialog {
+  position: relative;
+  width: min(92vw, 380px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 30px 30px 26px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: auth-pop 0.18s ease-out;
+}
+@keyframes auth-pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.auth-x {
+  position: absolute; top: 12px; right: 12px;
+  width: 30px; height: 30px; padding: 0;
+  font-size: 20px; line-height: 1; color: var(--muted);
+  background: transparent; border: none; border-radius: 8px;
+  display: grid; place-items: center; cursor: pointer;
+}
+.auth-x:hover { background: var(--panel-2); color: var(--text); }
+.auth-brand { text-align: center; margin-bottom: 22px; }
+.auth-brand img { display: block; margin: 0 auto 12px; opacity: 0.95; }
+.auth-brand h2 { margin: 0; font-size: 19px; font-weight: 650; color: var(--text); }
+.auth-sub { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; word-break: break-all; }
+.auth-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 10px 12px; margin-bottom: 4px;
+  background: #fff; color: #1f2329; border: 1px solid #fff; border-radius: 9px;
+  font-size: 14px; font-weight: 550; cursor: pointer;
+}
+.auth-google:hover { border-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--muted); font-size: 11.5px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.auth-step { display: flex; flex-direction: column; gap: 12px; margin:0; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-field > span { font-size: 12px; color: var(--muted); }
+.auth-field input {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 12px; font: inherit; font-size: 14px; height: 42px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 9px;
+  transition: border-color 0.15s;
+}
+.auth-field input:focus { outline: none; border-color: var(--accent); }
+#auth-code { letter-spacing: 6px; font-variant-numeric: tabular-nums; text-align: center; font-size: 18px; }
+.auth-primary {
+  width: 100%; padding: 10px 12px; height: 42px;
+  background: var(--text); color: var(--bg);
+  border: none; border-radius: 9px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.auth-primary:hover { opacity: 0.9; }
+.auth-primary:disabled { opacity: 0.5; cursor: default; }
+.auth-secondary {
+  width: 100%; padding: 10px 12px; height: 42px;
+  background: transparent; color: var(--text);
+  border: 1px solid var(--line); border-radius: 9px;
+  font-size: 14px; font-weight: 550; cursor: pointer;
+}
+.auth-secondary:hover { background: var(--panel-2); }
+.auth-code-hint { font-size: 12px; color: var(--muted); margin: 0 0 4px; line-height: 1.5; text-align: center; }
+.auth-code-hint strong { color: var(--text); }
+.auth-code-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.auth-link {
+  background: transparent; border: none; padding: 4px 8px; margin: -4px -8px;
+  color: var(--muted); font-size: 12px; font-weight: 550; cursor: pointer; height: auto;
+}
+.auth-link:hover { color: var(--text); }
+.auth-link:disabled { opacity: 0.5; pointer-events: none; }
+.auth-error {
+  margin: 16px 0 0; padding: 10px 12px;
+  background: rgba(255, 125, 139, 0.1); color: var(--danger);
+  border-radius: 8px; font-size: 12.5px; line-height: 1.4; text-align: center;
+}
+.auth-error[hidden] { display: none; }
+.auth-avatar {
+  width: 64px; height: 64px; margin: 0 auto 16px;
+  background: var(--accent); color: #0a1118;
+  border-radius: 50%; display: grid; place-items: center;
+  font-size: 28px; font-weight: 700;
+}
+</style>
 </head>
 <body>
   <div class="shell">
@@ -795,7 +881,7 @@
         <div class="subtitle" id="projectLabel">视频创作运行时</div>
       </div>
       <div class="top-actions">
-        <span id="account">本地运行时</span>
+        <button class="ghost" id="account-btn" type="button">登录</button>
         <button class="ghost" id="newSession" type="button">新会话</button>
         <button class="ghost" id="toggleSide" type="button">历史</button>
       </div>
@@ -877,6 +963,70 @@
       </form>
     </section>
   </div>
+
+<!-- Login dialog: Google + email one-time-code -->
+<div id="auth-modal" class="auth-modal" hidden>
+  <div class="auth-backdrop" data-auth-close></div>
+  <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <button type="button" class="auth-x" data-auth-close aria-label="关闭">×</button>
+
+    <!-- Signed-out view -->
+    <div class="auth-view" id="auth-view-signin">
+      <div class="auth-brand">
+        <h2 id="auth-title">登录 Lumeri</h2>
+        <p class="auth-sub">登录后即可在多设备间同步会话与记忆</p>
+      </div>
+
+      <button type="button" id="auth-google-btn" class="auth-google" hidden>
+        <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+        </svg>
+        使用 Google 账号登录
+      </button>
+
+      <div class="auth-divider" id="auth-divider" hidden><span>或使用邮箱验证码</span></div>
+
+      <!-- Email step 1: request a code -->
+      <form class="auth-step" id="auth-email-form">
+        <label class="auth-field">
+          <span>邮箱</span>
+          <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
+        </label>
+        <button type="submit" id="auth-send-code" class="auth-primary">发送验证码</button>
+      </form>
+
+      <!-- Email step 2: enter the code -->
+      <form class="auth-step" id="auth-code-form" hidden>
+        <p class="auth-code-hint">验证码已发送至 <strong id="auth-code-target"></strong></p>
+        <label class="auth-field">
+          <span>验证码</span>
+          <input type="text" id="auth-code" inputmode="numeric" maxlength="6" placeholder="6 位数字" autocomplete="one-time-code" />
+        </label>
+        <button type="submit" id="auth-verify" class="auth-primary">登录</button>
+        <div class="auth-code-actions">
+          <button type="button" id="auth-resend" class="auth-link" disabled>重新发送</button>
+          <button type="button" id="auth-change-email" class="auth-link">换个邮箱</button>
+        </div>
+      </form>
+
+      <p class="auth-error" id="auth-error" hidden></p>
+    </div>
+
+    <!-- Signed-in view -->
+    <div class="auth-view" id="auth-view-account" hidden>
+      <div class="auth-brand">
+        <div class="auth-avatar" id="auth-avatar" aria-hidden="true"></div>
+        <h2>账户</h2>
+        <p class="auth-sub" id="auth-account-email"></p>
+      </div>
+      <button type="button" id="auth-logout" class="auth-secondary">退出登录</button>
+    </div>
+  </div>
+</div>
+
   <script>
     const state = {
       sessionId: "",
@@ -1605,11 +1755,7 @@
     async function init(payload = {}) {
       state.startedAt = Date.now();
       updateHistoryClock();
-      try {
-        const auth = await fetch("/auth/session").then(r => r.json());
-        const profile = auth?.account || auth?.profile || {};
-        account.textContent = profile.email || profile.name || "本地运行时";
-      } catch (_) {}
+
       const sessionPayload = await postJson("/session", {
         goal: "Lumeri vNext 桌面会话",
         ...payload,
@@ -1819,6 +1965,191 @@
     });
     updateHistoryClock();
     setInterval(updateHistoryClock, 1000);
+
+    // ── account / login (Google + email one-time-code) ──────────────────
+    function setupAuth() {
+      const modal = document.getElementById("auth-modal");
+      const accountBtn = document.getElementById("account-btn");
+      if (!modal || !accountBtn) return;
+      const viewSignin = document.getElementById("auth-view-signin");
+      const viewAccount = document.getElementById("auth-view-account");
+      const googleBtn = document.getElementById("auth-google-btn");
+      const divider = document.getElementById("auth-divider");
+      const emailForm = document.getElementById("auth-email-form");
+      const codeForm = document.getElementById("auth-code-form");
+      const emailInput = document.getElementById("auth-email");
+      const codeInput = document.getElementById("auth-code");
+      const sendBtn = document.getElementById("auth-send-code");
+      const verifyBtn = document.getElementById("auth-verify");
+      const resendBtn = document.getElementById("auth-resend");
+      const changeBtn = document.getElementById("auth-change-email");
+      const codeTarget = document.getElementById("auth-code-target");
+      const errBox = document.getElementById("auth-error");
+      const logoutBtn = document.getElementById("auth-logout");
+      const acctEmail = document.getElementById("auth-account-email");
+      const avatar = document.getElementById("auth-avatar");
+
+      let session = null;
+      let pendingEmail = "";
+      let resendTimer = null;
+
+      const showErr = (msg) => { errBox.textContent = msg || ""; errBox.hidden = !msg; };
+      const clearErr = () => showErr("");
+
+      function applySession(data) {
+        session = data || {};
+        const acct = session.account;
+        if (acct && acct.email) {
+          accountBtn.textContent = acct.email;
+          accountBtn.classList.add("signed-in");
+        } else {
+          accountBtn.textContent = "登录";
+          accountBtn.classList.remove("signed-in");
+        }
+      }
+
+      async function refreshSession() {
+        try {
+          const r = await fetch("/auth/session");
+          if (r.ok) applySession(await r.json());
+        } catch {}
+        return session;
+      }
+
+      async function postAuth(url, body) {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        let data = {};
+        try { data = await r.json(); } catch {}
+        if (!r.ok) throw new Error(data.user_message || data.error || `请求失败 (${r.status})`);
+        return data;
+      }
+
+      function stopResend() { if (resendTimer) { clearInterval(resendTimer); resendTimer = null; } }
+      function startResend(secs) {
+        stopResend();
+        let left = secs;
+        const tick = () => {
+          resendBtn.disabled = left > 0;
+          resendBtn.textContent = left > 0 ? `重新发送（${left}s）` : "重新发送";
+          if (left <= 0) { stopResend(); return; }
+          left -= 1;
+        };
+        tick();
+        resendTimer = setInterval(tick, 1000);
+      }
+
+      function showEmailStep() { emailForm.hidden = false; codeForm.hidden = true; stopResend(); }
+      function showCodeStep(email) {
+        pendingEmail = email;
+        codeTarget.textContent = email;
+        emailForm.hidden = true;
+        codeForm.hidden = false;
+        codeInput.value = "";
+        startResend(60);
+        codeInput.focus();
+      }
+
+      function renderModal() {
+        clearErr();
+        const acct = session && session.account;
+        viewAccount.hidden = !acct;
+        viewSignin.hidden = !!acct;
+        if (acct) {
+          acctEmail.textContent = acct.email || acct.name || "已登录";
+          avatar.textContent = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+          return;
+        }
+        const hasGoogle = !!(session && session.has_google_client_id);
+        googleBtn.hidden = !hasGoogle;
+        divider.hidden = !hasGoogle;
+        showEmailStep();
+      }
+
+      function openModal() {
+        renderModal();
+        modal.hidden = false;
+        if (!(session && session.account)) emailInput.focus();
+      }
+      function closeModal() { modal.hidden = true; stopResend(); clearErr(); }
+
+      async function requestCode(email) {
+        clearErr();
+        sendBtn.disabled = true; sendBtn.textContent = "发送中…";
+        try {
+          await postAuth("/auth/email/start", { email });
+          showCodeStep(email);
+        } catch (e) {
+          showErr(e.message);
+        } finally {
+          sendBtn.disabled = false; sendBtn.textContent = "发送验证码";
+        }
+      }
+
+      accountBtn.addEventListener("click", () => { modal.hidden ? openModal() : closeModal(); });
+      modal.querySelectorAll("[data-auth-close]").forEach((el) => el.addEventListener("click", closeModal));
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+
+      googleBtn.addEventListener("click", async () => {
+        clearErr();
+        try {
+          const data = await postAuth("/auth/google/start", {});
+          if (!data.authorization_url) throw new Error("Google 登录未配置");
+          const win = window.open(data.authorization_url, "lumeri-google-login", "width=480,height=640");
+          const onMsg = async (ev) => {
+            if (ev.origin !== location.origin) return;
+            if (!ev.data || ev.data.type !== "lumeri-auth-complete") return;
+            window.removeEventListener("message", onMsg);
+            try { win && win.close(); } catch {}
+            await refreshSession();
+            if (session && session.account) { renderModal(); setTimeout(closeModal, 600); }
+            else showErr("Google 登录未完成");
+          };
+          window.addEventListener("message", onMsg);
+        } catch (e) { showErr(e.message); }
+      });
+
+      emailForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = emailInput.value.trim();
+        if (v) requestCode(v);
+      });
+      resendBtn.addEventListener("click", () => { if (pendingEmail) requestCode(pendingEmail); });
+      changeBtn.addEventListener("click", () => { showEmailStep(); clearErr(); emailInput.focus(); });
+
+      codeForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearErr();
+        const code = codeInput.value.replace(/\D/g, "");
+        if (code.length !== 6) { showErr("请输入 6 位数字验证码"); return; }
+        verifyBtn.disabled = true; verifyBtn.textContent = "登录中…";
+        try {
+          const data = await postAuth("/auth/email/verify", { email: pendingEmail, code });
+          applySession(data);
+          renderModal();
+          setTimeout(closeModal, 500);
+        } catch (e2) {
+          showErr(e2.message);
+        } finally {
+          verifyBtn.disabled = false; verifyBtn.textContent = "登录";
+        }
+      });
+
+      logoutBtn.addEventListener("click", async () => {
+        try { applySession(await postAuth("/auth/logout", {})); } catch {}
+        renderModal();
+      });
+
+      refreshSession().then(() => {
+        const params = new URLSearchParams(location.search || "");
+        if (params.get("login") === "1" || params.get("auth") === "1") openModal();
+      });
+    }
+    setupAuth();
+
   </script>
 </body>
 </html>

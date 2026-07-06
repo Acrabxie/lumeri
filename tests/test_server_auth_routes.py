@@ -16,6 +16,7 @@ def _patch_account_roots(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(accounts, "ACTIVE_ACCOUNT_PATH", root / "active.json")
     monkeypatch.setattr(accounts, "CONFIG_PATH", tmp_path / "config.json")
     accounts._PENDING_OAUTH_STATES.clear()
+    accounts._PENDING_EMAIL_CODES.clear()
 
 
 def _claims(sub: str, email: str) -> dict[str, object]:
@@ -102,6 +103,37 @@ def test_accounts_switch_route_reads_json_body(monkeypatch, tmp_path: Path) -> N
     payload = json.loads(raw)
     assert payload["account"]["account_id"] == first["account_id"]
     assert accounts.current_account_id() == first["account_id"]
+
+
+def test_email_code_login_routes_activate_account(monkeypatch, tmp_path: Path) -> None:
+    _patch_account_roots(monkeypatch, tmp_path)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(accounts, "_generate_email_code", lambda: "123456")
+    monkeypatch.setattr(
+        "gemia.email_delivery.send_login_code",
+        lambda email, code, **kwargs: sent.append((email, code)),
+    )
+
+    status, _, start_raw = make_request("POST", "/auth/email/start", {"email": "User@Example.Dev"})
+
+    assert status == 200
+    assert json.loads(start_raw)["email"] == "user@example.dev"
+    assert sent == [("user@example.dev", "123456")]
+    assert "123456" not in json.dumps(accounts._PENDING_EMAIL_CODES)
+
+    status, _, verify_raw = make_request("POST", "/auth/email/verify", {"email": "user@example.dev", "code": "123456"})
+
+    assert status == 200
+    payload = json.loads(verify_raw)
+    assert payload["account"]["provider"] == "email"
+    assert payload["account"]["email"] == "user@example.dev"
+    assert accounts.current_account_id() == payload["account"]["account_id"]
+
+    status, _, accounts_raw = make_request("GET", "/accounts")
+    assert status == 200
+    roster = json.loads(accounts_raw)
+    assert roster["account"]["email"] == "user@example.dev"
+    assert roster["accounts"][0]["email"] == "user@example.dev"
 
 
 def test_session_history_snapshot_route_opens_previous_session(monkeypatch, tmp_path: Path) -> None:
