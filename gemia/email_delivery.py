@@ -9,10 +9,11 @@ Nothing is hard-coded here — credentials live only in local config (chmod
 600) or the environment, never in source control or shared memory.
 
 The authenticated account is always used as the SMTP envelope sender
-(``MAIL FROM``), while the visible ``From:`` header may use a branded domain
-address. Note that providers such as Gmail will rewrite the ``From:`` header
-to the authenticated address unless the domain address is a verified
-"Send mail as" alias with matching SPF/DKIM — see ``docs`` for deliverability.
+(``MAIL FROM``). By default the visible ``From:`` is also aligned to that
+authenticated address, because Outlook/Gmail tend to junk one-time-code mail
+when the visible From domain and SMTP identity do not authenticate as the same
+sender. A branded From alias can still be used by setting
+``allow_from_alias=true`` after the alias/domain is verified with the relay.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ DEFAULT_PORT = 587
 DEFAULT_TIMEOUT = 20
 DEFAULT_FROM_NAME = "Lumeri"
 DEFAULT_APP_NAME = "Lumeri"
+DEFAULT_ALLOW_FROM_ALIAS = False
 
 # Brand palette (matches the Lumeri mark) for the HTML email.
 _BRAND_PRIMARY = "#5FC6DE"
@@ -72,12 +74,34 @@ def _cfg(env_name: str, key: str, block: dict[str, Any], default: str = "") -> s
     return _clean(block.get(key)) or default
 
 
+def _cfg_bool(env_name: str, key: str, block: dict[str, Any], default: bool = False) -> bool:
+    env_val = _clean(os.environ.get(env_name))
+    if env_val:
+        return env_val.strip().lower() in {"1", "true", "yes", "on"}
+    if key in block:
+        return str(block.get(key)).strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
+def _addr_domain(addr: str) -> str:
+    value = _clean(addr).lower()
+    return value.rsplit("@", 1)[1] if "@" in value else ""
+
+
 def smtp_config() -> dict[str, Any]:
     """Return the resolved SMTP settings (env overrides local config)."""
     block = _read_config_block()
     username = _cfg("GEMIA_SMTP_USERNAME", "username", block)
     password = _clean(os.environ.get("GEMIA_SMTP_PASSWORD")) or _clean(block.get("password"))
     from_addr = _cfg("GEMIA_SMTP_FROM", "from_addr", block) or username
+    allow_from_alias = _cfg_bool(
+        "GEMIA_SMTP_ALLOW_FROM_ALIAS",
+        "allow_from_alias",
+        block,
+        DEFAULT_ALLOW_FROM_ALIAS,
+    )
+    if username and from_addr and not allow_from_alias and _addr_domain(username) != _addr_domain(from_addr):
+        from_addr = username
     port_raw = _cfg("GEMIA_SMTP_PORT", "port", block) or str(DEFAULT_PORT)
     try:
         port = int(port_raw)
@@ -91,6 +115,8 @@ def smtp_config() -> dict[str, Any]:
         "username": username,
         "password": password,
         "from_addr": from_addr,
+        "configured_from_addr": _cfg("GEMIA_SMTP_FROM", "from_addr", block) or username,
+        "allow_from_alias": allow_from_alias,
         "from_name": _cfg("GEMIA_SMTP_FROM_NAME", "from_name", block) or DEFAULT_FROM_NAME,
         "reply_to": _cfg("GEMIA_SMTP_REPLY_TO", "reply_to", block) or from_addr,
         "starttls": starttls,
@@ -120,10 +146,14 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((cfg["from_name"], cfg["from_addr"]))
+    if cfg.get("allow_from_alias") and cfg["username"] and cfg["username"] != cfg["from_addr"]:
+        msg["Sender"] = cfg["username"]
     msg["To"] = recipient
     if cfg["reply_to"]:
         msg["Reply-To"] = cfg["reply_to"]
     msg["Date"] = formatdate(localtime=True)
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "All"
     try:
         msg["Message-ID"] = make_msgid(domain=(cfg["from_addr"].split("@")[-1] or None))
     except Exception:
@@ -133,6 +163,9 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
         msg.add_alternative(html_body, subtype="html")
 
     context = ssl.create_default_context()
+    if cfg["host"] in ("127.0.0.1", "localhost"):
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
     try:
         with smtplib.SMTP(cfg["host"], cfg["port"], timeout=cfg["timeout"]) as smtp:
             smtp.ehlo()
