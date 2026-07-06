@@ -1,7 +1,7 @@
 """HTTP routes for Lumeri v3 sessions.
 
     POST   /sessions                            create session
-    GET    /sessions/{id}                       info (assets, latest_event_id, plan_mode)
+    GET    /sessions/{id}                       info (assets, latest_event_id, plan_mode, protocol_version)
     POST   /sessions/{id}/turn                  submit user message (202)
     POST   /sessions/{id}/plan_mode             toggle plan mode {"enabled": bool}
     POST   /sessions/{id}/assets                upload asset (raw body + X-Filename)
@@ -38,6 +38,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
+from gemia.v3_contract import PROTOCOL_VERSION
 from lumerai.patches import _TRANSITION_KINDS, TimelinePatchError
 
 
@@ -293,6 +294,7 @@ def _session_info(handler, session_id: str) -> bool:
         "assets": runner.list_assets(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
         "plan_mode": runner.plan_mode,
+        "protocol_version": PROTOCOL_VERSION,
     })
     return True
 
@@ -605,6 +607,18 @@ def _sse_stream(handler, session_id: str, query: dict, *, body: bool) -> bool:
     if not body:
         return True
     try:
+        # Per-connection hello frame. Deliberately NOT pushed through the SSE
+        # registry (it would consume a replay-buffer event id and be replayed
+        # out of order on reconnect) and deliberately id-LESS, so neither the
+        # browser EventSource nor the CLI parser advances Last-Event-ID on it.
+        # Plain data frame (no `event:` name): both frontends dispatch it like
+        # any other kind and warn (non-blocking) on version mismatch.
+        hello = json.dumps(
+            {"kind": "protocol_hello", "protocol_version": PROTOCOL_VERSION},
+            ensure_ascii=False,
+        )
+        handler.wfile.write(f"data: {hello}\n\n".encode("utf-8"))
+        handler.wfile.flush()
         for chunk in iter_events(session_id, last_event_id=last_id):
             handler.wfile.write(chunk)
             handler.wfile.flush()

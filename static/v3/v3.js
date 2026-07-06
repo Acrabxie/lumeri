@@ -556,6 +556,12 @@
       // rather than waiting for the next poll interval.
       fetchProjectTimeline({ force: true });
     },
+    protocol_hello: (ev) => {
+      // Per-connection id-less frame at the top of every stream. The web
+      // client is served BY the backend, so a mismatch is near-impossible —
+      // record it for debugging, no banner.
+      state.protocolVersion = ev.protocol_version;
+    },
     replay_gap: (ev) => {
       const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
       const banner = {

@@ -6,13 +6,20 @@
 
 ## 问题
 
-Web v3 与 CLI 的协议一致性目前完全靠人肉纪律维持：
+> **状态更新（2026-07-06）：Phase 1 已落地。** 单一事实源 = `gemia/v3_contract.py`
+> （当前 19 种 kind，本文下面的 14 种枚举是当时的过时快照，以模块为准）；导出器 =
+> `scripts/export_contract.py`；漂移测试 = `tests/test_v3_contract.py`（后端）+
+> lumeri-cli `test/contract.mjs`（前端）；`protocol_version` 通过 GET
+> `/sessions/{id}` 与每条 SSE 流顶部的 id-less `protocol_hello` 帧下发（绝不进
+> replay buffer，否则会污染 Last-Event-ID 续传）。假 kind 红绿验收双向通过。
 
-- 后端事件契约散落在 `gemia/agent_loop_v3.py` / `gemia/v3_routes.py` 的 emit 调用里（当前 14 种
+Web v3 与 CLI 的协议一致性此前完全靠人肉纪律维持：
+
+- 后端事件契约散落在 `gemia/agent_loop_v3.py` / `gemia/v3_routes.py` 的 emit 调用里（当时 14 种
   kind：`turn_start`、`model_text_delta`、`model_tool_call_start`、`model_tool_call_ready`、
   `tool_exec_start`、`tool_exec_progress`、`tool_exec_result`、`tool_exec_error`、`timeline_op`、
   `budget_gate`、`completion_check`、`turn_wrapup`、`turn_complete`、`turn_error`，另有
-  ask/replay 相关事件）。
+  ask/replay 相关事件；实际盘点为 18 种，Phase 1 落地时又加了 `protocol_hello` 共 19 种）。
 - Web 端 `static/v3/v3.js` 用 handlers 对象表逐 kind 处理（约 374 行起），未知 kind 弹 banner。
 - CLI 端 `src/App.js` 的 `handleEvent` 用 switch 手工镜像，代码里 6+ 处注释写着
   "mirrors gemia static/v3/v3.js handlers"。
