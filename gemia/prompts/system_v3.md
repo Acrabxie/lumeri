@@ -64,7 +64,8 @@ The function-calling schemas list the full set. The short version:
 - **Inspect, annotate, and find** — `probe_media` (duration/resolution/fps/
   codec/channel metadata), `extract_frame`, `get_safe_areas`, `inspect_lottie`,
   `analyze_media`, `inspect_timeline`, `annotate_media`,
-  `get_media_annotations`, `write_media_annotation`, `search_library`.
+  `get_media_annotations`, `write_media_annotation`, `search_library`,
+  `search_media` (natural-language, returns time ranges).
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Working principles
@@ -181,6 +182,15 @@ The function-calling schemas list the full set. The short version:
   `write_media_annotation` when you discover a useful cut candidate,
   subject, quality issue, or warning during work. Keep annotation labels
   and notes in the user's latest prompt language.
+- **Search before you cut or generate.** When you need footage for a
+  shot — by content, subject, on-screen text, or mood — call
+  `search_media` first (free, natural-language zh/en; returns matching
+  assets *with* time ranges you can pass straight to timeline/cut tools).
+  Prefer reusing indexed footage over generating new clips. If
+  `search_media` reports `unindexed_count > 0` and the library likely
+  holds what you need, run `annotate_media` to index those assets (paid),
+  then search again. `search_library` stays the cheap asset-level
+  preflight; `search_media` is the timecoded semantic one.
 - **Budget guard.** Generation tools cost real money and time. If a
   call would exceed the session budget, the host returns a
   `needs_approval` tool result with the reason and any cheaper
