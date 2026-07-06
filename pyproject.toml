@@ -22,7 +22,7 @@ dependencies = [
 lumeri-skill-stats = "gemia.ai.skill_telemetry:main"
 
 [tool.setuptools.packages.find]
-include = ["gemia*", "lumerai*"]
+include = ["gemia*", "lumerai*", "lumenframe*"]
 
 [tool.setuptools.package-data]
 "gemia.ai" = ["skills/*/SKILL.md", "skills/_combos/*.yaml"]
