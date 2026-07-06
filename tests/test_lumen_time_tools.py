@@ -221,6 +221,7 @@ def test_time_tools_registered_in_dispatcher_and_names():
     from gemia.tools import DISPATCHER, TOOL_NAMES
 
     for name in (
+        "adjust_media",
         "lumen_seek",
         "lumen_render_range",
         "lumen_set_range",
@@ -241,6 +242,7 @@ def test_time_tools_have_schemas():
     from gemia.tools import TOOL_SCHEMAS
 
     names = [t["function"]["name"] for t in TOOL_SCHEMAS]
+    assert "adjust_media" in names
     assert "lumen_seek" in names
     assert "lumen_render_range" in names
 
