@@ -486,6 +486,96 @@ async def dispatch_select(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     return await dispatch_patch({"ops": [op]}, ctx)
 
 
+async def dispatch_set_mask(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Attach, replace, or clear a layer mask.
+
+    Supports vector shape masks, direct pixel/alpha masks, and alpha/luma track
+    mattes. This is a convenience wrapper over the core set_mask LayerPatch op.
+    """
+    layer_id = args.get("layer_id")
+    if not layer_id:
+        raise ValueError("set_mask: missing required 'layer_id'")
+    if bool(args.get("clear", False)):
+        return await dispatch_patch({"ops": [{"op": "set_mask", "layer_id": str(layer_id), "mask": None}]}, ctx)
+
+    kind = str(args.get("kind") or "shape").lower()
+    if kind in {"alpha", "alpha_matte"}:
+        kind = "alpha_matte"
+    elif kind in {"luma", "luma_matte"}:
+        kind = "luma_matte"
+    elif kind in {"bitmap", "pixel_mask"}:
+        kind = "pixel"
+    elif kind not in {"shape", "pixel"}:
+        raise ValueError(f"set_mask: unknown kind {kind!r}")
+
+    mask: dict[str, Any] = {"kind": kind}
+    for key in ("invert", "feather"):
+        if args.get(key) is not None:
+            mask[key] = args[key]
+
+    if kind == "shape":
+        shape = args.get("shape")
+        if not isinstance(shape, dict):
+            raise ValueError("set_mask: kind=shape requires shape object")
+        mask["shape"] = shape
+    elif kind == "pixel":
+        for key in ("asset_id", "alpha", "data", "channel", "threshold", "softness", "width", "height"):
+            if args.get(key) is not None:
+                mask[key] = args[key]
+        if "asset_id" not in mask and "alpha" not in mask and "data" not in mask:
+            raise ValueError("set_mask: kind=pixel requires asset_id or alpha/data")
+    else:
+        source_layer_id = args.get("source_layer_id")
+        if not source_layer_id:
+            raise ValueError(f"set_mask: kind={kind} requires source_layer_id")
+        mask["source_layer_id"] = str(source_layer_id)
+
+    return await dispatch_patch({"ops": [{"op": "set_mask", "layer_id": str(layer_id), "mask": mask}]}, ctx)
+
+
+async def dispatch_key(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Apply a layer keying effect: chroma, advanced_chroma, or luma."""
+    layer_id = str(args.get("layer_id") or "")
+    if not layer_id:
+        raise ValueError("lumen_key: missing required 'layer_id'")
+
+    method = str(args.get("method") or "advanced_chroma").lower()
+    effect_type = {
+        "chroma": "chroma_key",
+        "chroma_key": "chroma_key",
+        "advanced": "advanced_chroma_key",
+        "advanced_chroma": "advanced_chroma_key",
+        "advanced_chroma_key": "advanced_chroma_key",
+        "luma": "luma_key",
+        "luma_key": "luma_key",
+    }.get(method)
+    if effect_type is None:
+        raise ValueError(f"lumen_key: unknown method {method!r}")
+
+    params = dict(args.get("params") or {})
+    for key in ("key_color", "threshold", "similarity", "softness", "spill", "despill", "edge_blur", "mode"):
+        if args.get(key) is not None:
+            params[key] = args[key]
+
+    ops: list[dict[str, Any]] = []
+    if args.get("replace_existing", True) and find_layer is not None:
+        doc = _lumendoc(ctx)
+        layer = find_layer(doc, layer_id)
+        if isinstance(layer, dict):
+            for effect in layer.get("effects") or []:
+                if str(effect.get("type")) in {"chroma_key", "advanced_chroma_key", "luma_key"}:
+                    effect_id = effect.get("id")
+                    if effect_id:
+                        ops.append({"op": "remove_effect", "layer_id": layer_id, "effect_id": str(effect_id)})
+
+    ops.append({
+        "op": "add_effect",
+        "layer_id": layer_id,
+        "effect": {"type": effect_type, "params": params},
+    })
+    return await dispatch_patch({"ops": ops}, ctx)
+
+
 async def dispatch_render(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     """Render the current lumenframe document to a video or image file.
 
@@ -861,6 +951,8 @@ dispatch_lumen_delete_layer = dispatch_delete_layer
 dispatch_lumen_move_layer = dispatch_move_layer
 dispatch_lumen_set_visibility = dispatch_set_visibility
 dispatch_lumen_select = dispatch_select
+dispatch_lumen_set_mask = dispatch_set_mask
+dispatch_lumen_key = dispatch_key
 dispatch_lumen_render = dispatch_render
 dispatch_lumen_set_range = dispatch_set_range
 dispatch_lumen_set_lane = dispatch_set_lane
@@ -884,6 +976,8 @@ __all__ = [
     "dispatch_move_layer",
     "dispatch_set_visibility",
     "dispatch_select",
+    "dispatch_set_mask",
+    "dispatch_key",
     "dispatch_render",
     "dispatch_set_range",
     "dispatch_set_lane",

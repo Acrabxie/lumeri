@@ -163,6 +163,64 @@ def test_lumen_set_transform(tmp_session: ToolContext) -> None:
     assert transform.get("rotation") == 45
 
 
+def test_lumen_set_mask_convenience_accepts_pixel_alpha(tmp_session: ToolContext) -> None:
+    add_result = asyncio.run(
+        layer_module.dispatch_add_layer(
+            {"type": "solid", "name": "masked"},
+            tmp_session,
+        )
+    )
+    assert add_result["applied"] is True
+    doc = layer_module._lumendoc(tmp_session)
+    layer_id = doc["root"]["children"][0]["id"]
+
+    result = asyncio.run(
+        layer_module.dispatch_set_mask(
+            {
+                "layer_id": layer_id,
+                "kind": "pixel",
+                "alpha": [[1, 0], [1, 0]],
+                "feather": 0,
+            },
+            tmp_session,
+        )
+    )
+
+    assert result["applied"] is True
+    layer = find_layer(layer_module._lumendoc(tmp_session), layer_id)
+    assert layer is not None
+    assert layer["mask"]["kind"] == "pixel"
+    assert layer["mask"]["alpha"] == [[1, 0], [1, 0]]
+
+
+def test_lumen_key_replaces_existing_keying_effect(tmp_session: ToolContext) -> None:
+    asyncio.run(layer_module.dispatch_add_layer({"type": "solid", "name": "keyed"}, tmp_session))
+    doc = layer_module._lumendoc(tmp_session)
+    layer_id = doc["root"]["children"][0]["id"]
+
+    first = asyncio.run(
+        layer_module.dispatch_key(
+            {"layer_id": layer_id, "method": "chroma", "key_color": "#00FF00"},
+            tmp_session,
+        )
+    )
+    assert first["applied"] is True
+    second = asyncio.run(
+        layer_module.dispatch_key(
+            {"layer_id": layer_id, "method": "advanced_chroma", "key_color": "#0000FF", "spill": 0.75},
+            tmp_session,
+        )
+    )
+    assert second["applied"] is True
+
+    layer = find_layer(layer_module._lumendoc(tmp_session), layer_id)
+    assert layer is not None
+    effects = layer.get("effects") or []
+    assert [effect["type"] for effect in effects] == ["advanced_chroma_key"]
+    assert effects[0]["params"]["key_color"] == "#0000FF"
+    assert effects[0]["params"]["spill"] == 0.75
+
+
 def test_lumen_set_visibility(tmp_session: ToolContext) -> None:
     """Test hiding and showing layers."""
     # Add a layer

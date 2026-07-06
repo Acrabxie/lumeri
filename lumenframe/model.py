@@ -55,9 +55,10 @@ BLEND_MODES: set[str] = {
 #: Interpolation kinds for keyframes.
 INTERP_KINDS: set[str] = {"linear", "hold", "ease", "ease_in", "ease_out", "bezier"}
 
-#: Mask kinds. ``shape`` is a drawn/vector mask; ``alpha_matte`` / ``luma_matte``
-#: borrow another sibling layer as a track matte.
-MASK_KINDS: set[str] = {"shape", "alpha_matte", "luma_matte"}
+#: Mask kinds. ``shape`` is a drawn/vector mask; ``pixel`` is a direct alpha
+#: mask from inline data or an asset; ``alpha_matte`` / ``luma_matte`` borrow
+#: another sibling layer as a track matte.
+MASK_KINDS: set[str] = {"shape", "pixel", "alpha_matte", "luma_matte"}
 
 DEFAULT_CANVAS: dict[str, Any] = {
     "width": 1920,
@@ -398,6 +399,14 @@ def _normalize_mask(mask: dict[str, Any]) -> dict[str, Any]:
     }
     if mask.get("source_layer_id"):
         out["source_layer_id"] = str(mask["source_layer_id"])
+    if mask.get("asset_id"):
+        out["asset_id"] = str(mask["asset_id"])
+    for key in ("channel", "mode", "threshold", "softness", "width", "height"):
+        if key in mask:
+            out[key] = mask[key]
+    for key in ("alpha", "data"):
+        if key in mask:
+            out[key] = mask[key]
     if isinstance(mask.get("shape"), dict):
         out["shape"] = dict(mask["shape"])
     return out

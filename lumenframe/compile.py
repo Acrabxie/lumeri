@@ -23,8 +23,9 @@ Mapped per layer: time (start/duration → frame range), z-order (tree order),
 opacity, blend mode, centre-origin transform (translate + uniform scale +
 rotation, computed analytically so rotation stays centred), opacity/position
 keyframes, the per-layer effect chain, **shape masks** (rectangle / ellipse /
-polygon, rasterised in normalised canvas coordinates with optional feather +
-invert), alpha/luma **track mattes**, and **adjustment layers** (After Effects
+polygon / vector path, rasterised in normalised canvas coordinates with
+optional feather + invert), **pixel masks** (inline alpha or image asset),
+alpha/luma **track mattes**, and **adjustment layers** (After Effects
 ``composite-below``: the effect chain runs over the flat composite of every
 layer beneath the adjustment in its comp, stacked adjustments compounding).
 
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -327,6 +329,8 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
         dur = model._as_float(layer.get("duration"))
         layer_frames = int(round(dur * ctx.fps))
         return _shape_matte(mask, ctx, layer_frames=layer_frames)
+    if kind == "pixel":
+        return _pixel_matte(mask, ctx)
     if kind not in {"alpha_matte", "luma_matte"}:
         return None
     source_id = str(mask.get("source_layer_id") or "")
@@ -352,6 +356,95 @@ def _matte_fn(layer, resolved, siblings, ctx) -> Callable[[int], "np.ndarray"] |
         return 1.0 - alpha if invert else alpha
 
     return matte
+
+
+def _pixel_matte(mask: dict[str, Any], ctx: ResolveContext) -> Callable[[int], "np.ndarray"] | None:
+    """A pixel/bitmap mask -> per-frame alpha.
+
+    Supports two homes:
+    * inline ``alpha`` / ``data``: a 2D numeric array in [0, 1] or [0, 255].
+    * ``asset_id``: an image asset whose alpha/luma/r/g/b channel becomes alpha.
+
+    The resulting alpha is canvas-sized and resolution-independent at render
+    time: the backend resizes it again onto the transformed layer frame.
+    """
+    alpha = _pixel_mask_array(mask, ctx)
+    if alpha is None:
+        return None
+    alpha = _postprocess_mask_alpha(alpha, mask, ctx.width, ctx.height)
+
+    def matte(_local_frame: int):
+        return alpha
+
+    return matte
+
+
+def _pixel_mask_array(mask: dict[str, Any], ctx: ResolveContext) -> "np.ndarray | None":
+    raw = mask.get("alpha")
+    if raw is None:
+        raw = mask.get("data")
+    if raw is not None:
+        arr = np.asarray(raw, dtype=np.float32)
+        if arr.ndim == 3:
+            arr = arr[..., 0]
+        if arr.ndim != 2 or arr.size == 0:
+            return None
+        if float(np.nanmax(arr)) > 1.0:
+            arr = arr / 255.0
+        return np.nan_to_num(arr, nan=0.0, posinf=1.0, neginf=0.0)
+
+    asset_id = str(mask.get("asset_id") or "")
+    asset = ctx.asset(asset_id)
+    if not isinstance(asset, dict):
+        return None
+    path = asset.get("path") or asset.get("source_path") or asset.get("uri")
+    if not path:
+        return None
+    path_obj = Path(str(path)).expanduser()
+    if not path_obj.exists():
+        return None
+
+    from PIL import Image as PILImage
+
+    rgba = np.asarray(PILImage.open(path_obj).convert("RGBA"), dtype=np.float32) / 255.0
+    channel = str(mask.get("channel") or "alpha").lower()
+    if channel in {"alpha", "a"}:
+        return rgba[..., 3]
+    if channel in {"red", "r"}:
+        return rgba[..., 0]
+    if channel in {"green", "g"}:
+        return rgba[..., 1]
+    if channel in {"blue", "b"}:
+        return rgba[..., 2]
+    # luma/default: useful for black/white mask plates.
+    return 0.299 * rgba[..., 0] + 0.587 * rgba[..., 1] + 0.114 * rgba[..., 2]
+
+
+def _postprocess_mask_alpha(alpha: "np.ndarray", mask: dict[str, Any], width: int, height: int) -> "np.ndarray":
+    import cv2
+
+    arr = np.asarray(alpha, dtype=np.float32)
+    if arr.shape != (height, width):
+        arr = cv2.resize(arr, (width, height), interpolation=cv2.INTER_LINEAR)
+    arr = np.clip(arr, 0.0, 1.0)
+
+    threshold = mask.get("threshold")
+    if threshold is not None:
+        thr = float(threshold)
+        softness = max(0.0, float(mask.get("softness") or 0.0))
+        if softness > 0:
+            arr = np.clip((arr - thr) / softness, 0.0, 1.0)
+        else:
+            arr = (arr >= thr).astype(np.float32)
+
+    feather = float(mask.get("feather") or 0.0)
+    if feather > 0:
+        sigma = feather * min(width, height)
+        if sigma > 0:
+            arr = cv2.GaussianBlur(arr, (0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_DEFAULT)
+    if mask.get("invert"):
+        arr = 1.0 - arr
+    return np.clip(arr, 0.0, 1.0).astype(np.float32)
 
 
 # ── shape masks ───────────────────────────────────────────────────────────
@@ -670,6 +763,56 @@ def _filled_rounded_rect(img: "np.ndarray", x0: int, y0: int, x1: int, y1: int, 
         cv2.circle(img, (cx, cy), r, 255, -1, lineType=cv2.LINE_AA)
 
 
+def _shape_fill_contours(shape: dict[str, Any]) -> list[list[tuple[float, float]]]:
+    """Return closed vector contours in normalised coordinates.
+
+    ``polygon`` keeps its historical straight-point behaviour. ``path`` accepts
+    either ``points`` or ``contours``; each contour may be a plain point list or
+    ``{"points": ..., "kind": "linear"|"bezier"}``. ``bezier`` samples the
+    control polygon with De Casteljau, giving masks curved vector boundaries.
+    """
+    raw_contours = shape.get("contours")
+    if isinstance(raw_contours, (list, tuple)) and raw_contours:
+        specs = list(raw_contours)
+    else:
+        specs = [{"points": shape.get("points"), "kind": shape.get("kind")}]
+
+    contours: list[list[tuple[float, float]]] = []
+    default_kind = "bezier" if str(shape.get("type") or "").lower() == "bezier" else "linear"
+    sample_count = int(float(shape.get("samples") or 64))
+    sample_count = max(8, min(sample_count, 512))
+    for spec in specs:
+        if isinstance(spec, dict):
+            raw_points = spec.get("points")
+            kind = str(spec.get("kind") or shape.get("kind") or default_kind).lower()
+        else:
+            raw_points = spec
+            kind = default_kind
+        points = _clean_points(raw_points)
+        if len(points) < 3:
+            continue
+        if kind == "bezier":
+            denom = max(1, sample_count - 1)
+            sampled = [_path_point(points, "bezier", i / denom) for i in range(sample_count)]
+            contours.append(sampled)
+        else:
+            contours.append(points)
+    return contours
+
+
+def _clean_points(raw_points: Any) -> list[tuple[float, float]]:
+    if not isinstance(raw_points, (list, tuple)):
+        return []
+    points: list[tuple[float, float]] = []
+    for p in raw_points:
+        if isinstance(p, (list, tuple)) and len(p) >= 2:
+            try:
+                points.append((float(p[0]), float(p[1])))
+            except (TypeError, ValueError):
+                continue
+    return points
+
+
 def _rasterise_shape_mask(mask: dict[str, Any], width: int, height: int) -> "np.ndarray":
     """Rasterise a shape-mask spec to a float32 ``(H, W)`` alpha in ``[0, 1]``.
 
@@ -686,14 +829,20 @@ def _rasterise_shape_mask(mask: dict[str, Any], width: int, height: int) -> "np.
     def _px(nx: Any, ny: Any) -> tuple[int, int]:
         return (int(round(float(nx) * width)), int(round(float(ny) * height)))
 
-    if stype in {"polygon", "poly"}:
-        pts = [
-            _px(p[0], p[1])
-            for p in (shape.get("points") or [])
-            if isinstance(p, (list, tuple)) and len(p) >= 2
+    if stype in {"polygon", "poly", "path", "bezier"}:
+        contours = [
+            np.array([_px(x, y) for x, y in contour], dtype=np.int32)
+            for contour in _shape_fill_contours(shape)
+            if len(contour) >= 3
         ]
-        if len(pts) >= 3:
-            cv2.fillPoly(img, [np.array(pts, dtype=np.int32)], 255, lineType=cv2.LINE_AA)
+        if contours:
+            if str(shape.get("fill_rule") or "").lower() == "evenodd":
+                for contour in contours:
+                    plate = np.zeros_like(img)
+                    cv2.fillPoly(plate, [contour], 255, lineType=cv2.LINE_AA)
+                    img = cv2.bitwise_xor(img, plate)
+            else:
+                cv2.fillPoly(img, contours, 255, lineType=cv2.LINE_AA)
     else:
         x0n, y0n, x1n, y1n = _shape_box(shape)
         x0, y0 = _px(x0n, y0n)
@@ -1194,6 +1343,29 @@ def _effect_chroma_key(frame: np.ndarray, params: dict[str, Any], ctx: ResolveCo
     return _apply_chroma_key(frame, key_color, threshold, softness)
 
 
+def _effect_advanced_chroma_key(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    key_color = params.get("key_color", "#00FF00")
+    similarity = float(params.get("similarity", params.get("threshold", 0.22)))
+    softness = float(params.get("softness", 0.12))
+    spill = float(params.get("spill", params.get("despill", 0.5)))
+    edge_blur = float(params.get("edge_blur", 0.0))
+    return _apply_advanced_chroma_key(
+        frame,
+        key_color,
+        similarity=similarity,
+        softness=softness,
+        spill=spill,
+        edge_blur=edge_blur,
+    )
+
+
+def _effect_luma_key(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
+    threshold = float(params.get("threshold", 0.5))
+    softness = float(params.get("softness", 0.1))
+    mode = str(params.get("mode", "key_dark")).lower()
+    return _apply_luma_key(frame, threshold=threshold, softness=softness, mode=mode)
+
+
 def _effect_curves(frame: np.ndarray, params: dict[str, Any], ctx: ResolveContext) -> np.ndarray:
     """DaVinci-style tone curves on r/g/b/rgb/luma; identity points are a no-op.
 
@@ -1229,6 +1401,8 @@ EFFECTS: dict[str, EffectFn] = {
     "sharpen": _effect_sharpen,
     "hue_rotate": _effect_hue_rotate,
     "chroma_key": _effect_chroma_key,
+    "advanced_chroma_key": _effect_advanced_chroma_key,
+    "luma_key": _effect_luma_key,
     "curves": _effect_curves,
 }
 
@@ -1565,3 +1739,89 @@ def _apply_chroma_key(frame: np.ndarray, key_color: str | tuple, threshold: floa
     # Multiply into existing alpha.
     new_alpha = alpha * key_alpha
     return np.concatenate([rgb, new_alpha], axis=2).astype(np.float32)
+
+
+def _apply_advanced_chroma_key(
+    frame: np.ndarray,
+    key_color: str | tuple,
+    *,
+    similarity: float,
+    softness: float,
+    spill: float,
+    edge_blur: float,
+) -> np.ndarray:
+    """HSV-aware chroma key with soft edges and simple despill.
+
+    This stays deterministic and dependency-light while being less brittle than
+    raw RGB distance: hue/chroma distance decides the matte, optional blur
+    softens the edge, and despill reduces the key-colour channel on kept pixels.
+    """
+    import cv2
+
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+
+    rgb = np.clip(frame[..., :3].copy(), 0.0, 1.0)
+    alpha = frame[..., 3:4]
+    key_rgb = np.array(_rgba01(key_color, default=(0.0, 1.0, 0.0, 1.0))[:3], dtype=np.float32)
+
+    rgb_dist = np.sqrt(np.sum((rgb - key_rgb.reshape(1, 1, 3)) ** 2, axis=2, keepdims=True))
+
+    hsv = cv2.cvtColor((rgb[..., ::-1] * 255.0).astype(np.uint8), cv2.COLOR_BGR2HSV_FULL).astype(np.float32) / 255.0
+    key_hsv = cv2.cvtColor((key_rgb.reshape(1, 1, 3)[..., ::-1] * 255.0).astype(np.uint8), cv2.COLOR_BGR2HSV_FULL).astype(np.float32) / 255.0
+    hue_dist = np.abs(hsv[..., 0:1] - float(key_hsv[0, 0, 0]))
+    hue_dist = np.minimum(hue_dist, 1.0 - hue_dist)
+    sat = hsv[..., 1:2]
+    key_sat = float(key_hsv[0, 0, 1])
+    sat_dist = np.abs(sat - key_sat) * 0.35
+
+    # RGB distance guards grey/low-saturation pixels; hue distance catches soft
+    # green/blue spill near subject edges.
+    matte_dist = np.minimum(rgb_dist, hue_dist * 2.2 + sat_dist)
+    similarity = max(0.0, float(similarity))
+    softness = max(0.0, float(softness))
+    if softness > 0:
+        keep = np.clip((matte_dist - similarity) / softness, 0.0, 1.0)
+    else:
+        keep = (matte_dist > similarity).astype(np.float32)
+
+    if edge_blur > 0:
+        keep = cv2.GaussianBlur(keep[..., 0], (0, 0), sigmaX=edge_blur, sigmaY=edge_blur)[..., np.newaxis]
+        keep = np.clip(keep, 0.0, 1.0)
+
+    spill = max(0.0, min(1.0, float(spill)))
+    if spill > 0:
+        key_channel = int(np.argmax(key_rgb))
+        other_channels = [i for i in range(3) if i != key_channel]
+        neutral = np.max(rgb[..., other_channels], axis=2)
+        spill_zone = np.clip(1.0 - keep[..., 0], 0.0, 1.0)
+        spill_zone = np.clip(spill_zone + (1.0 - sat[..., 0]) * 0.15, 0.0, 1.0)
+        target = np.minimum(rgb[..., key_channel], neutral)
+        rgb[..., key_channel] = (
+            rgb[..., key_channel] * (1.0 - spill * spill_zone)
+            + target * (spill * spill_zone)
+        )
+
+    return np.concatenate([rgb, alpha * keep], axis=2).astype(np.float32)
+
+
+def _apply_luma_key(frame: np.ndarray, *, threshold: float, softness: float, mode: str) -> np.ndarray:
+    """Key by brightness. mode=key_dark removes dark pixels; key_bright removes bright."""
+    frame = np.asarray(frame, dtype=np.float32)
+    if frame.ndim != 3 or frame.shape[2] != 4:
+        return frame
+    rgb = frame[..., :3]
+    alpha = frame[..., 3:4]
+    luma = (0.299 * rgb[..., 0:1] + 0.587 * rgb[..., 1:2] + 0.114 * rgb[..., 2:3])
+    threshold = max(0.0, min(1.0, float(threshold)))
+    softness = max(0.0, float(softness))
+    if mode in {"key_bright", "bright", "high"}:
+        dist = threshold - luma
+    else:
+        dist = luma - threshold
+    if softness > 0:
+        keep = np.clip(dist / softness, 0.0, 1.0)
+    else:
+        keep = (dist >= 0.0).astype(np.float32)
+    return np.concatenate([rgb, alpha * keep], axis=2).astype(np.float32)
