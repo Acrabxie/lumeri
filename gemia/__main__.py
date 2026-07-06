@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from .orchestrator import GemiaOrchestrator, get_assets, get_task, run_plan, run_skill
+from .orchestrator import GemiaOrchestrator
 from .bridge import (
     BridgeDaemon,
     BridgePaths,
@@ -45,22 +45,6 @@ def main() -> None:
     p_run_skill_v2.add_argument("skill_name", help="Skill name")
     p_run_skill_v2.add_argument("--video", required=True, help="Input video path")
     p_run_skill_v2.add_argument("--output", default=None, help="Output path")
-
-    # ── Legacy commands ────────────────────────────────────────────────
-    p_run_plan = sub.add_parser("run-plan")
-    p_run_plan.add_argument("plan_path")
-
-    p_run_skill = sub.add_parser("run-skill", help="Run a saved skill (v2 or legacy)")
-    p_run_skill.add_argument("skill_id")
-    p_run_skill.add_argument("--video", required=True)
-    p_run_skill.add_argument("--style", default=None, help="Style (legacy only)")
-    p_run_skill.add_argument("--output", default=None, help="Output path (v2 only)")
-
-    p_get_task = sub.add_parser("get-task")
-    p_get_task.add_argument("task_id")
-
-    p_get_assets = sub.add_parser("get-assets")
-    p_get_assets.add_argument("task_id")
 
     p_render_layer_plan = sub.add_parser("render-layer-plan", help="Render a layer-plan JSON into a preview video")
     p_render_layer_plan.add_argument("plan_path", help="Path to a layer-plan JSON file")
@@ -104,14 +88,6 @@ def main() -> None:
     p_skill_stats.add_argument("--days", type=int, default=7)
     p_skill_stats.add_argument("--db", default=None)
     p_skill_stats.add_argument("--json", action="store_true")
-
-    p_plan = sub.add_parser("plan")
-    p_plan.add_argument("request")
-    p_plan.add_argument("--video", required=True)
-
-    p_revise = sub.add_parser("revise-task", help="Apply feedback revision to a completed task")
-    p_revise.add_argument("task_id", help="Original task ID")
-    p_revise.add_argument("--feedback", required=True, help="Revision instruction / style feedback")
 
     p_lumerai_script = sub.add_parser(
         "lumerai-script",
@@ -270,7 +246,7 @@ def main() -> None:
         raise SystemExit(run_setup())
 
     _LLM_COMMANDS = {
-        "run", "plan", "run-skill", "run-skill-v2", "save-skill", "revise-task",
+        "run", "run-skill-v2", "save-skill",
         "lumerai-script",
     }
     if args.command in _LLM_COMMANDS and needs_onboarding():
@@ -287,15 +263,6 @@ def main() -> None:
         _cmd_list_skills()
     elif args.command == "run-skill-v2":
         _cmd_run_skill_v2(args)
-    elif args.command == "run-plan":
-        task_id = run_plan(args.plan_path)
-        print(task_id)
-    elif args.command == "run-skill":
-        _cmd_run_skill(args)
-    elif args.command == "get-task":
-        print(json.dumps(get_task(args.task_id), ensure_ascii=False, indent=2))
-    elif args.command == "get-assets":
-        print(json.dumps(get_assets(args.task_id), ensure_ascii=False, indent=2))
     elif args.command == "render-layer-plan":
         _cmd_render_layer_plan(args)
     elif args.command == "render-shadow-preview":
@@ -308,10 +275,6 @@ def main() -> None:
         _cmd_intellisearch_search(args)
     elif args.command == "skill-stats":
         _cmd_skill_stats(args)
-    elif args.command == "revise-task":
-        _cmd_revise_task(args)
-    elif args.command == "plan":
-        print(json.dumps(GemiaOrchestrator().plan_from_prompt(args.request, input_path=args.video), ensure_ascii=False, indent=2))
     elif args.command == "lumerai-script":
         raise SystemExit(_cmd_lumerai_script(args))
     elif args.command == "lumerai-undo":
@@ -797,27 +760,6 @@ def _cmd_skill_stats(args: argparse.Namespace) -> None:
         print(format_skill_stats(stats), end="")
 
 
-def _cmd_run_skill(args: argparse.Namespace) -> None:
-    """Run a skill — tries v2 first, falls back to legacy."""
-    from .skill_store import SkillStore
-
-    store = SkillStore()
-    try:
-        skill = store.load(args.skill_id)
-        # Found a v2 skill — delegate to v2 runner
-        args.skill_name = args.skill_id
-        _cmd_run_skill_v2(args)
-        return
-    except FileNotFoundError:
-        pass
-
-    # Legacy fallback
-    if not args.style:
-        raise SystemExit(f"Skill '{args.skill_id}' not found in v2 store, and --style is required for legacy skills.")
-    task_id = run_skill(args.skill_id, {"video": args.video, "style": args.style})
-    print(task_id)
-
-
 def _cmd_save_skill(args: argparse.Namespace) -> None:
     """Save a completed task as a reusable v2 skill."""
     from .skill_store import SkillStore
@@ -876,32 +818,6 @@ def _cmd_run_skill_v2(args: argparse.Namespace) -> None:
     task_id = engine.run_with_task(plan, str(Path(args.video).resolve()), output_path)
     print(f"\nDone! task_id={task_id}")
     print(f"Output: {output_path}")
-
-
-def _cmd_revise_task(args: argparse.Namespace) -> None:
-    """Apply a feedback revision to a completed task (mirrors /revise-task/<id>)."""
-    from pathlib import Path
-
-    from .orchestrator import run_skill, get_task
-
-    plans_dir = Path(__file__).resolve().parent.parent / "plans"
-    plan_file = plans_dir / f"{args.task_id}_plan.json"
-    if not plan_file.exists():
-        raise SystemExit(f"Plan not found for task: {args.task_id}")
-
-    plan = json.loads(plan_file.read_text())
-    skill_id = plan.get("skill_id")
-    input_path = plan.get("input_path") or (plan.get("inputs") or {}).get("video")
-    if not skill_id or not input_path:
-        raise SystemExit("Original plan is missing skill_id or input_path — cannot revise.")
-
-    print(f"Revising task {args.task_id} with: {args.feedback}")
-    revision_task_id = run_skill(skill_id, {"video": input_path, "style": args.feedback})
-    task = get_task(revision_task_id)
-    print(f"Done! revision_task_id={revision_task_id}")
-    outputs = task.get("outputs", [])
-    if outputs:
-        print(f"Output: {outputs[0]}")
 
 
 def _bridge_paths(root: str) -> BridgePaths:

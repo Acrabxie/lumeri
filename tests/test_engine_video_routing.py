@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from gemia.engine import PlanEngine
-from gemia.orchestrator import GemiaOrchestrator
 from gemia.errors import UserInputError
 
 
@@ -132,64 +131,6 @@ def test_plan_engine_resolves_nested_step_references(tmp_path):
     )
 
     assert resolved == ["first.mp4", {"insert": "stock.mp4"}]
-
-
-def test_orchestrator_primitive_v2_accepts_list_input(monkeypatch, tmp_path):
-    calls = []
-
-    def fake_execute(self, fqn, args, input_val, output_path):
-        calls.append((fqn, args, input_val, output_path))
-        return output_path
-
-    monkeypatch.setattr("gemia.engine.PlanEngine._execute_step", fake_execute)
-    orch = GemiaOrchestrator(root_dir=tmp_path)
-    context = {
-        "input_path": "first.mp4",
-        "output_path": "final.mp4",
-        "step_outputs": {"step_1": ["stock.mp4"]},
-    }
-
-    assets = orch._step_primitive_v2(
-        {
-            "id": "step_2",
-            "function": "gemia.video.timeline.concat",
-            "args": {},
-            "input": ["$input", "$step_1"],
-            "output": "$output",
-        },
-        context,
-    )
-
-    assert assets == ["final.mp4"]
-    assert calls == [
-        ("gemia.video.timeline.concat", {}, ["first.mp4", "stock.mp4"], "final.mp4")
-    ]
-
-
-def test_orchestrator_allocates_self_reference_outputs(monkeypatch, tmp_path):
-    calls = []
-
-    def fake_execute(self, fqn, args, input_val, output_path):
-        calls.append(output_path)
-        return output_path
-
-    monkeypatch.setattr("gemia.engine.PlanEngine._execute_step", fake_execute)
-    orch = GemiaOrchestrator(root_dir=tmp_path)
-
-    assets = orch._step_primitive_v2(
-        {
-            "id": "step_1",
-            "function": "gemia.video.stock_media.fetch_stock_media",
-            "args": {"query": "city street", "media_type": "video"},
-            "input": "$input",
-            "output": "$step_1",
-        },
-        {"input_path": "source.mp4", "output_path": "final.mp4", "step_outputs": {}},
-    )
-
-    assert assets == calls
-    assert calls[0].endswith(".mp4")
-    assert "step_step_1_" in calls[0]
 
 
 def test_plan_engine_implicit_input_skips_non_media_artifact_outputs(monkeypatch, tmp_path):
