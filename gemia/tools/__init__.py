@@ -36,11 +36,13 @@ from gemia.tools._context import (
 from gemia.tools._schema import TOOL_NAMES, TOOL_SCHEMAS
 
 from gemia.tools import add_overlay as _add_overlay
+from gemia.tools import adjust_media as _adjust_media
 from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import arrange_timeline as _arrange_timeline
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
+from gemia.tools import edit_audio as _edit_audio
 from gemia.tools import edit_image as _edit_image
 from gemia.tools import edit_video as _edit_video
 from gemia.tools import elicit as _elicit
@@ -55,12 +57,18 @@ from gemia.tools import inspect_timeline as _inspect_timeline
 from gemia.tools import layer as _layer
 from gemia.tools import lumen_render_range as _lumen_render_range
 from gemia.tools import lumen_seek as _lumen_seek
+from gemia.tools import lottie as _lottie
 from gemia.tools import log_note as _log_note
+from gemia.tools import media_annotations as _media_annotations
 from gemia.tools import mix_audio as _mix_audio
+from gemia.tools import paint as _paint
+from gemia.tools import probe_media as _probe_media
 from gemia.tools import remember as _remember
 from gemia.tools import run_shell as _run_shell
+from gemia.tools import safe_areas as _safe_areas
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
+from gemia.tools import smart_reframe as _smart_reframe
 from gemia.tools import timeline as _timeline
 from gemia.tools import transform_geometry as _transform_geometry
 from gemia.tools import web_search as _web_search
@@ -82,6 +90,9 @@ def _make_stub(name: str) -> Dispatcher:
 
 _REAL: dict[str, Dispatcher] = {
     "analyze_media":      _analyze_media.dispatch,
+    "adjust_media":       _adjust_media.dispatch,
+    "paint_overlay":      _paint.dispatch_overlay,
+    "paint_mask_effect":  _paint.dispatch_mask_effect,
     "edit_video":         _edit_video.dispatch,
     "color_grade":        _color_grade.dispatch,
     "add_overlay":        _add_overlay.dispatch,
@@ -89,13 +100,20 @@ _REAL: dict[str, Dispatcher] = {
     "composite":          _composite.dispatch,
     "arrange_timeline":   _arrange_timeline.dispatch,
     "mix_audio":          _mix_audio.dispatch,
+    "edit_audio":         _edit_audio.dispatch,
     "transform_geometry": _transform_geometry.dispatch,
+    "smart_reframe":      _smart_reframe.dispatch,
     "edit_image":         _edit_image.dispatch,
     "extract_frame":      _extract_frame.dispatch,
+    "probe_media":        _probe_media.dispatch,
     "generate_image":     _generate_image.dispatch,
     "generate_video":     _generate_video.dispatch,
     "generate_audio":     _generate_audio.dispatch,
     "search_library":     _search_library.dispatch,
+    "annotate_media":     _media_annotations.dispatch_annotate,
+    "get_media_annotations": _media_annotations.dispatch_get,
+    "write_media_annotation": _media_annotations.dispatch_write,
+    "inspect_lottie":     _lottie.dispatch_inspect,
     "web_search":         _web_search.dispatch,
     "web_open":           _web_search.dispatch_open,
     "fetch":              _fetch.dispatch,
@@ -133,6 +151,7 @@ _REAL: dict[str, Dispatcher] = {
     "timeline_set_track":       _timeline.dispatch_set_track,
     "timeline_undo":            _timeline.dispatch_undo,
     "inspect_timeline":         _inspect_timeline.dispatch,
+    "get_safe_areas":           _safe_areas.dispatch,
     "render_preview":           _timeline.dispatch_render_preview,
     "project_export":           _timeline.dispatch_project_export,
     "project_export_otio":      _timeline.dispatch_export_otio,
@@ -146,6 +165,8 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_move_layer":         _layer.dispatch_lumen_move_layer,
     "lumen_set_visibility":     _layer.dispatch_lumen_set_visibility,
     "lumen_select":             _layer.dispatch_lumen_select,
+    "lumen_set_mask":           _layer.dispatch_lumen_set_mask,
+    "lumen_key":                _layer.dispatch_lumen_key,
     "lumen_render":             _layer.dispatch_lumen_render,
     "lumen_set_range":          _layer.dispatch_lumen_set_range,
     "lumen_set_lane":           _layer.dispatch_lumen_set_lane,

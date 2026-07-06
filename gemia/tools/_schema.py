@@ -175,6 +175,93 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["asset_id", "look"],
     ),
     _tool(
+        "adjust_media",
+        "Direct lightweight photo-app style adjustments for an image or video: brightness, contrast, saturation, exposure, and gamma. Returns a new asset_id. Use this for precise basic corrections instead of pretending a color_grade preset is the same thing.",
+        {
+            "asset_id": _ASSET_ID,
+            "brightness": {
+                "type": "number",
+                "description": "Brightness offset from -1.0 to 1.0. 0 keeps original brightness.",
+            },
+            "contrast": {
+                "type": "number",
+                "description": "Contrast multiplier from 0.0 to 3.0. 1 keeps original contrast.",
+            },
+            "saturation": {
+                "type": "number",
+                "description": "Saturation multiplier from 0.0 to 3.0. 1 keeps original saturation; 0 is grayscale.",
+            },
+            "exposure": {
+                "type": "number",
+                "description": "Exposure change in stops from -5.0 to 5.0. 0 keeps original exposure.",
+            },
+            "gamma": {
+                "type": "number",
+                "description": "Gamma from 0.1 to 10.0. 1 keeps original gamma.",
+            },
+        },
+        ["asset_id"],
+    ),
+    _tool(
+        "paint_overlay",
+        "Draw a visible annotation as a transparent PNG and place it on the current timeline as an undoable overlay clip. Use for circles, arrows, boxes, highlights, strokes, and short labels. Coordinates are normalized 0..1 canvas coordinates. First version is static/keyframed only; it does not track moving objects.",
+        {
+            "shape": {
+                "type": "string",
+                "enum": ["stroke", "rect", "ellipse", "circle", "arrow", "highlight", "text"],
+                "description": "What to draw.",
+            },
+            "points": {
+                "type": "array",
+                "items": {"type": "array", "items": {"type": "number"}},
+                "description": "Normalized points [[x,y], ...]. Stroke/arrow need 2+; rect/ellipse/highlight can use two opposite corners.",
+            },
+            "rect": {
+                "type": "array",
+                "items": {"type": "number"},
+                "description": "Optional normalized [x0,y0,x1,y1] bounds for rect/ellipse/highlight.",
+            },
+            "text": {"type": "string", "description": "For shape=text."},
+            "color": {"type": "string", "description": "#rrggbb, default #ff3030."},
+            "width": {"type": "number", "description": "Stroke/outline width in pixels."},
+            "opacity": {"type": "number", "description": "0..1 clip opacity."},
+            "feather": {"type": "number", "description": "Optional alpha feather/blur in pixels."},
+            "time_range": {
+                "type": "array",
+                "items": {"type": "number"},
+                "description": "Optional [start_sec,end_sec].",
+            },
+            "start_sec": {"type": "number", "description": "Timeline start second. Alias: at_time."},
+            "at_time": {"type": "number", "description": "Alias for start_sec."},
+            "end_sec": {"type": "number", "description": "Timeline end second."},
+            "duration": {"type": "number", "description": "Overlay duration when end_sec/time_range is omitted. Default 3s."},
+            "track_id": {"type": "string", "description": "Optional overlay track id. If omitted, Lumeri picks a non-overlapping OV track."},
+        },
+        ["shape"],
+    ),
+    _tool(
+        "paint_mask_effect",
+        "Apply a local static mask effect to an image or video asset and return a new asset_id without modifying the source. Use for regional blur, mosaic, dim outside, highlight, and local brightness/contrast/saturation/exposure/gamma adjustments. First version is static/keyframed only; it does not track moving objects.",
+        {
+            "asset_id": _ASSET_ID,
+            "effect": {
+                "type": "string",
+                "enum": ["blur", "mosaic", "dim_outside", "highlight", "adjust"],
+            },
+            "mask": {
+                "type": "object",
+                "description": "Mask shape: {shape:'rect|ellipse|circle|polygon|stroke', points:[[x,y],...], rect:[x0,y0,x1,y1], feather, invert, width}. Coordinates are normalized 0..1.",
+            },
+            "params": {
+                "type": "object",
+                "description": "Effect params: blur radius, mosaic block_size, highlight/dim amount+color, or adjust brightness/contrast/saturation/exposure/gamma.",
+            },
+            "start_sec": {"type": "number", "description": "Video only: first second where the effect applies. Default 0."},
+            "end_sec": {"type": "number", "description": "Video only: effect stops before this second. Omit for the rest of the asset."},
+        },
+        ["asset_id", "effect", "mask"],
+    ),
+    _tool(
         "add_overlay",
         "Burn a text caption, image overlay, or subtitle onto a video. Returns a new asset_id.",
         {
@@ -241,6 +328,26 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["asset_ids", "mode"],
     ),
     _tool(
+        "edit_audio",
+        "Lightweight standalone audio preprocessing for one audio asset: volume gain and fade in/out. Returns a new audio asset_id. Use this before timeline placement when a raw audio asset itself needs adjustment.",
+        {
+            "asset_id": _ASSET_ID,
+            "gain_db": {
+                "type": "number",
+                "description": "Volume gain in decibels, -60..36. 0 keeps original level.",
+            },
+            "fade_in_sec": {
+                "type": "number",
+                "description": "Fade-in duration in seconds from the beginning of the asset.",
+            },
+            "fade_out_sec": {
+                "type": "number",
+                "description": "Fade-out duration in seconds ending at the asset duration.",
+            },
+        },
+        ["asset_id"],
+    ),
+    _tool(
         "transform_geometry",
         "Geometric operations on an image or video frame (crop, rotate, scale, perspective warp). Returns a new asset_id.",
         {
@@ -257,6 +364,51 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["asset_id", "operation"],
     ),
     _tool(
+        "smart_reframe",
+        "Adapt an image or video to a target canvas such as 9:16, 1:1, 4:5, or 16:9 using deterministic center-crop or fit-pad scaling. Returns a new asset_id. Use for fast social-format reframing; pass anchor_x/anchor_y when analysis suggests the subject is off-center.",
+        {
+            "asset_id": _ASSET_ID,
+            "target": {
+                "type": "string",
+                "enum": [
+                    "vertical_9_16",
+                    "9:16",
+                    "tiktok",
+                    "reels",
+                    "shorts",
+                    "square_1_1",
+                    "1:1",
+                    "portrait_4_5",
+                    "4:5",
+                    "landscape_16_9",
+                    "16:9",
+                    "custom",
+                ],
+                "description": "Target aspect/canvas preset. Use custom with explicit width and height.",
+            },
+            "width": {"type": "integer", "description": "Optional target width; required for target=custom."},
+            "height": {"type": "integer", "description": "Optional target height; required for target=custom."},
+            "mode": {
+                "type": "string",
+                "enum": ["center_crop", "fit_pad"],
+                "description": "center_crop fills the target by cropping overflow; fit_pad preserves all pixels with padding.",
+            },
+            "anchor_x": {
+                "type": "number",
+                "description": "Crop anchor from 0 left to 1 right. Default 0.5 center.",
+            },
+            "anchor_y": {
+                "type": "number",
+                "description": "Crop anchor from 0 top to 1 bottom. Default 0.5 center.",
+            },
+            "background": {
+                "type": "string",
+                "description": "Pad color for fit_pad, e.g. black, white, or #101010.",
+            },
+        },
+        ["asset_id"],
+    ),
+    _tool(
         "extract_frame",
         "Pull a single still frame from a video at a given timestamp. Returns a new image asset_id.",
         {
@@ -264,6 +416,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "time_sec": {"type": "number", "description": "Timestamp to extract from."},
         },
         ["asset_id", "time_sec"],
+    ),
+    _tool(
+        "probe_media",
+        "Cheap ffprobe-style physical metadata for a registered asset. Returns duration_ms, width, height, fps, codecs, channel count, sample rate, stream count, and file size. Use before trim/reframe/audio edits when exact media properties matter; it does not do semantic visual analysis.",
+        {
+            "asset_id": _ASSET_ID,
+        },
+        ["asset_id"],
     ),
     _tool(
         "analyze_media",
@@ -278,14 +438,124 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["asset_id"],
     ),
     _tool(
+        "get_safe_areas",
+        "Return conservative canvas safe-area boxes and avoid zones for social/video layouts. Use before placing captions, titles, logos, or UI-sensitive overlays on vertical/square deliverables.",
+        {
+            "platform": {
+                "type": "string",
+                "enum": [
+                    "generic_vertical",
+                    "generic",
+                    "tiktok",
+                    "reels",
+                    "instagram",
+                    "instagram_reels",
+                    "shorts",
+                    "youtube_shorts",
+                    "square_feed",
+                    "square",
+                ],
+                "description": "Platform/layout preset. Unknown values fall back to generic_vertical.",
+            },
+            "width": {"type": "integer", "description": "Canvas width in pixels. Default comes from the preset."},
+            "height": {"type": "integer", "description": "Canvas height in pixels. Default comes from the preset."},
+        },
+        [],
+    ),
+    _tool(
+        "inspect_lottie",
+        "Render one exact frame from a Lottie/dotLottie asset and return it as an image asset plus a thumbnail. Use before placing motion graphics or when checking icon/logo animation timing.",
+        {
+            "asset_id": _ASSET_ID,
+            "frame": {"type": "integer", "description": "0-based Lottie frame to render. Mutually exclusive with time_sec."},
+            "time_sec": {"type": "number", "description": "Animation time in seconds. Alias: time."},
+            "time": {"type": "number", "description": "Alias for time_sec."},
+            "width": {"type": "integer", "description": "Output width in pixels. Defaults to the Lottie width."},
+            "height": {"type": "integer", "description": "Output height in pixels. Defaults to the Lottie height."},
+        },
+        ["asset_id"],
+    ),
+    _tool(
         "search_library",
-        "Search the user's existing asset library by text query. Returns a list of matching asset_ids with brief descriptions.",
+        "Search the user's existing asset library by text query, including persisted media annotation labels/tags/notes. Returns a list of matching asset_ids with brief descriptions.",
         {
             "query": {"type": "string", "description": "Free-text search."},
             "kind": {"type": "string", "enum": ["image", "video", "audio", "any"]},
             "limit": {"type": "integer", "description": "Max results. Default 10."},
         },
         ["query"],
+    ),
+    _tool(
+        "annotate_media",
+        "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
+        {
+            "asset_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Media-library asset ids, e.g. asset_0123abcd....",
+            },
+            "all": {
+                "type": "boolean",
+                "description": "If true, annotate a batch from the media library instead of explicit asset_ids.",
+            },
+            "query": {
+                "type": "string",
+                "description": "Optional media-library query when all=true.",
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["video", "image", "audio", "any"],
+                "description": "Media kind for all=true. Default video.",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["quick", "detailed"],
+                "description": "quick creates fewer markers; detailed samples more ranges.",
+            },
+            "max_assets": {"type": "integer", "description": "Batch cap. Default is the explicit list length or 20 for all=true."},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional tags/taxonomy to add to generated annotations.",
+            },
+            "language": {
+                "type": "string",
+                "description": "Language for labels/notes. Use the user's prompt language, e.g. zh or en.",
+            },
+            "replace_existing": {
+                "type": "boolean",
+                "description": "Replace existing Gemini-source annotations for these assets. Default true.",
+            },
+        },
+        [],
+    ),
+    _tool(
+        "get_media_annotations",
+        "Read persistent annotations for one media-library asset: asset summary, tags, labels, and timecoded markers.",
+        {
+            "asset_id": {"type": "string", "description": "Media-library asset id, e.g. asset_0123abcd...."},
+        },
+        ["asset_id"],
+    ),
+    _tool(
+        "write_media_annotation",
+        "Create or update one persistent annotation on a media-library asset. Use this to mark useful ranges, problems, subjects, quality notes, or cut candidates.",
+        {
+            "asset_id": {"type": "string", "description": "Media-library asset id, e.g. asset_0123abcd...."},
+            "annotation_id": {"type": "string", "description": "Optional existing annotation id to update."},
+            "scope": {"type": "string", "enum": ["asset", "time_range", "frame"]},
+            "start_sec": {"type": "number", "description": "Start timestamp for time_range annotations."},
+            "end_sec": {"type": "number", "description": "End timestamp for time_range annotations."},
+            "frame": {"type": "integer", "description": "Optional exact frame number."},
+            "label": {"type": "string", "description": "Short marker title."},
+            "note": {"type": "string", "description": "Longer annotation note."},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "category": {"type": "string", "description": "Category such as summary, segment, cut_candidate, quality, warning."},
+            "confidence": {"type": "number", "description": "0..1 confidence."},
+            "language": {"type": "string", "description": "Language for label/note."},
+            "metadata": {"type": "object", "description": "Optional structured metadata."},
+        },
+        ["asset_id", "label"],
     ),
     _tool(
         "export",
@@ -728,6 +998,54 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         [],
     ),
     _tool(
+        "lumen_set_mask",
+        "Attach, replace, or clear a layer mask. Supports vector shape masks (rectangle/ellipse/polygon/path/bezier), pixel/alpha masks from an asset or inline alpha data, and alpha/luma track mattes.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to mask."},
+            "clear": {"type": "boolean", "description": "If true, remove the layer mask."},
+            "kind": {
+                "type": "string",
+                "enum": ["shape", "pixel", "alpha_matte", "luma_matte"],
+                "description": "Mask kind. shape is vector; pixel uses an alpha image/array; matte kinds borrow another layer.",
+            },
+            "shape": {
+                "type": "object",
+                "description": "For kind=shape. Examples: {type:'ellipse', cx:.5, cy:.5, rx:.3, ry:.3}; {type:'polygon', points:[[...]]}; {type:'path'|'bezier', points:[[...]], samples:64, fill_rule:'evenodd'}. Coordinates are normalized [0,1].",
+            },
+            "asset_id": {"type": "string", "description": "For kind=pixel. Image asset whose alpha/luma/r/g/b channel becomes the mask."},
+            "alpha": {
+                "type": "array",
+                "description": "For kind=pixel. Inline 2D alpha matrix in [0,1] or [0,255]. Prefer asset_id for large masks.",
+                "items": {"type": "array", "items": {"type": "number"}},
+            },
+            "channel": {"type": "string", "enum": ["alpha", "luma", "red", "green", "blue"], "description": "Pixel mask channel. Default alpha."},
+            "source_layer_id": {"type": "string", "description": "For alpha_matte/luma_matte. Sibling layer to use as matte source."},
+            "threshold": {"type": "number", "description": "Optional pixel-mask threshold."},
+            "softness": {"type": "number", "description": "Optional threshold softness."},
+            "invert": {"type": "boolean", "description": "Invert mask coverage."},
+            "feather": {"type": "number", "description": "Soft edge as fraction of min canvas dimension."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
+        "lumen_key",
+        "Apply a keying effect to a layer. Use chroma/advanced_chroma for green/blue screen and luma for brightness-based matte. Produces transparent pixels in the layer render.",
+        {
+            "layer_id": {"type": "string", "description": "Layer to key."},
+            "method": {"type": "string", "enum": ["chroma", "advanced_chroma", "luma"], "description": "Keying method. Default advanced_chroma."},
+            "key_color": {"type": "string", "description": "For chroma methods, key colour like #00FF00 or #0000FF."},
+            "threshold": {"type": "number", "description": "Basic chroma/luma threshold."},
+            "similarity": {"type": "number", "description": "Advanced chroma similarity threshold; lower is stricter."},
+            "softness": {"type": "number", "description": "Soft-edge width."},
+            "spill": {"type": "number", "description": "0..1 despill amount for advanced chroma."},
+            "edge_blur": {"type": "number", "description": "Optional matte edge blur in pixels."},
+            "mode": {"type": "string", "enum": ["key_dark", "key_bright"], "description": "For luma key. key_dark removes darker pixels; key_bright removes brighter pixels."},
+            "replace_existing": {"type": "boolean", "description": "Default true: remove earlier keying effects on this layer before adding the new one."},
+            "params": {"type": "object", "description": "Advanced method-specific params; explicit top-level fields override these."},
+        },
+        ["layer_id"],
+    ),
+    _tool(
         "lumen_render",
         "Render the current lumenframe document to a video (MP4) or still frame (PNG). Missing media assets degrade gracefully. Returns asset_id for playback or analysis via analyze_media.",
         {
@@ -1138,13 +1456,19 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     _tool(
         "copy_in",
         "Copy an external file INTO the session workspace so it can be edited "
-        "safely without touching the original. Returns {workspace_path, name, "
-        "size}.",
+        "safely without touching the original. If the file is already at the "
+        "target workspace path, it is treated as already copied and registered. "
+        "Recognized media files are registered as session assets. Returns "
+        "{workspace_path, name, size, asset_id?, kind?}.",
         {
             "path": {"type": "string", "description": "Host path of the external file to copy in."},
             "as_name": {
                 "type": "string",
                 "description": "Optional filename to use inside the workspace (basename only).",
+            },
+            "overwrite": {
+                "type": "boolean",
+                "description": "If true, replace an existing different workspace file with the same target name. Not needed when path already points at that exact workspace file.",
             },
         },
         ["path"],

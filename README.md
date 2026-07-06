@@ -22,46 +22,9 @@ gemia.audio.frequency.eq(audio, bands={...})
 
 Picture functions automatically work on video — the engine extracts frames, applies the operation per-frame, and re-encodes with original audio. The AI doesn't need to know this; it just picks the right function.
 
-## AI Image Generation — Vertex AI
+## Model Choice
 
-Lumeri integrates AI image generation via Vertex AI (Gemini image models) as native primitives. The AI planner can call these the same way it calls any other primitive.
-
-| Function | Description |
-|----------|-------------|
-| `generate_image(prompt, aspect_ratio, style)` | Text → image |
-| `edit_image(image, instruction)` | Edit a frame with natural language |
-| `style_transfer(image, style_prompt)` | Apply a visual style to each frame |
-| `blend_images(image_a, img_b_path, prompt)` | Blend two images with AI guidance |
-
-When applied to a video, `style_transfer` and `edit_image` are automatically applied per-frame (same auto-bridge as other picture primitives).
-
-Requires Google Cloud credentials. Run `gcloud auth application-default login` — no extra key needed if you already use Vertex for the orchestrator.
-
-### Example
-
-```bash
-python3 -m gemia run --video input.mp4 --prompt "把每一帧做成赛博朋克风格"
-```
-
----
-
-## Veo 3.1 — AI Video Generation
-
-Generate and extend video clips with Veo 3.1 via Vertex AI (Veo on Google Cloud).
-
-| Function | Description |
-|----------|-------------|
-| `generate_video(prompt, duration, aspect_ratio)` | Text → video |
-| `generate_video_from_image(image_path, prompt, duration)` | Image → video |
-| `extend_video(video_path, prompt, duration)` | Extend video end |
-
-Requires Google Cloud credentials. Run `gcloud auth application-default login` — no extra key needed if you already use Vertex for the orchestrator.
-
-### Example
-
-```bash
-python3 -m gemia run --video input.mp4 --prompt "给结尾生成3秒延伸镜头"
-```
+推荐以Gemini作为主规划器，支持更多视频，音频，图片生成ai，兼容Gemini，anthropic，openai，openrouter API key以及vertex和codex登录
 
 ---
 
@@ -91,7 +54,7 @@ Skills now record which models were used and expose adjustable parameters:
 
 ### 3. Orchestrator
 
-Describe what you want in natural language. Lumeri sends your prompt + the full function catalog to Gemini. The AI returns a structured plan (not code, not ffmpeg commands). The engine executes it.
+Describe what you want in natural language. Lumeri sends your prompt + the full function catalog to the planner. The AI returns a structured plan (not code, not ffmpeg commands). The engine executes it.
 
 If the prompt is vague, the AI asks clarifying questions first (Ask mechanism).
 
@@ -105,12 +68,6 @@ git clone https://github.com/Acrabxie/lumeri.git && cd lumeri
 # Python 3.12+, ffmpeg required
 pip install -e .
 
-# API key (Gemini via Google AI Studio)
-export GEMINI_API_KEY="AIza..."   # Google AI Studio: aistudio.google.com/apikey (free tier available)
-
-# Advanced: Vertex AI ADC also works with:
-# gcloud auth application-default login
-# No extra key is needed when using Vertex for the orchestrator.
 ```
 
 Verify:
@@ -233,7 +190,7 @@ User prompt
     │
     ▼
 ┌──────────────────────┐
-│  Gemini (Google AI Studio / Vertex) │  sees all 88+ function docstrings
+│  Planner                            │  sees all 88+ function docstrings
 └──────────┬───────────┘
            │ Plan v2 JSON
            ▼
@@ -245,8 +202,7 @@ User prompt
 ┌──────────────────────────────────────────────────────────┐
 │  gemia.picture    gemia.audio    gemia.video              │
 │  (OpenCV/numpy)   (librosa)      (ffmpeg)                 │
-│  + Vertex AI     —              + Veo 3.1                 │
-│  image models                   (Vertex AI)               │
+│  + AI generation providers      + local media tools        │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
@@ -257,8 +213,7 @@ User prompt
 
 ## Roadmap
 
-- ✅ **Vertex AI image generation** — image generation/editing integrated as primitives
-- ✅ **Veo integration** — AI-generated video clips via Vertex AI (Veo 3.1)
+- ✅ **AI generation primitives** — video, image, and audio generation integrated as tools
 - ✅ **Skills v2** — model tracking, parameterization, `parameters` field
 - **Skills UI** — visual skill browser in the web interface
 - **Desktop app** — standalone macOS / Windows app via Tauri
@@ -269,8 +224,6 @@ User prompt
 
 - Python 3.12+
 - ffmpeg / ffprobe in PATH
-- `GEMINI_API_KEY` (required for AI planning through Google AI Studio)
-- `GEMINI_MODEL` (optional, default `gemini-2.5-flash`)
 
 ## Contributors
 

@@ -25,7 +25,7 @@ Lumeri 是一个面向视频、图片、音频的 AI 媒体工作台。用户把
 - 图片默认按 3 秒视频片段进入时间轴
 - 媒体池、时间轴、会话历史和执行日志
 - 自然语言规划与多步执行
-- OpenRouter planner 接入
+- 推荐以Gemini作为主规划器，支持更多视频，音频，图片生成ai，兼容Gemini，anthropic，openai，openrouter API key以及vertex和codex登录
 - LumeriLink to Blender 后端空间效果
 - 可观察的模型输入 TXT（私有调试用途）
 

@@ -27,12 +27,22 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "edit_video":         {"usd": 0.00, "eta_sec": 10.0},
     "composite":          {"usd": 0.00, "eta_sec": 8.0},
     "color_grade":        {"usd": 0.00, "eta_sec": 8.0},
+    "adjust_media":       {"usd": 0.00, "eta_sec": 6.0},
+    "paint_overlay":      {"usd": 0.00, "eta_sec": 1.0},
+    "paint_mask_effect":  {"usd": 0.00, "eta_sec": 12.0},
     "add_overlay":        {"usd": 0.00, "eta_sec": 6.0},
     "arrange_timeline":   {"usd": 0.00, "eta_sec": 12.0},
     "mix_audio":          {"usd": 0.00, "eta_sec": 6.0},
+    "edit_audio":         {"usd": 0.00, "eta_sec": 4.0},
     "transform_geometry": {"usd": 0.00, "eta_sec": 5.0},
+    "smart_reframe":      {"usd": 0.00, "eta_sec": 8.0},
     "extract_frame":      {"usd": 0.00, "eta_sec": 1.0},
+    "probe_media":        {"usd": 0.00, "eta_sec": 0.2},
+    "inspect_lottie":     {"usd": 0.00, "eta_sec": 1.0},
     "search_library":     {"usd": 0.00, "eta_sec": 0.5},
+    "annotate_media":     {"usd": 0.00, "eta_sec": 8.0},
+    "get_media_annotations": {"usd": 0.00, "eta_sec": 0.2},
+    "write_media_annotation": {"usd": 0.00, "eta_sec": 0.2},
     "export":             {"usd": 0.00, "eta_sec": 20.0},
     # M3 verbs (host-side internet + sandbox bash).
     "web_search":         {"usd": 0.00, "eta_sec": 3.0},     # Host-side search, compact results
@@ -64,6 +74,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "timeline_set_track":       {"usd": 0.00, "eta_sec": 0.2},
     "timeline_undo":            {"usd": 0.00, "eta_sec": 0.2},
     "inspect_timeline":         {"usd": 0.00, "eta_sec": 12.0},  # render proxy + sampled frames
+    "get_safe_areas":           {"usd": 0.00, "eta_sec": 0.1},
     "render_preview":           {"usd": 0.00, "eta_sec": 20.0},  # ffmpeg low-res proxy
     "project_export":           {"usd": 0.00, "eta_sec": 60.0},  # full-quality multi-track export
     # Lumenframe layer/time verbs (pure document patch unless rendering).
@@ -76,6 +87,8 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "lumen_move_layer":         {"usd": 0.00, "eta_sec": 0.2},
     "lumen_set_visibility":     {"usd": 0.00, "eta_sec": 0.2},
     "lumen_select":             {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_set_mask":           {"usd": 0.00, "eta_sec": 0.2},
+    "lumen_key":                {"usd": 0.00, "eta_sec": 0.2},
     "lumen_set_range":          {"usd": 0.00, "eta_sec": 0.2},
     "lumen_set_lane":           {"usd": 0.00, "eta_sec": 0.2},
     "lumen_retime_segment":     {"usd": 0.00, "eta_sec": 0.2},
