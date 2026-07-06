@@ -229,6 +229,8 @@ User prompt
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
+- Claude
+- ChatGPT
 - Acrabxie
 
 ## License
