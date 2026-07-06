@@ -148,6 +148,31 @@ def _lumendoc(ctx: ToolContext) -> dict[str, Any]:
     return _DOC_CACHE[key]
 
 
+def peek_lumendoc(ctx: ToolContext) -> dict[str, Any] | None:
+    """Read-only view of the session's lumenframe document, or ``None`` if the
+    session has none yet.
+
+    Unlike ``_lumendoc`` this never lazy-creates ``lumenframe.json`` and never
+    seeds ``_DOC_CACHE`` — it is safe to call on every prompt build (the agent
+    loop injects the layer summary/ops catalog from here). In v3 ``ctx.project``
+    is always set, so the file is the source of truth; the memory cache is only
+    consulted for project-less contexts (unit tests, embedded use).
+    """
+    if empty_doc is None or normalize_doc is None:
+        return None
+    if ctx.project is not None:
+        file_path = _lumenframe_file_path(ctx)
+        if file_path is None or not file_path.exists():
+            return None
+        try:
+            return normalize_doc(json.loads(file_path.read_text(encoding="utf-8")))
+        except Exception:
+            # Corruption recovery (rename + fresh doc) is _lumendoc's job at
+            # edit time; a prompt build just declines to inject.
+            return None
+    return _DOC_CACHE.get(ctx.session_id)
+
+
 def _write_lumenframe_atomic(file_path: Path, doc: dict[str, Any]) -> bool:
     """Write lumenframe document atomically: temp file → fsync → rename.
 
@@ -938,6 +963,10 @@ def clear_lumenframe_session(session_id: str) -> None:
     """
     if session_id in _DOC_CACHE:
         del _DOC_CACHE[session_id]
+    # The path cache is keyed by (session_id, project_id) tuples — purge those
+    # too, or every closed session leaks its entries.
+    for key in [k for k in _LUMENFRAME_PATH_CACHE if k[0] == session_id]:
+        del _LUMENFRAME_PATH_CACHE[key]
 
 
 # Dispatchers table (called by agent_loop_v3.py via DISPATCHER)

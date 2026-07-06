@@ -347,18 +347,25 @@ class AgentLoopV3:
         record = self.registry.add_external(Path(path), summary=summary or None)
         return record.asset_id
 
+    # Cap for the injected layer-tree summary: a deep comp tree must not
+    # balloon every prompt; past this the model should lumen_get for detail.
+    _LUMENFRAME_PROMPT_CAP = 3500
+
     def _get_lumenframe_prompt_text(self) -> str:
         """Get lumenframe document summary for prompt injection.
 
-        If lumenframe is available, returns a compact summary of the layer
-        tree and selection. Otherwise returns a placeholder.
+        Reads the session's REAL document via ``layer.peek_lumendoc`` (in v3
+        that is ``<project_dir>/lumenframe.json`` — ``ctx.project`` is always
+        set, so the old ``_DOC_CACHE`` lookup never saw saved edits and the
+        slot was permanently empty in real sessions). Read-only: never creates
+        the file. Size-capped so a deep tree cannot balloon every prompt.
         """
         try:
             from gemia.tools import layer as _layer
-            # Access the session-local document cache
-            if not hasattr(_layer, "_DOC_CACHE") or self.session_id not in _layer._DOC_CACHE:
+
+            doc = _layer.peek_lumendoc(self._tool_ctx)
+            if doc is None:
                 return "(no lumenframe document in session yet)"
-            doc = _layer._DOC_CACHE[self.session_id]
             root = doc.get("root", {})
             selection = doc.get("selection", [])
             canvas = doc.get("canvas", {})
@@ -372,7 +379,13 @@ class AgentLoopV3:
                 lines.append(tree_summary)
             if selection:
                 lines.append(f"Selection: {', '.join(str(id)[:12] for id in selection)}")
-            return "\n".join(lines) if lines else "(empty document)"
+            text = "\n".join(lines) if lines else "(empty document)"
+            if len(text) > self._LUMENFRAME_PROMPT_CAP:
+                text = (
+                    text[: self._LUMENFRAME_PROMPT_CAP]
+                    + "\n… (layer tree truncated — use lumen_get for the full document)"
+                )
+            return text
         except (ImportError, AttributeError, KeyError):
             return "(lumenframe not available)"
 
@@ -385,14 +398,16 @@ class AgentLoopV3:
         - If the doc is empty or absent, return a minimal one-line pointer instead
           of the full 3200+ character catalog, avoiding noise for non-layer tasks.
           Once the user starts a lumenframe edit, the full vocabulary auto-injects.
+
+        Like ``_get_lumenframe_prompt_text`` this reads the persisted document
+        (``peek_lumendoc``), not the legacy in-memory cache.
         """
         try:
             from gemia.tools import layer as _layer
             from lumenframe import describe_ops
 
-            # Check if doc exists and has layers
-            if hasattr(_layer, "_DOC_CACHE") and self.session_id in _layer._DOC_CACHE:
-                doc = _layer._DOC_CACHE[self.session_id]
+            doc = _layer.peek_lumendoc(self._tool_ctx)
+            if doc is not None:
                 root = doc.get("root", {})
                 children = root.get("children", [])
                 # Non-empty doc: inject full ops catalog
