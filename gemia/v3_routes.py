@@ -30,6 +30,7 @@ import mimetypes
 import os
 import re
 import uuid
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -498,10 +499,22 @@ def _session_timeline_op(handler, runner: SessionRunner) -> bool:
     project = runner.agent.project
     try:
         # SAME path as the verbs: ProjectStore append-only patch log + undo,
-        # and ProjectHandle.on_patch emits the timeline_op SSE event.
-        project.apply_ops([patch_op], label=f"user_edit:{op_name}")
+        # and ProjectHandle.on_patch emits the timeline_op SSE event. Hopped
+        # onto the session loop (run_project_edit) so user edits serialize
+        # with agent verbs and their SSE emits stay ordered.
+        runner.run_project_edit(
+            lambda: project.apply_ops([patch_op], label=f"user_edit:{op_name}")
+        )
     except TimelinePatchError as exc:
         _json_error(handler, 400, exc.message, code=exc.code)
+        return True
+    except FuturesTimeoutError:
+        _json_error(
+            handler, 503,
+            "edit is queued behind a long-running step and has not applied yet — "
+            "refresh the timeline to see whether it landed",
+            code="E_BUSY",
+        )
         return True
     except Exception as exc:
         _json_error(handler, 500, f"failed to apply edit: {exc}")
@@ -529,7 +542,15 @@ def _apply_user_undo(handler, runner: SessionRunner, body: dict) -> bool:
         return True
     project = runner.agent.project
     try:
-        project.undo(max(1, min(steps, 50)))
+        runner.run_project_edit(lambda: project.undo(max(1, min(steps, 50))))
+    except FuturesTimeoutError:
+        _json_error(
+            handler, 503,
+            "undo is queued behind a long-running step and has not applied yet — "
+            "refresh the timeline to see whether it landed",
+            code="E_BUSY",
+        )
+        return True
     except Exception as exc:
         _json_error(handler, 400, f"undo failed: {exc}")
         return True

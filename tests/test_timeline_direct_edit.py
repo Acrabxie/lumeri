@@ -78,7 +78,14 @@ def _seed_video_clip(loop: AgentLoopV3, clip_id: str = "c1", *, start: float = 0
 
 def _post(loop: AgentLoopV3, sid: str, op_body: dict) -> _PostHandler:
     handler = _PostHandler(json.dumps(op_body).encode("utf-8"))
-    runner = SimpleNamespace(agent=loop, session_id=sid)
+    # run_project_edit mirrors SessionRunner's contract; same-thread execution
+    # is fine here — serialization gets its own tests
+    # (test_project_write_serialization.py).
+    runner = SimpleNamespace(
+        agent=loop,
+        session_id=sid,
+        run_project_edit=lambda fn, timeout=30.0: fn(),
+    )
     ok = v3_routes._session_timeline_op(handler, runner)
     assert ok is True
     return handler

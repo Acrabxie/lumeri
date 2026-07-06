@@ -148,6 +148,30 @@ class SessionRunner:
         asyncio.run_coroutine_threadsafe(_run(), self._loop)
         return True
 
+    def run_project_edit(self, fn, *, timeout: float = 30.0) -> Any:
+        """Run a project mutation on the session's event loop and return its
+        result (exceptions propagate unchanged).
+
+        /timeline/op and undo used to mutate ProjectStore straight from HTTP
+        handler threads while agent verbs mutated it from this loop — the
+        per-project lock makes that data-safe, but hopping user edits onto the
+        loop also keeps their ``timeline_op`` SSE emits ordered with the
+        in-flight turn's event stream (a user edit can no longer interleave
+        inside one verb's start/result pair). User edits execute at the turn's
+        await boundaries; a CPU-bound stretch longer than ``timeout`` raises
+        ``concurrent.futures.TimeoutError`` (the edit may still apply late —
+        callers should say so, not claim failure).
+        """
+        self.touch()
+        if self._loop.is_closed():
+            raise RuntimeError("session is closed")
+
+        async def _call() -> Any:
+            return fn()
+
+        fut = asyncio.run_coroutine_threadsafe(_call(), self._loop)
+        return fut.result(timeout=timeout)
+
     def deliver_ask_answer(self, question_id: str, answers: dict[str, Any]) -> bool:
         """Deliver a user's answer to a pending ``elicit`` question.
 
