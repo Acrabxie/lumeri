@@ -1,21 +1,19 @@
-"""Graceful max-steps / budget wrap-up for AgentLoopV3 (opencode pattern #5).
+"""Graceful non-success wrap-up for AgentLoopV3 (opencode pattern #5).
 
-When the failure circuit-breaker trips, the budget is exhausted, the doom-loop
-guard fires, or the model stream errors out, ``_drive_turn`` used to emit a bare
-breaker / turn_error and return — the user got an unexplained stop. This adds an
-ADDITIVE graceful wrap-up: at each of those non-success exit points, *in addition
-to* the existing breaker / turn_error event, the loop emits a short
+When the budget is exhausted, the doom-loop guard fires, or the model stream
+errors out, ``_drive_turn`` used to emit a bare turn_error and return — the user
+got an unexplained stop. This adds an ADDITIVE graceful wrap-up: at each of those
+non-success exit points, *in addition to* the existing turn_error event, the loop emits a short
 ``turn_wrapup`` event whose ``message`` explains 'stopped because X; here's what
 was / wasn't done', synthesized LOCALLY (no extra model call) from the turn's
 tool / asset counts.
 
 Pinned here:
-  * a fake client that repeatedly fails the same tool → breaker trips → a
-    ``turn_wrapup`` event is emitted with the stop reason, alongside the existing
-    breaker ``turn_error``;
+  * a fake client that emits a model stream error → ``turn_wrapup`` is emitted
+    with the stop reason, alongside the existing ``turn_error``;
   * a normal successful turn does NOT emit a spurious ``turn_wrapup``;
   * an exception raised inside wrap-up synthesis does not break the turn (the
-    breaker still trips, the turn still returns cleanly).
+    original turn_error still returns cleanly).
 """
 from __future__ import annotations
 
@@ -24,40 +22,32 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import gemia.agent_loop_v3 as loop_mod
-from gemia.agent_loop_v3 import AgentLoopV3, _MAX_CONSECUTIVE_TOOL_FAILURES
+from gemia.agent_loop_v3 import AgentLoopV3
 
 
-class _AlwaysCallsBuild:
-    """Fake model that keeps calling ``build`` with empty args (which raises),
-    up to a hard ceiling so a broken breaker fails loudly instead of hanging."""
+class _StreamErrors:
+    """Fake model that surfaces a stream error immediately."""
 
     model = "fake"
 
-    def __init__(self, ceiling: int = 30) -> None:
+    def __init__(self) -> None:
         self.calls = 0
-        self._ceiling = ceiling
 
     async def stream_turn(
         self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
     ) -> AsyncIterator[dict[str, Any]]:
         del messages, tools, temperature
         self.calls += 1
-        if self.calls > self._ceiling:  # safety net: breaker should fire first
-            yield {"kind": "text_delta", "text": "ceiling hit"}
-            yield {"kind": "finish", "reason": "stop"}
-            return
-        yield {"kind": "tool_call_start", "index": 0, "id": f"c{self.calls}", "name": "build"}
-        yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{}"}
-        yield {"kind": "finish", "reason": "tool_calls"}
+        yield {"kind": "error", "error": "simulated stream failure"}
 
 
-def test_wrapup_emitted_on_breaker_trip(tmp_path: Path) -> None:
-    """When the failure breaker trips, a ``turn_wrapup`` event is emitted with
-    the stop reason — IN ADDITION to the existing breaker ``turn_error``."""
-    client = _AlwaysCallsBuild()
+def test_wrapup_emitted_on_stream_error(tmp_path: Path) -> None:
+    """When the model stream errors, a ``turn_wrapup`` event is emitted with
+    the stop reason — IN ADDITION to the existing ``turn_error``."""
+    client = _StreamErrors()
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
-        session_id="wrapup_breaker",
+        session_id="wrapup_stream_error",
         output_dir=tmp_path,
         gemini_client=client,  # type: ignore[arg-type]
         emit_event=events.append,
@@ -65,31 +55,25 @@ def test_wrapup_emitted_on_breaker_trip(tmp_path: Path) -> None:
 
     asyncio.run(loop.run_turn("build something broken"))
 
-    # WHEN it stops is unchanged: 5-in-a-row failures still trip on the 5th.
-    assert client.calls == _MAX_CONSECUTIVE_TOOL_FAILURES == 5
-
-    # The existing breaker turn_error is still emitted (not replaced).
+    # The existing turn_error is still emitted (not replaced).
     turn_errors = [e for e in events if e.get("kind") == "turn_error"]
     assert len(turn_errors) == 1
-    assert "build" in turn_errors[0]["error"]
+    assert "simulated stream failure" in turn_errors[0]["error"]
 
     # The ADDITIVE wrap-up event is emitted with the stop reason and a message.
     wrapups = [e for e in events if e.get("kind") == "turn_wrapup"]
     assert len(wrapups) == 1, "expected exactly one graceful wrap-up event"
     wrap = wrapups[0]
-    assert wrap["reason"] == "failure_breaker"
-    assert wrap["tool_name"] == "build"
+    assert wrap["reason"] == "stream_error"
     # The message explains the stop AND what was / wasn't done.
     msg = wrap["message"]
     assert "Stopped because" in msg
-    assert "build" in msg
-    assert "failed" in msg.lower()
-    # 5 build failures, no successes, no assets produced.
-    assert wrap["tools_failed"] == 5
+    assert "stream" in msg.lower()
+    assert wrap["tools_failed"] == 0
     assert wrap["tools_succeeded"] == 0
     assert wrap["assets_produced"] == 0
 
-    # Ordering: the wrap-up comes AFTER the breaker turn_error (explains it).
+    # Ordering: the wrap-up comes AFTER the turn_error (explains it).
     ti_err = next(i for i, e in enumerate(events) if e.get("kind") == "turn_error")
     ti_wrap = next(i for i, e in enumerate(events) if e.get("kind") == "turn_wrapup")
     assert ti_wrap > ti_err
@@ -160,8 +144,9 @@ def test_wrapup_synthesis_exception_does_not_break_turn(
     tmp_path: Path, monkeypatch
 ) -> None:
     """If the wrap-up message synthesis raises, the turn must not break: the
-    breaker still trips, no exception escapes, and no wrap-up event leaks. This
-    proves the try/except contract — wrap-up failures are swallowed."""
+    original stream error is still emitted, no exception escapes, and no wrap-up
+    event leaks. This proves the try/except contract — wrap-up failures are
+    swallowed."""
 
     def _boom(*args: Any, **kwargs: Any) -> str:
         raise RuntimeError("synthesis blew up")
@@ -171,7 +156,7 @@ def test_wrapup_synthesis_exception_does_not_break_turn(
         AgentLoopV3, "_synthesize_wrapup_message", staticmethod(_boom)
     )
 
-    client = _AlwaysCallsBuild()
+    client = _StreamErrors()
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
         session_id="wrapup_boom",
@@ -183,10 +168,8 @@ def test_wrapup_synthesis_exception_does_not_break_turn(
     # Must NOT raise — the wrap-up try/except swallows the synthesis failure.
     asyncio.run(loop.run_turn("build something broken"))
 
-    # WHEN it stops is unchanged: the breaker still trips on the 5th failure.
-    assert client.calls == _MAX_CONSECUTIVE_TOOL_FAILURES == 5
-    # The existing breaker turn_error is still emitted (the loop still stopped
-    # cleanly via its normal path).
+    # The existing turn_error is still emitted (the loop still stopped cleanly
+    # via its normal stream-error path).
     turn_errors = [e for e in events if e.get("kind") == "turn_error"]
     assert len(turn_errors) == 1
     # The wrap-up emission was attempted but its synthesis raised, so no
@@ -197,17 +180,17 @@ def test_wrapup_synthesis_exception_does_not_break_turn(
 def test_synthesize_wrapup_message_pure_helper() -> None:
     """Unit-level proof that the LOCAL synthesis builds a sensible explanatory
     summary from the stop reason + counts, with no model call involved."""
-    # Failure breaker, work partially done.
+    # Doom loop, work partially done.
     msg = AgentLoopV3._synthesize_wrapup_message(
-        "failure_breaker",
+        "doom_loop",
         tools_succeeded=2,
         tools_failed=5,
         assets_produced=1,
-        tool_name="build",
+        tool_name="echo_tool",
     )
     assert "Stopped because" in msg
-    assert "build" in msg
-    assert "circuit-breaker" in msg
+    assert "echo_tool" in msg
+    assert "doom loop" in msg.lower()
     assert "1 asset" in msg
     assert "2 tool calls succeeded" in msg
     assert "5 tool calls failed" in msg

@@ -161,6 +161,26 @@ def test_legacy_read_write_copy_in_and_move(tmp_path: Path) -> None:
         shutil.rmtree(outside, ignore_errors=True)
 
 
+def test_copy_in_registers_workspace_media_without_self_copy(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path / "ws")
+    logo = ctx.output_dir / "lumeri_logo.png"
+    logo.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    copied = _run(
+        "copy_in",
+        {"path": "lumeri_logo.png", "as_name": "lumeri_logo.png"},
+        ctx,
+    )
+
+    assert copied["copied"] is False
+    assert copied["path"] == str(logo)
+    assert copied["workspace_path"] == str(logo)
+    assert copied["name"] == "lumeri_logo.png"
+    assert copied["asset_id"] == "img_001"
+    assert copied["kind"] == "image"
+    assert ctx.registry.get("img_001").path == logo.resolve()
+
+
 def test_legacy_read_missing_raises_tool_error(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path / "ws")
     with pytest.raises(ToolError) as ei:

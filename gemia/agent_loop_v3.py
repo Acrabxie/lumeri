@@ -17,16 +17,15 @@ Contract — what this loop is and what it is NOT:
     model to read.
 
   - It does NOT cap the total number of tool steps per turn. A research
-    or see→modify→rerun build loop legitimately needs many steps, so the
-    only runaway guard is a per-tool circuit breaker: if the SAME tool
-    fails to dispatch ``_MAX_CONSECUTIVE_TOOL_FAILURES`` times in a row
-    (error, bad-JSON args, or budget/visual gate), the turn stops. A
-    successful dispatch of that tool resets its streak. Real cost/time
-    stay bounded by ``BudgetGuard`` ($ + execution seconds).
+    or see→modify→rerun build loop legitimately needs many steps. If the
+    SAME tool fails repeatedly with the SAME error class, the host feeds
+    Gemini an explicit "change approach" nudge; it does not hard-stop the
+    turn. A successful dispatch of that tool resets its streak. Real
+    cost/time stay bounded by ``BudgetGuard`` ($ + execution seconds).
       * ``visual_inspections_this_turn``   — capped at
         ``max_visual_inspections`` (incremented ONLY when an
         ``analyze_media`` call actually produces a thumbnail for the
-        next user message). Independent of the failure breaker.
+        next user message). Independent of repeated-failure nudges.
 
   - It implements Plan-B visual feedback: when a dispatcher returns
     ``thumbnail_for_next_message=True``, the loop appends a multimodal
@@ -71,23 +70,26 @@ _ROLLING_USER_TURNS = 8
 # RC4: one-shot completion-check gate before ending on no-tool-calls
 COMPLETION_CHECK_ENABLED = True
 
-# Circuit breaker: there is no cap on the TOTAL number of tool steps in a turn
-# (a research + see→modify→rerun build loop legitimately needs many). Instead,
-# we trip only when the SAME (tool, error-class) repeats this many times in a
-# row — that is the real runaway signature (the model stuck hammering the
-# identical broken/over-budget call). A model that reads a typed error and
-# ADAPTS — a different error_code, or switching tools — is treated as progress,
-# not runaway: its streak soft-resets. A successful dispatch clears the streak
+# Repeated-failure nudge: there is no cap on the TOTAL number of tool steps in a
+# turn. If the SAME (tool, error-class) repeats this many times in a row, append
+# a model-facing "change approach" prompt. This threshold is guidance for Gemini,
+# not a host-side stop condition. A model that reads a typed error and ADAPTS —
+# a different error_code, or switching tools — is treated as progress, not
+# runaway: its streak soft-resets. A successful dispatch clears the streak
 # entirely. Genuine cost/time stays bounded by BudgetGuard.
-_MAX_CONSECUTIVE_TOOL_FAILURES = 5
+_REPEATED_FAILURE_NUDGE_THRESHOLD = 5
+# Backward-compatible constant name for older imports/tests. It is no longer a
+# host-side maximum.
+_MAX_CONSECUTIVE_TOOL_FAILURES = _REPEATED_FAILURE_NUDGE_THRESHOLD
 # Transient failures (recovery="transient_retry", e.g. a flaky network blip)
-# get more headroom, because re-issuing the identical call is the *correct*
-# move for them — they are not a logic error the model needs to fix.
-_MAX_TRANSIENT_RETRIES = 8
+# get more headroom before the nudge appears, because re-issuing the identical
+# call is the *correct* move for them — they are not a logic error the model
+# needs to fix.
+_TRANSIENT_RETRY_NUDGE_THRESHOLD = 8
 
 # Success-BLIND doom-loop guard (ported from opencode processor.ts,
-# DOOM_LOOP_THRESHOLD=3). The per-(tool, error_code) circuit breaker above only
-# trips on FAILURES. But a loop can also get stuck repeating a call that keeps
+# DOOM_LOOP_THRESHOLD=3). The per-(tool, error_code) nudge above only tracks
+# FAILURES. But a loop can also get stuck repeating a call that keeps
 # "succeeding" — or whose result the model ignores — and re-issuing the exact
 # same tool with byte-identical arguments forever. That is not progress, it is a
 # stuck model echoing itself. Independent of success/failure: if the last
@@ -289,7 +291,7 @@ class AgentLoopV3:
             "session_id": self.session_id,
             "project_id": "v3-session",
             "goal": self._pinned_intent or "",
-            "max_turns": None,  # no fixed per-turn tool-step cap (failure breaker instead)
+            "max_turns": None,  # no fixed per-turn tool-step cap
             "ai_model": self.client.model,
             "created_at": now,
             "updated_at": now,
@@ -615,21 +617,27 @@ class AgentLoopV3:
 
         Counts only CONSECUTIVE failures of the same ``(name, code)``: if the
         code differs from this tool's last failure, the model is adapting, so
-        the streak resets to 1 rather than climbing toward the breaker. Returns
-        ``(tripped, streak)`` where ``tripped`` is True once ``streak`` reaches
-        ``limit``."""
+        the streak resets to 1 rather than climbing toward the nudge threshold.
+        Returns ``(should_nudge, streak)`` where ``should_nudge`` is True once
+        ``streak`` reaches ``limit``. This never means "stop the turn"; it means
+        "tell Gemini to change approach."
+        """
         last_code, streak = fail_state.get(name, ("", 0))
         streak = streak + 1 if code == last_code else 1
         fail_state[name] = (code, streak)
         return streak >= limit, streak
 
-    def _emit_tool_breaker(self, name: str, count: int) -> None:
-        self._emit(
+    def _append_repeated_failure_nudge(self, name: str, code: str, count: int) -> None:
+        self._messages.append(
             {
-                "kind": "turn_error",
-                "error": (
-                    f"tool '{name}' hit the same failure {count} times in a row this "
-                    f"turn; stopping. Change the approach or use a different tool."
+                "role": "user",
+                "content": (
+                    f"Repeated tool failure guidance: `{name}` has failed with "
+                    f"`{code}` {count} times in a row in this turn. Do not call the "
+                    "identical failing tool with the same arguments again. Read the "
+                    "structured error, then change arguments, switch tools, inspect "
+                    "state with a cheaper/read-only tool, or clearly explain the "
+                    "blocker if no safe path remains."
                 ),
             }
         )
@@ -664,21 +672,14 @@ class AgentLoopV3:
         """Build a short 'stopped because X; here's what was / wasn't done'
         summary LOCALLY from the known stop reason and the turn's tool / asset
         counts. No model API call — this is a cheap deterministic synthesis so a
-        circuit-breaker / budget / doom-loop / stream-error stop is *explained*
+        budget / doom-loop / stream-error stop is *explained*
         to the user instead of being a bare silent halt.
 
-        ``reason`` is a short machine code (e.g. ``"failure_breaker"``,
-        ``"doom_loop"``, ``"budget_exhausted"``, ``"stream_error"``); the rest
+        ``reason`` is a short machine code (e.g. ``"doom_loop"``,
+        ``"budget_exhausted"``, ``"stream_error"``); the rest
         is synthesized from the turn state that is already on hand at the exit
         point."""
         why = {
-            "failure_breaker": (
-                f"tool '{tool_name}' kept failing the same way and the failure "
-                f"circuit-breaker tripped"
-                if tool_name
-                else "a tool kept failing the same way and the failure "
-                "circuit-breaker tripped"
-            ),
             "doom_loop": (
                 f"tool '{tool_name}' was called repeatedly with identical "
                 f"arguments (a doom loop) and was stopped"
@@ -728,9 +729,9 @@ class AgentLoopV3:
         tool_name: str | None = None,
     ) -> None:
         """ADDITIVE graceful wrap-up (ported from opencode pattern #5): at a
-        non-success exit point (failure breaker, budget exhaustion, doom loop,
-        stream error) emit a short assistant-facing ``turn_wrapup`` event that
-        explains the stop, *in addition to* the existing breaker / turn_error
+        non-success exit point (budget exhaustion, doom loop, stream error)
+        emit a short assistant-facing ``turn_wrapup`` event that explains the
+        stop, *in addition to* the existing turn_error
         event — so the user gets a 'stopped because X; here's what was / wasn't
         done' summary instead of a bare halt.
 
@@ -799,18 +800,17 @@ class AgentLoopV3:
 
         There is no fixed cap on the total number of tool steps in a turn.
         ``visual_inspections_this_turn`` still caps analyze_media thumbnails,
-        and ``tool_fail_counts`` drives the per-tool consecutive-failure
-        circuit breaker (see ``_MAX_CONSECUTIVE_TOOL_FAILURES``). Genuine
+        and ``tool_fail_counts`` drives repeated-failure nudges. Genuine
         cost/time stay bounded by BudgetGuard.
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
         visual_inspections_this_turn = 0
-        # name → (last_failure_code, consecutive_streak) for the circuit breaker.
+        # name → (last_failure_code, consecutive_streak) for repeated-failure nudges.
         tool_fail_counts: dict[str, tuple[str, int]] = {}
         # Rolling history of (tool_name, raw-args-JSON) for THIS turn, used by the
         # success-blind doom-loop guard. We only need the last few entries, but a
-        # plain list is simplest; it never grows unbounded because the turn stops
-        # the moment the breaker or doom-loop guard trips.
+        # plain list is simplest; it stays tiny because the doom-loop guard still
+        # stops byte-identical successful repeats.
         recent_tool_calls: list[tuple[str, str]] = []
         # Running tallies for the graceful wrap-up summary at non-success exits
         # (opencode pattern #5). Cheap counters, no extra model call: a
@@ -967,20 +967,12 @@ class AgentLoopV3:
                         },
                     )
                     tools_failed += 1
-                    tripped, streak = self._note_tool_failure(
+                    should_nudge, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BAD_ARG",
-                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                        limit=_REPEATED_FAILURE_NUDGE_THRESHOLD,
                     )
-                    if tripped:
-                        self._emit_tool_breaker(tc.name, streak)
-                        self._emit_turn_wrapup(
-                            "failure_breaker",
-                            tools_succeeded=tools_succeeded,
-                            tools_failed=tools_failed,
-                            assets_produced=_assets_produced(),
-                            tool_name=tc.name,
-                        )
-                        return
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(tc.name, "E_BAD_ARG", streak)
                     continue
 
                 # Budget gate (cost + time). Model decides what to do.
@@ -1010,20 +1002,12 @@ class AgentLoopV3:
                     # A gate is a non-dispatch: count it so the model cannot
                     # spin forever re-requesting an over-budget tool.
                     tools_failed += 1
-                    tripped, streak = self._note_tool_failure(
+                    should_nudge, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BUDGET",
-                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                        limit=_REPEATED_FAILURE_NUDGE_THRESHOLD,
                     )
-                    if tripped:
-                        self._emit_tool_breaker(tc.name, streak)
-                        self._emit_turn_wrapup(
-                            "budget_exhausted",
-                            tools_succeeded=tools_succeeded,
-                            tools_failed=tools_failed,
-                            assets_produced=_assets_produced(),
-                            tool_name=tc.name,
-                        )
-                        return
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(tc.name, "E_BUDGET", streak)
                     continue
 
                 # Independent visual_inspections cap. Only enforced for
@@ -1050,20 +1034,12 @@ class AgentLoopV3:
                         tc.id, {"needs_approval": True, "reason": cap_reason}
                     )
                     tools_failed += 1
-                    tripped, streak = self._note_tool_failure(
+                    should_nudge, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_VISUAL_CAP",
-                        limit=_MAX_CONSECUTIVE_TOOL_FAILURES,
+                        limit=_REPEATED_FAILURE_NUDGE_THRESHOLD,
                     )
-                    if tripped:
-                        self._emit_tool_breaker(tc.name, streak)
-                        self._emit_turn_wrapup(
-                            "failure_breaker",
-                            tools_succeeded=tools_succeeded,
-                            tools_failed=tools_failed,
-                            assets_produced=_assets_produced(),
-                            tool_name=tc.name,
-                        )
-                        return
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(tc.name, "E_VISUAL_CAP", streak)
                     continue
 
                 # Real dispatch ------------------------------------------------
@@ -1114,23 +1090,15 @@ class AgentLoopV3:
                     )
                     tools_failed += 1
                     limit = (
-                        _MAX_TRANSIENT_RETRIES
+                        _TRANSIENT_RETRY_NUDGE_THRESHOLD
                         if recovery == RECOVERY_TRANSIENT_RETRY
-                        else _MAX_CONSECUTIVE_TOOL_FAILURES
+                        else _REPEATED_FAILURE_NUDGE_THRESHOLD
                     )
-                    tripped, streak = self._note_tool_failure(
+                    should_nudge, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, err_code, limit=limit
                     )
-                    if tripped:
-                        self._emit_tool_breaker(tc.name, streak)
-                        self._emit_turn_wrapup(
-                            "failure_breaker",
-                            tools_succeeded=tools_succeeded,
-                            tools_failed=tools_failed,
-                            assets_produced=_assets_produced(),
-                            tool_name=tc.name,
-                        )
-                        return
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(tc.name, err_code, streak)
                     continue
 
                 elapsed = time.monotonic() - start_ts
@@ -1141,7 +1109,7 @@ class AgentLoopV3:
 
                 # ---- success-blind doom-loop guard -------------------
                 # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the
-                # per-tool failure breaker above only trips on FAILURES, but a
+                # per-tool repeated-failure nudge above only tracks FAILURES, but a
                 # turn can also get stuck re-issuing a call that keeps DISPATCHING
                 # (succeeding, or returning a result the model ignores) with the
                 # exact same arguments forever — pure echo, no progress. Record
@@ -1151,7 +1119,7 @@ class AgentLoopV3:
                 # stop. This is independent of the RESULT content (success-blind):
                 # distinct args (real work) never trip it. Like opencode, a call
                 # that did not actually dispatch (raised / gated / bad-JSON args)
-                # is not recorded here — those stay owned by the failure breaker.
+                # is not recorded here — those stay owned by repeated-failure nudges.
                 recent_tool_calls.append((tc.name, tc.args))
                 if self._is_doom_loop(recent_tool_calls):
                     self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)

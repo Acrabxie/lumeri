@@ -17,7 +17,7 @@ from typing import Any
 
 from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_NONE, ToolError
 from gemia.sandbox_v4 import DEFAULT_CREDENTIAL_DENY, DEFAULT_OUTSIDE_CREATE_ROOTS
-from gemia.tools._context import ToolContext
+from gemia.tools._context import AssetRecord, ToolContext, infer_kind
 
 _MAX_READ_BYTES = 512_000
 _MAX_WRITE_BYTES = 512_000
@@ -119,6 +119,50 @@ def _payload(path: Path, ctx: ToolContext) -> dict[str, Any]:
         "inside_workspace": _is_workspace(path, ctx),
         "exists": exists,
         "size_bytes": path.stat().st_size if exists and path.is_file() else None,
+    }
+
+
+def _basename(name: Any, *, fallback: str) -> str:
+    raw = str(name or fallback).strip()
+    base = Path(raw).name
+    if not base:
+        raise ValueError("target filename must be non-empty")
+    return base
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
+
+
+def _find_registered_asset(path: Path, ctx: ToolContext) -> AssetRecord | None:
+    resolved = path.resolve()
+    for record in ctx.registry.list_records():
+        if record.path.resolve() == resolved:
+            return record
+    return None
+
+
+def _register_workspace_asset(path: Path, ctx: ToolContext) -> dict[str, Any]:
+    try:
+        kind = infer_kind(path)
+    except ValueError:
+        return {"asset_id": None, "kind": None, "asset_registered": False}
+    existing = _find_registered_asset(path, ctx)
+    if existing is not None:
+        return {
+            "asset_id": existing.asset_id,
+            "kind": existing.kind,
+            "asset_registered": True,
+            "asset_reused": True,
+            "summary": existing.summary,
+        }
+    record = ctx.registry.add_external(path, summary=f"workspace import: {path.name}")
+    return {
+        "asset_id": record.asset_id,
+        "kind": kind,
+        "asset_registered": True,
+        "asset_reused": False,
+        "summary": record.summary,
     }
 
 
@@ -243,10 +287,33 @@ async def dispatch_write_file(args: dict[str, Any], ctx: ToolContext) -> dict[st
 async def dispatch_copy_in(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     source = _resolve(args.get("source") or args.get("path"), ctx)
     _ensure_readable(source, ctx)
-    dest_name = str(args.get("dest_name") or source.name)
+    dest_name = _basename(args.get("as_name") or args.get("dest_name"), fallback=source.name)
     dest = _workspace(ctx) / dest_name
-    await dispatch_copy({"source": str(source), "dest": str(dest), "overwrite": bool(args.get("overwrite", False))}, ctx)
-    return {"source": str(source), "path": str(dest), "bytes_copied": dest.stat().st_size}
+    if _same_path(source, dest):
+        copied = False
+    else:
+        await dispatch_copy(
+            {
+                "source": str(source),
+                "dest": str(dest),
+                "overwrite": bool(args.get("overwrite", False)),
+            },
+            ctx,
+        )
+        copied = True
+    asset = _register_workspace_asset(dest, ctx)
+    size = dest.stat().st_size
+    return {
+        "source": str(source),
+        "path": str(dest),
+        "workspace_path": str(dest),
+        "name": dest.name,
+        "size": size,
+        "size_bytes": size,
+        "bytes_copied": size,
+        "copied": copied,
+        **asset,
+    }
 
 
 async def dispatch_list_dir(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
