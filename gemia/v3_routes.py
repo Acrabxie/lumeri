@@ -1,8 +1,9 @@
 """HTTP routes for Lumeri v3 sessions.
 
     POST   /sessions                            create session
-    GET    /sessions/{id}                       info (assets, latest_event_id)
+    GET    /sessions/{id}                       info (assets, latest_event_id, plan_mode)
     POST   /sessions/{id}/turn                  submit user message (202)
+    POST   /sessions/{id}/plan_mode             toggle plan mode {"enabled": bool}
     POST   /sessions/{id}/assets                upload asset (raw body + X-Filename)
     GET    /sessions/{id}/assets                list session assets
     GET    /sessions/{id}/assets/{asset_id}     serve asset file (Range supported)
@@ -91,7 +92,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response|plan_mode)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -108,6 +109,8 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _close_session(handler, runner)
     if action == "ask_response":
         return _ask_response(handler, runner)
+    if action == "plan_mode":
+        return _set_plan_mode(handler, runner)
     return False
 
 
@@ -197,6 +200,21 @@ def _ask_response(handler, runner: SessionRunner) -> bool:
     return True
 
 
+def _set_plan_mode(handler, runner: SessionRunner) -> bool:
+    """Toggle the session's plan mode. The agent broadcasts a
+    ``plan_mode_changed`` SSE event so every connected client stays in sync."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        _json_error(handler, 400, "request body must include boolean 'enabled'")
+        return True
+    state = runner.set_plan_mode(enabled)
+    _json_response(handler, 200, {"session_id": runner.session_id, "plan_mode": state})
+    return True
+
+
 def _upload_asset(handler, runner: SessionRunner) -> bool:
     try:
         length = int(handler.headers.get("Content-Length") or "0")
@@ -273,6 +291,7 @@ def _session_info(handler, session_id: str) -> bool:
         "session_id": session_id,
         "assets": runner.list_assets(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
+        "plan_mode": runner.plan_mode,
     })
     return True
 

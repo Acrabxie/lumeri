@@ -301,6 +301,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .banner-budget { background: rgba(245, 185, 66, 0.10); border: 1px solid var(--warn); color: var(--warn); }
 .banner-turn-error { background: rgba(239, 108, 108, 0.10); border: 1px solid var(--err); color: var(--err); }
 .banner-unknown    { background: rgba(239, 108, 108, 0.10); border: 1px solid var(--err); color: var(--err); }
+.banner-plan { background: rgba(78, 161, 255, 0.10); border: 1px solid var(--accent); color: var(--accent); }
+.banner-info { background: var(--panel-soft); border: 1px solid var(--border); color: var(--text-dim); }
 .banner small { color: var(--text-dim); font-size: 11px; }
 
 .asset-grid { display: flex; flex-direction: column; gap: 14px; }
@@ -437,6 +439,32 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .composer textarea:focus { outline: none; border-color: var(--accent); }
 .composer-btn { white-space: nowrap; align-self: stretch; padding: 0 18px; }
 .upload-status { font-size: 11px; color: var(--text-dim); margin-right: 6px; align-self: center; }
+
+/* ── Plan mode ───────────────────────────────────────────────────────── */
+.plan-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.plan-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--accent);
+  background: rgba(78, 161, 255, 0.08);
+  color: var(--accent);
+  font-size: 13px;
+}
+.plan-bar-actions { display: flex; gap: 8px; }
+.plan-bar .plan-approve {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  padding: 6px 16px;
+}
+.plan-bar .plan-refine { padding: 6px 14px; }
 
 /* ── Project timeline panel ──────────────────────────────────────────── */
 .project-timeline-panel {

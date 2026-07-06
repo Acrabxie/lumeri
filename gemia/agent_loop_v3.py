@@ -57,6 +57,12 @@ from gemia.budget_guard import BudgetGuard
 from gemia.env_probe import format_environment_summary
 from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
+from gemia.plan_mode import (
+    PLAN_GATE_TURN_LIMIT,
+    PLAN_MODE_PROMPT,
+    is_plan_safe,
+    plan_gate_message,
+)
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
 from gemia.tools._ask_bridge import AskBridge
@@ -251,6 +257,9 @@ class AgentLoopV3:
         self._pinned_intent: str | None = None
         self._pending_thumbnails: list[Path] = []
         self._turn_count = 0
+        # Plan mode: while True, only plan_mode.PLAN_ALLOWED_TOOLS dispatch;
+        # everything else is gated (see the plan-mode block in _drive_turn).
+        self.plan_mode: bool = False
         self._system_template = _load_system_template()
         self._emit: EventSink = emit_event or self._emit_via_sse_registry
 
@@ -298,6 +307,7 @@ class AgentLoopV3:
             "status": "running",
             "turn_count": int(turn_count),
             "loop_version": "v3",
+            "plan_mode": bool(self.plan_mode),
         }
         (sdir / "meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -316,6 +326,22 @@ class AgentLoopV3:
         matching pending question was found.
         """
         return self._ask_bridge.deliver(question_id, answers)
+
+    def set_plan_mode(self, enabled: bool) -> bool:
+        """Toggle plan mode and broadcast the change. Returns the new state.
+
+        Thread-safe like ``deliver_ask_answer``: a bool flip is atomic and the
+        SSE registry accepts emits from any thread. The flag is read once per
+        tool call in ``_drive_turn``, so a mid-turn toggle simply applies from
+        the next tool call onward.
+        """
+        enabled = bool(enabled)
+        if enabled != self.plan_mode:
+            self.plan_mode = enabled
+            self._emit({"kind": "plan_mode_changed", "enabled": enabled})
+            if self.sessions_root is not None:
+                self._write_session_meta(turn_count=self._turn_count)
+        return self.plan_mode
 
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
         record = self.registry.add_external(Path(path), summary=summary or None)
@@ -447,6 +473,7 @@ class AgentLoopV3:
         lumenframe_text = self._get_lumenframe_prompt_text()
         system_filled = (
             self._system_template
+            .replace("{{plan_mode}}", PLAN_MODE_PROMPT if self.plan_mode else "")
             .replace("{{environment}}", format_environment_summary())
             .replace("{{memory}}", self._memory_for_prompt())
             .replace("{{asset_registry}}", self.registry.compact_text())
@@ -492,6 +519,14 @@ class AgentLoopV3:
             return ""
 
         snaps: list[str] = []
+        if self.plan_mode:
+            # Reinforcement only — the authoritative instructions live in the
+            # system prompt's {{plan_mode}} slot. This line rides the recency
+            # digest so the model is reminded right where it attends most.
+            snaps.append(
+                "Plan mode: ON — inspect and plan only; mutating tools are "
+                "blocked until the user approves the plan."
+            )
         tl = _first(self.project.compact_text())
         if tl:
             snaps.append(f"Timeline: {tl}")
@@ -689,6 +724,10 @@ class AgentLoopV3:
             ),
             "budget_exhausted": "the per-turn budget (cost / time) was exhausted",
             "stream_error": "the model stream errored out",
+            "plan_gate_limit": (
+                "plan mode kept blocking mutating tool calls; the plan should "
+                "be presented as text and approved before execution"
+            ),
         }.get(reason, f"the turn stopped ({reason})")
 
         done_bits: list[str] = []
@@ -805,6 +844,10 @@ class AgentLoopV3:
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
         visual_inspections_this_turn = 0
+        # Blocked-by-plan-mode calls this turn. Gated calls never reach the
+        # doom-loop history (they don't dispatch), so this counter is the
+        # host-side stop for a model that keeps hammering blocked tools.
+        plan_gates_this_turn = 0
         # name → (last_failure_code, consecutive_streak) for repeated-failure nudges.
         tool_fail_counts: dict[str, tuple[str, int]] = {}
         # Rolling history of (tool_name, raw-args-JSON) for THIS turn, used by the
@@ -973,6 +1016,65 @@ class AgentLoopV3:
                     )
                     if should_nudge:
                         self._append_repeated_failure_nudge(tc.name, "E_BAD_ARG", streak)
+                    continue
+
+                # Plan-mode gate: while ON, only read-only inspection tools
+                # dispatch. Same emit/append/continue shape as the budget gate
+                # below, with its own event kind so both frontends can render
+                # it distinctly. Checked BEFORE the budget gate: a blocked tool
+                # is blocked no matter how affordable it is.
+                if self.plan_mode and not is_plan_safe(tc.name):
+                    plan_gates_this_turn += 1
+                    gate_msg = plan_gate_message(tc.name)
+                    self._emit(
+                        {
+                            "kind": "plan_gate",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "message": gate_msg,
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id,
+                        {
+                            "blocked_by_plan_mode": True,
+                            "error_code": "E_PLAN_MODE",
+                            "message": gate_msg,
+                        },
+                    )
+                    tools_failed += 1
+                    if plan_gates_this_turn >= PLAN_GATE_TURN_LIMIT:
+                        # Hard stop: gated calls cost nothing, so neither
+                        # BudgetGuard nor the doom-loop guard would ever end
+                        # a turn that spins on blocked tools.
+                        self._emit(
+                            {
+                                "kind": "turn_error",
+                                "reason": "plan_gate_limit",
+                                "tool_name": tc.name,
+                                "error": (
+                                    f"plan mode blocked {plan_gates_this_turn} tool "
+                                    "calls this turn; stopping. Present the plan as "
+                                    "text instead of calling mutating tools."
+                                ),
+                            }
+                        )
+                        self._emit_turn_wrapup(
+                            "plan_gate_limit",
+                            tools_succeeded=tools_succeeded,
+                            tools_failed=tools_failed,
+                            assets_produced=_assets_produced(),
+                            tool_name=tc.name,
+                        )
+                        return
+                    should_nudge, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, "E_PLAN_MODE",
+                        limit=_REPEATED_FAILURE_NUDGE_THRESHOLD,
+                    )
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(
+                            tc.name, "E_PLAN_MODE", streak
+                        )
                     continue
 
                 # Budget gate (cost + time). Model decides what to do.

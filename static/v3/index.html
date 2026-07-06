@@ -56,9 +56,13 @@
 <!-- Project timeline: CapCut-style editor, built dynamically by v3.js -->
 <section id="project-timeline-panel" class="ptl"></section>
 
+<!-- Plan-mode hint / approval bar: filled by v3.js while plan mode is on -->
+<div id="plan-bar" class="plan-bar" hidden></div>
+
 <footer class="composer">
   <input type="file" id="upload-input" hidden />
   <button type="button" id="upload-btn" class="composer-btn">＋ upload clip</button>
+  <button type="button" id="plan-toggle-btn" class="composer-btn plan-toggle" title="计划模式：只查看和规划，批准后才执行改动">计划</button>
   <textarea
     id="prompt-input"
     rows="2"

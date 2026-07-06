@@ -37,6 +37,8 @@
     promptInput: $("#prompt-input"),
     sendBtn: $("#send-btn"),
     sandboxBtn: $("#sandbox-toggle-btn"),
+    planBtn: $("#plan-toggle-btn"),
+    planBar: $("#plan-bar"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -61,6 +63,8 @@
     mediaLibrary: [],
     mediaAnnotations: new Map(), // media-library asset_id -> annotations[]
     mediaLibraryStatus: "idle",
+    planMode: false,            // mirrors the backend per-session flag
+    planReady: false,           // a turn completed while planning → offer approval
   };
 
   function newTurn(userMessage) {
@@ -129,6 +133,43 @@
 
     renderAssets();
     renderMediaLibrary();
+    renderPlanUi();
+  }
+
+  // Plan-mode toggle button + hint/approval bar. Signature-guarded like
+  // renderAssets: render() runs on every SSE event, and rebuilding the bar's
+  // innerHTML would restart its CSS transitions and drop button focus.
+  function renderPlanUi() {
+    if (!els.planBtn || !els.planBar) return;
+    const sig = `${state.planMode}|${state.planReady}|${state.turnInProgress}|${!!state.sessionId}`;
+    if (sig === state._planSig) return;
+    state._planSig = sig;
+
+    els.planBtn.disabled = !state.sessionId;
+    els.planBtn.classList.toggle("on", state.planMode);
+    els.planBtn.title = state.planMode
+      ? "计划模式已开启：只查看和规划，不做改动（点击关闭）"
+      : "计划模式：只查看和规划，批准后才执行改动";
+
+    if (!state.planMode) {
+      els.planBar.hidden = true;
+      els.planBar.innerHTML = "";
+      return;
+    }
+    els.planBar.hidden = false;
+    if (state.planReady && !state.turnInProgress) {
+      els.planBar.innerHTML = `
+        <span class="plan-bar-text">计划已就绪 — 批准后 Lumeri 将开始执行改动。</span>
+        <span class="plan-bar-actions">
+          <button type="button" class="plan-approve" data-plan-approve>批准并执行</button>
+          <button type="button" class="plan-refine" data-plan-dismiss>继续规划</button>
+        </span>
+      `;
+    } else {
+      els.planBar.innerHTML = `
+        <span class="plan-bar-text">计划模式已开启 — Lumeri 只查看和规划，等你批准后才会改动项目。</span>
+      `;
+    }
   }
 
   function renderTurn(turn, idx) {
@@ -260,6 +301,8 @@
   function renderBanner(banner) {
     const cls = banner.kind === "budget" ? "banner-budget"
               : banner.kind === "turn_error" ? "banner-turn-error"
+              : banner.kind === "plan" ? "banner-plan"
+              : banner.kind === "info" ? "banner-info"
               : "banner-unknown";
     const sub = banner.sub ? `<small>${escapeHTML(banner.sub)}</small>` : "";
     return `<div class="banner ${cls}">${escapeHTML(banner.text)}${sub}</div>`;
@@ -471,6 +514,43 @@
         sub: alt ? `alternatives: ${alt}` : "",
       });
     },
+    plan_gate: (ev) => {
+      // A mutating tool was blocked by plan mode. Same card treatment as a
+      // budget gate; one compact banner per gated tool.
+      const t = state.currentTurn;
+      const tc = t?.toolCalls.get(ev.call_id);
+      if (tc) tc.status = "gated";
+      t?.banners.push({
+        kind: "plan",
+        text: `计划模式拦截了 ${ev.tool_name}（规划期间不执行改动）`,
+      });
+    },
+    plan_mode_changed: (ev) => {
+      state.planMode = !!ev.enabled;
+      if (!state.planMode) state.planReady = false;
+    },
+    completion_check: () => {
+      // Host-side one-shot goal check before an honest stop; nothing to render.
+    },
+    turn_wrapup: (ev) => {
+      // Informational "stopped because X; here's what was / wasn't done".
+      state.currentTurn?.banners.push({
+        kind: "info",
+        text: ev.message || `turn stopped (${ev.reason || "unknown"})`,
+      });
+    },
+    ask_question: (ev) => {
+      // Minimal surfacing so a pending elicit is visible instead of an
+      // "unknown event" error. Full web answer controls are tracked separately;
+      // today the question can be answered from the CLI or it falls back to
+      // defaults on timeout.
+      const q = ev.question || {};
+      state.currentTurn?.banners.push({
+        kind: "info",
+        text: `Lumeri 提问：${q.title || "需要你的输入"}`,
+        sub: q.description || "",
+      });
+    },
     timeline_op: () => {
       // Timeline patch landed: refresh the project timeline panel immediately
       // rather than waiting for the next poll interval.
@@ -514,6 +594,9 @@
       // Refresh timeline after every completed turn — verb results may have
       // updated the project even if no timeline_op event was fired this turn.
       fetchProjectTimeline({ force: true });
+      // While planning, a completed turn means the plan text is on screen —
+      // surface the approval bar.
+      if (state.planMode) state.planReady = true;
     },
     turn_error: (ev) => {
       state.turnInProgress = false;
@@ -1339,6 +1422,8 @@
     state.lastEventId = null;
     state.projectTimeline = null;
     state.mediaAnnotations = new Map();
+    state.planMode = false;     // fresh sessions start with plan mode off
+    state.planReady = false;
     connectSse(state.sessionId);
     startTimelinePoll();
     fetchMediaLibrary().catch(() => {});
@@ -1360,6 +1445,10 @@
     }));
     if (data.latest_event_id !== null && data.latest_event_id !== undefined) {
       saveLastEventId(state.sessionId, data.latest_event_id);
+    }
+    if (typeof data.plan_mode === "boolean") {
+      state.planMode = data.plan_mode;
+      if (!state.planMode) state.planReady = false;
     }
   }
 
@@ -1463,6 +1552,7 @@
     state.turns.push(turn);
     state.currentTurn = turn;
     state.turnInProgress = true;
+    state.planReady = false;   // a new turn supersedes any pending approval offer
     render();
     const r = await fetch(`/sessions/${state.sessionId}/turn`, {
       method: "POST",
@@ -1558,6 +1648,50 @@
     if (!cmd) return;
     els.promptInput.value = cmd;
     els.sendBtn.click();
+  });
+
+  // ── plan mode ───────────────────────────────────────────────────────
+  // The backend answers with the authoritative state AND broadcasts a
+  // plan_mode_changed SSE event, so other connected clients (e.g. the CLI on
+  // the same session) stay in sync.
+  async function setPlanMode(enabled) {
+    if (!state.sessionId) return;
+    const r = await fetch(`/sessions/${state.sessionId}/plan_mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!r.ok) throw new Error(`plan_mode toggle failed: ${r.status}`);
+    const data = await r.json();
+    state.planMode = !!data.plan_mode;
+    if (!state.planMode) state.planReady = false;
+    render();
+  }
+
+  els.planBtn?.addEventListener("click", () => {
+    setPlanMode(!state.planMode).catch((err) => {
+      state.errors.push(err.message);
+      render();
+    });
+  });
+
+  const PLAN_APPROVE_MESSAGE = "计划已批准，请立即按计划执行。(Plan approved — execute it now.)";
+
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-plan-approve]")) {
+      if (state.turnInProgress) return;
+      setPlanMode(false)
+        .then(() => submitTurn(PLAN_APPROVE_MESSAGE))
+        .catch((err) => {
+          state.errors.push(`approve plan failed: ${err.message}`);
+          render();
+        });
+      return;
+    }
+    if (e.target.closest("[data-plan-dismiss]")) {
+      state.planReady = false;
+      render();
+    }
   });
 
   // ── sandbox toggle ──────────────────────────────────────────────────

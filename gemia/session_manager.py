@@ -158,6 +158,16 @@ class SessionRunner:
         self.touch()
         return self.agent.deliver_ask_answer(question_id, answers)
 
+    def set_plan_mode(self, enabled: bool) -> bool:
+        """Toggle the agent's plan mode. Safe from the HTTP handler thread
+        (atomic bool flip + thread-safe SSE emit). Returns the new state."""
+        self.touch()
+        return self.agent.set_plan_mode(enabled)
+
+    @property
+    def plan_mode(self) -> bool:
+        return bool(self.agent.plan_mode)
+
     def asset_path(self, asset_id: str) -> Path | None:
         self.touch()
         if not self.agent.registry.contains(asset_id):
