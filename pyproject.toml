@@ -8,6 +8,7 @@ dependencies = [
     "Pillow>=11.0",
     "opencv-python>=4.9",
     "scikit-image>=0.22",
+    "moviepy>=1.0",
     "librosa>=0.10",
     "pydub>=0.25",
     "soundfile>=0.12",
