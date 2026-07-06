@@ -40,6 +40,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "probe_media":        {"usd": 0.00, "eta_sec": 0.2},
     "inspect_lottie":     {"usd": 0.00, "eta_sec": 1.0},
     "search_library":     {"usd": 0.00, "eta_sec": 0.5},
+    "search_media":       {"usd": 0.00, "eta_sec": 0.5},
     "annotate_media":     {"usd": 0.00, "eta_sec": 8.0},
     "get_media_annotations": {"usd": 0.00, "eta_sec": 0.2},
     "write_media_annotation": {"usd": 0.00, "eta_sec": 0.2},

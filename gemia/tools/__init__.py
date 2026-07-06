@@ -68,6 +68,7 @@ from gemia.tools import run_shell as _run_shell
 from gemia.tools import safe_areas as _safe_areas
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
+from gemia.tools import search_media as _search_media
 from gemia.tools import smart_reframe as _smart_reframe
 from gemia.tools import timeline as _timeline
 from gemia.tools import transform_geometry as _transform_geometry
@@ -110,6 +111,7 @@ _REAL: dict[str, Dispatcher] = {
     "generate_video":     _generate_video.dispatch,
     "generate_audio":     _generate_audio.dispatch,
     "search_library":     _search_library.dispatch,
+    "search_media":       _search_media.dispatch,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,
     "write_media_annotation": _media_annotations.dispatch_write,

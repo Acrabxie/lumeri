@@ -6,15 +6,20 @@ media-plan.md §8.1 acceptance items T1/T2/T3.
 """
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from gemia import accounts
+from gemia import budget_guard
 from gemia import media_annotations as MA
 from gemia import media_search as MS
+from gemia import plan_mode
 from gemia.media_library import import_media, library_path
+from gemia.tools import DISPATCHER, TOOL_NAMES, TOOL_SCHEMAS
+from gemia.tools._context import AssetRegistry, ToolContext
 
 
 def _patch_account_roots(monkeypatch, tmp_path: Path) -> None:
@@ -220,3 +225,63 @@ def test_source_enum_landmine(monkeypatch, tmp_path: Path) -> None:
     assert MA._source("gemini_vision") == "gemini_vision"
     assert MA._source("heuristic") == "heuristic"
     assert MA._source("bogus") == "user"
+
+
+# --------------------------------------------------------------------- tool wiring
+
+def test_search_media_wired() -> None:
+    assert "search_media" in TOOL_NAMES
+    assert "search_media" in DISPATCHER
+    assert budget_guard._TOOL_COSTS["search_media"]["usd"] == 0.0
+    # read-only tool must be plan-mode allowed, else test_plan_mode coverage goes red
+    assert "search_media" in plan_mode.PLAN_ALLOWED_TOOLS
+    by_name = {t["function"]["name"]: t for t in TOOL_SCHEMAS}
+    assert by_name["search_media"]["function"]["parameters"]["required"] == ["query"]
+
+
+def _ctx(tmp_path: Path, account_id: str) -> ToolContext:
+    return ToolContext(
+        session_id="search-media-test",
+        output_dir=tmp_path,
+        registry=AssetRegistry(),
+        emit_progress=lambda _: None,
+        extra={"account_id": account_id},
+    )
+
+
+def test_search_media_dispatch_registers_session_asset(monkeypatch, tmp_path: Path) -> None:
+    _patch_account_roots(monkeypatch, tmp_path)
+    acct = "google_tool"
+    beach, cat = _seed_beach_and_cat(acct, tmp_path)
+    ctx = _ctx(tmp_path, acct)
+
+    out = asyncio.run(DISPATCHER["search_media"]({"query": "日落", "kind": "video"}, ctx))
+    assert out["result_count"] == 1
+    hit = out["results"][0]
+    # the returned id is a live session asset the model can hand to timeline tools
+    assert ctx.registry.contains(hit["asset_id"])
+    assert hit["library_asset_id"] == beach["asset_id"]
+    assert hit["time_ranges"] and hit["time_ranges"][0]["start_sec"] == 0.5
+    assert out["unindexed_count"] >= 1
+    assert "annotate_media" in out["index_hint"]
+
+    # empty query is a hard error (mirrors search_library)
+    with pytest.raises(ValueError):
+        asyncio.run(DISPATCHER["search_media"]({"query": "  "}, ctx))
+
+    # no-match is a normal empty response, never an exception
+    miss = asyncio.run(DISPATCHER["search_media"]({"query": "完全没有的东西zzz"}, ctx))
+    assert miss["result_count"] == 0
+
+
+def test_search_media_no_account(monkeypatch, tmp_path: Path) -> None:
+    # isolate account roots to an EMPTY tmp dir so current_account_id() resolves to
+    # nothing — never let this probe the user's real ~/.gemia library.
+    _patch_account_roots(monkeypatch, tmp_path)
+    ctx = ToolContext(
+        session_id="s", output_dir=tmp_path, registry=AssetRegistry(),
+        emit_progress=lambda _: None, extra={},
+    )
+    # no account_id and no active process account -> graceful empty, not a crash
+    out = asyncio.run(DISPATCHER["search_media"]({"query": "日落"}, ctx))
+    assert out["result_count"] == 0

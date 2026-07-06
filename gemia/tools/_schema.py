@@ -486,6 +486,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["query"],
     ),
     _tool(
+        "search_media",
+        "Semantic search over persistent media annotations (vision captions, "
+        "subjects, actions, on-screen text, tags — Chinese and English). Returns "
+        "matching assets WITH time ranges so timeline/cut tools can act on them "
+        "directly. Free and fast. Results are registered as session asset_ids. If "
+        "unindexed_count > 0, consider annotate_media (paid) to index the rest.",
+        {
+            "query": {"type": "string", "description": "Free text, zh or en, e.g. '海边日落 无人机' or 'woman talking to camera'."},
+            "kind": {"type": "string", "enum": ["video", "image", "audio", "any"]},
+            "limit": {"type": "integer", "description": "Max assets. Default 8, max 20."},
+        },
+        ["query"],
+    ),
+    _tool(
         "annotate_media",
         "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
         {

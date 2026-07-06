@@ -40,6 +40,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "read_file",
     "recall_skills",
     "search_library",
+    "search_media",
     "wait_for_job",         # waits on an already-submitted job
     "web_open",
     "web_search",
