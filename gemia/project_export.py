@@ -4,8 +4,8 @@ Reads the current project (video + overlay + audio tracks) and produces a
 final H.264/AAC MP4 via a three-pass strategy:
   pass 1 — render base video track (all enabled video clips concatenated,
             full resolution, no overlay)
-  pass 2 — apply overlay track clips (image overlays + text captions) via
-            a complex ffmpeg filtergraph on top of the base video
+  pass 2 — apply overlay track clips (image overlays, Lottie motion graphics,
+            and text captions) via a complex ffmpeg filtergraph on top of the base video
   pass 3 — build the final audio and mux it onto the composited video:
             every audio source — audio-track clips plus the embedded audio
             of video-track clips (unless the clip is muted) — is trimmed to
@@ -29,6 +29,7 @@ from typing import Any
 
 from gemia.project_model import IMAGE_DURATION, normalize_project
 from gemia.project_store import ProjectStore
+from gemia.video.lottie_renderer import save_lottie_frame_png, select_lottie_renderer
 
 
 class ProjectExportError(RuntimeError):
@@ -361,117 +362,165 @@ def _apply_overlays(
     quality: str,
     timeout_sec: int,
 ) -> None:
-    """Composite overlay (image + text) clips onto the base video."""
+    """Composite overlay (image, Lottie, and text) clips onto the base video."""
     profile = _QUALITY_PROFILES[quality]
     cmd: list[str] = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
     # Always first input: base video
     cmd += ["-i", str(base)]
 
     image_inputs: list[tuple[int, dict[str, Any], dict[str, Any]]] = []  # (input_index, clip, asset)
+    lottie_inputs: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
     text_clips: list[dict[str, Any]] = []
+    temp_dirs: list[tempfile.TemporaryDirectory[str]] = []
 
-    input_idx = 1
-    for clip in overlay_clips:
-        media_kind = str(clip.get("media_kind") or "")
-        if media_kind == "image":
-            asset = assets.get(str(clip.get("asset_id") or ""))
-            if asset is None:
-                continue
-            source = Path(str(asset.get("source_path") or "")).expanduser()
-            if not source.exists():
-                continue
-            cmd += ["-i", str(source)]
-            image_inputs.append((input_idx, clip, asset))
-            input_idx += 1
-        elif media_kind == "text":
-            text_clips.append(clip)
+    try:
+        input_idx = 1
+        for clip in overlay_clips:
+            media_kind = str(clip.get("media_kind") or "")
+            if media_kind == "image":
+                asset = assets.get(str(clip.get("asset_id") or ""))
+                if asset is None:
+                    continue
+                source = Path(str(asset.get("source_path") or "")).expanduser()
+                if not source.exists():
+                    continue
+                cmd += ["-i", str(source)]
+                image_inputs.append((input_idx, clip, asset))
+                input_idx += 1
+            elif media_kind == "lottie":
+                asset = assets.get(str(clip.get("asset_id") or ""))
+                if asset is None:
+                    continue
+                source = Path(str(asset.get("source_path") or "")).expanduser()
+                if not source.exists():
+                    continue
+                temp = tempfile.TemporaryDirectory(prefix="lumeri-lottie-")
+                temp_dirs.append(temp)
+                pattern = _render_lottie_sequence_for_clip(source, clip, temp.name, width=width, height=height, fps=fps)
+                cmd += ["-framerate", f"{fps:.6f}", "-i", pattern]
+                lottie_inputs.append((input_idx, clip, asset))
+                input_idx += 1
+            elif media_kind == "text":
+                text_clips.append(clip)
 
-    # Build complex filtergraph
-    filter_parts: list[str] = []
-    last_label = "[0:v]"
+        # Build complex filtergraph
+        filter_parts: list[str] = []
+        last_label = "[0:v]"
 
-    for i, (img_idx, clip, _asset) in enumerate(image_inputs):
-        start = _pos(clip.get("start"), 0.0)
-        end = start + _clip_duration(clip)
-        effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
-        x = int(_pos(effects.get("x"), 0.0))
-        y = int(_pos(effects.get("y"), 0.0))
-        scale = _pos(effects.get("scale"), 1.0)
-        opacity = min(1.0, max(0.0, _pos(effects.get("opacity"), 1.0)))
-        enable_expr = f"between(t,{start:.6f},{end:.6f})"
+        visual_inputs = [*image_inputs, *lottie_inputs]
+        for i, (img_idx, clip, _asset) in enumerate(visual_inputs):
+            start = _pos(clip.get("start"), 0.0)
+            end = start + _clip_duration(clip)
+            effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
+            x = int(_pos(effects.get("x"), 0.0))
+            y = int(_pos(effects.get("y"), 0.0))
+            scale = _pos(effects.get("scale"), 1.0)
+            opacity = min(1.0, max(0.0, _pos(effects.get("opacity"), 1.0)))
+            enable_expr = f"between(t,{start:.6f},{end:.6f})"
 
-        # Scale overlay image if needed
-        img_label = f"[img{i}]"
-        scale_filter = f"[{img_idx}:v]scale=iw*{scale:.4f}:-1{img_label}"
-        filter_parts.append(scale_filter)
+            img_label = f"[img{i}]"
+            scale_filter = f"[{img_idx}:v]scale=iw*{scale:.4f}:-1{img_label}"
+            filter_parts.append(scale_filter)
 
-        out_label = f"[v{i}]"
-        ov = (
-            f"{last_label}{img_label}overlay="
-            f"x={x}:y={y}:"
-            f"enable='{enable_expr}'"
-        )
-        if opacity < 0.999:
-            # Use format+colorchannelmixer to set alpha, then overlay
-            alpha_label = f"[alpha{i}]"
-            filter_parts[-1] = (
-                f"[{img_idx}:v]scale=iw*{scale:.4f}:-1,format=rgba,"
-                f"colorchannelmixer=aa={opacity:.4f}{alpha_label}"
+            out_label = f"[v{i}]"
+            ov = (
+                f"{last_label}{img_label}overlay="
+                f"x={x}:y={y}:"
+                f"enable='{enable_expr}'"
             )
-            ov = f"{last_label}{alpha_label}overlay=x={x}:y={y}:format=auto:enable='{enable_expr}'"
-        filter_parts.append(f"{ov}{out_label}")
-        last_label = out_label
+            if opacity < 0.999:
+                alpha_label = f"[alpha{i}]"
+                filter_parts[-1] = (
+                    f"[{img_idx}:v]scale=iw*{scale:.4f}:-1,format=rgba,"
+                    f"colorchannelmixer=aa={opacity:.4f}{alpha_label}"
+                )
+                ov = f"{last_label}{alpha_label}overlay=x={x}:y={y}:format=auto:enable='{enable_expr}'"
+            filter_parts.append(f"{ov}{out_label}")
+            last_label = out_label
 
-    # Text overlays via drawtext
-    for j, clip in enumerate(text_clips):
-        start = _pos(clip.get("start"), 0.0)
-        end = start + _clip_duration(clip)
-        config = clip.get("text_config") if isinstance(clip.get("text_config"), dict) else {}
-        text = str(config.get("content") or "").replace("'", "'\\''").replace(":", "\\:")
-        font_size = int(max(_pos(config.get("font_size"), 64.0), 8.0))
-        color_hex = str(config.get("color") or "#ffffff")
-        if _HEX_COLOR_RE.match(color_hex):
-            ffcolor = f"0x{color_hex[1:]}"
-        else:
-            ffcolor = "white"
-        effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
-        pos = config.get("position")
-        if isinstance(pos, dict):
-            x = int(_pos(pos.get("x"), width // 2))
-            y = int(_pos(pos.get("y"), height // 2))
-        else:
-            x = int(_pos(effects.get("x"), width // 2))
-            y = int(_pos(effects.get("y"), height // 2))
+        # Text overlays via drawtext
+        for j, clip in enumerate(text_clips):
+            start = _pos(clip.get("start"), 0.0)
+            end = start + _clip_duration(clip)
+            config = clip.get("text_config") if isinstance(clip.get("text_config"), dict) else {}
+            text = str(config.get("content") or "").replace("'", "'\\''").replace(":", "\\:")
+            font_size = int(max(_pos(config.get("font_size"), 64.0), 8.0))
+            color_hex = str(config.get("color") or "#ffffff")
+            if _HEX_COLOR_RE.match(color_hex):
+                ffcolor = f"0x{color_hex[1:]}"
+            else:
+                ffcolor = "white"
+            effects = clip.get("effects") if isinstance(clip.get("effects"), dict) else {}
+            pos = config.get("position")
+            if isinstance(pos, dict):
+                x = int(_pos(pos.get("x"), width // 2))
+                y = int(_pos(pos.get("y"), height // 2))
+            else:
+                x = int(_pos(effects.get("x"), width // 2))
+                y = int(_pos(effects.get("y"), height // 2))
 
-        enable_expr = f"between(t,{start:.6f},{end:.6f})"
-        out_label = f"[vt{j}]"
-        dt_filter = (
-            f"{last_label}drawtext="
-            f"text='{text}':"
-            f"fontsize={font_size}:"
-            f"fontcolor={ffcolor}:"
-            f"x={x}:y={y}:"
-            f"enable='{enable_expr}'"
-            f"{out_label}"
+            enable_expr = f"between(t,{start:.6f},{end:.6f})"
+            out_label = f"[vt{j}]"
+            dt_filter = (
+                f"{last_label}drawtext="
+                f"text='{text}':"
+                f"fontsize={font_size}:"
+                f"fontcolor={ffcolor}:"
+                f"x={x}:y={y}:"
+                f"enable='{enable_expr}'"
+                f"{out_label}"
+            )
+            filter_parts.append(dt_filter)
+            last_label = out_label
+
+        if filter_parts:
+            cmd += ["-filter_complex", ";".join(filter_parts), "-map", last_label]
+        else:
+            cmd += ["-map", "0:v"]
+
+        cmd += [
+            "-an",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-crf", profile["crf"],
+            "-preset", profile["preset"],
+            "-movflags", "+faststart",
+            str(output),
+        ]
+        _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
+    finally:
+        for temp in temp_dirs:
+            temp.cleanup()
+
+
+def _render_lottie_sequence_for_clip(
+    source: Path,
+    clip: dict[str, Any],
+    output_dir: str,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+) -> str:
+    renderer = select_lottie_renderer()
+    meta = renderer.get_metadata(str(source))
+    source_fps = float(meta.get("fps") or 30.0)
+    source_frames = max(int(meta.get("frames") or 1), 1)
+    duration = _clip_duration(clip)
+    source_in = _pos(clip.get("source_in"), 0.0)
+    frame_count = max(1, int(math.ceil(duration * max(fps, 1.0))))
+    seq_dir = Path(output_dir)
+    for index in range(frame_count):
+        t = source_in + index / max(fps, 1.0)
+        source_frame = max(0, min(int(round(t * source_fps)), source_frames - 1))
+        save_lottie_frame_png(
+            source,
+            seq_dir / f"frame_{index + 1:05d}.png",
+            width=width,
+            height=height,
+            frame_index=source_frame,
         )
-        filter_parts.append(dt_filter)
-        last_label = out_label
-
-    if filter_parts:
-        cmd += ["-filter_complex", ";".join(filter_parts), "-map", last_label]
-    else:
-        cmd += ["-map", "0:v"]
-
-    cmd += [
-        "-an",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-crf", profile["crf"],
-        "-preset", profile["preset"],
-        "-movflags", "+faststart",
-        str(output),
-    ]
-    _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
+    return str(seq_dir / "frame_%05d.png")
 
 
 # ── pass 3: audio mix + mux ──────────────────────────────────────────────────
@@ -740,7 +789,7 @@ def _enabled_overlay_clips(
         if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
             continue
         media_kind = str(clip.get("media_kind") or "")
-        if media_kind not in {"image", "text"}:
+        if media_kind not in {"image", "text", "lottie"}:
             continue
         result.append(clip)
     result.sort(key=lambda c: _pos(c.get("start"), 0.0))

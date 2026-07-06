@@ -172,21 +172,22 @@ def _make_contact_sheet(frame_paths: list[Path], out_path: Path) -> bool:
 
 
 async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    from gemia.project_render import render_project_preview  # heavy import kept lazy
+    from gemia.project_export import export_project  # heavy import kept lazy
 
     project = _project(ctx)
     label = str(args.get("label") or "inspect")[:40]
     project_state = project.load()
     fps = _timeline_fps(project_state)
-    render_result = render_project_preview(
+    render_result = export_project(
         project.store,
         project.project_id,
         output_root=ctx.output_dir,
+        quality="draft",
         label=label,
     )
-    preview_path_raw = render_result.get("preview_path")
+    preview_path_raw = render_result.get("export_path")
     if not preview_path_raw:
-        raise RuntimeError("timeline preview render did not return a preview_path")
+        raise RuntimeError("timeline inspection render did not return an export_path")
     preview_path = Path(preview_path_raw)
     duration = _timeline_duration(project_state, render_result)
     sample_times = _sample_times(args, fps=fps, duration=duration)
@@ -196,7 +197,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         preview_asset_id,
         kind="video",
         path=preview_path,
-        summary=f"timeline inspection proxy ({label}, seq={render_result.get('patch_seq')})",
+        summary=f"timeline inspection composited draft ({label}, seq={render_result.get('patch_seq')})",
     )
 
     frame_asset_ids: list[str] = []
@@ -248,7 +249,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "height": resolution.get("height"),
         "thumbnail_for_next_message": bool(thumbnail_path),
         "thumbnail_path": str(thumbnail_path) if thumbnail_path else None,
-        "note": "composited timeline frames from the rendered project preview; inspect these before further visual timeline edits",
+        "note": "composited timeline frames from an overlay-aware draft render; inspect these before further visual timeline edits",
     }
 
 

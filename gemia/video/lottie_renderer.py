@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -37,7 +38,7 @@ class DeterministicLottieRenderer:
 
     def render_frame(self, source: str, *, width: int, height: int, frame_index: int) -> np.ndarray:
         # Implementation moved from html_graphics.py
-        data = json.loads(Path(source).expanduser().read_text(encoding="utf-8"))
+        data = load_lottie_json(source)
         source_w = int(data.get("w") or width or 1)
         source_h = int(data.get("h") or height or 1)
         scale_x = max(int(width), 1) / max(source_w, 1)
@@ -96,7 +97,7 @@ class DeterministicLottieRenderer:
         return np.asarray(canvas, dtype=np.float32) / 255.0
 
     def get_metadata(self, source: str) -> dict[str, Any]:
-        data = json.loads(Path(source).expanduser().read_text(encoding="utf-8"))
+        data = load_lottie_json(source)
         ip = int(data.get("ip", 0) or 0)
         op = int(data.get("op", 1) or 1)
         return {
@@ -178,6 +179,56 @@ def select_lottie_renderer() -> LottieRenderer:
     if rlottie.is_available():
         return FallbackLottieRenderer(rlottie, DeterministicLottieRenderer())
     return DeterministicLottieRenderer()
+
+
+def load_lottie_json(source: str | Path) -> dict[str, Any]:
+    """Load a Lottie JSON document from .json or the first animation in .lottie."""
+    path = Path(source).expanduser()
+    if path.suffix.lower() == ".lottie":
+        with zipfile.ZipFile(path) as archive:
+            candidates = [
+                name for name in archive.namelist()
+                if name.lower().endswith(".json") and (name.startswith("animations/") or name.endswith("manifest.json"))
+            ]
+            animation_names = [name for name in candidates if name.startswith("animations/")]
+            names = animation_names or [name for name in candidates if not name.endswith("manifest.json")]
+            if not names:
+                raise ValueError(f"dotLottie archive has no animation JSON: {path}")
+            with archive.open(sorted(names)[0]) as handle:
+                data = json.loads(handle.read().decode("utf-8"))
+    else:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or "layers" not in data:
+        raise ValueError(f"not a Lottie animation document: {path}")
+    return data
+
+
+def save_lottie_frame_png(
+    source: str | Path,
+    output: str | Path,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    frame_index: int = 0,
+) -> dict[str, Any]:
+    """Render one Lottie frame to PNG and return metadata about the frame."""
+    renderer = select_lottie_renderer()
+    metadata = renderer.get_metadata(str(source))
+    out_width = max(int(width or metadata.get("width") or 512), 1)
+    out_height = max(int(height or metadata.get("height") or 512), 1)
+    frame_count = max(int(metadata.get("frames") or 1), 1)
+    frame = max(0, min(int(frame_index), frame_count - 1))
+    arr = renderer.render_frame(str(source), width=out_width, height=out_height, frame_index=frame)
+    rgba = np.clip(arr * 255.0, 0, 255).astype(np.uint8)
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    PILImage.fromarray(rgba, mode="RGBA").save(output_path)
+    return {
+        **metadata,
+        "frame_index": frame,
+        "renderer": renderer.name,
+        "output_path": str(output_path),
+    }
 
 
 # Helper functions from html_graphics.py

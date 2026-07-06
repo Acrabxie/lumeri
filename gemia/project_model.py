@@ -15,10 +15,11 @@ DEFAULT_HEIGHT = 1080
 DEFAULT_FPS = 30.0
 IMAGE_DURATION = 3.0
 
-MEDIA_KINDS = {"video", "image", "audio", "text"}
+MEDIA_KINDS = {"video", "image", "audio", "text", "lottie"}
 TRACK_KINDS = {"video", "overlay", "audio"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 AUDIO_EXTENSIONS = {".flac", ".wav", ".mp3", ".m4a", ".aac"}
+LOTTIE_EXTENSIONS = {".json", ".lottie"}
 
 
 def empty_project(*, account_id: str | None = None, title: str = "Untitled Project") -> dict[str, Any]:
@@ -105,7 +106,7 @@ def legacy_project_state_from_project(project: dict[str, Any]) -> dict[str, Any]
             {
                 "id": str(item.get("id") or f"clip_{len(clips)}"),
                 "assetId": str(item.get("asset_id") or asset.get("asset_id") or asset.get("id") or ""),
-                "trackId": str(item.get("track_id") or ("A1" if media_kind == "audio" else "V1")),
+                "trackId": str(item.get("track_id") or _default_track_id_for_media_kind(media_kind)),
                 "mediaKind": media_kind,
                 "mimeType": str(asset.get("mime_type") or ""),
                 "name": str(item.get("name") or asset.get("name") or "media"),
@@ -309,10 +310,13 @@ def _timeline_clip_from_legacy(clip: dict[str, Any], asset: dict[str, Any], *, s
         duration = IMAGE_DURATION
         source_in = 0.0
         source_out = IMAGE_DURATION
+    elif media_kind == "lottie":
+        duration = max(0.1, real_duration or max(0.1, raw_source_out - source_in))
+        source_out = source_in + duration
     return {
         "id": str(clip.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),
         "asset_id": asset["id"],
-        "track_id": str(clip.get("trackId") or ("A1" if media_kind == "audio" else "V1")),
+        "track_id": str(clip.get("trackId") or _default_track_id_for_media_kind(media_kind)),
         "name": str(clip.get("name") or asset.get("name") or "media"),
         "media_kind": media_kind,
         "start": round(start, 6),
@@ -351,6 +355,12 @@ def _normalize_timeline_clip(clip: dict[str, Any]) -> dict[str, Any]:
         duration = explicit if explicit > 0 else IMAGE_DURATION
         source_in = 0.0
         source_out = duration
+    elif media_kind == "lottie":
+        duration = max(_float_or(clip.get("duration"), 0.1), 0.1)
+        source_in = max(_float_or(clip.get("source_in"), 0.0), 0.0)
+        source_out = _float_or(clip.get("source_out"), source_in + duration)
+        if source_out <= source_in + 1e-3:
+            source_out = source_in + duration
     else:
         duration = max(_float_or(clip.get("duration"), 0.1), 0.1)
         source_in = _float_or(clip.get("source_in"), 0.0)
@@ -360,7 +370,7 @@ def _normalize_timeline_clip(clip: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(clip.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),
         "asset_id": str(clip.get("asset_id") or ""),
-        "track_id": str(clip.get("track_id") or ("A1" if media_kind == "audio" else "V1")),
+        "track_id": str(clip.get("track_id") or _default_track_id_for_media_kind(media_kind)),
         "name": str(clip.get("name") or "media"),
         "media_kind": media_kind,
         "start": max(_float_or(clip.get("start"), 0.0), 0.0),
@@ -452,6 +462,8 @@ def _media_kind_for_clip(clip: dict[str, Any], metadata: dict[str, Any]) -> str:
 
 def _media_kind_for_name(name: str, mime_type: str = "") -> str:
     mime = mime_type.lower()
+    if mime in {"application/dotlottie", "application/vnd.lottie+json"}:
+        return "lottie"
     if mime.startswith("image/"):
         return "image"
     if mime.startswith("audio/"):
@@ -461,7 +473,17 @@ def _media_kind_for_name(name: str, mime_type: str = "") -> str:
         return "image"
     if suffix in AUDIO_EXTENSIONS:
         return "audio"
+    if suffix in LOTTIE_EXTENSIONS:
+        return "lottie"
     return "video"
+
+
+def _default_track_id_for_media_kind(media_kind: str) -> str:
+    if media_kind == "audio":
+        return "A1"
+    if media_kind in {"image", "text", "lottie"}:
+        return "OV1"
+    return "V1"
 
 
 def _title_from_legacy_state(project_state: dict[str, Any]) -> str:

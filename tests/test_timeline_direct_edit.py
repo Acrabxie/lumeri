@@ -220,6 +220,46 @@ def test_user_edit_increments_patch_seq(tmp_path) -> None:
     assert after == before + 1
 
 
+def test_timeline_payload_infers_missing_track_for_existing_clip() -> None:
+    """Historical/imported projects may contain clips that reference a track id
+    not present in timeline.tracks. The UI payload must still surface those
+    clips instead of rendering an empty timeline."""
+    payload = v3_routes._timeline_payload_dict(
+        "sid",
+        "pid",
+        {
+            "assets": [
+                {"id": "v_001", "asset_id": "v_001", "name": "clip.mp4", "media_kind": "video"},
+            ],
+            "timeline": {
+                "fps": 30,
+                "width": 1920,
+                "height": 1080,
+                "duration": 2.0,
+                "tracks": [],
+                "clips": [
+                    {
+                        "id": "clip_missing_track",
+                        "asset_id": "v_001",
+                        "track_id": "V1",
+                        "media_kind": "video",
+                        "start": 0.0,
+                        "duration": 2.0,
+                        "source_in": 0.0,
+                        "source_out": 2.0,
+                    }
+                ],
+            },
+        },
+        {"patch_seq": 7},
+    )
+
+    assert payload["patch_seq"] == 7
+    assert payload["tracks"][0]["id"] == "V1"
+    assert payload["tracks"][0]["kind"] == "video"
+    assert payload["tracks"][0]["clips"][0]["id"] == "clip_missing_track"
+
+
 def test_undo_op_reverts_last_edit(tmp_path) -> None:
     """The 'undo' op routes through the same ProjectStore.undo as timeline_undo."""
     loop, _ = _loop(tmp_path, "de-undoop")
@@ -229,4 +269,3 @@ def test_undo_op_reverts_last_edit(tmp_path) -> None:
     h = _post(loop, "de-undoop", {"op": "undo", "steps": 1})
     assert h.status == 200
     assert abs(_clip(loop, "c1")["start"] - 0.0) < 1e-3
-

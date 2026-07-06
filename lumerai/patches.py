@@ -149,7 +149,7 @@ def validate_project(project: dict[str, Any]) -> None:
         duration = _as_float(clip.get("duration"))
         source_in = _as_float(clip.get("source_in"))
         source_out = _as_float(clip.get("source_out"))
-        if media_kind in {"video", "image", "audio"}:
+        if media_kind in {"video", "image", "audio", "lottie"}:
             legacy_forced_image = (
                 media_kind == "image"
                 and abs(source_in) <= EPSILON
@@ -241,7 +241,7 @@ def _ensure_media_matches_track(media_kind: str, track: dict[str, Any]) -> None:
             raise TimelinePatchError(
                 "E_TRACK_KIND", f"video clip requires a video track, got {kind} ({track.get('id')})"
             )
-    elif media_kind in {"image", "text"}:
+    elif media_kind in {"image", "text", "lottie"}:
         if kind != "overlay":
             raise TimelinePatchError(
                 "E_TRACK_KIND",
@@ -351,7 +351,7 @@ def _op_insert_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
             duration = _as_float(asset_obj.get("duration"))
     if duration <= 0:
         duration = _as_float(raw_clip.get("source_out")) - _as_float(raw_clip.get("source_in"))
-    if duration <= 0 and media_kind in {"image", "text"}:
+    if duration <= 0 and media_kind in {"image", "text", "lottie"}:
         duration = IMAGE_DURATION
     if duration <= 0:
         raise TimelinePatchError("E_BAD_ARG", "insert_clip cannot determine clip duration")
@@ -446,9 +446,9 @@ def _op_trim_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Spec §3.4 — duration = source_out - source_in (speed stays reserved)."""
     clip = _require_clip(project, op)
     media_kind = str(clip.get("media_kind") or "video")
-    if media_kind not in {"video", "image", "audio"}:
+    if media_kind not in {"video", "image", "audio", "lottie"}:
         raise TimelinePatchError(
-            "E_BAD_ARG", f"trim_clip only supports video/image/audio clips, got {media_kind}"
+            "E_BAD_ARG", f"trim_clip only supports video/image/audio/lottie clips, got {media_kind}"
         )
     if op.get("source_in") is None and op.get("source_out") is None:
         raise TimelinePatchError("E_BAD_ARG", "trim_clip requires source_in and/or source_out")
@@ -536,9 +536,9 @@ def _op_set_clip_time(project: dict[str, Any], op: dict[str, Any]) -> None:
     track_id = str(clip.get("track_id") or "")
     ripple = bool(op.get("ripple", False))
     if has_duration:
-        if media_kind not in {"image", "text"}:
+        if media_kind not in {"image", "text", "lottie"}:
             raise TimelinePatchError(
-                "E_BAD_ARG", f"set_clip_time duration only supports image/text clips, got {media_kind}"
+                "E_BAD_ARG", f"set_clip_time duration only supports image/text/lottie clips, got {media_kind}"
             )
         new_duration = _number(op.get("duration"), "set_clip_time.duration")
         if new_duration <= 0:

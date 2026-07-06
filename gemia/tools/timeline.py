@@ -23,6 +23,7 @@ from typing import Any
 
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration
+from gemia.video.lottie_renderer import select_lottie_renderer
 
 
 _TEXT_DEFAULT_DURATION = 3.0
@@ -112,10 +113,14 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     else:
         record = ctx.registry.get(asset_id)
         media_kind = record.kind
-        # Video and audio both carry a real, probe-able duration; images don't.
+        # Video/audio/lottie carry real duration; images don't.
         probe_duration = 0.0
         if record.kind in {"video", "audio"}:
             probe_duration = float(ffprobe_duration(record.path))
+        elif record.kind == "lottie":
+            meta = select_lottie_renderer().get_metadata(str(record.path))
+            fps = float(meta.get("fps") or 30.0)
+            probe_duration = max(int(meta.get("frames") or 1) / max(fps, 1.0), 0.1)
         asset_payload = {
             "id": record.asset_id,
             "asset_id": record.asset_id,
@@ -126,7 +131,7 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
         }
         source_in = _float_arg(args, "source_in") or 0.0
         source_out = _float_arg(args, "source_out")
-        if record.kind in {"video", "audio"}:
+        if record.kind in {"video", "audio", "lottie"}:
             if source_out is None:
                 source_out = probe_duration or source_in + 0.1
             duration = max(round(source_out - source_in, 6), 0.1)
@@ -145,7 +150,7 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
 
     # Resolve target track; auto-create OV1/A1 for the first overlay/audio clip.
     track_id = str(args.get("track_id") or "")
-    if media_kind in {"image", "text"}:
+    if media_kind in {"image", "text", "lottie"}:
         overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
         if not track_id:
             track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"
@@ -159,6 +164,8 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
             ops.append({"op": "add_track", "kind": "audio", "track_id": track_id})
     else:
         track_id = track_id or "V1"
+        if not any(str(t.get("id")) == track_id for t in tracks):
+            ops.append({"op": "add_track", "kind": "video", "track_id": track_id})
     clip["track_id"] = track_id
 
     at_time = _float_arg(args, "at_time")

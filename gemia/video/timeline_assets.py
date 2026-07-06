@@ -13,11 +13,14 @@ from typing import Any
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 AUDIO_EXTENSIONS = {".flac", ".wav", ".mp3", ".m4a", ".aac"}
-SUPPORTED_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS
+LOTTIE_EXTENSIONS = {".json", ".lottie"}
+SUPPORTED_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | LOTTIE_EXTENSIONS
 
 
 def media_kind_for_path(path: str | Path) -> str:
     suffix = Path(path).suffix.lower()
+    if suffix in LOTTIE_EXTENSIONS:
+        return "lottie"
     if suffix in IMAGE_EXTENSIONS:
         return "image"
     if suffix in AUDIO_EXTENSIONS:
@@ -37,6 +40,27 @@ def probe_media(path: str) -> dict[str, Any]:
     media = Path(path)
     if not media.exists():
         raise FileNotFoundError(path)
+    if media_kind_for_path(media) == "lottie":
+        from gemia.video.lottie_renderer import select_lottie_renderer
+
+        renderer = select_lottie_renderer()
+        meta = renderer.get_metadata(str(media))
+        fps = float(meta.get("fps") or 30.0)
+        frames = max(int(meta.get("frames") or 1), 1)
+        return {
+            "duration": max(frames / max(fps, 1.0), 0.1),
+            "media_kind": "lottie",
+            "mime_type": "application/vnd.lottie+json" if media.suffix.lower() == ".json" else "application/dotlottie",
+            "width": int(meta.get("width") or 0),
+            "height": int(meta.get("height") or 0),
+            "fps": fps,
+            "frames": frames,
+            "codec": "lottie",
+            "audio_codec": "",
+            "has_audio": False,
+            "file_size_bytes": media.stat().st_size,
+            "lottie_renderer": renderer.name,
+        }
     payload = _run_json([
         "ffprobe",
         "-v",
@@ -94,6 +118,19 @@ def generate_timeline_thumbnails(
     meta = probe_media(path)
     if meta.get("media_kind") == "audio":
         return []
+    if meta.get("media_kind") == "lottie":
+        from gemia.video.lottie_renderer import save_lottie_frame_png
+
+        dest = output / "thumb_000.png"
+        if not dest.exists():
+            save_lottie_frame_png(
+                path,
+                dest,
+                width=width,
+                height=max(1, round(width * max(int(meta.get("height") or 1), 1) / max(int(meta.get("width") or 1), 1))),
+                frame_index=0,
+            )
+        return [str(dest)] if dest.exists() else []
     if meta.get("media_kind") == "image":
         dest = output / "thumb_000.jpg"
         if not dest.exists():
