@@ -193,17 +193,17 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "size_bytes": len(data),
         "content_type": content_type,
     }
+    summary = f"fetched {dest_name} ({len(data) / 1024:.1f} KB) from {url[:60]}"
     if media_type:
         new_id = ctx.registry.allocate_id(media_type)
         ctx.registry.register_output(
             new_id,
             path=output_path,
             kind=media_type,
-            source_format=content_type,
+            summary=f"{summary} [{content_type}]",
         )
         result["asset_id"] = new_id
 
-    summary = f"fetched {dest_name} ({len(data) / 1024:.1f} KB) from {url[:60]}"
     result["summary"] = summary
     return result
 
