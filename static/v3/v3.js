@@ -980,9 +980,16 @@
     el.style.setProperty("--cfill", col[0]);
     el.style.setProperty("--cedge", col[1]);
     const label = kind === "text" ? (clip.text_config?.content?.slice(0, 24) || clip.name) : clip.name;
+    // Outgoing transition (payload key "transition" ← lumerai transition_after):
+    // a badge on the clip's right edge. Export renders a hard cut until xfade
+    // lands, so the title says "preview only" honestly.
+    const trans = clip.transition && clip.transition.kind && clip.transition.kind !== "cut" ? clip.transition : null;
+    const transHtml = trans
+      ? `<span class="ptl-clip-trans" title="${escapeHTML(trans.kind)} ${Number(trans.duration_sec || 0).toFixed(2)}s — 导出暂为硬切">⇄</span>`
+      : "";
     el.innerHTML =
       `<div class="ptl-clip-media"></div><div class="ptl-clip-grad"></div>` +
-      `<span class="ptl-clip-label">${escapeHTML(label || "clip")}</span>` +
+      `<span class="ptl-clip-label">${escapeHTML(label || "clip")}</span>` + transHtml +
       `<div class="ptl-handle l" data-handle="left"></div><div class="ptl-handle r" data-handle="right"></div>`;
     return el;
   }

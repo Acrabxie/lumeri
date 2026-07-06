@@ -288,7 +288,17 @@ async def dispatch_transition(args: dict[str, Any], ctx: ToolContext) -> dict[st
     if duration_sec is not None:
         op["duration_sec"] = duration_sec
     result = _project(ctx).apply_ops([op], label="timeline_add_transition")
-    return _summary(ctx, result, clip_id=clip_id)
+    out = _summary(ctx, result, clip_id=clip_id)
+    if op["kind"] != "cut":
+        # Export honesty (docs/timeline-canonical-plan.md): the transition is
+        # stored and shown on the timeline, but project_export does not render
+        # it yet — say so instead of letting the model promise a dissolve.
+        out["export_note"] = (
+            f"transition '{op['kind']}' is recorded and visible on the "
+            "timeline, but final export still renders a hard cut here "
+            "(xfade rendering is planned; see docs/timeline-canonical-plan.md)."
+        )
+    return out
 
 
 async def dispatch_effects(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:

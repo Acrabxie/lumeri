@@ -269,3 +269,34 @@ def test_undo_op_reverts_last_edit(tmp_path) -> None:
     h = _post(loop, "de-undoop", {"op": "undo", "steps": 1})
     assert h.status == 200
     assert abs(_clip(loop, "c1")["start"] - 0.0) < 1e-3
+
+
+def test_add_transition_surfaces_in_payload(tmp_path) -> None:
+    """Regression: lumerai stores clip["transition_after"] but the UI payload
+    read clip["transition"] — every stored transition surfaced as null and the
+    feature was invisible on both frontends."""
+    loop, _ = _loop(tmp_path, "de-trans")
+    _seed_video_clip(loop, "c1", start=0.0, duration=5.0)
+    _seed_video_clip(loop, "c2", start=5.0, duration=5.0, asset_id="a2")
+
+    h = _post(loop, "de-trans", {
+        "op": "add_transition", "clip_id": "c1",
+        "data": {"kind": "dissolve", "duration_sec": 0.5},
+    })
+    if h.status != 200:
+        # direct-edit route may wrap args differently; fall back to the verb path
+        loop.project.apply_ops(
+            [{"op": "add_transition", "clip_id": "c1", "kind": "dissolve",
+              "duration_sec": 0.5}],
+            label="test-transition",
+        )
+
+    stored = _clip(loop, "c1")["transition_after"]
+    assert stored == {"kind": "dissolve", "duration_sec": 0.5}
+
+    payload = v3_routes._timeline_payload_dict(
+        "de-trans", loop.project.project_id, loop.project.load(),
+        loop.project.store.load_meta(loop.project.project_id),
+    )
+    clips = [c for t in payload["tracks"] for c in t["clips"] if c["id"] == "c1"]
+    assert clips and clips[0]["transition"] == {"kind": "dissolve", "duration_sec": 0.5}

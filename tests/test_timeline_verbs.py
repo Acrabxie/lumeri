@@ -221,3 +221,28 @@ def test_set_track_duck_under_via_verb(tmp_path: Path) -> None:
     _call("timeline_set_track", {"track_id": "A1", "duck_under": None}, ctx)
     tracks = {t["id"]: t for t in ctx.project.load()["timeline"]["tracks"]}
     assert tracks["A1"]["duck_under"] is None
+
+
+def test_add_transition_result_carries_export_honesty_note(
+    sample_video_path: str, tmp_path: Path
+) -> None:
+    """The model must not promise a dissolve export can't render yet: a
+    non-cut transition result carries export_note (export honesty rule,
+    docs/timeline-canonical-plan.md)."""
+    ctx = _ctx(tmp_path)
+    aid = _register_video(ctx, sample_video_path)
+    cid = _call("timeline_insert_clip", {"asset_id": aid}, ctx)["clip_id"]
+    # add_transition validates that a following clip exists on the track.
+    _call("timeline_insert_clip", {"asset_id": aid}, ctx)
+
+    out = _call(
+        "timeline_add_transition",
+        {"clip_id": cid, "kind": "dissolve", "duration_sec": 0.5},
+        ctx,
+    )
+    assert out["applied"] is True
+    assert "hard cut" in out["export_note"]
+
+    # A plain cut clears the transition and needs no caveat.
+    out_cut = _call("timeline_add_transition", {"clip_id": cid, "kind": "cut"}, ctx)
+    assert "export_note" not in out_cut

@@ -328,7 +328,11 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
             "enabled": bool(clip.get("enabled", True)),
             "effects": clip.get("effects") if isinstance(clip.get("effects"), dict) else {},
             "text_config": clip.get("text_config") if isinstance(clip.get("text_config"), dict) else None,
-            "transition": clip.get("transition") if isinstance(clip.get("transition"), dict) else None,
+            # lumerai stores the outgoing transition as clip["transition_after"]
+            # (patches.py _op_add_transition); the payload key stays "transition"
+            # for both frontends. Reading the old "transition" key surfaced
+            # nothing, ever — add_transition looked applied but was invisible.
+            "transition": clip.get("transition_after") if isinstance(clip.get("transition_after"), dict) else None,
         })
     for clips in clips_by_track.values():
         clips.sort(key=lambda c: float(c.get("start") or 0.0))

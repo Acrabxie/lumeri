@@ -430,3 +430,13 @@ def test_gemini_client_proxy_econnrefused_error_provides_diagnostic() -> None:
         assert "Connection refused" in error_msg or "refused connection" in error_msg
     except asyncio.TimeoutError:
         pytest.skip("Proxy connection attempt timed out (expected in test environment)")
+
+
+def test_v3_frontend_renders_clip_transition_badge() -> None:
+    """Clips with a stored transition must render the ⇄ badge (regression:
+    transitions were stored backend-side but invisible in every frontend)."""
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+    assert "clip.transition" in source
+    assert "ptl-clip-trans" in source
+    css = Path("static/v3/v3.css").read_text(encoding="utf-8")
+    assert ".ptl-clip-trans" in css

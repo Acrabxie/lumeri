@@ -810,6 +810,18 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   pointer-events: none;
   z-index: 2;
 }
+.ptl-clip-trans {
+  position: absolute;
+  right: 3px; top: 3px;
+  font: 10px/1 -apple-system, sans-serif;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+  padding: 1px 3px;
+  pointer-events: auto;
+  z-index: 2;
+}
 .ptl-handle { position: absolute; top: 0; bottom: 0; width: 11px; cursor: ew-resize; z-index: 3; opacity: 0; transition: opacity 0.1s; }
 .ptl-handle::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 3px; height: 44%; background: rgba(255, 255, 255, 0.92); border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
 .ptl-handle.l { left: 0; } .ptl-handle.r { right: 0; }
