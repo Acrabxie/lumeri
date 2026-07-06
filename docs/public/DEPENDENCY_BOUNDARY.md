@@ -20,19 +20,17 @@ Lumeri Desktop 当前依赖本地 7788 sidecar 和本地媒体处理能力。
 - 真实运行日志、真实任务队列、真实模型输入正文
 - 真实账号目录内容
 
-## 模型与 planner 边界
+## 驱动 AI 与生成模型边界
 
-Lumeri 可以通过 OpenRouter 或其他模型 provider 做 planner。公开文档可以说明“需要模型 provider”，但不能泄露凭证。
+公开文档只保留这句推荐：我们推荐使用Google的Gemini3.5 flash作为驱动ai，并且建议veo生成视频，nano banana生成图片，lyria生成音频。其余部分只说明安全使用边界，不展开更多可替换选项。
 
 可以公开：
 
-- planner provider 是可替换边界
 - 模型只应接收经过清洗的项目状态和必要上下文
 - `latest.txt` 这类模型输入可观察性用于本地调试
 
 必须私有：
 
-- OpenRouter API key
 - Google API key
 - Authorization headers
 - 完整真实模型输入 TXT

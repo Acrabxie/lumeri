@@ -24,7 +24,7 @@ Picture functions automatically work on video — the engine extracts frames, ap
 
 ## Model Choice
 
-推荐以Gemini作为主规划器，支持更多视频，音频，图片生成ai，兼容Gemini，anthropic，openai，openrouter API key以及vertex和codex登录
+我们推荐使用Google的Gemini3.5 flash作为驱动ai，并且建议veo生成视频，nano banana生成图片，lyria生成音频。
 
 ---
 
@@ -202,7 +202,7 @@ User prompt
 ┌──────────────────────────────────────────────────────────┐
 │  gemia.picture    gemia.audio    gemia.video              │
 │  (OpenCV/numpy)   (librosa)      (ffmpeg)                 │
-│  + AI generation providers      + local media tools        │
+│  + Veo/Nano Banana/Lyria        + local media tools        │
 └──────────────────────────────────────────────────────────┘
            │
            ▼

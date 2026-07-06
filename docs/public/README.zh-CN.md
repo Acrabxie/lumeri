@@ -25,7 +25,7 @@ Lumeri 是一个面向视频、图片、音频的 AI 媒体工作台。用户把
 - 图片默认按 3 秒视频片段进入时间轴
 - 媒体池、时间轴、会话历史和执行日志
 - 自然语言规划与多步执行
-- 推荐以Gemini作为主规划器，支持更多视频，音频，图片生成ai，兼容Gemini，anthropic，openai，openrouter API key以及vertex和codex登录
+- 我们推荐使用Google的Gemini3.5 flash作为驱动ai，并且建议veo生成视频，nano banana生成图片，lyria生成音频。
 - LumeriLink to Blender 后端空间效果
 - 可观察的模型输入 TXT（私有调试用途）
 
@@ -34,7 +34,7 @@ Lumeri 是一个面向视频、图片、音频的 AI 媒体工作台。用户把
 为了避免误解，公开表达里要说清楚：
 
 - Lumeri 不是只靠一句话就能稳定生成任何成片的“魔法按钮”。
-- Lumeri 不是 OpenRouter、Google、Blender、ffmpeg 或任何第三方服务的再分发包。
+- Lumeri 不是 Google、Blender、ffmpeg 或任何第三方服务的再分发包。
 - Lumeri public kit 不是完整私有工作流、真实素材库、客户案例库或 benchmark 包。
 - Lumeri Desktop 当前仍以本地 sidecar 和本地媒体处理为核心，不应被包装成已经完整上线的云端 SaaS。
 - Gemia 只是历史/内部工程名，不应作为新的对外品牌主名。
@@ -57,7 +57,7 @@ Lumeri 是一个面向视频、图片、音频的 AI 媒体工作台。用户把
 - 私有 prompt 链和 planner 调优细节
 - 私有 benchmark、质量评测集、第三方素材归档
 - 内部自动化日志、桥接队列、agent 运行记录
-- OpenRouter、Google、Blender 或其他第三方产品的安装包再分发
+- Google、Blender 或其他第三方产品的安装包再分发
 
 ## 推荐公开叙述
 
@@ -70,7 +70,7 @@ Lumeri 是一个面向视频、图片、音频的 AI 媒体工作台。用户把
 - “公开仓库已经包含完整 Lumeri 内部版。”
 - “装上这个 kit 就能复刻全部演示效果。”
 - “这里包含真实模型输入、真实案例或生产级素材库。”
-- “这里是官方 OpenRouter/Google/Blender 集成包。”
+- “这里是官方 Google/Blender 集成包。”
 
 ## 默认工作流
 
