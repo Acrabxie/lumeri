@@ -18,16 +18,19 @@ M1 — that's a separate concern if real concurrency becomes a need.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import shutil
 import threading
 import time
 import uuid
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any
 
 from gemia.agent_loop_v3 import AgentLoopV3
+from gemia.tools._context import ProgressCallback
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 
 
@@ -39,6 +42,24 @@ _DEFAULT_SWEEP_INTERVAL_SEC = 60
 
 class SessionLimitError(RuntimeError):
     """Raised when the process-wide v3 session cap has been reached."""
+
+
+class VerbGateError(RuntimeError):
+    """A verb routed through ``SessionRunner.run_verb`` was refused by a host
+    gate (membership / plan mode / budget / turn-collision / timeout) rather
+    than by the dispatcher.
+
+    Carries the structured payload the agent loop would have appended so the
+    MCP layer can surface it byte-compatibly as an ``isError`` tool result.
+    ``code`` is one of the frozen ``ERROR_CODES`` gate codes (``E_PLAN_MODE``,
+    ``E_BUDGET``, ``E_BUSY``) or ``E_TOOL`` for an unknown/excluded verb.
+    """
+
+    def __init__(self, code: str, message: str, payload: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.payload = payload
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -219,6 +240,262 @@ class SessionRunner:
 
         fut = asyncio.run_coroutine_threadsafe(_call(), self._loop)
         return fut.result(timeout=timeout)
+
+    def run_verb(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        *,
+        emit_progress: ProgressCallback | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Dispatch ONE internal verb on the session loop with the same gates
+        as the agent loop (docs/mcp-interface-plan.md §2.6, D7).
+
+        This is the single MCP execution choke point. It applies, in order:
+
+          1. Membership — ``tool_name`` must be in ``MCP_TOOLSET`` ∩
+             ``DISPATCHER``. ``run_verb`` is not a general RPC hatch; excluded
+             verbs stay excluded even if called directly.
+          2. Turn-collision guard — a MUTATING verb landing between two agent
+             tool calls silently invalidates the model's mid-turn context, so
+             while ``turn_in_progress`` a plan-BLOCKED verb fails fast with
+             ``E_BUSY`` (mirrors the 409 on double ``submit_turn``). Read verbs
+             may interleave.
+          3. Plan gate FIRST (same order as ``agent_loop_v3.py``'s plan gate,
+             checked before the budget gate): a blocked verb is blocked no
+             matter how affordable.
+          4. Budget gate — against the SAME ``BudgetGuard`` instance as the
+             loop (MCP spend and model spend share the one $5/600s pot). MCP
+             has no approval channel, so ``needs_approval`` is terminal here:
+             raised as ``E_BUDGET``.
+          5. Dispatch on the session loop with a SHALLOW-COPIED tool context
+             (only ``emit_progress`` differs) so an interleaved read verb can't
+             cross progress streams with the agent loop's shared ctx.
+          6. Commit actuals on success AND failure (same as the loop).
+          7. SSE mirror — ``tool_exec_start`` / ``tool_exec_result`` /
+             ``tool_exec_error`` with one additive ``origin: "mcp"`` field and
+             a synthetic ``call_id`` (``mcp-<uuid8>``). Existing kinds only ⇒
+             zero contract change; the durable transcript picks them up free.
+
+        Returns the dispatcher's result dict. Raises ``VerbGateError`` for a
+        gate refusal, or the dispatcher's own exception unchanged.
+        """
+        from gemia.mcp.toolset import MCP_READ_ONLY, MCP_TOOLSET
+        from gemia.plan_mode import is_plan_safe, plan_gate_message
+        from gemia.tools import DISPATCHER
+
+        self.touch()
+        if self._loop.is_closed():
+            raise RuntimeError("session is closed")
+
+        call_id = f"mcp-{uuid.uuid4().hex[:8]}"
+
+        # 1. Membership: curated surface ∩ real dispatch table.
+        if tool_name not in MCP_TOOLSET or tool_name not in DISPATCHER:
+            raise VerbGateError(
+                "E_TOOL",
+                f"unknown or excluded MCP tool: {tool_name}",
+                {
+                    "error": f"unknown or excluded MCP tool: {tool_name}",
+                    "error_code": "E_TOOL",
+                    "tool_name": tool_name,
+                },
+            )
+
+        is_read_only = tool_name in MCP_READ_ONLY
+
+        # 2. Turn-collision guard: mutating verbs can't land mid-turn.
+        if not is_read_only and self.turn_in_progress:
+            raise VerbGateError(
+                "E_BUSY",
+                "agent turn active; retry when the turn completes",
+                {
+                    "error": "agent turn active; retry when the turn completes",
+                    "error_code": "E_BUSY",
+                    "tool_name": tool_name,
+                },
+            )
+
+        # 3. Plan gate FIRST (byte-compatible with the loop's plan gate).
+        if self.plan_mode and not is_plan_safe(tool_name):
+            msg = plan_gate_message(tool_name)
+            self._emit_event(
+                {
+                    "kind": "plan_gate",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "message": msg,
+                    "origin": "mcp",
+                }
+            )
+            raise VerbGateError(
+                "E_PLAN_MODE",
+                msg,
+                {
+                    "blocked_by_plan_mode": True,
+                    "error_code": "E_PLAN_MODE",
+                    "message": msg,
+                    "tool_name": tool_name,
+                },
+            )
+
+        # 4. Budget gate — same BudgetGuard instance as the loop.
+        decision = self.agent.budget.check(tool_name)
+        if not decision.ok:
+            self._emit_event(
+                {
+                    "kind": "budget_gate",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "reason": decision.reason,
+                    "alternatives": decision.alternatives,
+                    "estimated_cost_usd": decision.estimated_cost_usd,
+                    "estimated_eta_sec": decision.estimated_eta_sec,
+                    "origin": "mcp",
+                }
+            )
+            raise VerbGateError(
+                "E_BUDGET",
+                decision.reason,
+                {
+                    "needs_approval": True,
+                    "error_code": "E_BUDGET",
+                    "reason": decision.reason,
+                    "alternatives": decision.alternatives,
+                    "estimated_cost_usd": decision.estimated_cost_usd,
+                    "estimated_eta_sec": decision.estimated_eta_sec,
+                    "tool_name": tool_name,
+                },
+            )
+
+        # 5. Dispatch on the session loop with a shallow-copied ctx.
+        def _progress_cb(update: Any) -> None:
+            # SSE mirror of progress (additive origin), then forward to the
+            # MCP progress callback (best-effort, exactly like the SSE path).
+            try:
+                event: dict[str, Any] = {
+                    "kind": "tool_exec_progress",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "origin": "mcp",
+                }
+                if getattr(update, "percent", None) is not None:
+                    event["percent"] = update.percent
+                if getattr(update, "message", None):
+                    event["message"] = update.message
+                if getattr(update, "eta_sec", None) is not None:
+                    event["eta_seconds"] = update.eta_sec
+                self._emit_event(event)
+            except Exception:
+                pass
+            if emit_progress is not None:
+                try:
+                    emit_progress(update)
+                except Exception:
+                    pass
+
+        ctx = dataclasses.replace(self.agent._tool_ctx, emit_progress=_progress_cb)
+
+        async def _dispatch() -> dict[str, Any]:
+            return await DISPATCHER[tool_name](dict(args), ctx)
+
+        self._emit_event(
+            {
+                "kind": "tool_exec_start",
+                "call_id": call_id,
+                "tool_name": tool_name,
+                "est_cost_usd": decision.estimated_cost_usd,
+                "eta_seconds": decision.estimated_eta_sec,
+                "origin": "mcp",
+            }
+        )
+
+        _, eta = self.agent.budget.estimate(tool_name)
+        wait = timeout if timeout is not None else max(60.0, eta * 6)
+        start_ts = time.monotonic()
+        fut = asyncio.run_coroutine_threadsafe(_dispatch(), self._loop)
+        try:
+            result = fut.result(timeout=wait)
+        except FuturesTimeoutError:
+            # The verb may still land; the caller should re-read state. Do NOT
+            # commit budget — the dispatch is still running on the loop and will
+            # not report back here.
+            self._emit_event(
+                {
+                    "kind": "tool_exec_error",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "error": (
+                        "verb is queued behind a long-running step and has not "
+                        "completed yet — re-read the timeline/session to see "
+                        "whether it landed"
+                    ),
+                    "error_code": "E_BUSY",
+                    "origin": "mcp",
+                }
+            )
+            raise VerbGateError(
+                "E_BUSY",
+                "verb is queued behind a long-running step and has not "
+                "completed yet — re-read the timeline/session to see whether "
+                "it landed",
+                {
+                    "error": "verb did not complete before timeout",
+                    "error_code": "E_BUSY",
+                    "tool_name": tool_name,
+                },
+            ) from None
+        except Exception as exc:
+            elapsed = time.monotonic() - start_ts
+            # 6. Commit actuals on failure too (same as the loop).
+            self.agent.budget.commit(tool_name, actual_seconds=elapsed)
+            from gemia.errors import GemiaError
+
+            if isinstance(exc, GemiaError):
+                err_payload = exc.to_payload()
+            else:
+                err_payload = {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "error_code": "E_UNCAUGHT",
+                }
+            self._emit_event(
+                {
+                    "kind": "tool_exec_error",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "elapsed_seconds": elapsed,
+                    "origin": "mcp",
+                    **err_payload,
+                }
+            )
+            raise
+
+        elapsed = time.monotonic() - start_ts
+        self.agent.budget.commit(tool_name, actual_seconds=elapsed)
+
+        # 7. SSE mirror of the result (strip file paths like the loop does).
+        event_result = {
+            k: v
+            for k, v in result.items()
+            if k not in {"thumbnail_path", "thumbnail_for_next_message"}
+        }
+        produced_id = result.get("asset_id")
+        if produced_id and self.agent.registry.contains(str(produced_id)):
+            event_result["preview_uri"] = str(
+                self.agent.registry.get(str(produced_id)).path
+            )
+        self._emit_event(
+            {
+                "kind": "tool_exec_result",
+                "call_id": call_id,
+                "tool_name": tool_name,
+                "elapsed_seconds": elapsed,
+                "result": event_result,
+                "origin": "mcp",
+            }
+        )
+        return result
 
     def deliver_ask_answer(self, question_id: str, answers: dict[str, Any]) -> bool:
         """Deliver a user's answer to a pending ``elicit`` question.
@@ -469,4 +746,10 @@ def get_manager() -> SessionManager:
         return _SINGLETON
 
 
-__all__ = ["SessionLimitError", "SessionManager", "SessionRunner", "get_manager"]
+__all__ = [
+    "SessionLimitError",
+    "SessionManager",
+    "SessionRunner",
+    "VerbGateError",
+    "get_manager",
+]

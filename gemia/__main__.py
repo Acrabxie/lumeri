@@ -162,6 +162,23 @@ def main() -> None:
     p_server.add_argument("--host", default=None, help="Bind host; defaults to GEMIA_HOST/LUMERI_HOST or 0.0.0.0")
     p_server.add_argument("--port", type=int, default=None, help="Bind port; defaults to GEMIA_PORT/LUMERI_PORT or 7788")
 
+    p_mcp_serve = sub.add_parser(
+        "mcp-serve",
+        help="Serve Lumeri as an MCP server (Direction A). Phase 1: stdio transport.",
+    )
+    p_mcp_serve.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Transport (Phase 1 ships stdio; http is Phase 2).",
+    )
+    p_mcp_serve.add_argument(
+        "--http-port",
+        type=int,
+        default=7789,
+        help="Port for the streamable-HTTP transport (Phase 2; ignored for stdio).",
+    )
+
     p_setup = sub.add_parser("setup", help="Run (or re-run) the first-run onboarding wizard")
 
     p_bridge_init = sub.add_parser("bridge-init", help="Create bridge inbox/outbox directories")
@@ -302,6 +319,8 @@ def main() -> None:
         _srv = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_srv)
         _srv.main(host=args.host, port=args.port)
+    elif args.command == "mcp-serve":
+        _cmd_mcp_serve(args)
     elif args.command == "bridge-init":
         _cmd_bridge_init(args)
     elif args.command == "bridge-submit":
@@ -316,6 +335,26 @@ def main() -> None:
         _cmd_bridge_agent_run_once(args)
     elif args.command == "bridge-agent-daemon":
         _cmd_bridge_agent_daemon(args)
+
+
+def _cmd_mcp_serve(args: argparse.Namespace) -> None:
+    """Serve Lumeri as an MCP server (docs/mcp-interface-plan.md, Direction A).
+
+    Phase 1 ships the stdio transport only. ``--transport http`` is reserved for
+    Phase 2 (in-process streamable HTTP on 127.0.0.1:7789) and exits cleanly
+    with a not-yet-implemented message rather than pretending.
+    """
+    transport = getattr(args, "transport", "stdio")
+    if transport == "http":
+        raise SystemExit(
+            "mcp-serve --transport http is a Phase 2 deliverable and is not "
+            "implemented yet; use the default stdio transport."
+        )
+    # stdio: run_stdio imports the optional `mcp` SDK lazily and prints a
+    # friendly install hint (exit 1) if it is missing.
+    from .mcp.server import run_stdio
+
+    run_stdio()
 
 
 def _cmd_run(args: argparse.Namespace) -> None:

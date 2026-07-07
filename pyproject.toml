@@ -41,6 +41,11 @@ interop = [
     "otio-fcp-adapter>=1.0",
     "otio-fcpx-xml-adapter>=1.0",
 ]
+# Lumeri AS an MCP server (docs/mcp-interface-plan.md, Direction A). Opt in with
+# `pip install lumeri[mcp]` to run `python -m gemia mcp-serve`. The core install
+# stays light; gemia/mcp/server.py imports the SDK lazily inside its serve
+# entrypoints, so importing gemia without this extra never fails.
+mcp = ["mcp>=1.12,<2"]
 
 [build-system]
 requires = ["setuptools>=68"]
