@@ -9,6 +9,7 @@
     GET    /sessions/{id}/assets/{asset_id}     serve asset file (Range supported)
     POST   /sessions/{id}/close                 close session
     GET    /sessions/{id}/stream                SSE event stream (Last-Event-ID)
+    GET    /sessions/{id}/transcript            durable NDJSON transcript (?since_seq=N; works after close)
 
 ``try_handle(handler, method=...)`` is the single entrypoint server.py
 calls. Returns True if the request was handled, False to let the host
@@ -120,6 +121,10 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
     m = re.match(r"^/sessions/([^/]+)/stream$", path)
     if m:
         return _sse_stream(handler, m.group(1), query, body=body)
+
+    m = re.match(r"^/sessions/([^/]+)/transcript$", path)
+    if m:
+        return _session_transcript(handler, m.group(1), query, body=body)
 
     m = re.match(r"^/sessions/([^/]+)/timeline$", path)
     if m:
@@ -282,6 +287,56 @@ def _close_session(handler, runner: SessionRunner) -> bool:
 
 
 # ── GET handlers ──────────────────────────────────────────────────────
+
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _session_transcript(handler, session_id: str, query: dict, *, body: bool) -> bool:
+    """Serve the durable event transcript (NDJSON, one {seq, ts, event} per
+    line). Works for CLOSED sessions too — the transcript outlives the runner
+    and the 200-event SSE replay buffer; this is the resync source for a
+    client that attached late or reconnected after a restart.
+
+    ``?since_seq=N`` skips lines with seq <= N (incremental catch-up).
+    """
+    if not _SESSION_ID_RE.match(session_id):
+        _json_error(handler, 400, "invalid session id")
+        return True
+    path = get_manager().sessions_root / session_id / "transcript.jsonl"
+    if not path.exists():
+        _json_error(handler, 404, f"no transcript for session: {session_id}")
+        return True
+
+    since_seq = 0
+    raw_since = query.get("since_seq")
+    if raw_since:
+        try:
+            since_seq = max(0, int(raw_since[0]))
+        except (TypeError, ValueError):
+            _json_error(handler, 400, "since_seq must be an integer")
+            return True
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    if not body:
+        return True
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if since_seq:
+                    try:
+                        if int(json.loads(line).get("seq") or 0) <= since_seq:
+                            continue
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                handler.wfile.write(line.encode("utf-8"))
+        handler.wfile.flush()
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    return True
 
 
 def _session_info(handler, session_id: str) -> bool:

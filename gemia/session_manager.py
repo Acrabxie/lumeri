@@ -18,6 +18,7 @@ M1 — that's a separate concern if real concurrency becomes a need.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import threading
@@ -71,6 +72,21 @@ class SessionRunner:
         now = time.time()
         self.created_at = now
         self.last_used_at = now
+
+        # Durable transcript: every event the agent emits is appended to
+        # <sessions_root>/<sid>/transcript.jsonl BEFORE it reaches the SSE
+        # ring buffer (which holds only 200 events and dies with the process).
+        # This is the resync source for late-attaching clients and the only
+        # record that survives a server restart. Per-connection synthetic
+        # frames (protocol_hello, replay_gap) are emitted by the transport,
+        # not the agent, so they never pollute the transcript.
+        self._transcript_lock = threading.Lock()
+        self._transcript_seq = 0
+        self._transcript_file = None
+        self._transcript_failed = False
+        self._transcript_path = (
+            self.sessions_root / self.session_id / "transcript.jsonl"
+        )
         self._thread = threading.Thread(
             target=self._run_loop,
             name=f"lumeri-v3-{session_id}",
@@ -110,8 +126,40 @@ class SessionRunner:
             session_id=self.session_id,
             output_dir=self.output_dir,
             sessions_root=self.sessions_root,
+            emit_event=self._emit_event,
             extra={"account_id": self.account_id} if self.account_id else None,
         )
+
+    def _emit_event(self, event: dict[str, Any]) -> None:
+        """Agent event sink: durable transcript first, then the SSE fan-out.
+
+        The transcript write must never break the loop — on the first failure
+        it disables itself for the session (one warning path, no spam) and
+        events keep flowing to SSE.
+        """
+        if not self._transcript_failed:
+            try:
+                with self._transcript_lock:
+                    if self._transcript_file is None:
+                        self._transcript_path.parent.mkdir(parents=True, exist_ok=True)
+                        self._transcript_file = open(  # noqa: SIM115 — long-lived handle
+                            self._transcript_path, "a", encoding="utf-8"
+                        )
+                    self._transcript_seq += 1
+                    line = json.dumps(
+                        {
+                            "seq": self._transcript_seq,
+                            "ts": time.time(),
+                            "event": event,
+                        },
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                    self._transcript_file.write(line + "\n")
+                    self._transcript_file.flush()
+            except Exception:
+                self._transcript_failed = True
+        SSE_REGISTRY.emit(self.session_id, event)
 
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
         self.touch()
@@ -222,6 +270,13 @@ class SessionRunner:
             pass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=5)
+        with self._transcript_lock:
+            if self._transcript_file is not None:
+                try:
+                    self._transcript_file.close()
+                except Exception:
+                    pass
+                self._transcript_file = None
 
     async def _cancel_pending(self) -> None:
         current = asyncio.current_task(self._loop)
@@ -392,6 +447,13 @@ class SessionManager:
     @property
     def output_root(self) -> Path:
         return self._output_root
+
+    @property
+    def sessions_root(self) -> Path:
+        """Where per-session durable artifacts (meta.json, transcript.jsonl)
+        live. Public so routes can serve transcripts of CLOSED sessions —
+        outliving the runner is the whole point of the transcript."""
+        return self._sessions_root
 
 
 _SINGLETON_LOCK = threading.Lock()
