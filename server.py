@@ -163,8 +163,12 @@ def _host_allowed(host_header: str) -> bool:
 
 
 def _require_account(handler: BaseHTTPRequestHandler) -> str | None:
-    """Return the active account_id or send 401 and return None."""
-    account_id = accounts.current_account_id()
+    """Return the acting account_id or send 401 and return None.
+
+    Resolution goes through gemia.identity (per-request X-Lumeri-Account pin
+    first, process-global active.json as fallback) so one client switching
+    accounts no longer retargets every other open client."""
+    account_id = identity.resolve_account_id(handler)
     if not account_id:
         _json_response(handler, 401, {"error": "not signed in"})
         return None
@@ -275,6 +279,7 @@ def _model_profile_payload() -> dict:
     return public_model_profile()
 
 from gemia import accounts
+from gemia import identity
 from gemia.artifacts import artifact_outputs as _artifact_outputs
 from gemia.artifacts import is_document_artifact_output as _is_document_artifact_output
 from gemia.artifacts import is_media_output as _is_media_output
@@ -699,7 +704,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "stability_gate": _stability_gate_enabled(),
                 "health_url": "/health",
             }
-            if accounts.current_account_id():
+            if identity.resolve_account_id(self):
                 bind_host = _configured_server_host()
                 try:
                     bind_port = int(os.environ.get("LUMERI_PORT") or os.environ.get("GEMIA_PORT") or "7788")
@@ -835,7 +840,7 @@ class _Handler(BaseHTTPRequestHandler):
             from gemia.project_model import normalize_project
             from gemia.session_history import load_current_session
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -851,7 +856,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/session-history":
             from gemia.session_history import load_current_session
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -861,7 +866,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/session-history/list":
             from gemia.session_history import list_session_snapshots
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -876,7 +881,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/session-history/"):
             from gemia.session_history import load_session_snapshot
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -892,7 +897,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/media-library/list":
             from gemia.media_library import list_assets
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -909,7 +914,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/media-library/") and path.endswith("/annotations"):
             from gemia.media_annotations import MediaAnnotationError, list_annotations
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -924,7 +929,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/media-library/file/"):
             from gemia.media_library import MediaLibraryError, resolve_asset_file
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -941,7 +946,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/media-library/"):
             from gemia.media_library import get_asset
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -1032,7 +1037,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 from gemia.media_annotations import MediaAnnotationError, delete_annotation
 
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1049,7 +1054,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 from gemia.media_library import MediaLibraryError, soft_delete_asset
 
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1110,7 +1115,7 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = _read_json_body(self)
                 if route == "/runtime/dev/workspace":
                     service = _creative_sandbox_service()
-                    _json_response(self, 200, service.create_workspace(payload, account_id=accounts.current_account_id()))
+                    _json_response(self, 200, service.create_workspace(payload, account_id=identity.resolve_account_id(self)))
                     return
                 if route.startswith("/runtime/dev/workspace/"):
                     parts = route.split("/")
@@ -1266,7 +1271,7 @@ class _Handler(BaseHTTPRequestHandler):
             from gemia.media_library import MediaLibraryError, import_media, upload_response_for_asset
             from gemia.video.timeline_assets import SUPPORTED_MEDIA_EXTENSIONS
 
-            account_id = accounts.current_account_id()
+            account_id = identity.resolve_account_id(self)
             if not account_id:
                 _json_response(self, 401, {"error": "not signed in"})
                 return
@@ -1398,7 +1403,7 @@ class _Handler(BaseHTTPRequestHandler):
                 from gemia.session_history import save_current_session
 
                 payload = _read_json_body(self)
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1430,7 +1435,7 @@ class _Handler(BaseHTTPRequestHandler):
                 from gemia.media_library import MediaLibraryError, import_media, upload_response_for_asset
 
                 payload = _read_json_body(self)
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1450,7 +1455,7 @@ class _Handler(BaseHTTPRequestHandler):
                 from gemia.media_library import list_assets
 
                 payload = _read_json_body(self)
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1490,7 +1495,7 @@ class _Handler(BaseHTTPRequestHandler):
                 from gemia.media_annotations import MediaAnnotationError, create_annotation, update_annotation
 
                 payload = _read_json_body(self)
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return
@@ -1513,7 +1518,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 from gemia.media_library import default_clip_for_asset, get_asset
 
-                account_id = accounts.current_account_id()
+                account_id = identity.resolve_account_id(self)
                 if not account_id:
                     _json_response(self, 401, {"error": "not signed in"})
                     return

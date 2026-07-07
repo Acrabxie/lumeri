@@ -150,9 +150,12 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
 
 def _create_session(handler) -> bool:
     try:
-        from gemia import accounts
+        from gemia import identity
 
-        account_id = accounts.current_account_id()
+        # Per-request pin honored: a client that pins X-Lumeri-Account gets
+        # its session bound to THAT account even if another client flips the
+        # global active.json mid-flight.
+        account_id = identity.resolve_account_id(handler)
     except Exception:
         account_id = None
     try:
