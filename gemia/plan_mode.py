@@ -39,8 +39,10 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "probe_media",
     "read_file",
     "recall_skills",
+    "search_frames",       # probes existing footage; surfaces (no new derived media)
     "search_library",
     "search_media",
+    "get_shotlist",         # read the storyboard plan
     "wait_for_job",         # waits on an already-submitted job
     "web_open",
     "web_search",
@@ -49,7 +51,8 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # Everything that edits, generates, registers assets, writes files/memory,
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
-    "add_overlay", "adjust_media", "annotate_media", "arrange_timeline",
+    "add_overlay", "adjust_media", "animate_captions", "annotate_media",
+    "arrange_timeline", "assemble_shotlist",
     "build", "color_grade", "composite", "copy_in",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
@@ -66,7 +69,7 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
     "remember", "render_preview", "run_shell", "save_skill",
-    "smart_reframe",
+    "narrate", "set_shotlist", "smart_reframe", "subtitle", "update_shot",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",
     "timeline_set_clip_time", "timeline_set_track", "timeline_split_clip",

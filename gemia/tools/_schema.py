@@ -500,6 +500,145 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["query"],
     ),
     _tool(
+        "assemble_shotlist",
+        "Lay the filled storyboard onto the timeline: for every shot that has an asset_id, append a clip trimmed to its planned duration, align its on_screen_text as an overlay, apply its transition, and mark it placed. Call after filling shots (search_media / generate_*). Unfilled shots are skipped and reported. Use rebuild=true to clear the timeline and reassemble after revising the plan. Then inspect_timeline to review, or export to render.",
+        {
+            "rebuild": {"type": "boolean", "description": "Clear the current timeline and reassemble from scratch. Default false (append newly-filled shots)."},
+        },
+        [],
+    ),
+    _tool(
+        "search_frames",
+        "Semantic footage search over real material (filename + probed visual/dialog labels), ranked by relevance. This is the '先搜真素材' step: fill a shot from raw footage before falling back to generate_video. Returns matching asset_ids ready to use. If it finds nothing, generate the shot instead. Probes frames live so it needs NO prior annotation — complements search_media (which queries saved annotations and returns timecodes). Stronger than search_library (a plain filename/label text match).",
+        {
+            "query": {"type": "string", "description": "What the shot should show, e.g. 'city sunrise timelapse aerial'."},
+            "kind": {"type": "string", "enum": ["video", "image", "any"], "description": "Media kind to search. Default video."},
+            "limit": {"type": "integer", "description": "Max results. Default 5."},
+            "paths": {"type": "array", "items": {"type": "string"}, "description": "Optional extra local files/folders to include in the search."},
+        },
+        ["query"],
+    ),
+    _tool(
+        "set_shotlist",
+        "Draft or replace the whole storyboard (shotlist) for outline/storyboard-driven editing. Turn the user's brief/outline into scenes → shots; each shot states what it should show, how long, on-screen text, and how to source footage. This is a PLAN, not the timeline — nothing renders until you assemble_shotlist. Prefer source='search' (find real footage) and only source='generate' when nothing fits. Persisted + undoable.",
+        {
+            "shotlist": {
+                "type": "object",
+                "description": "The storyboard plan.",
+                "properties": {
+                    "logline": {"type": "string", "description": "One-line summary of the video."},
+                    "style": {"type": "string", "description": "Look/tone, e.g. 'cinematic promo, warm'."},
+                    "target_duration_sec": {"type": "number", "description": "Optional total target length."},
+                    "scenes": {
+                        "type": "array",
+                        "description": "Ordered scenes, each a group of shots.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Stable scene id (optional; auto-filled)."},
+                                "title": {"type": "string"},
+                                "shots": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "string", "description": "Stable shot id you will reference in update_shot (optional; auto-filled)."},
+                                            "description": {"type": "string", "description": "What this shot shows (the visual intent)."},
+                                            "duration_sec": {"type": "number", "description": "Planned on-screen duration. Default 3."},
+                                            "on_screen_text": {"type": "string", "description": "Optional title/caption burned over this shot."},
+                                            "source": {"type": "string", "enum": ["search", "generate", "unset"], "description": "How to fill this shot. Prefer 'search'."},
+                                            "search_query": {"type": "string", "description": "Query for search_frames/search_media when source='search'."},
+                                            "transition_after": {
+                                                "type": "object",
+                                                "description": "Transition INTO the next shot (omit or kind='cut' for a hard cut).",
+                                                "properties": {
+                                                    "kind": {"type": "string", "enum": ["cut", "dissolve", "wipe", "fade"]},
+                                                    "duration_sec": {"type": "number"},
+                                                },
+                                            },
+                                            "notes": {"type": "string"},
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        ["shotlist"],
+    ),
+    _tool(
+        "update_shot",
+        "Revise ONE shot in the current shotlist by id without resending the whole plan. Use to mark a shot filled (set asset_id + source) after search/generate, to mark it placed (clip_id) after assembly, or to retime/reword it. The shot 'id' itself cannot be changed. Persisted + undoable.",
+        {
+            "shot_id": {"type": "string", "description": "The shot's id (from set_shotlist / get_shotlist)."},
+            "fields": {
+                "type": "object",
+                "description": "Fields to merge, e.g. {asset_id, source, status, duration_sec, on_screen_text, search_query, description, transition_after, notes}.",
+                "properties": {
+                    "asset_id": {"type": "string"},
+                    "source": {"type": "string", "enum": ["search", "generate", "unset"]},
+                    "status": {"type": "string", "enum": ["draft", "filled", "placed"]},
+                    "duration_sec": {"type": "number"},
+                    "on_screen_text": {"type": "string"},
+                    "search_query": {"type": "string"},
+                    "description": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+            },
+        },
+        ["shot_id", "fields"],
+    ),
+    _tool(
+        "get_shotlist",
+        "Read the current storyboard (shotlist) with each shot's id, status, planned duration, source, asset_id, and clip_id. Call before revising shots or assembling so you use the right shot ids.",
+        {},
+        [],
+    ),
+    _tool(
+        "narrate",
+        "Turn a line of script into spoken voiceover (human-voice text-to-speech). Use this for narration/口播/解说 — generate_audio only makes music. Returns an audio asset_id and its measured duration, so you can pace the cut to the voiceover. Pass a system voice name (English 'Ava'/'Samantha', Chinese 'Tingting'/'Meijia') or omit for the system default.",
+        {
+            "text": {"type": "string", "description": "The script line(s) to speak."},
+            "voice": {"type": "string", "description": "System TTS voice name. Omit for the system default."},
+            "rate": {"type": "integer", "description": "Speaking rate in words per minute (80–400, default 175)."},
+        },
+        ["text"],
+    ),
+    _tool(
+        "subtitle",
+        "Put a timed subtitle track on a video and return a NEW video asset_id. source='text' (default): caption from words you already have (a narration script or explicit cues) — split evenly across the clip, exact wording, always works. source='transcribe': recover the words from the video's own speech via Whisper (needs openai-whisper). Use burn=false to add a toggleable soft-subtitle track instead of hard-coding it.",
+        {
+            "asset_id": {"type": "string", "description": "The video asset to caption."},
+            "source": {"type": "string", "enum": ["text", "transcribe"], "description": "Where the words come from. Default 'text'."},
+            "text": {"type": "string", "description": "The subtitle text (source='text'). Split into timed cues across the clip."},
+            "cues": {"type": "array", "description": "Optional explicit cues [{start,end,text}] instead of auto-splitting text.",
+                     "items": {"type": "object", "properties": {
+                         "start": {"type": "number"}, "end": {"type": "number"}, "text": {"type": "string"}}}},
+            "language": {"type": "string", "description": "Language code for transcribe (e.g. 'en', 'zh') or soft-track tag."},
+            "burn": {"type": "boolean", "description": "Burn into the picture (default true) or mux a toggleable soft track (false)."},
+            "style": {"type": "object", "description": "Optional look: font_size, font_color, outline_color, outline_width, margin_v."},
+        },
+        ["asset_id"],
+    ),
+    _tool(
+        "animate_captions",
+        "Add per-word animated captions (karaoke/word-pop, TikTok/Reels style) to a video and return a NEW video asset_id. Unlike `subtitle` (a static line track), each word highlights as it lands. Supply `text` (words spread evenly across the clip — no ASR needed) or explicit `word_timings` for exact sync. Renders per-frame, so it's slower — use it for the hero caption pass, not every clip.",
+        {
+            "asset_id": {"type": "string", "description": "The video asset to caption."},
+            "text": {"type": "string", "description": "The words to animate (distributed evenly across the clip)."},
+            "word_timings": {"type": "array", "description": "Optional exact per-word timing [{word,start_seconds,end_seconds}] instead of even distribution.",
+                             "items": {"type": "object", "properties": {
+                                 "word": {"type": "string"}, "start_seconds": {"type": "number"}, "end_seconds": {"type": "number"}}}},
+            "preset": {"type": "string", "enum": ["karaoke_pop", "quiet_captions"], "description": "Animation style. Default karaoke_pop (active word pops); quiet_captions is subtler."},
+            "font_size": {"type": "integer", "description": "Caption font size in px. Default 54."},
+            "active_color": {"type": "string", "description": "Color of the currently-spoken word. Default yellow."},
+            "inactive_color": {"type": "string", "description": "Color of the other words. Default white."},
+        },
+        ["asset_id"],
+    ),
+    _tool(
         "annotate_media",
         "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
         {

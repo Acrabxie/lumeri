@@ -59,7 +59,108 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
         "metadata": {
             "generator": "gemia",
         },
+        "shotlist": empty_shotlist(),
     }
+
+
+# ── shotlist / storyboard IR ──────────────────────────────────────────────
+# The shotlist is an outline/storyboard-driven editing plan that lives inside
+# project_state so it inherits the append-only patch log (undo + audit) for
+# free, exactly like timeline edits. It is orthogonal to the timeline: shots
+# describe *intent* (what each beat should show, how long, what text), while
+# clips are the *result* once a shot is filled with an asset and assembled.
+
+SHOT_SOURCES = {"search", "generate", "unset"}
+SHOT_STATUSES = {"draft", "filled", "placed"}
+_SHOT_TRANSITIONS = {"cut", "dissolve", "wipe", "fade"}
+
+
+def empty_shotlist() -> dict[str, Any]:
+    return {
+        "logline": "",
+        "style": "",
+        "target_duration_sec": None,
+        "scenes": [],
+    }
+
+
+def _normalize_transition(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("kind") or "cut").strip().lower()
+    if kind not in _SHOT_TRANSITIONS:
+        kind = "cut"
+    if kind == "cut":
+        return None
+    return {"kind": kind, "duration_sec": max(0.0, _float_or(raw.get("duration_sec"), 0.5))}
+
+
+def _normalize_shot(raw: Any, *, scene_idx: int, shot_idx: int) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    source = str(raw.get("source") or "unset").strip().lower()
+    if source not in SHOT_SOURCES:
+        source = "unset"
+    status = str(raw.get("status") or "draft").strip().lower()
+    if status not in SHOT_STATUSES:
+        status = "draft"
+    return {
+        "id": str(raw.get("id") or "") or f"s{scene_idx}_shot{shot_idx}",
+        "description": str(raw.get("description") or ""),
+        "duration_sec": max(0.1, _float_or(raw.get("duration_sec"), 3.0)),
+        "on_screen_text": _optional_str(raw.get("on_screen_text")),
+        "source": source,
+        "search_query": _optional_str(raw.get("search_query")),
+        "asset_id": _optional_str(raw.get("asset_id")),
+        "clip_id": _optional_str(raw.get("clip_id")),
+        "transition_after": _normalize_transition(raw.get("transition_after")),
+        "status": status,
+        "notes": _optional_str(raw.get("notes")),
+    }
+
+
+def _normalize_scene(raw: Any, *, scene_idx: int) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    shots_raw = raw.get("shots") if isinstance(raw.get("shots"), list) else []
+    shots = [
+        _normalize_shot(shot, scene_idx=scene_idx, shot_idx=i)
+        for i, shot in enumerate(shots_raw)
+    ]
+    return {
+        "id": str(raw.get("id") or "") or f"scene{scene_idx}",
+        "title": str(raw.get("title") or ""),
+        "shots": shots,
+    }
+
+
+def normalize_shotlist(raw: Any) -> dict[str, Any]:
+    """Coerce a (possibly partial, model-authored) shotlist into canonical shape.
+
+    Never raises: unknown/garbage entries are dropped, ids are backfilled, and
+    numeric/enum fields are clamped so a half-formed draft still round-trips.
+    """
+    if not isinstance(raw, dict):
+        return empty_shotlist()
+    scenes_raw = raw.get("scenes") if isinstance(raw.get("scenes"), list) else []
+    scenes = [_normalize_scene(scene, scene_idx=i) for i, scene in enumerate(scenes_raw)]
+    target = raw.get("target_duration_sec")
+    return {
+        "logline": str(raw.get("logline") or ""),
+        "style": str(raw.get("style") or ""),
+        "target_duration_sec": (
+            round(_float_or(target, 0.0), 3) if isinstance(target, (int, float)) else None
+        ),
+        "scenes": scenes,
+    }
+
+
+def iter_shots(shotlist: dict[str, Any]):
+    """Yield ``(scene, shot)`` pairs in scene/shot order for a normalized shotlist."""
+    for scene in (shotlist or {}).get("scenes") or []:
+        if not isinstance(scene, dict):
+            continue
+        for shot in scene.get("shots") or []:
+            if isinstance(shot, dict):
+                yield scene, shot
 
 
 def normalize_project(
@@ -234,6 +335,7 @@ def _normalize_canonical_project(project: dict[str, Any], *, account_id: str | N
     }
     metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
     normalized["metadata"] = {**normalized["metadata"], **metadata}
+    normalized["shotlist"] = normalize_shotlist(project.get("shotlist"))
     return normalized
 
 

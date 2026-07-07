@@ -38,7 +38,9 @@ from gemia.tools._schema import TOOL_NAMES, TOOL_SCHEMAS
 from gemia.tools import add_overlay as _add_overlay
 from gemia.tools import adjust_media as _adjust_media
 from gemia.tools import analyze_media as _analyze_media
+from gemia.tools import animate_captions as _animate_captions
 from gemia.tools import arrange_timeline as _arrange_timeline
+from gemia.tools import assemble_shotlist as _assemble_shotlist
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
@@ -61,6 +63,7 @@ from gemia.tools import lottie as _lottie
 from gemia.tools import log_note as _log_note
 from gemia.tools import media_annotations as _media_annotations
 from gemia.tools import mix_audio as _mix_audio
+from gemia.tools import narrate as _narrate
 from gemia.tools import paint as _paint
 from gemia.tools import probe_media as _probe_media
 from gemia.tools import remember as _remember
@@ -69,7 +72,10 @@ from gemia.tools import safe_areas as _safe_areas
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
 from gemia.tools import search_media as _search_media
+from gemia.tools import search_frames as _search_frames
+from gemia.tools import shotlist as _shotlist
 from gemia.tools import smart_reframe as _smart_reframe
+from gemia.tools import subtitle as _subtitle
 from gemia.tools import timeline as _timeline
 from gemia.tools import transform_geometry as _transform_geometry
 from gemia.tools import web_search as _web_search
@@ -112,6 +118,14 @@ _REAL: dict[str, Dispatcher] = {
     "generate_audio":     _generate_audio.dispatch,
     "search_library":     _search_library.dispatch,
     "search_media":       _search_media.dispatch,
+    "search_frames":      _search_frames.dispatch,
+    "narrate":            _narrate.dispatch,
+    "subtitle":           _subtitle.dispatch,
+    "animate_captions":   _animate_captions.dispatch,
+    "assemble_shotlist":  _assemble_shotlist.dispatch,
+    "set_shotlist":       _shotlist.dispatch_set,
+    "update_shot":        _shotlist.dispatch_update_shot,
+    "get_shotlist":       _shotlist.dispatch_get,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,
     "write_media_annotation": _media_annotations.dispatch_write,
