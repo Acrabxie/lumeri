@@ -5,9 +5,12 @@ Two responsibilities:
 ``save_skill`` (``dispatch_save_skill``)
     DISTILL a completed reusable multi-step task into a durable skill so it
     can be reused in later sessions.  A distilled skill captures a compact
-    recipe ``{name, when_to_use, steps, notes}`` and is persisted (one JSON
-    file per name) under ``~/.gemia/skills`` via
-    :class:`gemia.skill_store.DistilledSkillStore`.
+    recipe ``{name, when_to_use, steps, notes}`` and is persisted as one
+    ``.lus`` file per name (docs/lus-skill-format.md) under
+    ``~/.gemia/skills`` via :class:`gemia.skill_store.DistilledSkillStore`.
+    The store validates before writing: skills containing secrets, absolute
+    user paths, or no steps are rejected with a typed
+    :class:`gemia.lus.LusValidationError` and nothing is written.
 
     For backward compatibility with the v4 build-artifact workflow, when the
     caller supplies a ``source`` (a workspace-relative file to archive), this
@@ -24,6 +27,7 @@ Dispatchers must NOT swallow errors; the agent loop wraps each call.
 """
 from __future__ import annotations
 
+from pathlib import PurePath
 from typing import Any
 
 from gemia.skill_store import DistilledSkillStore, recall_skills as _recall_skills
@@ -84,7 +88,15 @@ async def dispatch_save_skill(args: dict[str, Any], ctx: ToolContext) -> dict[st
         steps=steps,
         notes=notes,
         tags=list(tags) if isinstance(tags, (list, tuple)) else None,
+        version=str(args.get("version") or "").strip() or None,
     )
+    summary = (
+        f"Distilled skill '{skill['name']}' v{skill['version']} "
+        f"({len(skill['steps'])} step(s)) → {PurePath(skill['file']).name} for reuse."
+    )
+    lus_warnings = skill.get("warnings") or []
+    if lus_warnings:
+        summary += " Warnings: " + "; ".join(lus_warnings)
     return {
         "skill": skill["name"],
         "source": "distilled",
@@ -92,7 +104,7 @@ async def dispatch_save_skill(args: dict[str, Any], ctx: ToolContext) -> dict[st
         "steps": skill["steps"],
         "notes": skill["notes"],
         "path": skill["file"],
-        "summary": f"Distilled skill '{skill['name']}' ({len(skill['steps'])} step(s)) for reuse.",
+        "summary": summary,
     }
 
 

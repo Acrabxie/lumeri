@@ -1,0 +1,72 @@
+#!lus/1
+---
+name: pitch-deck-title-cards
+version: 1.0.0
+lus_version: 1
+title: Pitch-deck style title cards
+description: Turn a list of section headings into clean slide-like title cards and place them as chapter breaks on the timeline.
+triggers:
+  - title card
+  - title cards
+  - chapter card
+  - section heading
+  - deck style
+  - slide intro
+domain: deck
+tools_used:
+  - generate_image
+  - add_overlay
+  - timeline_insert_clip
+  - get_timeline
+  - get_safe_areas
+  - project_export
+parameters:
+  type: object
+  properties:
+    headings:
+      type: array
+      items:
+        type: string
+      description: Section headings, one card per entry, in display order.
+    card_seconds:
+      type: number
+      minimum: 1
+      description: How long each card holds on screen. Default 3.
+  required:
+    - headings
+author: lumeri-agent
+created_at: 2026-07-06T08:00:00+00:00
+updated_at: 2026-07-06T08:00:00+00:00
+language: en
+safety:
+  requires_paid_generation: true
+  mutates_project: true
+checksum: sha256:cefb5e697fda3533a12fa7336f13dfed83fb41b3adf770431512cfc68928ffee
+---
+
+## When to use
+The user wants slide-deck style chapter/section cards inside a video: a clean
+background, one large heading per card, inserted between existing segments.
+Not for lower-thirds or subtitles (use `subtitle` / `add_overlay` directly).
+
+## Steps
+1. Confirm the `headings` list with the user if it was not given explicitly.
+2. Call `get_safe_areas` once to get the title-safe rectangle for the project resolution.
+3. For each heading, call `generate_image` with a minimal flat-background prompt
+   (state brand color if the user gave one; otherwise neutral dark background).
+   This is a PAID generation - respect budget gates and reuse one background for
+   all cards when possible.
+4. Call `add_overlay` to set the heading text on the card image, centered inside
+   the title-safe area, one text layer per card.
+5. Call `get_timeline` to find segment boundaries, then `timeline_insert_clip`
+   each card at its section start with `duration_sec: card_seconds`.
+6. `project_export` a preview and ask the user to confirm typography before
+   any further styling passes.
+
+## Pitfalls
+- Do not regenerate the background per card; one `generate_image` call plus
+  per-card `add_overlay` text is cheaper and visually consistent.
+- Long headings overflow the safe area: wrap to two lines rather than shrinking
+  the font below readable size.
+- Inserting cards shifts later clips; insert from the last section backwards so
+  earlier boundaries stay valid while you work.

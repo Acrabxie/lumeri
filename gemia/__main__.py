@@ -41,6 +41,14 @@ def main() -> None:
 
     p_list_skills = sub.add_parser("list-skills", help="List all saved v2 skills")
 
+    p_migrate_skills = sub.add_parser(
+        "migrate-skills",
+        help="One-shot: migrate legacy distilled skill JSONs to .lus (docs/lus-skill-format.md §8)")
+    p_migrate_skills.add_argument("--dry-run", action="store_true",
+                                  help="Print the migration plan without writing anything")
+    p_migrate_skills.add_argument("--root", default=None,
+                                  help="Skills root to migrate (default: the distilled skill store)")
+
     p_run_skill_v2 = sub.add_parser("run-skill-v2", help="Run a saved v2 skill")
     p_run_skill_v2.add_argument("skill_name", help="Skill name")
     p_run_skill_v2.add_argument("--video", required=True, help="Input video path")
@@ -261,6 +269,8 @@ def main() -> None:
         _cmd_save_skill(args)
     elif args.command == "list-skills":
         _cmd_list_skills()
+    elif args.command == "migrate-skills":
+        _cmd_migrate_skills(args)
     elif args.command == "run-skill-v2":
         _cmd_run_skill_v2(args)
     elif args.command == "render-layer-plan":
@@ -773,6 +783,21 @@ def _cmd_save_skill(args: argparse.Namespace) -> None:
     print(f"  File: {path}")
     print(f"  Steps: {len(steps)}")
     print(f"  Origin task: {skill.get('origin_task_id')}")
+
+
+def _cmd_migrate_skills(args: argparse.Namespace) -> None:
+    """One-shot migration of legacy distilled skill JSONs to .lus (spec §8)."""
+    from .skill_store import migrate_distilled_to_lus
+
+    report = migrate_distilled_to_lus(args.root, dry_run=args.dry_run)
+    if not report:
+        print("No legacy skill JSONs found; nothing to migrate.")
+        return
+    for entry in report:
+        line = f"{entry['file']}: {entry['status']}"
+        if entry.get("detail"):
+            line += f" — {entry['detail']}"
+        print(line)
 
 
 def _cmd_list_skills() -> None:

@@ -28,9 +28,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from gemia import lus as _lus
 
 
 def distilled_skills_dir() -> Path:
@@ -50,8 +53,229 @@ def distilled_skills_dir() -> Path:
 
 
 def _distill_slug(text: str) -> str:
-    """Slug for a distilled-skill filename (keeps CJK, reuses :func:`_slugify`)."""
+    """Slug for a LEGACY distilled-skill JSON filename (keeps CJK).
+
+    Only used to read/locate unmigrated ``<slug>.json`` files; new writes use
+    the ``.lus`` machine name from :func:`gemia.lus.derive_name` (spec D2).
+    """
     return _slugify(text)
+
+
+# ── .lus mapping helpers (docs/lus-skill-format.md §7.1) ───────────────────
+
+
+_STEP_PREFIX_RE = re.compile(r"^([0-9]+)\.\s+(.*)$")
+_SEMVER_CORE_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+
+
+def _known_tool_names() -> frozenset[str] | None:
+    """``TOOL_NAMES`` as a frozenset, or ``None`` if the tools package is
+    unavailable (keeps the store importable/testable standalone)."""
+    try:
+        from gemia.tools._schema import TOOL_NAMES
+        return frozenset(TOOL_NAMES)
+    except Exception:
+        return None
+
+
+def _plan_blocked_tools() -> frozenset[str]:
+    try:
+        from gemia.plan_mode import PLAN_BLOCKED_TOOLS
+        return PLAN_BLOCKED_TOOLS
+    except Exception:
+        return frozenset()
+
+
+def _single_line(text: Any, max_len: int) -> str:
+    return " ".join(str(text or "").split())[:max_len].strip()
+
+
+def _derive_triggers(tags: Any, title: str) -> list[str]:
+    """§7.1: ``tags`` → ``triggers`` (deduplicated, capped at 16); the title
+    is the fallback when no tags were given (``triggers`` is REQUIRED)."""
+    source = [str(t) for t in (tags or []) if str(t).strip()] or [title]
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in source:
+        item = _single_line(tag, 64)
+        if not item or item.lower() in seen:
+            continue
+        seen.add(item.lower())
+        out.append(item)
+        if len(out) == 16:
+            break
+    return out or [_single_line(title, 64)]
+
+
+def _numbered_steps(steps_list: list[str]) -> list[str]:
+    """Number the coerced steps; already-numbered strings are not
+    double-numbered (§7.1, reusing the :func:`_coerce_steps` output)."""
+    numbered: list[str] = []
+    for index, step in enumerate(steps_list, 1):
+        line = " ".join(str(step).split())
+        if _STEP_PREFIX_RE.match(line):
+            numbered.append(line)
+        else:
+            numbered.append(f"{index}. {line}")
+    return numbered
+
+
+def _bump_patch(version: str) -> str:
+    match = _SEMVER_CORE_RE.match(str(version or ""))
+    if not match:
+        return "1.0.0"
+    return f"{match.group(1)}.{match.group(2)}.{int(match.group(3)) + 1}"
+
+
+def _build_lus_document(
+    *,
+    title: str,
+    when_to_use: Any = "",
+    steps: Any = None,
+    notes: Any = "",
+    tags: Any = None,
+    version: str = "1.0.0",
+    created_at: str,
+    updated_at: str,
+    domain: str = "video",
+) -> tuple[str, "_lus.LusMeta", str, list[str], list["_lus.LusWarning"]]:
+    """Map save_skill/legacy-JSON args onto a validated .lus document (§7.1).
+
+    Returns ``(text, meta, body, step_list, warnings)``. Raises
+    :class:`gemia.lus.LusValidationError` when the content violates the
+    format (secrets, absolute paths, empty steps, oversize, ...) — callers
+    surface the error, never swallow it (§7.1 step 1).
+    """
+    clean_title = _single_line(title, 80)
+    when_text = str(when_to_use or "").strip()
+    notes_text = str(notes or "").strip()
+    steps_list = _coerce_steps(steps)
+    description = _single_line(when_text, 500) or _single_line(clean_title, 500)
+    numbered = _numbered_steps(steps_list)
+
+    when_section = when_text or description
+    parts = ["## When to use\n" + when_section, "## Steps\n" + "\n".join(numbered)]
+    if notes_text:
+        parts.append("## Pitfalls\n" + notes_text)
+    body = "\n\n".join(parts)
+
+    known_tools = _known_tool_names()
+    tools_used = _lus.extract_tools_used("\n".join(numbered), known_tools or frozenset())
+    meta = _lus.LusMeta(
+        name=_lus.derive_name(clean_title),
+        version=version,
+        lus_version=1,
+        title=clean_title,
+        description=description,
+        triggers=tuple(_derive_triggers(tags, clean_title)),
+        domain=domain,
+        tools_used=tuple(tools_used),
+        parameters={"type": "object", "properties": {}},
+        author="lumeri-agent",
+        created_at=created_at,
+        updated_at=updated_at,
+        language=_lus.detect_language(body),
+        safety_requires_paid_generation=bool(set(tools_used) & _lus.PAID_GENERATION_TOOLS),
+        safety_mutates_project=bool(set(tools_used) & _plan_blocked_tools()),
+        checksum=None,
+        extra={},
+    )
+    text = _lus.serialize_lus(meta, body)
+    validated, validated_body, warnings = _lus.validate_lus(text, known_tools=known_tools)
+    return text, validated, validated_body, steps_list, warnings
+
+
+def _meta_content_key(meta: "_lus.LusMeta", body: str) -> tuple:
+    """Change-detection key: everything except version/updated_at/checksum
+    (§7.1 step 2)."""
+    return (
+        meta.name, meta.title, meta.description, meta.triggers, meta.domain,
+        meta.tools_used, json.dumps(meta.parameters, sort_keys=True, ensure_ascii=False),
+        meta.author, meta.created_at, meta.language,
+        meta.safety_requires_paid_generation, meta.safety_mutates_project,
+        "\n" + str(body).strip("\n") + "\n",
+    )
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Temp file in the same directory + ``os.replace`` (§7.1 step 3 — the
+    store is shared by concurrent sessions)."""
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".lus-tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        os.replace(tmp_name, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _split_body_sections(body: str) -> dict[str, str]:
+    """Split a .lus body into ``{'## Heading': content}`` (fence-aware)."""
+    sections: dict[str, str] = {}
+    current: str | None = None
+    buffer: list[str] = []
+    in_fence = False
+    for line in str(body or "").split("\n"):
+        if line.startswith("```"):
+            in_fence = not in_fence
+            if current is not None:
+                buffer.append(line)
+            continue
+        if not in_fence and line.startswith("## "):
+            if current is not None:
+                sections[current] = "\n".join(buffer).strip("\n")
+            current = line
+            buffer = []
+            continue
+        if current is not None:
+            buffer.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buffer).strip("\n")
+    return sections
+
+
+def _steps_from_body(body: str) -> list[str]:
+    """§7.2: the numbered items parsed from ``## Steps`` (numbering stripped,
+    continuation lines folded into their step)."""
+    section = _split_body_sections(body).get("## Steps", "")
+    steps: list[str] = []
+    for line in section.split("\n"):
+        match = _STEP_PREFIX_RE.match(line)
+        if match:
+            steps.append(match.group(2).strip())
+        elif steps and line.strip():
+            steps[-1] = steps[-1] + " " + line.strip()
+    return steps
+
+
+def _lus_record(meta: "_lus.LusMeta", body: str,
+                warnings: list["_lus.LusWarning"], path: Path) -> dict[str, Any]:
+    """Project a parsed .lus file into the legacy record shape the recall
+    pipeline consumes (``_recall_view`` stays unchanged, §7.2)."""
+    notes = _split_body_sections(body).get("## Pitfalls", "").strip()
+    if any(w.code == "W_LUS_CHECKSUM_STALE" for w in warnings):
+        stale = "[warning: checksum stale — body was hand-edited since the last save]"
+        notes = f"{notes}\n{stale}" if notes else stale
+    return {
+        "name": meta.title,
+        "machine_name": meta.name,
+        "source": "distilled",
+        "when_to_use": meta.description,
+        "steps": _steps_from_body(body),
+        "notes": notes,
+        "tags": list(meta.triggers),
+        "triggers": list(meta.triggers),
+        "version": meta.version,
+        "domain": meta.domain,
+        "language": meta.language,
+        "created_at": meta.created_at,
+        "updated_at": meta.updated_at,
+        "file": str(path),
+    }
 
 
 def _coerce_steps(steps: Any) -> list[str]:
@@ -103,11 +327,18 @@ class DistilledSkillStore:
         steps: Any = None,
         notes: str = "",
         tags: list[str] | None = None,
+        version: str | None = None,
     ) -> dict[str, Any]:
-        """Distill a completed reusable task into a durable skill.
+        """Distill a completed reusable task into a durable ``.lus`` skill.
 
-        Idempotent by ``name``: re-distilling the same name overwrites the
-        existing file (no duplicates) while preserving ``created_at``.
+        Idempotent by ``name`` (the display title): re-distilling the same
+        title hits the same ``<machine-name>.lus`` file, preserving
+        ``created_at``, keeping exactly one ``.lus.bak`` generation, and
+        patch-bumping ``version`` when the content changed (spec §7.1).
+
+        Raises :class:`gemia.lus.LusValidationError` when the content
+        violates the format (secrets, absolute paths, oversize, no steps) —
+        nothing is written in that case.
 
         Returns the stored skill dict (including ``file`` path).
         """
@@ -116,37 +347,111 @@ class DistilledSkillStore:
             raise ValueError("distill requires a non-empty 'name'")
 
         self._ensure_dir()
-        slug = _distill_slug(clean_name)
-        path = self.root_dir / f"{slug}.json"
+        machine = _lus.derive_name(clean_name)
+        path = self.root_dir / f"{machine}.lus"
 
-        created_at = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        created_at = now
+        old_meta: _lus.LusMeta | None = None
+        old_body: str | None = None
         if path.exists():
             try:
-                prior = json.loads(path.read_text(encoding="utf-8"))
-                created_at = prior.get("created_at", created_at)
+                old_meta, old_body, _old_warnings = _lus.validate_lus(
+                    path.read_text(encoding="utf-8"))
+                created_at = old_meta.created_at or created_at
             except Exception:
-                pass
+                old_meta = None
+                old_body = None
+        else:
+            # Transition nicety: an unmigrated legacy JSON twin keeps its
+            # created_at when the re-save lands as .lus (dual-read, D9).
+            legacy = self.root_dir / f"{_distill_slug(clean_name)}.json"
+            if legacy.exists():
+                try:
+                    prior = json.loads(legacy.read_text(encoding="utf-8"))
+                    prior_created = str(prior.get("created_at") or "")
+                    if datetime.fromisoformat(prior_created).tzinfo is not None:
+                        created_at = prior_created
+                except Exception:
+                    pass
 
-        skill = {
+        caller_version = str(version).strip() if version else ""
+        caller_version_ok = bool(_SEMVER_CORE_RE.match(caller_version))
+        if caller_version_ok:
+            new_version = caller_version
+        elif old_meta is not None:
+            new_version = old_meta.version  # provisional; bumped below on change
+        else:
+            new_version = "1.0.0"
+
+        text, meta, body, steps_list, warnings = _build_lus_document(
+            title=clean_name, when_to_use=when_to_use, steps=steps,
+            notes=notes, tags=tags, version=new_version,
+            created_at=created_at, updated_at=now,
+        )
+        if old_meta is not None and old_body is not None and not caller_version_ok:
+            if _meta_content_key(meta, body) != _meta_content_key(old_meta, old_body):
+                new_version = _bump_patch(old_meta.version)
+                text, meta, body, steps_list, warnings = _build_lus_document(
+                    title=clean_name, when_to_use=when_to_use, steps=steps,
+                    notes=notes, tags=tags, version=new_version,
+                    created_at=created_at, updated_at=now,
+                )
+
+        if path.exists():
+            # Exactly ONE .bak generation, overwritten on each re-save (§7.1).
+            bak = self.root_dir / f"{machine}.lus.bak"
+            bak.write_bytes(path.read_bytes())
+        _atomic_write_text(path, text)
+
+        return {
             "name": clean_name,
+            "machine_name": machine,
             "source": "distilled",
-            "when_to_use": str(when_to_use or "").strip(),
-            "steps": _coerce_steps(steps),
+            "when_to_use": str(when_to_use or "").strip() or meta.description,
+            "steps": steps_list,
             "notes": str(notes or "").strip(),
-            "tags": [str(t).strip() for t in (tags or []) if str(t).strip()],
-            "created_at": created_at,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "tags": list(meta.triggers),
+            "version": meta.version,
+            "language": meta.language,
+            "created_at": meta.created_at,
+            "updated_at": meta.updated_at,
+            "file": str(path),
+            "warnings": [f"{w.code}: {w.message}" for w in warnings],
         }
-        path.write_text(json.dumps(skill, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        result = dict(skill)
-        result["file"] = str(path)
-        return result
 
     def list_distilled(self) -> list[dict[str, Any]]:
-        """Return all distilled skills (ignoring dotfile/AppleDouble sidecars)."""
+        """Return all distilled skills — dual-read (D9): ``*.lus`` first,
+        then legacy ``*.json`` for names not yet migrated; on collision the
+        ``.lus`` wins.  Dotfile/AppleDouble sidecars are ignored."""
         if not self.root_dir.exists():
             return []
         skills: list[dict[str, Any]] = []
+        lus_titles: set[str] = set()
+        lus_machine: set[str] = set()
+        for p in sorted(self.root_dir.glob("*.lus")):
+            if p.name.startswith("."):
+                continue
+            try:
+                meta, body, warnings = _lus.validate_lus(
+                    p.read_text(encoding="utf-8"), filename=p.name)
+            except Exception:
+                continue
+            skills.append(_lus_record(meta, body, warnings, p))
+            lus_titles.add(meta.title)
+            lus_machine.add(meta.name)
+        skills.extend(self._legacy_distilled(lus_titles, lus_machine))
+        return skills
+
+    def _legacy_distilled(
+        self,
+        exclude_titles: set[str] = frozenset(),
+        exclude_machine: set[str] = frozenset(),
+    ) -> list[dict[str, Any]]:
+        """Unmigrated legacy ``*.json`` records, minus ``.lus`` collisions."""
+        if not self.root_dir.exists():
+            return []
+        out: list[dict[str, Any]] = []
         for p in sorted(self.root_dir.glob("*.json")):
             if p.name.startswith("."):
                 continue
@@ -156,21 +461,66 @@ class DistilledSkillStore:
                 continue
             if not isinstance(data, dict):
                 continue
+            legacy_name = str(data.get("name") or "")
+            if legacy_name in exclude_titles or _lus.derive_name(legacy_name) in exclude_machine:
+                continue  # D9: same name in both formats → .lus wins
             data.setdefault("source", "distilled")
             data["file"] = str(p)
-            skills.append(data)
-        return skills
+            out.append(data)
+        return out
+
+    def scan_distilled_metadata(self) -> list[dict[str, Any]]:
+        """§7.2 cheap scan: metadata-only ``.lus`` candidates for ranking.
+
+        Reads at most the first 8 KiB per file (the meta block is guaranteed
+        to fit, D6); bodies are NOT read — the recall pipeline loads bodies
+        for the top-``limit`` winners only.  Malformed files are skipped.
+        """
+        if not self.root_dir.exists():
+            return []
+        out: list[dict[str, Any]] = []
+        for p in sorted(self.root_dir.glob("*.lus")):
+            if p.name.startswith("."):
+                continue
+            try:
+                with p.open("rb") as handle:
+                    head = handle.read(_lus.META_MAX_BYTES)
+                meta = _lus.scan_lus_meta(head)
+            except Exception:
+                continue
+            out.append({
+                "name": meta.title,
+                "machine_name": meta.name,
+                "source": "distilled",
+                "when_to_use": meta.description,
+                "steps": [],
+                "notes": "",
+                "tags": list(meta.triggers),
+                "triggers": list(meta.triggers),
+                "version": meta.version,
+                "domain": meta.domain,
+                "language": meta.language,
+                "created_at": meta.created_at,
+                "updated_at": meta.updated_at,
+                "_lus_path": str(p),
+            })
+        return out
 
     def load(self, name: str) -> dict[str, Any]:
-        """Load a distilled skill by exact name (or slug filename)."""
+        """Load a distilled skill by title, machine name, or filename stem."""
         target = str(name or "").strip()
         for data in self.list_distilled():
-            if data.get("name") == target:
+            if data.get("name") == target or data.get("machine_name") == target:
                 return data
-        path = self.root_dir / f"{_distill_slug(target)}.json"
+        path = self.root_dir / f"{_lus.derive_name(target)}.lus"
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            data["file"] = str(path)
+            meta, body, warnings = _lus.validate_lus(
+                path.read_text(encoding="utf-8"), filename=path.name)
+            return _lus_record(meta, body, warnings, path)
+        legacy = self.root_dir / f"{_distill_slug(target)}.json"
+        if legacy.exists():
+            data = json.loads(legacy.read_text(encoding="utf-8"))
+            data["file"] = str(legacy)
             return data
         raise FileNotFoundError(f"Distilled skill not found: {name}")
 
@@ -207,9 +557,17 @@ def _library_skills() -> list[dict[str, Any]]:
 
 
 def _relevance(skill: dict[str, Any], query_terms: list[str], query: str) -> float:
-    """Score a skill against a lowercased query (substring + token overlap)."""
+    """Score a skill against a lowercased query (substring + token overlap).
+
+    For ``.lus`` candidates the §7.2 remap holds: ``name`` carries the title,
+    ``machine_name`` the kebab-case key (both 3.0), ``when_to_use`` the
+    description (2.0), ``tags``/``triggers`` the trigger phrases (2.0);
+    metadata-only candidates have empty ``steps``/``notes`` so those 1.0
+    haystacks only participate for legacy/library skills.
+    """
     haystacks: list[tuple[str, float]] = [
         (str(skill.get("name", "")), 3.0),
+        (str(skill.get("machine_name", "")), 3.0),
         (str(skill.get("when_to_use", "")), 2.0),
         (" ".join(str(t) for t in skill.get("tags", []) or []), 2.0),
         (" ".join(str(t) for t in skill.get("triggers", []) or []), 2.0),
@@ -242,9 +600,20 @@ def recall_skills(
     and the static skill library, ranks by relevance, and returns up to
     ``limit`` skills (name + when_to_use + steps + source).  When the query
     is empty, returns the most recent distilled skills first.
+
+    Per spec §7.2, ``.lus`` skills are ranked on a cheap metadata-only scan
+    (name/title, description, triggers); bodies are loaded only for the
+    winning candidates.  Legacy ``*.json`` skills still participate (D9,
+    ``.lus`` wins on name collision) and a corrupt file never makes recall
+    throw — it is skipped.
     """
     store = store or DistilledSkillStore()
-    candidates: list[dict[str, Any]] = list(store.list_distilled())
+    lus_candidates = store.scan_distilled_metadata()
+    candidates: list[dict[str, Any]] = list(lus_candidates)
+    candidates.extend(store._legacy_distilled(
+        {c["name"] for c in lus_candidates},
+        {c["machine_name"] for c in lus_candidates},
+    ))
     if include_library:
         candidates.extend(_library_skills())
 
@@ -253,28 +622,52 @@ def recall_skills(
 
     if not query:
         # No query: prefer freshly distilled skills, then library order.
-        def _recency(skill: dict[str, Any]) -> tuple[int, str]:
-            is_distilled = 0 if skill.get("source") == "distilled" else 1
-            return (is_distilled, str(skill.get("updated_at") or ""))
-        candidates.sort(key=_recency, reverse=False)
         distilled = [s for s in candidates if s.get("source") == "distilled"]
         distilled.sort(key=lambda s: str(s.get("updated_at") or ""), reverse=True)
         others = [s for s in candidates if s.get("source") != "distilled"]
         ranked = distilled + others
-        return [_recall_view(s) for s in ranked[:limit]]
+    else:
+        scored: list[tuple[float, int, dict[str, Any]]] = []
+        for idx, skill in enumerate(candidates):
+            score = _relevance(skill, query_terms, query)
+            if score > 0:
+                scored.append((score, idx, skill))
+        # Highest score first; stable on original order for ties.
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        ranked = [item[2] for item in scored]
 
-    scored: list[tuple[float, int, dict[str, Any]]] = []
-    for idx, skill in enumerate(candidates):
-        score = _relevance(skill, query_terms, query)
-        if score > 0:
-            scored.append((score, idx, skill))
-    # Highest score first; stable on original order for ties.
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [_recall_view(item[2]) for item in scored[:limit]]
+    results: list[dict[str, Any]] = []
+    for skill in ranked:
+        if len(results) >= limit:
+            break
+        view = _materialize_recall_view(skill)
+        if view is not None:
+            results.append(view)
+    return results
+
+
+def _materialize_recall_view(skill: dict[str, Any]) -> dict[str, Any] | None:
+    """Body-on-selection (§7.2): winners backed by a ``.lus`` file get a full
+    validated read; anything else projects directly.  Returns ``None`` when
+    the file went corrupt/missing since the scan (skip, never throw)."""
+    lus_path = skill.get("_lus_path")
+    if not lus_path:
+        return _recall_view(skill)
+    path = Path(lus_path)
+    try:
+        meta, body, warnings = _lus.validate_lus(
+            path.read_text(encoding="utf-8"), filename=path.name)
+    except Exception:
+        return None
+    return _recall_view(_lus_record(meta, body, warnings, path))
 
 
 def _recall_view(skill: dict[str, Any]) -> dict[str, Any]:
-    """Project a stored skill into a compact recall result."""
+    """Project a stored skill into a compact recall result.
+
+    This is the MODEL-FACING contract of ``recall_skills`` — the key set
+    must not change (spec §7.2; pinned by tests/test_skill_distill.py).
+    """
     return {
         "name": skill.get("name", ""),
         "source": skill.get("source", "distilled"),
@@ -283,6 +676,109 @@ def _recall_view(skill: dict[str, Any]) -> dict[str, Any]:
         "notes": skill.get("notes", ""),
         "tags": list(skill.get("tags", []) or []),
     }
+
+
+# ── One-shot migration: legacy distilled JSON → .lus (spec §8) ─────────────
+
+
+def _carry_timestamps(data: dict[str, Any], now: str) -> tuple[str, str, str]:
+    """§8.2: carry legacy timestamps verbatim when parseable (tz-aware and
+    ordered), else set both to migration time and note it in the report."""
+    def _parse(value: Any) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except Exception:
+            return None
+        return parsed if parsed.tzinfo is not None else None
+
+    created_dt = _parse(data.get("created_at"))
+    updated_dt = _parse(data.get("updated_at"))
+    if created_dt is not None and updated_dt is not None and updated_dt >= created_dt:
+        return str(data["created_at"]), str(data["updated_at"]), ""
+    return now, now, "timestamps unparseable; set to migration time"
+
+
+def migrate_distilled_to_lus(
+    root: str | Path | None = None,
+    *,
+    dry_run: bool = False,
+) -> list[dict[str, Any]]:
+    """Migrate every legacy distilled-skill JSON in the store root to .lus.
+
+    Behavior per docs/lus-skill-format.md §8.3:
+
+    * originals become ``<original-basename>.json.bak`` (never deleted);
+    * skipped when the derived ``<name>.lus`` or the ``.json.bak`` sibling
+      already exists — running twice produces a byte-identical tree;
+    * files whose content violates §4.2 (secrets, absolute paths, ...) are
+      skipped, reported, and left un-renamed for manual review;
+    * derived-name collisions abort THAT file; the run continues.
+
+    Returns a per-file report: ``{"file", "status", "detail"}`` with status
+    ``migrated | skipped(already) | skipped(violation: E_…) | conflict(name)``
+    (plus ``migrated(dry-run)`` when ``dry_run=True``, which writes nothing).
+    """
+    root_dir = Path(root).expanduser() if root else distilled_skills_dir()
+    report: list[dict[str, Any]] = []
+    if not root_dir.exists():
+        return report
+    # Names claimed by files migrated in THIS run (§8.2: two titles deriving
+    # the same machine name is a conflict; a pre-existing .lus is merely
+    # "already migrated"). Dry runs claim too, so the plan matches reality.
+    run_claims: set[str] = set()
+    now = datetime.now(timezone.utc).isoformat()
+    for p in sorted(root_dir.glob("*.json")):
+        if p.name.startswith("."):
+            continue
+        entry: dict[str, Any] = {"file": p.name, "status": "", "detail": ""}
+        report.append(entry)
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not a JSON object")
+        except Exception as exc:
+            entry["status"] = "skipped(violation: invalid-json)"
+            entry["detail"] = str(exc)
+            continue
+        title = str(data.get("name") or "").strip() or p.stem
+        machine = _lus.derive_name(title)
+        lus_path = root_dir / f"{machine}.lus"
+        bak_path = p.with_name(p.name + ".bak")
+        if machine in run_claims:
+            entry["status"] = "conflict(name)"
+            entry["detail"] = f"derived name '{machine}' already claimed in this run"
+            continue
+        if lus_path.exists() or bak_path.exists():
+            entry["status"] = "skipped(already)"
+            continue
+        created_at, updated_at, ts_note = _carry_timestamps(data, now)
+        try:
+            text, _meta, _body, _steps, _warnings = _build_lus_document(
+                title=title,
+                when_to_use=data.get("when_to_use") or "",
+                steps=data.get("steps"),
+                notes=data.get("notes") or "",
+                tags=data.get("tags"),
+                version="1.0.0",
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        except _lus.LusValidationError as exc:
+            entry["status"] = f"skipped(violation: {exc.code})"
+            entry["detail"] = exc.message
+            continue
+        run_claims.add(machine)
+        if dry_run:
+            entry["status"] = "migrated(dry-run)"
+            entry["detail"] = f"would write {lus_path.name}; original → {bak_path.name}" + (
+                f"; {ts_note}" if ts_note else "")
+            continue
+        _atomic_write_text(lus_path, text)
+        os.replace(str(p), str(bak_path))
+        entry["status"] = "migrated"
+        entry["detail"] = f"→ {lus_path.name}; original → {bak_path.name}" + (
+            f"; {ts_note}" if ts_note else "")
+    return report
 
 
 class SkillStore:

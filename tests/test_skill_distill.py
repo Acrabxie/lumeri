@@ -1,10 +1,17 @@
 """Tests for skill DISTILLATION ("沉淀") + recall.
 
-Covers:
-- save_skill distills a reusable task into the durable store (name/when/steps).
-- Re-saving the same name UPDATES, does not duplicate.
+Covers (extended for the .lus store, docs/lus-skill-format.md §7 / WP2 gate):
+- save_skill distills a reusable task into the durable store as a single
+  ``<machine-name>.lus`` file that passes validate_lus.
+- Re-saving the same name UPDATES the same file (patch bump, exactly one
+  ``.lus.bak``, ``created_at`` preserved), does not duplicate.
 - recall_skills returns a matching skill for a query and ranks relevance.
 - recall includes BOTH user-distilled skills and built-in library skills.
+- dual-read (spec D9): a legacy ``*.json`` beside the store is still
+  recalled; on a name collision the ``.lus`` wins.
+- save-time validation: a secret in the steps fails with E_LUS_SECRET and
+  nothing is written.
+- the model-facing ``_recall_view`` shape is PINNED (unchanged by .lus).
 - the combo-stub glob ignores a planted ._fake.yaml AppleDouble dotfile.
 - save_skill + recall_skills are wired into TOOL_NAMES + DISPATCHER + schema.
 
@@ -27,14 +34,18 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _real_jsons(d: Path) -> list[Path]:
-    """JSON files in ``d`` ignoring macOS ._* AppleDouble sidecars.
+def _real_files(d: Path, pattern: str) -> list[Path]:
+    """Files matching ``pattern`` ignoring macOS ._* AppleDouble sidecars.
 
-    The external SSD (non-HFS) auto-creates ._name.json resource forks next
+    The external SSD (non-HFS) auto-creates ._name.* resource forks next
     to every written file; those are not real skills and the store ignores
     them, so the tests count the same way.
     """
-    return [p for p in sorted(d.glob("*.json")) if not p.name.startswith(".")]
+    return [p for p in sorted(d.glob(pattern)) if not p.name.startswith(".")]
+
+
+def _real_lus(d: Path) -> list[Path]:
+    return _real_files(d, "*.lus")
 
 
 @pytest.fixture()
@@ -59,6 +70,7 @@ def ctx(tmp_path: Path) -> ToolContext:
 
 
 def test_distill_persists_name_when_steps(store_dir: Path) -> None:
+    from gemia.lus import validate_lus
     from gemia.skill_store import DistilledSkillStore
 
     store = DistilledSkillStore()
@@ -74,36 +86,59 @@ def test_distill_persists_name_when_steps(store_dir: Path) -> None:
     assert skill["steps"][0].startswith("bump teal")
     assert skill["notes"] == "keep skin tones natural"
 
-    # Persisted to disk as a single JSON file.
-    files = _real_jsons(store_dir)
+    # Persisted to disk as a single .lus file named by the derived machine
+    # key (spec §7.1), and the stored bytes pass validate_lus.
+    files = _real_lus(store_dir)
     assert len(files) == 1
-    data = json.loads(files[0].read_text(encoding="utf-8"))
-    assert data["name"] == "Cyberpunk grade"
-    assert data["source"] == "distilled"
-    assert len(data["steps"]) == 3
+    assert files[0].name == "cyberpunk-grade.lus"
+    meta, body, warnings = validate_lus(
+        files[0].read_text(encoding="utf-8"), filename=files[0].name)
+    assert meta.title == "Cyberpunk grade"
+    assert meta.name == "cyberpunk-grade"
+    assert meta.version == "1.0.0"
+    assert "## Steps" in body
+    assert not any(w.code.startswith("W_LUS_CHECKSUM") for w in warnings)
 
 
 def test_distill_same_name_updates_not_duplicates(store_dir: Path) -> None:
+    from gemia.lus import validate_lus
     from gemia.skill_store import DistilledSkillStore
 
     store = DistilledSkillStore()
     store.distill("Trim intro", when_to_use="cut the first 2s", steps=["trim 0-2s"])
-    first_files = _real_jsons(store_dir)
+    first_files = _real_lus(store_dir)
     assert len(first_files) == 1
-    created_at = json.loads(first_files[0].read_text())["created_at"]
+    first_meta, _, _ = validate_lus(first_files[0].read_text(encoding="utf-8"))
+    assert first_meta.version == "1.0.0"
 
     # Re-distill same name with new content.
-    store.distill("Trim intro", when_to_use="cut the dead air at the head", steps=["trim 0-3s", "fade in"])
+    store.distill("Trim intro", when_to_use="cut the dead air at the head",
+                  steps=["trim 0-3s", "fade in"])
 
-    files = _real_jsons(store_dir)
+    files = _real_lus(store_dir)
     assert len(files) == 1, "same-name distill must update, not duplicate"
-    data = json.loads(files[0].read_text())
-    assert data["when_to_use"] == "cut the dead air at the head"
-    assert data["steps"] == ["trim 0-3s", "fade in"]
-    assert data["created_at"] == created_at  # created_at preserved across update
+    meta, body, _ = validate_lus(files[0].read_text(encoding="utf-8"))
+    assert meta.description == "cut the dead air at the head"
+    assert "1. trim 0-3s" in body and "2. fade in" in body
+    assert meta.created_at == first_meta.created_at  # preserved across update
+    assert meta.version == "1.0.1"  # patch bump on changed content (§7.1)
+
+    # Exactly ONE .bak generation is kept.
+    baks = _real_files(store_dir, "*.lus.bak")
+    assert len(baks) == 1
+    bak_meta, _, _ = validate_lus(baks[0].read_text(encoding="utf-8"))
+    assert bak_meta.version == "1.0.0"
 
     listed = store.list_distilled()
     assert len(listed) == 1
+
+    # Idempotent no-change re-save: version stays put, still one file+bak.
+    store.distill("Trim intro", when_to_use="cut the dead air at the head",
+                  steps=["trim 0-3s", "fade in"])
+    meta2, _, _ = validate_lus(files[0].read_text(encoding="utf-8"))
+    assert meta2.version == "1.0.1"
+    assert len(_real_lus(store_dir)) == 1
+    assert len(_real_files(store_dir, "*.lus.bak")) == 1
 
 
 def test_recall_returns_matching_skill_and_ranks(store_dir: Path) -> None:
@@ -156,6 +191,158 @@ def test_recall_includes_library_and_user(store_dir: Path) -> None:
     assert "library" in sources, "recall must include built-in library skills"
     names = [r["name"] for r in results]
     assert "My custom timeline trick" in names
+
+
+def test_recall_finds_zh_skill_by_zh_query(store_dir: Path) -> None:
+    """e2e: a Chinese-titled skill lands as .lus and is recalled by a zh query."""
+    from gemia.skill_store import DistilledSkillStore, recall_skills
+
+    store = DistilledSkillStore()
+    saved = store.distill(
+        "卡点粗剪",
+        when_to_use="用户要求按音乐节拍卡点剪辑视频素材",
+        steps=["用 `analyze_media` 找节拍", "用 `timeline_insert_clip` 对齐插入"],
+        tags=["卡点", "踩点"],
+    )
+    assert saved["file"].endswith(".lus")
+
+    results = recall_skills("卡点", include_library=False)
+    assert results
+    assert results[0]["name"] == "卡点粗剪"
+    assert results[0]["steps"][0].startswith("用 `analyze_media`")
+
+
+# ── dual-read: legacy JSON beside .lus (spec D9) ─────────────────────────
+
+
+def _write_legacy_json(store_dir: Path, name: str, **over) -> Path:
+    record = {
+        "name": name,
+        "source": "distilled",
+        "when_to_use": "warm faded vintage film look",
+        "steps": ["lower saturation", "add grain"],
+        "notes": "",
+        "tags": ["vintage"],
+        "created_at": "2026-07-01T00:00:00+00:00",
+        "updated_at": "2026-07-01T00:00:00+00:00",
+    }
+    record.update(over)
+    store_dir.mkdir(parents=True, exist_ok=True)
+    path = store_dir / f"{name}.json"
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+def test_legacy_json_planted_beside_store_is_still_recalled(store_dir: Path) -> None:
+    from gemia.skill_store import DistilledSkillStore, recall_skills
+
+    store = DistilledSkillStore()
+    store.distill("Beat cut", when_to_use="beat-synced rough cut",
+                  steps=["find beats", "insert clips"], tags=["beat"])
+    _write_legacy_json(store_dir, "Vintage film",
+                       when_to_use="warm faded vintage film look",
+                       tags=["vintage", "film"])
+
+    results = recall_skills("vintage film look", include_library=False)
+    names = [r["name"] for r in results]
+    assert "Vintage film" in names, "unmigrated legacy JSON must still be recalled"
+
+    # And both formats coexist in the listing.
+    listed_names = {s["name"] for s in store.list_distilled()}
+    assert {"Beat cut", "Vintage film"} <= listed_names
+
+
+def test_same_name_lus_wins_over_legacy_json(store_dir: Path) -> None:
+    from gemia.skill_store import DistilledSkillStore, recall_skills
+
+    store = DistilledSkillStore()
+    # Legacy JSON with the SAME display name but stale steps.
+    _write_legacy_json(store_dir, "Beat cut",
+                       when_to_use="OLD json when_to_use",
+                       steps=["OLD step"], tags=["beat"])
+    store.distill("Beat cut", when_to_use="beat-synced rough cut",
+                  steps=["find beats", "insert clips"], tags=["beat"])
+
+    results = recall_skills("beat", include_library=False)
+    matches = [r for r in results if r["name"] == "Beat cut"]
+    assert len(matches) == 1, "collision must yield ONE result (.lus wins, D9)"
+    assert matches[0]["steps"] == ["find beats", "insert clips"]
+    assert matches[0]["when_to_use"] == "beat-synced rough cut"
+
+    listed = [s for s in store.list_distilled() if s["name"] == "Beat cut"]
+    assert len(listed) == 1
+    assert listed[0]["file"].endswith(".lus")
+
+
+# ── save-time validation (spec §7.1 step 1) ──────────────────────────────
+
+
+def test_save_skill_with_secret_fails_typed_and_writes_nothing(
+        store_dir: Path, ctx: ToolContext) -> None:
+    from gemia.lus import LusValidationError
+    from gemia.tools import save_skill
+
+    with pytest.raises(LusValidationError) as excinfo:
+        _run(save_skill.dispatch_save_skill(
+            {
+                "name": "Sneaky skill",
+                "when_to_use": "never",
+                "steps": ["export API key sk-abcdefghij0123456789 to env"],
+            },
+            ctx,
+        ))
+    assert excinfo.value.code == "E_LUS_SECRET"
+    assert "sk-abcdefghij0123456789" not in str(excinfo.value)
+    assert _real_lus(store_dir) == [], "nothing may be written on rejection"
+    assert _real_files(store_dir, "*.json") == []
+
+
+def test_save_skill_with_absolute_path_fails_typed(store_dir: Path, ctx: ToolContext) -> None:
+    from gemia.lus import LusValidationError
+    from gemia.tools import save_skill
+
+    with pytest.raises(LusValidationError) as excinfo:
+        _run(save_skill.dispatch_save_skill(
+            {
+                "name": "Path skill",
+                "when_to_use": "never",
+                "steps": ["read /Users/somebody/clip.mp4"],
+            },
+            ctx,
+        ))
+    assert excinfo.value.code == "E_LUS_ABS_PATH"
+    assert _real_lus(store_dir) == []
+
+
+# ── model-facing recall view shape (PINNED, spec §7.2) ───────────────────
+
+
+def test_recall_view_shape_is_pinned(store_dir: Path) -> None:
+    """The _recall_view projection is the model-facing contract of
+    recall_skills — its key set must not change with the .lus backend."""
+    from gemia.skill_store import DistilledSkillStore, recall_skills
+
+    store = DistilledSkillStore()
+    store.distill(
+        "Denoise then sharpen",
+        when_to_use="grainy low-light clip that needs cleanup",
+        steps=["denoise", "sharpen"],
+        notes="denoise before sharpen",
+        tags=["denoise"],
+    )
+    results = recall_skills("grainy low-light cleanup", include_library=False)
+    assert results
+    view = results[0]
+    assert set(view.keys()) == {"name", "source", "when_to_use", "steps", "notes", "tags"}
+    assert view["name"] == "Denoise then sharpen"
+    assert view["source"] == "distilled"
+    assert view["when_to_use"] == "grainy low-light clip that needs cleanup"
+    assert view["steps"] == ["denoise", "sharpen"]
+    assert view["notes"] == "denoise before sharpen"
+    assert view["tags"] == ["denoise"]
+    assert isinstance(view["steps"], list)
+    assert all(isinstance(s, str) for s in view["steps"])
 
 
 # ── dotfile glob hardening ───────────────────────────────────────────────

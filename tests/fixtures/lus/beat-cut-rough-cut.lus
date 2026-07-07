@@ -1,0 +1,70 @@
+#!lus/1
+---
+name: beat-cut-rough-cut
+version: 1.0.0
+lus_version: 1
+title: 卡点粗剪
+description: 根据背景音乐的节拍点，把多段视频素材快速拼成一条踩点粗剪时间线，段落切换对齐鼓点。
+triggers:
+  - 卡点
+  - 卡点剪辑
+  - 踩点
+  - 音乐卡点
+  - beat cut
+  - beat sync edit
+domain: video
+tools_used:
+  - analyze_media
+  - search_library
+  - timeline_add_track
+  - timeline_insert_clip
+  - timeline_split_clip
+  - timeline_delete_clip
+  - get_timeline
+  - project_export
+parameters:
+  type: object
+  properties:
+    music_asset:
+      type: string
+      description: 用作节拍参考的音乐素材 asset_id。
+    clip_count:
+      type: integer
+      minimum: 2
+      description: 参与卡点的素材段数，缺省用全部候选素材。
+  required:
+    - music_asset
+author: lumeri-agent
+created_at: 2026-07-06T08:00:00+00:00
+updated_at: 2026-07-06T08:00:00+00:00
+language: zh
+safety:
+  requires_paid_generation: false
+  mutates_project: true
+checksum: sha256:db28da0b4bf97f8760a734f19ed948904f8570ffe1bd30dad8dc0435bedf3928
+---
+
+## When to use
+用户提供（或库里已有）一段背景音乐和多段视频素材，要求"卡点""踩点"或 beat cut 粗剪：
+画面切换点要落在音乐鼓点上。适用于粗剪初版，不负责精修转场和调色。
+
+## Steps
+1. 用 `search_library` 确认候选视频素材与音乐素材的 asset_id；音乐即参数 `music_asset`。
+2. 对 `music_asset` 调 `analyze_media`（`analysis: "beats"`），拿到节拍时间戳列表 beats[]。
+3. 用 `timeline_add_track` 确保 V1 视频轨与 A1 音频轨就绪，把音乐插入 A1（`timeline_insert_clip`，`start_sec: 0`）。
+4. 按素材顺序循环 `timeline_insert_clip` 到 V1：第 i 段的入点对齐 beats[i]，
+   目标时长 = beats[i+1] - beats[i]；素材偏长时先插入再裁。
+5. 对超长片段用 `timeline_split_clip` 在下一个节拍处切开，`timeline_delete_clip`
+   （`ripple: true`）删掉多余尾段，保证每段结束正好落在节拍上。
+6. 用 `get_timeline` 自检：每个 V1 片段的 start_sec 与某个 beat 的偏差应 < 0.05s。
+7. `project_export` 导出粗剪样片给用户预览，再按反馈微调。
+
+## Pitfalls
+- beats[] 首拍常不在 0s：第一段画面从 beats[0] 开始，0 到 beats[0] 之间留黑或垫全景。
+- 素材比节拍间隔短时不要拉伸变速，跳过该拍或换素材，变速交给后续精修。
+- `ripple: true` 会移动后续所有片段，先删后插会破坏已对齐的节拍，务必按时间顺序操作。
+
+## Examples
+```json
+{"tool": "timeline_insert_clip", "args": {"asset_id": "vid_012", "track": "V1", "start_sec": 1.92, "duration_sec": 0.96}}
+```
