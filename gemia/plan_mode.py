@@ -53,7 +53,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
 PLAN_BLOCKED_TOOLS = frozenset({
     "add_overlay", "adjust_media", "animate_captions", "annotate_media",
     "arrange_timeline", "assemble_shotlist",
-    "build", "color_grade", "composite", "copy_in",
+    "build", "color_grade", "composite", "copy_in", "draft_shotlist",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
     "file_write", "generate_audio", "generate_image", "generate_video",
@@ -68,7 +68,7 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
-    "remember", "render_preview", "run_shell", "save_skill",
+    "refine_shot", "remember", "render_preview", "run_shell", "save_skill",
     "narrate", "set_shotlist", "smart_reframe", "subtitle", "update_shot",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",

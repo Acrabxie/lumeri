@@ -519,6 +519,19 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["query"],
     ),
     _tool(
+        "draft_shotlist",
+        "Turn a ONE-LINE theme into a complete promo storyboard in one call: scenes -> shots with durations, on-screen text, voiceover (narration), mood tags, and per-shot search_query, following a proven structure. Use this to START outline-driven editing from just a sentence, then fill each shot (search_frames/search_media/generate_*) and assemble_shotlist. It REPLACES the current shotlist (set replace=false to preview without persisting). A scaffold — refine wording/footage/timings after.",
+        {
+            "theme": {"type": "string", "description": "One line describing the video, e.g. '一款帮你专注的极简待办 App' or 'A minimalist focus timer'."},
+            "template": {"type": "string", "enum": ["promo", "story"], "description": "Structure. 'promo' = Hook→Problem→Solution→Highlights→CTA (default). 'story' = Setup→Rising→Turn→Climax→Resolution."},
+            "target_duration_sec": {"type": "number", "description": "Total target length in seconds. Default 30."},
+            "style": {"type": "string", "description": "Optional look/tone, e.g. 'cinematic promo, warm'."},
+            "language": {"type": "string", "enum": ["zh", "en"], "description": "Language of the drafted text. Auto-detected from the theme if omitted."},
+            "replace": {"type": "boolean", "description": "Replace the current shotlist (default true). false = return the draft without persisting."},
+        },
+        ["theme"],
+    ),
+    _tool(
         "set_shotlist",
         "Draft or replace the whole storyboard (shotlist) for outline/storyboard-driven editing. Turn the user's brief/outline into scenes → shots; each shot states what it should show, how long, on-screen text, and how to source footage. This is a PLAN, not the timeline — nothing renders until you assemble_shotlist. Prefer source='search' (find real footage) and only source='generate' when nothing fits. Persisted + undoable.",
         {
@@ -546,6 +559,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                                             "description": {"type": "string", "description": "What this shot shows (the visual intent)."},
                                             "duration_sec": {"type": "number", "description": "Planned on-screen duration. Default 3."},
                                             "on_screen_text": {"type": "string", "description": "Optional title/caption burned over this shot."},
+                                            "narration": {"type": "string", "description": "Optional voiceover line for this shot (script the narrate tool speaks). Not burned on screen."},
+                                            "mood": {"type": "string", "description": "Optional emotion/tone tag, e.g. 'energetic','tense','hopeful','calm','inviting'."},
                                             "source": {"type": "string", "enum": ["search", "generate", "unset"], "description": "How to fill this shot. Prefer 'search'."},
                                             "search_query": {"type": "string", "description": "Query for search_frames/search_media when source='search'."},
                                             "transition_after": {
@@ -575,13 +590,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "shot_id": {"type": "string", "description": "The shot's id (from set_shotlist / get_shotlist)."},
             "fields": {
                 "type": "object",
-                "description": "Fields to merge, e.g. {asset_id, source, status, duration_sec, on_screen_text, search_query, description, transition_after, notes}.",
+                "description": "Fields to merge, e.g. {asset_id, source, status, duration_sec, on_screen_text, narration, mood, search_query, description, transition_after, notes}.",
                 "properties": {
                     "asset_id": {"type": "string"},
                     "source": {"type": "string", "enum": ["search", "generate", "unset"]},
                     "status": {"type": "string", "enum": ["draft", "filled", "placed"]},
                     "duration_sec": {"type": "number"},
                     "on_screen_text": {"type": "string"},
+                    "narration": {"type": "string"},
+                    "mood": {"type": "string"},
                     "search_query": {"type": "string"},
                     "description": {"type": "string"},
                     "notes": {"type": "string"},
@@ -595,6 +612,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "Read the current storyboard (shotlist) with each shot's id, status, planned duration, source, asset_id, and clip_id. Call before revising shots or assembling so you use the right shot ids.",
         {},
         [],
+    ),
+    _tool(
+        "refine_shot",
+        "Edit ONE already-assembled shot in place WITHOUT reassembling the timeline. Pick exactly one operation: retime (duration_sec), replace footage (asset_id — must be a registered asset, preserves position), recaption (on_screen_text, '' clears it), or remove (remove=true drops the shot's clip). Reuses timeline ops with ripple so neighbors reflow. The shot must already be placed (assemble_shotlist) — otherwise it returns guidance to assemble first. Cheaper than assemble_shotlist(rebuild=true) for a one-shot tweak.",
+        {
+            "shot_id": {"type": "string", "description": "The shot's id (from get_shotlist)."},
+            "duration_sec": {"type": "number", "description": "RETIME: new on-screen duration for this shot."},
+            "asset_id": {"type": "string", "description": "REPLACE: new footage asset (registered). Keeps the shot's position + duration."},
+            "on_screen_text": {"type": "string", "description": "RECAPTION: new burned caption; empty string removes it."},
+            "remove": {"type": "boolean", "description": "REMOVE: true drops this shot's clip (and caption) from the cut."},
+        },
+        ["shot_id"],
     ),
     _tool(
         "narrate",

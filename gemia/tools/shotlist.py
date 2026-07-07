@@ -49,6 +49,10 @@ def _shot_line(scene: dict[str, Any], shot: dict[str, Any]) -> str:
         line += f" — {desc}"
     if shot.get("on_screen_text"):
         line += f'  txt:"{shot["on_screen_text"]}"'
+    if shot.get("mood"):
+        line += f"  ~{shot['mood']}"
+    if shot.get("narration"):
+        line += f'  vo:"{shot["narration"]}"'
     if shot.get("transition_after"):
         t = shot["transition_after"]
         line += f"  ⇥{t.get('kind')}"

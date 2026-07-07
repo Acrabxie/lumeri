@@ -72,6 +72,8 @@ from gemia.tools import safe_areas as _safe_areas
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
 from gemia.tools import search_media as _search_media
+from gemia.tools import draft_shotlist as _draft_shotlist
+from gemia.tools import refine_shot as _refine_shot
 from gemia.tools import search_frames as _search_frames
 from gemia.tools import shotlist as _shotlist
 from gemia.tools import smart_reframe as _smart_reframe
@@ -123,9 +125,11 @@ _REAL: dict[str, Dispatcher] = {
     "subtitle":           _subtitle.dispatch,
     "animate_captions":   _animate_captions.dispatch,
     "assemble_shotlist":  _assemble_shotlist.dispatch,
+    "draft_shotlist":     _draft_shotlist.dispatch,
     "set_shotlist":       _shotlist.dispatch_set,
     "update_shot":        _shotlist.dispatch_update_shot,
     "get_shotlist":       _shotlist.dispatch_get,
+    "refine_shot":        _refine_shot.dispatch,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,
     "write_media_annotation": _media_annotations.dispatch_write,

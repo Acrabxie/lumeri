@@ -72,9 +72,10 @@ The function-calling schemas list the full set. The short version:
   `search_media` (natural-language over saved annotations — returns timecodes),
   `search_frames` (probes raw footage live by visual/dialog labels, ranked — no
   annotation needed).
-- **Storyboard from a script/outline** — `set_shotlist` / `update_shot` /
-  `get_shotlist` (the storyboard plan), `assemble_shotlist` (lay it onto the
-  timeline). See the storyboard playbook below.
+- **Storyboard from a script/outline** — `draft_shotlist` (one-line theme →
+  full storyboard), `set_shotlist` / `update_shot` / `get_shotlist` (the
+  storyboard plan), `assemble_shotlist` (lay it onto the timeline),
+  `refine_shot` (edit one placed shot in place). See the storyboard playbook.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -84,6 +85,11 @@ finished video — not a single clip — work the storyboard, don't improvise sh
 by shot. The storyboard (shotlist) is a plan that lives in the project; nothing
 renders until you assemble it, so it's cheap to draft and revise.
 
+0. **From just a one-line theme?** If all you have is a sentence (no shot
+   detail), call `draft_shotlist(theme=…, template="promo"|"story")` to scaffold
+   the whole storyboard — scenes, durations, on-screen text, voiceover, moods,
+   search queries — in one call, then refine it. With a fuller brief, hand-write
+   the plan with `set_shotlist` instead.
 1. **Draft the plan first.** Turn the brief into a `set_shotlist`: scenes → shots.
    Each shot states what it should show (`description`), how long
    (`duration_sec`), any `on_screen_text`, and how to source footage
@@ -106,6 +112,8 @@ renders until you assemble it, so it's cheap to draft and revise.
    (source='text' — you already have the script; no transcription needed) or,
    for a short title, a shot's `on_screen_text`.
 5. **Review and revise.** `inspect_timeline` to actually see the cut. To change
+   one placed shot without reassembling, use `refine_shot` (swap footage,
+   retime, recaption, or remove that shot's clip in place). To restructure
    the plan, `update_shot` the shots and `assemble_shotlist(rebuild=true)` to
    rebuild cleanly. Iterate from what you observe, not from memory.
 6. **Ship.** `export` when the cut holds together.

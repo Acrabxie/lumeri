@@ -108,6 +108,8 @@ def _normalize_shot(raw: Any, *, scene_idx: int, shot_idx: int) -> dict[str, Any
         "description": str(raw.get("description") or ""),
         "duration_sec": max(0.1, _float_or(raw.get("duration_sec"), 3.0)),
         "on_screen_text": _optional_str(raw.get("on_screen_text")),
+        "narration": _optional_str(raw.get("narration")),
+        "mood": _optional_str(raw.get("mood")),
         "source": source,
         "search_query": _optional_str(raw.get("search_query")),
         "asset_id": _optional_str(raw.get("asset_id")),
