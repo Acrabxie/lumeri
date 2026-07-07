@@ -161,6 +161,16 @@ def test_run_onboarding_google_cse_needs_two_fields(cfg_path):
     assert on_disk["search_provider"] == "google_cse"
 
 
+def test_run_onboarding_search_searxng(cfg_path):
+    # gemini provider + key; search=7 (searxng, keyless self-hosted) + URL; skip proxy.
+    inp = _ScriptedInput(["2", "g-key", "7", "http://127.0.0.1:8080", ""])
+    _, out = _capture_output()
+    onboarding.run_onboarding(input_fn=inp, output_fn=out)
+    on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert on_disk["searxng_url"] == "http://127.0.0.1:8080"
+    assert on_disk["search_provider"] == "searxng"
+
+
 # ── run_onboarding: optional proxy ─────────────────────────────────────
 def test_run_onboarding_proxy_set(cfg_path):
     inp = _ScriptedInput(["2", "g-key", "0", "http://127.0.0.1:7890"])

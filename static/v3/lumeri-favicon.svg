@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Lumeri">
-  <rect x="0" y="0" width="120" height="120" rx="26" fill="#15202B"/>
+  <rect x="0" y="0" width="120" height="120" rx="26" fill="#FFFFFF"/>
   <svg x="10" y="24" width="100" height="72" viewBox="0 0 100 72">
-    <rect x="8" y="13" width="50" height="18" rx="9" fill="#8BD8EA"/>
-    <circle cx="80" cy="22" r="11" fill="#C2EDF6"/>
-    <rect x="8" y="43" width="74" height="18" rx="9" fill="#5FC6DE"/>
+    <rect x="8" y="13" width="42" height="18" rx="9" fill="#5FC6DE"/>
+    <circle cx="71" cy="22" r="11" fill="#8BD8EA"/>
+    <rect x="20" y="43" width="62" height="18" rx="9" fill="#239FC0"/>
   </svg>
 </svg>

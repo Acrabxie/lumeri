@@ -31,6 +31,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "elicit",               # ask the user; no state written
     "file_list",
     "file_read",
+    "get_shotlist",
     "get_lumenframe",
     "get_media_annotations",
     "get_safe_areas",
@@ -49,7 +50,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
     "add_overlay", "adjust_media", "annotate_media", "arrange_timeline",
-    "build", "color_grade", "composite", "copy_in",
+    "assemble_shotlist", "build", "color_grade", "composite", "copy_in",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
     "file_write", "generate_audio", "generate_image", "generate_video",
@@ -64,13 +65,13 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
-    "remember", "render_preview", "run_shell", "save_skill",
-    "smart_reframe",
+    "narrate", "remember", "render_preview", "run_shell", "save_skill",
+    "search_media", "set_shotlist", "smart_reframe", "subtitle",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",
     "timeline_set_clip_time", "timeline_set_track", "timeline_split_clip",
     "timeline_trim_clip", "timeline_undo",
-    "transform_geometry", "write_file", "write_media_annotation",
+    "transform_geometry", "update_shot", "write_file", "write_media_annotation",
 })
 
 # A turn that keeps hammering blocked tools is not planning — it is stuck.

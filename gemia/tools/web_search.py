@@ -37,10 +37,12 @@ _MAX_PAGE_BYTES = 3 * 1024 * 1024
 _USER_AGENT = "Lumeri/4.0 (+https://lumeri.local)"
 _MAX_PROVIDER_BYTES = 2 * 1024 * 1024
 
-# Order auto-detect probes config for a present key. duckduckgo needs no key and
-# is the universal fallback, so it is never auto-detected (only the explicit/last
-# resort path).
-_AUTO_DETECT_ORDER = ("tavily", "serper", "brave", "exa", "google_cse", "bing")
+# Order auto-detect probes config for a present key/URL. Paid BYOK engines rank
+# first (a present key means the operator opted into that engine), then searxng —
+# the self-hosted, keyless free default, auto-detected only when searxng_url is
+# configured. duckduckgo needs no config and is the universal last-resort
+# fallback, so it is never auto-detected (only the explicit/last-resort path).
+_AUTO_DETECT_ORDER = ("tavily", "serper", "brave", "exa", "google_cse", "bing", "searxng")
 # Providers selectable via the schema enum / search_provider config / per-call arg.
 _VALID_PROVIDERS = (
     "auto",
@@ -50,6 +52,7 @@ _VALID_PROVIDERS = (
     "exa",
     "google_cse",
     "bing",
+    "searxng",
     "duckduckgo",
 )
 # DuckDuckGo Lite returns ~10 results per page. Default to a full page (the
@@ -339,6 +342,17 @@ def _provider_creds(provider: str) -> dict[str, str]:
     """Read a provider's key(s) from config. Empty dict => not configured."""
     if provider == "duckduckgo":
         return {}
+    if provider == "searxng":
+        # SearXNG is keyless but needs a self-hosted instance URL. An optional
+        # bearer token covers reverse-proxy-protected instances.
+        url = _read_config("searxng_url")
+        if not url:
+            return {}
+        creds = {"url": url}
+        key = _read_config("searxng_api_key")
+        if key:
+            creds["key"] = key
+        return creds
     if provider == "google_cse":
         key = _read_config("google_cse_key")
         cx = _read_config("google_cse_id")
@@ -528,6 +542,36 @@ def _search_exa(query: str, limit: int, creds: dict[str, str]) -> list[dict[str,
     return results
 
 
+def _search_searxng(query: str, limit: int, creds: dict[str, str]) -> list[dict[str, str]]:
+    """Query a self-hosted SearXNG instance via its JSON API.
+
+    SearXNG is a keyless metasearch engine — it aggregates Google/Bing/DuckDuckGo/
+    etc. and returns JSON at ``{base}/search?format=json``. ``creds["url"]`` is the
+    instance base URL; ``creds["key"]`` (optional) adds a bearer token for
+    reverse-proxy-protected instances. Each result carries ``content`` as snippet.
+    """
+    base = creds["url"].rstrip("/")
+    endpoint = base if base.endswith("/search") else base + "/search"
+    url = endpoint + "?" + urllib.parse.urlencode(
+        {"q": query, "format": "json", "safesearch": "1"}
+    )
+    headers = {"Accept": "application/json"}
+    key = creds.get("key")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    payload = _request_json(url, method="GET", headers=headers)
+    results = []
+    for item in (payload.get("results") or [])[:limit]:
+        results.append(
+            {
+                "title": _norm(item.get("title")),
+                "url": _norm(item.get("url")),
+                "snippet": _norm(item.get("content")),
+            }
+        )
+    return results
+
+
 _PROVIDER_ADAPTERS = {
     "tavily": _search_tavily,
     "brave": _search_brave,
@@ -535,6 +579,7 @@ _PROVIDER_ADAPTERS = {
     "google_cse": _search_google_cse,
     "bing": _search_bing,
     "exa": _search_exa,
+    "searxng": _search_searxng,
 }
 
 

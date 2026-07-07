@@ -69,6 +69,8 @@ SEARCH_ENGINES = (
     ("exa", ("exa_api_key",)),
     ("bing", ("bing_api_key",)),
     ("google_cse", ("google_cse_key", "google_cse_id")),
+    # searxng is keyless & self-hosted — its "key" is the instance URL.
+    ("searxng", ("searxng_url",)),
 )
 
 
@@ -183,8 +185,9 @@ def _instructions_text() -> str:
         '  claude (Anthropic):',
         '    {"anthropic_api_key": "<KEY>", "lumeri_v3_provider": "claude"}',
         "",
-        "  OPTIONAL search engine (BYOK; otherwise DuckDuckGo, no key):",
+        "  OPTIONAL search engine (otherwise DuckDuckGo, no key):",
         '    set "search_provider" to one of:',
+        "      searxng     -> searxng_url (keyless, self-hosted; the free default)",
         "      tavily      -> tavily_api_key",
         "      serper      -> serper_api_key",
         "      brave       -> brave_api_key",
@@ -302,7 +305,8 @@ def _collect_search(
 ) -> dict[str, Any]:
     """Optionally pick a BYOK search engine. Skipping leaves DuckDuckGo."""
     output_fn("")
-    output_fn("Optional: bring-your-own search engine key (else DuckDuckGo, no key).")
+    output_fn("Optional: pick a search engine (else DuckDuckGo, no key).")
+    output_fn("  searxng is free & self-hosted; the others are BYOK paid keys.")
     output_fn("  0) Skip (use DuckDuckGo)")
     for idx, (engine, _keys) in enumerate(SEARCH_ENGINES, start=1):
         output_fn(f"  {idx}) {engine}")
@@ -328,7 +332,12 @@ def _collect_search(
     engine, keys = selected
     updates: dict[str, Any] = {}
     for key in keys:
-        label = "Google CSE id (google_cse_id)" if key == "google_cse_id" else f"{engine} key ({key})"
+        if key == "google_cse_id":
+            label = "Google CSE id (google_cse_id)"
+        elif key == "searxng_url":
+            label = "SearXNG instance URL (searxng_url), e.g. http://127.0.0.1:8080"
+        else:
+            label = f"{engine} key ({key})"
         value = _prompt(input_fn, output_fn, f"{label}: ")
         updates[key] = value
     updates["search_provider"] = engine

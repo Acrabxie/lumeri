@@ -32,20 +32,32 @@ Contract — what this loop is and what it is NOT:
     user message with the thumbnail image_url before the next model
     call. This path is ONLY triggered by a dispatcher-flagged result,
     which today only ``analyze_media`` produces. There is no keyword
-    detection. The host never decides to show the model a thumbnail
-    because the user "seemed to want it"; the model has to ask via
-    ``analyze_media`` explicitly.
+    detection. Mid-turn, the host never decides to show the model a
+    thumbnail because the user "seemed to want it"; the model has to ask
+    via ``analyze_media`` explicitly. The single sanctioned exception is
+    the pre-delivery gate below.
 
   - When the model emits no tool_calls and the stream ends, the loop
-    emits ``turn_complete`` with the asset_ids produced during this
-    turn and returns. It does not retry, does not "ask the user", does
-    not synthesize a follow-up.
+    runs a ONE-SHOT pre-delivery gate (per turn) before the honest stop:
+    it injects a synthetic user message composed of (a) a visual
+    self-check with 512px thumbnails of the visual assets this turn
+    produced, (b) an explicit failure-disclosure list when tool calls
+    failed this turn (including async jobs that came back
+    status="failed"), and (c) the RC4 goal-completion check — then calls
+    the model once more so it can revise or honestly disclose. The
+    thumbnails are shown to the model exactly once: right after that
+    call they are replaced in history with a text placeholder so base64
+    payloads never ride the rolling window. After the gate (or when it
+    is disabled), the loop emits ``turn_complete`` with the asset_ids
+    produced during this turn and returns. It does not retry, does not
+    "ask the user", does not synthesize a follow-up.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -75,6 +87,75 @@ _ROLLING_USER_TURNS = 8
 
 # RC4: one-shot completion-check gate before ending on no-tool-calls
 COMPLETION_CHECK_ENABLED = True
+
+# Pre-delivery gate extensions. Both ride the SAME one-shot RC4 gate round —
+# they add sections to its injected message, so the worst case stays "one
+# extra model call per turn":
+#   * visual self-check — when this turn registered new visual assets, attach
+#     512px thumbnails of the newest few so the model REVIEWS ITS OWN OUTPUT
+#     before delivering (a default cube presented as a "house scene" is
+#     exactly what this catches). Kill switch: LUMERI_V3_VISUAL_SELFCHECK=0.
+#   * failure disclosure — when tool calls actually failed this turn, list
+#     them and require the final reply to disclose the failures instead of
+#     dressing a silent fallback up as success. Kill switch:
+#     LUMERI_V3_FAILURE_DISCLOSURE=0.
+VISUAL_SELFCHECK_ENABLED = os.environ.get(
+    "LUMERI_V3_VISUAL_SELFCHECK", "1"
+).lower() not in {"0", "false", "no", "off"}
+FAILURE_DISCLOSURE_ENABLED = os.environ.get(
+    "LUMERI_V3_FAILURE_DISCLOSURE", "1"
+).lower() not in {"0", "false", "no", "off"}
+# Newest visual assets attached at the gate. 512px thumbs keep the payload
+# small; the cap keeps a batch-generating turn from flooding the context.
+_SELFCHECK_MAX_THUMBS = 3
+# Asset ids listed in the gate TEXT are capped separately — a batch turn can
+# register dozens of assets and the prose must not balloon with them.
+_SELFCHECK_MAX_LISTED = 8
+_VISUAL_ASSET_KINDS = {"image", "video", "lottie"}
+
+
+def _goal_check_text(pinned_intent: str | None, plan_mode: bool) -> str:
+    """The RC4 goal-check wording, shared by the gate builder and its
+    degraded fallback so the two can never drift apart."""
+    pinned_summary = (
+        f"原始请求：{pinned_intent}" if pinned_intent else "原始请求：（未提供）"
+    )
+    if plan_mode:
+        # In plan mode, presenting the plan IS the successful outcome —
+        # telling the model to "keep calling tools" would only walk it into
+        # plan_gate blocks.
+        return (
+            f"目标核对：{pinned_summary}。"
+            "当前处于计划模式：若计划已完整，直接以文字呈现完整计划并请用户确认"
+            "——呈现计划本身就是本回合的成功产出，不要调用会被计划模式拦截的修改类工具。"
+            "若计划还缺关键信息，先用只读工具补齐再完成计划。"
+            "若确实被卡住需要用户输入，明确说明。"
+        )
+    return (
+        f"目标核对：{pinned_summary}。"
+        "若已完全完成，简短确认做了什么然后停下。"
+        "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
+        "若确实被卡住需要用户输入，明确说明。"
+    )
+
+
+def _strip_gate_images(msg: dict[str, Any]) -> None:
+    """Replace the image parts of an already-consumed gate message with a
+    compact text placeholder, IN PLACE.
+
+    The model must see the self-check thumbnails exactly once (the gate
+    round). Left as-is, the base64 payload would ride the rolling window
+    into every subsequent model call — bandwidth and tokens spent re-sending
+    stale pixels. Text sections are preserved verbatim."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return
+    n_images = sum(1 for p in content if p.get("type") == "image_url")
+    if n_images == 0:
+        return
+    texts = [p.get("text", "") for p in content if p.get("type") == "text"]
+    texts.append(f"[{n_images} 张自检预览图已发送并从上下文回收]")
+    msg["content"] = "\n\n".join(t for t in texts if t)
 
 # Repeated-failure nudge: there is no cap on the TOTAL number of tool steps in a
 # turn. If the SAME (tool, error-class) repeats this many times in a row, append
@@ -692,6 +773,146 @@ class AgentLoopV3:
             }
         )
 
+    def _new_visual_records(self, pre_asset_ids: set[str]) -> list[Any]:
+        """Visual assets (image/video/lottie) registered during this turn,
+        in registry (oldest→newest) order."""
+        return [
+            r
+            for r in self.registry.list_records()
+            if r.asset_id not in pre_asset_ids and r.kind in _VISUAL_ASSET_KINDS
+        ]
+
+    async def _selfcheck_thumbnails(
+        self, records: list[Any]
+    ) -> list[tuple[Any, Path]]:
+        """Best-effort 512px thumbnails for the pre-delivery visual self-check,
+        as ``(record, thumbnail_path)`` pairs so the gate can label each image
+        with its asset id.
+
+        Reuses analyze_media's ffmpeg thumbnailer, off-thread like
+        analyze_media itself (ffmpeg/ffprobe must not block this session's
+        event loop). Videos get a mid-point frame — the first frame is often a
+        black fade-in and would read as a false "empty frame" defect. Any
+        per-asset failure is skipped — the gate degrades to a text-only review
+        rather than breaking the turn.
+        """
+        from gemia.tools._ffmpeg import ffprobe_duration
+        from gemia.tools.analyze_media import _make_thumbnail
+
+        loop = asyncio.get_running_loop()
+        thumb_dir = self.output_dir / "thumbnails"
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        pairs: list[tuple[Any, Path]] = []
+        for record in records[-_SELFCHECK_MAX_THUMBS:]:
+            dst = thumb_dir / f"selfcheck_{record.asset_id}.png"
+            duration = 0.0
+            if record.kind == "video":
+                try:
+                    duration = float(
+                        await loop.run_in_executor(
+                            None, ffprobe_duration, record.path
+                        )
+                    )
+                except Exception:  # noqa: BLE001 — fall back to frame 0
+                    duration = 0.0
+            try:
+                await loop.run_in_executor(
+                    None, _make_thumbnail, record.kind, record.path, dst, duration
+                )
+            except Exception:  # noqa: BLE001 — degrade, never break the gate
+                continue
+            if dst.exists():
+                pairs.append((record, dst))
+        return pairs
+
+    async def _build_predelivery_gate(
+        self,
+        *,
+        pre_asset_ids: set[str],
+        failed_call_log: list[tuple[str, str]],
+    ) -> tuple[Any, list[str]]:
+        """Compose the one-shot pre-delivery gate message (extended RC4).
+
+        Returns ``(content, sections)``: ``content`` is a plain string, or a
+        multimodal parts list when self-check thumbnails are attached;
+        ``sections`` names the blocks included (surfaced on the
+        ``completion_check`` event for observability and tests).
+        """
+        sections: list[str] = []
+        blocks: list[str] = []
+        shown: list[tuple[Any, Path]] = []
+
+        visual_records = (
+            self._new_visual_records(pre_asset_ids)
+            if VISUAL_SELFCHECK_ENABLED
+            else []
+        )
+        if visual_records:
+            sections.append("visual_selfcheck")
+            # provider=claude cannot take OpenAI-style image_url parts (same
+            # limitation as Plan-B thumbnails); the gate stays text-only there.
+            if getattr(self.client, "provider", "") != "claude":
+                shown = await self._selfcheck_thumbnails(visual_records)
+            ids = [f"{r.asset_id}（{r.kind}）" for r in visual_records]
+            listed = "、".join(ids[:_SELFCHECK_MAX_LISTED])
+            if len(ids) > _SELFCHECK_MAX_LISTED:
+                listed += f" 等共 {len(ids)} 个"
+            coverage = (
+                f"（下方附了其中 {len(shown)}/{len(visual_records)} 张预览，"
+                "每张图前标注了对应的 asset id；未附预览的资产用 analyze_media 自查。）"
+                if shown
+                else "（本次没有附上预览图，请用 analyze_media 逐个自查后再收尾。）"
+            )
+            blocks.append(
+                f"视觉自检：本回合新产出了视觉资产 {listed}。"
+                "交付前先审视这些产出：内容是不是用户要的东西？"
+                "有没有明显缺陷——空画面、默认物体、构图失衡、穿帮、与描述不符？"
+                "发现问题就立刻调用工具修复后再交付；确认合格才可以收尾。"
+                + coverage
+            )
+
+        if FAILURE_DISCLOSURE_ENABLED and failed_call_log:
+            sections.append("failure_disclosure")
+            tally: dict[tuple[str, str], int] = {}
+            for name, code in failed_call_log:
+                tally[(name, code)] = tally.get((name, code), 0) + 1
+            listed = "、".join(
+                f"`{name}`({code})×{n}" for (name, code), n in tally.items()
+            )
+            blocks.append(
+                f"失败披露：本回合有工具调用失败过：{listed}。"
+                "你的最终回复必须如实说明这些失败及其对结果的影响。"
+                "如果你换了替代方案，必须明说原方案失败了、现在交付的是替代产物——"
+                "禁止把失败包装成成功。若失败已被后续的成功修复，简要说明即可。"
+            )
+
+        sections.append("goal_check")
+        blocks.append(_goal_check_text(self._pinned_intent, self.plan_mode))
+
+        text = "\n\n".join(blocks)
+        if not shown:
+            return text, sections
+
+        parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+        for record, p in shown:
+            # Label BEFORE each image so the model can attribute defects to
+            # the right asset even when some thumbnails were skipped.
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"预览 {record.asset_id}（{record.kind}）：",
+                }
+            )
+            data = Path(p).read_bytes()
+            b64 = base64.b64encode(data).decode("ascii")
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64}"},
+                }
+            )
+        return parts, sections
+
     def _emit_doom_loop(self, name: str, count: int) -> None:
         """Success-blind doom-loop signal: the last ``count`` tool calls were the
         SAME tool with byte-identical args, so the turn is repeating itself
@@ -876,6 +1097,12 @@ class AgentLoopV3:
         # a failure. Asset count is computed from the registry at exit time.
         tools_succeeded = 0
         tools_failed = 0
+        # (tool_name, error_code) for every REAL execution failure this turn —
+        # bad-JSON args or a dispatcher exception. Gates (plan/budget/visual
+        # cap) are excluded: they have their own user-visible semantics and are
+        # not "the model's approach failed". Drives the failure-disclosure
+        # section of the pre-delivery gate.
+        failed_call_log: list[tuple[str, str]] = []
 
         def _assets_produced() -> int:
             return sum(
@@ -888,6 +1115,12 @@ class AgentLoopV3:
 
         # RC4: per-turn one-shot completion check guard (not per-loop iteration).
         completion_check_done = False
+        # Gate message whose thumbnails still need reclaiming after the model
+        # has seen them once (see _strip_gate_images).
+        gate_msg_pending_strip: dict[str, Any] | None = None
+        # Async jobs whose failure has already been logged for disclosure —
+        # a failed job polled repeatedly must be disclosed once, not N times.
+        failed_job_ids: set[str] = set()
 
         while True:
             accum = _StreamAccumulator()
@@ -934,6 +1167,13 @@ class AgentLoopV3:
                     )
                     return
 
+            # Reclaim gate thumbnails now that the model has seen them once —
+            # the base64 payload must not ride the rolling window into every
+            # subsequent model call (bandwidth + tokens on stale pixels).
+            if gate_msg_pending_strip is not None:
+                _strip_gate_images(gate_msg_pending_strip)
+                gate_msg_pending_strip = None
+
             # ---- persist the assistant message ---------------------
             assistant_msg: dict[str, Any] = {
                 "role": "assistant",
@@ -946,25 +1186,35 @@ class AgentLoopV3:
                 ]
             self._messages.append(assistant_msg)
 
-            # ---- model called no tools → RC4 completion gate --------
+            # ---- model called no tools → pre-delivery gate (RC4+) ----
             if not accum.tool_calls:
                 if COMPLETION_CHECK_ENABLED and not completion_check_done:
-                    # One-shot nudge before honest stop (RC4 host-side gate).
-                    # Inject a user message prompting the model to verify completion.
-                    pinned_summary = (
-                        f"原始请求：{self._pinned_intent}"
-                        if self._pinned_intent
-                        else "原始请求：（未提供）"
-                    )
-                    nudge_msg = (
-                        f"目标核对：{pinned_summary}。"
-                        "若已完全完成，简短确认做了什么然后停下。"
-                        "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
-                        "若确实被卡住需要用户输入，明确说明。"
-                    )
-                    self._messages.append({"role": "user", "content": nudge_msg})
+                    # One-shot gate before honest stop. Extends the RC4
+                    # completion check with (a) a visual self-check with
+                    # thumbnails when this turn produced visual assets and
+                    # (b) explicit failure disclosure when tool calls failed.
+                    # Gate composition is best-effort: any failure degrades to
+                    # the plain RC4 wording — it must never kill the turn.
+                    try:
+                        gate_content, gate_sections = (
+                            await self._build_predelivery_gate(
+                                pre_asset_ids=pre_asset_ids,
+                                failed_call_log=failed_call_log,
+                            )
+                        )
+                    except Exception:  # noqa: BLE001 — never break the turn
+                        gate_content = _goal_check_text(
+                            self._pinned_intent, self.plan_mode
+                        )
+                        gate_sections = ["goal_check"]
+                    gate_msg = {"role": "user", "content": gate_content}
+                    self._messages.append(gate_msg)
+                    if isinstance(gate_content, list):
+                        gate_msg_pending_strip = gate_msg
                     completion_check_done = True
-                    self._emit({"kind": "completion_check"})
+                    self._emit(
+                        {"kind": "completion_check", "sections": gate_sections}
+                    )
                     continue
                 else:
                     # Already did one-shot check or gate is disabled → honest stop.
@@ -1025,6 +1275,7 @@ class AgentLoopV3:
                         },
                     )
                     tools_failed += 1
+                    failed_call_log.append((tc.name, "E_BAD_ARG"))
                     should_nudge, streak = self._note_tool_failure(
                         tool_fail_counts, tc.name, "E_BAD_ARG",
                         limit=_REPEATED_FAILURE_NUDGE_THRESHOLD,
@@ -1206,6 +1457,7 @@ class AgentLoopV3:
                         tc.id, {**err_payload, "tool_name": tc.name}
                     )
                     tools_failed += 1
+                    failed_call_log.append((tc.name, err_code))
                     limit = (
                         _TRANSIENT_RETRY_NUDGE_THRESHOLD
                         if recovery == RECOVERY_TRANSIENT_RETRY
@@ -1223,6 +1475,22 @@ class AgentLoopV3:
                 # Successful dispatch — clear this tool's failure streak entirely.
                 tool_fail_counts.pop(tc.name, None)
                 tools_succeeded += 1
+
+                # Async-job failures never raise: generate_video/build submit a
+                # job and the FAILURE surfaces later as a perfectly normal
+                # check_job/wait_for_job result with status="failed". That is
+                # the single most likely thing a model quietly papers over with
+                # a fallback — log it for the disclosure gate (once per job,
+                # however many times it gets polled).
+                if (
+                    tc.name in {"check_job", "wait_for_job"}
+                    and isinstance(result, dict)
+                    and result.get("status") == "failed"
+                ):
+                    job_id = str(result.get("job_id") or "unknown")
+                    if job_id not in failed_job_ids:
+                        failed_job_ids.add(job_id)
+                        failed_call_log.append((f"job:{job_id}", "E_JOB_FAILED"))
 
                 # ---- success-blind doom-loop guard -------------------
                 # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the

@@ -473,18 +473,30 @@ def test_edit_image_denoise_uses_nlmeans(monkeypatch, tmp_path: Path) -> None:
     assert "nlmeans=s=2.50" in " ".join(fake_run.cmd)  # type: ignore[attr-defined]
 
 
-def test_edit_image_remove_background_raises_not_implemented(tmp_path: Path) -> None:
+def test_edit_image_remove_background_produces_alpha_cutout(tmp_path: Path) -> None:
+    # remove_background is now real ML/fallback matting: it returns a transparent
+    # RGBA PNG cutout (no longer an honest not-implemented failure).
+    import numpy as np
+    from PIL import Image
+
     ctx = _ctx(tmp_path)
-    asset = _make_image(ctx, tmp_path, "src")
-    # Honest typed failure (recovery=switch_tool) rather than a fake cut-out.
-    with pytest.raises(ToolError, match="ML model") as exc_info:
-        asyncio.run(
-            edit_image_tool.dispatch(
-                {"asset_id": asset, "operation": "remove_background", "params": {}}, ctx
-            )
+    arr = np.zeros((200, 150, 3), np.uint8)
+    arr[:] = (18, 18, 18)
+    arr[35:175, 45:110] = (205, 185, 170)   # a bright "subject" GrabCut can find
+    src = tmp_path / "real_src.png"
+    Image.fromarray(arr).save(src)
+    asset = ctx.registry.add_external(src).asset_id
+
+    res = asyncio.run(
+        edit_image_tool.dispatch(
+            {"asset_id": asset, "operation": "remove_background", "params": {}}, ctx
         )
-    assert exc_info.value.code == "E_NOT_IMPLEMENTED"
-    assert exc_info.value.recovery == "switch_tool"
+    )
+    out = ctx.registry.get(res["asset_id"])
+    assert out.path.suffix == ".png"
+    assert Image.open(out.path).mode == "RGBA"
+    assert res["metadata"]["operation"] == "remove_background"
+    assert 0.0 <= res["metadata"]["coverage"] <= 1.0
 
 
 def test_edit_image_rejects_video_input(tmp_path: Path) -> None:

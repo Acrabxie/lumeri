@@ -66,3 +66,8 @@ dev_feedback.txt
 # PyInstaller artifacts
 *.spec
 gemia-server.spec
+
+# ML matting model weights (fetched on demand, not committed)
+models/*.onnx
+tauri-app/node_modules/
+tauri-app/dist/

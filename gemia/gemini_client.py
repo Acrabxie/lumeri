@@ -89,16 +89,6 @@ def _resolve_orchestration_temperature() -> float:
     return value
 
 
-def _is_weak_model(model: str) -> bool:
-    """True when ``model`` is a fast/cheap "flash"-tier id or a per-provider
-    flash default — i.e. a silent capability downgrade for the orchestrator
-    (RC6). Used only to emit a startup warning, never to change behavior."""
-    return "flash" in (model or "").lower() or model in {
-        _DEFAULT_VERTEX_MODEL,
-        _DEFAULT_GEMINI_MODEL,
-    }
-
-
 _OPEN_ATTEMPTS = 3
 _OPEN_TIMEOUT = 20.0  # per attempt; a hung proxy/TLS handshake fails fast, then retries
 _RETRY_BACKOFF = 1.2
@@ -460,23 +450,17 @@ class GeminiClientV3:
         # loop passes no temperature, so this becomes the effective default.
         self.orchestration_temperature = _resolve_orchestration_temperature()
 
-        # Startup visibility (RC5) + flash-tier downgrade guard (RC6). Logs the
-        # RESOLVED provider/model/temperature ONLY — never the api_key, api_url
-        # credentials, or any config.json contents.
+        # Startup visibility (RC5). Logs the RESOLVED provider/model/temperature
+        # ONLY — never the api_key, api_url credentials, or any config.json
+        # contents. (The former RC6 flash-tier warning is gone: tier names no
+        # longer map to capability — e.g. gemini-3.5-flash outperforms
+        # 3.1-pro — so model choice is config, not a downgrade to warn about.)
         logger.info(
             "Lumeri v3 orchestrator resolved: provider=%s model=%s temperature=%s",
             self.provider,
             self.model,
             self.orchestration_temperature,
         )
-        if _is_weak_model(self.model):
-            logger.warning(
-                "Lumeri v3 orchestrator is using a flash-tier/weak model (%s); "
-                "this is a capability downgrade for the agent loop. Pin a "
-                "pro-tier model via config.json:lumeri_v3_model or env "
-                "LUMERI_V3_MODEL (e.g. google/gemini-3.1-pro-preview).",
-                self.model,
-            )
 
     async def stream_turn(
         self,

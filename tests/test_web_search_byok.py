@@ -190,6 +190,45 @@ class TestResolveProvider:
         with pytest.raises(ValueError, match="unknown search provider"):
             _web_search._resolve_provider({"provider": "bogus"})
 
+    def test_searxng_auto_detected_when_url_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No paid key, only a self-hosted SearXNG URL -> auto picks searxng
+        # (the free default) over the duckduckgo last-resort fallback.
+        _patch_config(monkeypatch, {"searxng_url": "http://sx.local:8080"})
+        provider, creds = _web_search._resolve_provider({})
+        assert provider == "searxng"
+        assert creds == {"url": "http://sx.local:8080"}
+
+    def test_searxng_url_missing_is_not_detected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A stray searxng_api_key without a URL is not usable -> duckduckgo.
+        _patch_config(monkeypatch, {"searxng_api_key": "tok"})
+        provider, _ = _web_search._resolve_provider({})
+        assert provider == "duckduckgo"
+
+    def test_searxng_optional_bearer_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_config(
+            monkeypatch,
+            {"searxng_url": "http://sx.local", "searxng_api_key": "tok"},
+        )
+        provider, creds = _web_search._resolve_provider({"provider": "searxng"})
+        assert provider == "searxng"
+        assert creds == {"url": "http://sx.local", "key": "tok"}
+
+    def test_paid_key_beats_searxng_in_auto(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Paid users get their paid engine: a configured key ranks above the
+        # free self-hosted searxng default.
+        _patch_config(
+            monkeypatch,
+            {"tavily_api_key": "tv", "searxng_url": "http://sx.local"},
+        )
+        provider, _ = _web_search._resolve_provider({})
+        assert provider == "tavily"
+
 
 # ============================================================================
 # 2. per-provider adapters (HTTP MOCKED): request construction + normalization
@@ -404,6 +443,68 @@ class TestExaAdapter:
         assert req.get_method() == "POST"
         assert _req_header(req, "x-api-key") == "EX-KEY"
         assert _req_body(req) == {"query": "stars", "numResults": 9}
+
+
+class TestSearxngAdapter:
+    def test_request_and_normalization(
+        self, tool_context: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_config(monkeypatch, {"searxng_url": "https://sx.example"})
+        canned = json.dumps(
+            {
+                "results": [
+                    {
+                        "title": "SX1",
+                        "url": "https://sx.example/1",
+                        "content": "sx-content",
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        opener = _CapturingOpener(canned)
+        _patch_opener(monkeypatch, opener)
+
+        result = _run({"query": "q", "limit": 5, "provider": "searxng"}, tool_context)
+
+        assert result["provider"] == "searxng"
+        assert result["results"][0] == {
+            "title": "SX1",
+            "url": "https://sx.example/1",
+            "snippet": "sx-content",  # SearXNG 'content' maps to snippet
+        }
+        req = opener.requests[0]
+        assert req.get_method() == "GET"
+        assert req.full_url.startswith("https://sx.example/search?")
+        assert "format=json" in req.full_url
+        assert "q=q" in req.full_url
+
+    def test_base_url_already_ending_in_search_is_not_doubled(
+        self, tool_context: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_config(monkeypatch, {"searxng_url": "https://sx.example/search/"})
+        canned = json.dumps({"results": []}).encode("utf-8")
+        opener = _CapturingOpener(canned)
+        _patch_opener(monkeypatch, opener)
+
+        _run({"query": "q", "provider": "searxng"}, tool_context)
+
+        assert opener.requests[0].full_url.startswith("https://sx.example/search?")
+        assert "/search/search" not in opener.requests[0].full_url
+
+    def test_optional_bearer_header(
+        self, tool_context: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_config(
+            monkeypatch,
+            {"searxng_url": "https://sx.example", "searxng_api_key": "TOK"},
+        )
+        canned = json.dumps({"results": []}).encode("utf-8")
+        opener = _CapturingOpener(canned)
+        _patch_opener(monkeypatch, opener)
+
+        _run({"query": "q", "provider": "searxng"}, tool_context)
+
+        assert _req_header(opener.requests[0], "Authorization") == "Bearer TOK"
 
 
 class TestMissingFieldsRobustness:

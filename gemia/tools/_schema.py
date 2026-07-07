@@ -139,16 +139,25 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "edit_image",
-        "Transform an existing image. Returns a new asset_id.",
+        "Transform an existing image. Returns a new asset_id. Use "
+        "operation='remove_background' to cut out the person/subject with real ML "
+        "matting (clean alpha on any background — this is the '抠像/抠图/keying' verb).",
         {
             "asset_id": _ASSET_ID,
             "operation": {
                 "type": "string",
-                "enum": ["crop", "rotate", "resize", "blur", "denoise"],
+                "enum": ["crop", "rotate", "resize", "blur", "denoise", "remove_background"],
             },
             "params": {
                 "type": "object",
-                "description": "Operation-specific parameters (e.g. {angle_deg: 90} for rotate).",
+                "description": (
+                    "Operation-specific parameters. rotate:{angle_deg}; crop:{x,y,w,h}; "
+                    "resize:{w,h}; blur:{radius}; denoise:{strength}. "
+                    "remove_background:{background?, feather?, matte_only?} — background "
+                    "null→transparent PNG cutout, or a colour name/[r,g,b]/asset_id/path to "
+                    "composite the subject over; feather softens the edge (px); "
+                    "matte_only=true returns the grayscale alpha mask."
+                ),
             },
         },
         ["asset_id", "operation"],
@@ -528,15 +537,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["query"],
     ),
     _tool(
-        "annotate_media",
-        "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
-        {
-            "asset_ids": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Media-library asset ids, e.g. asset_0123abcd....",
-            },
-    _tool(
         "assemble_shotlist",
         "Lay the filled storyboard onto the timeline: for every shot that has an asset_id, append a clip trimmed to its planned duration, align its on_screen_text as an overlay, apply its transition, and mark it placed. Call after filling shots (search_media / generate_*). Unfilled shots are skipped and reported. Use rebuild=true to clear the timeline and reassemble after revising the plan. Then inspect_timeline to review, or export to render.",
         {
@@ -633,6 +633,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         {},
         [],
     ),
+    _tool(
+        "annotate_media",
+        "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
+        {
+            "asset_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Media-library asset ids, e.g. asset_0123abcd....",
+            },
             "all": {
                 "type": "boolean",
                 "description": "If true, annotate a batch from the media library instead of explicit asset_ids.",
@@ -720,8 +729,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "BYOK: pluggable search engines, each reading its key from ~/.gemia/config.json — "
         "tavily (tavily_api_key), serper (serper_api_key), brave (brave_api_key), exa (exa_api_key), "
         "google_cse (google_cse_key + google_cse_id), bing (bing_api_key). "
-        "With provider=auto (default) the first configured key wins (order: tavily, serper, brave, exa, google_cse, bing), "
-        "else duckduckgo (no key) is used. Set config search_provider to force one engine globally, or pass provider per call. "
+        "searxng is a keyless self-hosted metasearch engine (set searxng_url, optional searxng_api_key) — the recommended free default. "
+        "With provider=auto (default) a configured paid key wins first (order: tavily, serper, brave, exa, google_cse, bing), then searxng if searxng_url is set, "
+        "else duckduckgo (no config) is used. Set config search_provider to force one engine globally, or pass provider per call. "
         "If a configured provider errors, the result falls back to duckduckgo and includes a 'fallback' note; the served engine is reported in 'provider'.",
         {
             "query": {
@@ -742,9 +752,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "exa",
                     "google_cse",
                     "bing",
+                    "searxng",
                     "duckduckgo",
                 ],
-                "description": "Which search engine to use. 'auto' (default) picks the first BYOK provider whose key is configured (else duckduckgo). The named BYOK providers need their key(s) in ~/.gemia/config.json; duckduckgo needs no key.",
+                "description": "Which search engine to use. 'auto' (default) picks the first configured paid BYOK provider, then searxng (if searxng_url is set), else duckduckgo. Paid providers need their key(s) in ~/.gemia/config.json; searxng needs searxng_url (keyless, self-hosted); duckduckgo needs nothing.",
             },
         },
         ["query"],
