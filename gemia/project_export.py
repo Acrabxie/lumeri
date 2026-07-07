@@ -30,6 +30,7 @@ from typing import Any
 from gemia.project_model import IMAGE_DURATION, normalize_project
 from gemia.project_store import ProjectStore
 from gemia.video.lottie_renderer import save_lottie_frame_png, select_lottie_renderer
+from lumerai.export_support import clip_dropped_fields
 
 
 class ProjectExportError(RuntimeError):
@@ -50,6 +51,15 @@ _QUALITY_PROFILES: dict[str, dict[str, str]] = {
 }
 
 _HEX_COLOR_RE = re.compile(r"^#([0-9a-fA-F]{6})$")
+
+# Butt-joint tolerance — mirrors lumerai.patches.EPSILON (kept literal here so
+# the export module stays import-light; a drift test pins the two together).
+_EPSILON = 1e-3
+
+# _render_video_segment floors every segment to 0.1 s (``-t max(d, 0.1)``), so
+# transition surgery must never leave a segment below this floor or the floor
+# silently *lengthens* it and violates INVARIANT T1 (plan §5.1).
+_SEGMENT_FLOOR = 0.1
 
 
 # ── public entrypoint ────────────────────────────────────────────────────────
@@ -113,8 +123,18 @@ def export_project(
     # / audio-shorter projects this equals the video end, so nothing changes.
     master_duration = _pos(timeline.get("duration"), 0.0)
 
+    # Export honesty (docs/timeline-canonical-plan.md §4.2): record every
+    # stored-but-unrendered field of every enabled clip BEFORE rendering, so
+    # the manifest is honest even about clips that fail later checks.
+    dropped_fields: list[dict[str, str]] = []
+    for clip in timeline.get("clips") or []:
+        if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
+            continue
+        for entry in clip_dropped_fields(clip):
+            dropped_fields.append({"clip_id": str(clip.get("id") or ""), **entry})
+
     try:
-        base_video = _render_base_video(
+        base_video, transition_records = _render_base_video(
             video_clips, assets,
             work_dir=work_dir,
             width=width, height=height, fps=fps,
@@ -122,6 +142,14 @@ def export_project(
             timeout_sec=timeout_sec,
             min_duration=master_duration,
         )
+        # Transitions degraded at render time (plan §5.2) are silent drops too.
+        for record in transition_records:
+            if record.get("status") == "degraded":
+                dropped_fields.append({
+                    "clip_id": str(record.get("clip_id") or ""),
+                    "field": "transition_after",
+                    "reason": str(record.get("reason") or "not_rendered"),
+                })
 
         # Pass 3 input: gather every audio source first. When there is none
         # (no audio clips and no unmuted video clip with a real audio stream),
@@ -187,6 +215,13 @@ def export_project(
         "audio_clips_rendered": len(audio_clips),
         "audio_sources_rendered": len(audio_sources),
         "has_audio": bool(audio_sources),
+        # Export honesty (plan §4.2 item 3 + §5.2): every stored field export
+        # dropped, and the render/degrade outcome of every stored transition.
+        "transitions_rendered": sum(
+            1 for r in transition_records if r.get("status") == "rendered"
+        ),
+        "transitions": transition_records,
+        "dropped_fields": dropped_fields,
     }
     manifest_path = store.renders_dir(project_id) / f"{export_id}.manifest.json"
     _write_json(manifest_path, manifest)
@@ -208,13 +243,23 @@ def _render_base_video(
     quality: str,
     timeout_sec: int,
     min_duration: float = 0.0,
-) -> Path:
+) -> tuple[Path, list[dict[str, Any]]]:
     """Render the base video track to an intermediate file.
 
     ``min_duration`` is the audio-inclusive master length: when it exceeds the
     last video clip's end, the segment list gains a trailing black gap so the
     composited video reaches the timeline end (a music tail then plays over
     black instead of running past a frozen frame).
+
+    Returns ``(base_path, transition_records)`` — one record per stored
+    fade/dissolve stating whether it rendered or degraded to a hard cut and
+    why (plan §5.2; the records feed the manifest's honesty fields).
+
+    INVARIANT T1 (plan §5.1): the segment durations must sum EXACTLY to the
+    timeline duration — pass 3 positions audio by ``adelay = clip.start`` on
+    the assumption that the base video never shrinks or grows. Transitions are
+    therefore rendered as duration-preserving segment surgery
+    (``_plan_transitions``); a joint-xfade concat pipeline is forbidden.
     """
     profile = _QUALITY_PROFILES[quality]
     video_end = max(
@@ -222,6 +267,7 @@ def _render_base_video(
     )
     timeline_duration = max(video_end, _pos(min_duration, 0.0))
     segments: list[dict[str, Any]] = _timeline_segments(video_clips, timeline_duration)
+    segments, transition_records = _plan_transitions(video_clips, segments, fps=fps)
     segment_paths: list[Path] = []
 
     for index, seg in enumerate(segments, start=1):
@@ -229,6 +275,24 @@ def _render_base_video(
         seg_end = _pos(seg.get("end"), seg_start)
         seg_dur = max(seg_end - seg_start, 0.0)
         if seg_dur <= 0.001:
+            continue
+
+        window = seg.get("window")
+        if isinstance(window, dict):
+            # Dissolve window segment (plan §5.2): exactly d_eff seconds of
+            # A's tail crossfaded into B's pre-handle. Duration-preserving by
+            # construction: A's segment was shortened by the same d_eff.
+            win_path = work_dir / (
+                f"{index:04d}-xfade-{_slug(str(window.get('a_id') or 'a'))}"
+                f"-{_slug(str(window.get('b_id') or 'b'))}.mp4"
+            )
+            _render_xfade_window(
+                window, win_path,
+                width=width, height=height, fps=fps,
+                profile=profile,
+                timeout_sec=timeout_sec,
+            )
+            segment_paths.append(win_path)
             continue
 
         item = seg.get("item")
@@ -263,6 +327,7 @@ def _render_base_video(
             width=width, height=height, fps=fps,
             profile=profile,
             timeout_sec=timeout_sec,
+            vf_extra=str(seg.get("vf_extra") or ""),
         )
         segment_paths.append(seg_path)
 
@@ -274,7 +339,7 @@ def _render_base_video(
         segment_paths[0].rename(base)
     else:
         _concat_segments(segment_paths, base, timeout_sec=timeout_sec)
-    return base
+    return base, transition_records
 
 
 def _render_video_segment(
@@ -288,8 +353,9 @@ def _render_video_segment(
     fps: float,
     profile: dict[str, str],
     timeout_sec: int,
+    vf_extra: str = "",
 ) -> None:
-    vf = _video_filter(width=width, height=height, fps=fps)
+    vf = _video_filter(width=width, height=height, fps=fps) + vf_extra
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-ss", f"{source_in:.6f}",
@@ -341,6 +407,211 @@ def _concat_segments(segments: list[Path], output: Path, *, timeout_sec: int) ->
         "-f", "concat", "-safe", "0",
         "-i", str(list_path),
         "-c", "copy",
+        "-movflags", "+faststart",
+        str(output),
+    ]
+    _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
+
+
+# ── pass 1b: transition planning (plan §5.2) ─────────────────────────────────
+
+
+def _plan_transitions(
+    video_clips: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    *,
+    fps: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Duration-preserving segment surgery for stored fade/dissolve transitions.
+
+    Returns ``(segments, records)``. Semantics (docs/timeline-canonical-plan.md
+    §5.2, INVARIANT T1 — segment durations must sum unchanged):
+
+    - ``fade`` (fade-through-black): pure per-segment ``fade`` filters appended
+      to the flanking segments' ``-vf`` chains. Boundaries, durations, and the
+      concat list are untouched — T1 holds by construction.
+    - ``dissolve`` (true crossfade): B-pre-handle window. A's flank segment is
+      shortened by ``d_eff``, an xfade window segment of exactly ``d_eff``
+      seconds is inserted, B's segment is untouched:
+      ``(A - d_eff) + d_eff + B`` — T1 holds.
+      ``d_eff = min(d, B.source_in, A_flank - 0.1, A.duration - 0.1,
+      B.duration - 0.1)`` (the ``- 0.1`` terms keep every remaining segment
+      above ``_render_video_segment``'s 0.1 s floor; the flank term covers
+      multi-track slicing where A's last segment is shorter than the clip).
+      ``d_eff < 2/fps`` degrades to a hard cut, recorded as ``no_handle``.
+    - Runtime re-checks (write-time validation can go stale — move/delete do
+      not clear ``transition_after`` today): a missing/non-adjacent B, or a
+      cut whose flanking segments do not belong to A and B (multi-track
+      latest-order-wins slicing can interpose another clip), degrades to a
+      hard cut recorded as ``not_adjacent``. Never fails the export.
+    - Kinds without a renderer (wipe) are not planned here; export_project
+      records them via ``lumerai.export_support.clip_dropped_fields``.
+    """
+    records: list[dict[str, Any]] = []
+    insertions: dict[int, dict[str, Any]] = {}
+
+    for item in video_clips:
+        clip = item["clip"]
+        transition = clip.get("transition_after")
+        if not isinstance(transition, dict):
+            continue
+        kind = str(transition.get("kind") or "")
+        if kind not in ("fade", "dissolve"):
+            continue
+        clip_id = str(clip.get("id") or "")
+        d = _pos(transition.get("duration_sec"), 0.0)
+        a_start = _pos(clip.get("start"), 0.0)
+        cut = a_start + _clip_duration(clip)
+        record: dict[str, Any] = {
+            "clip_id": clip_id, "kind": kind, "duration_sec": round(d, 6),
+        }
+
+        # Re-check adjacency: the next clip on the same track must butt-join.
+        track_id = str(clip.get("track_id") or "")
+        b_item: dict[str, Any] | None = None
+        for other in video_clips:
+            other_clip = other["clip"]
+            if other_clip is clip or str(other_clip.get("track_id") or "") != track_id:
+                continue
+            other_start = _pos(other_clip.get("start"), 0.0)
+            if other_start <= a_start:
+                continue
+            if b_item is None or other_start < _pos(b_item["clip"].get("start"), 0.0):
+                b_item = other
+        if (
+            b_item is None
+            or abs(_pos(b_item["clip"].get("start"), 0.0) - cut) > _EPSILON
+        ):
+            records.append({**record, "status": "degraded", "reason": "not_adjacent"})
+            continue
+        b_clip = b_item["clip"]
+
+        # The segments flanking the cut must actually belong to A and B.
+        i_a: int | None = None
+        for i, seg in enumerate(segments):
+            seg_item = seg.get("item")
+            if (
+                seg_item is not None
+                and str(seg_item["clip"].get("id")) == clip_id
+                and abs(_pos(seg.get("end"), 0.0) - cut) <= 2 * _EPSILON
+            ):
+                i_a = i
+                break
+        i_b = i_a + 1 if i_a is not None else None
+        if not (
+            i_a is not None
+            and i_b is not None
+            and i_b < len(segments)
+            and segments[i_b].get("item") is not None
+            and str(segments[i_b]["item"]["clip"].get("id")) == str(b_clip.get("id"))
+            and abs(_pos(segments[i_b].get("start"), 0.0) - cut) <= 2 * _EPSILON
+        ):
+            records.append({**record, "status": "degraded", "reason": "not_adjacent"})
+            continue
+        seg_a = segments[i_a]
+        seg_b = segments[i_b]
+        seg_a_dur = _pos(seg_a.get("end"), 0.0) - _pos(seg_a.get("start"), 0.0)
+
+        if kind == "fade":
+            # Zero-hazard: filters only, no boundary changes (T1 untouched).
+            half = d / 2.0
+            if half > 1e-6:
+                seg_a["vf_extra"] = (seg_a.get("vf_extra") or "") + (
+                    f",fade=t=out:st={max(seg_a_dur - half, 0.0):.6f}:d={half:.6f}"
+                )
+                seg_b["vf_extra"] = (seg_b.get("vf_extra") or "") + (
+                    f",fade=t=in:st=0:d={half:.6f}"
+                )
+            records.append({**record, "status": "rendered"})
+            continue
+
+        # dissolve — the only sync-safe source for B's pre-cut frames is media
+        # before B.source_in (a handle); never shift B or shrink the total.
+        b_source_in = _pos(b_clip.get("source_in"), 0.0)
+        d_eff = min(
+            d,
+            b_source_in,
+            _clip_duration(clip) - _SEGMENT_FLOOR,
+            _clip_duration(b_clip) - _SEGMENT_FLOOR,
+            seg_a_dur - _SEGMENT_FLOOR,
+        )
+        if d_eff < 2.0 / max(fps, 1.0):
+            records.append({**record, "status": "degraded", "reason": "no_handle"})
+            continue
+
+        cut_grid = _pos(seg_b.get("start"), 0.0)  # exact segment-grid boundary
+        seg_a["end"] = round(cut_grid - d_eff, 6)
+        insertions[i_a] = {
+            "start": seg_a["end"],
+            "end": cut_grid,
+            "item": None,
+            "window": {
+                "a_id": clip_id,
+                "b_id": str(b_clip.get("id") or ""),
+                "a_source": str(item["asset"].get("source_path") or ""),
+                "b_source": str(b_item["asset"].get("source_path") or ""),
+                "a_in": _pos(clip.get("source_in"), 0.0)
+                + max(cut_grid - d_eff - a_start, 0.0),
+                "b_in": max(b_source_in - d_eff, 0.0),
+                "duration": round(d_eff, 6),
+            },
+        }
+        records.append({
+            **record, "status": "rendered",
+            "effective_duration_sec": round(d_eff, 6),
+        })
+
+    if not insertions:
+        return segments, records
+    rebuilt: list[dict[str, Any]] = []
+    for i, seg in enumerate(segments):
+        rebuilt.append(seg)
+        if i in insertions:
+            rebuilt.append(insertions[i])
+    return rebuilt, records
+
+
+def _render_xfade_window(
+    window: dict[str, Any],
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+    profile: dict[str, str],
+    timeout_sec: int,
+) -> None:
+    """Render one dissolve window: exactly ``duration`` seconds, A xfaded to B.
+
+    Both inputs are pre-normalized through the same ``_video_filter`` every
+    other segment uses, so ``xfade`` at ``offset=0`` outputs exactly
+    ``duration`` seconds in concat-compatible encoding (plan §5.2 step 3).
+    """
+    a_source = Path(str(window.get("a_source") or "")).expanduser()
+    b_source = Path(str(window.get("b_source") or "")).expanduser()
+    for source in (a_source, b_source):
+        if not source.exists():
+            raise ProjectExportError(
+                "source_not_found",
+                f"Source file missing: {source}",
+                detail=str(source),
+            )
+    d = _pos(window.get("duration"), 0.0)
+    vf = _video_filter(width=width, height=height, fps=fps)
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", f"{_pos(window.get('a_in'), 0.0):.6f}", "-t", f"{d:.6f}", "-i", str(a_source),
+        "-ss", f"{_pos(window.get('b_in'), 0.0):.6f}", "-t", f"{d:.6f}", "-i", str(b_source),
+        "-filter_complex",
+        (
+            f"[0:v]{vf}[va];[1:v]{vf}[vb];"
+            f"[va][vb]xfade=transition=fade:duration={d:.6f}:offset=0[v]"
+        ),
+        "-map", "[v]", "-an",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-crf", profile["crf"],
+        "-preset", profile["preset"],
         "-movflags", "+faststart",
         str(output),
     ]

@@ -226,9 +226,9 @@ def test_set_track_duck_under_via_verb(tmp_path: Path) -> None:
 def test_add_transition_result_carries_export_honesty_note(
     sample_video_path: str, tmp_path: Path
 ) -> None:
-    """The model must not promise a dissolve export can't render yet: a
-    non-cut transition result carries export_note (export honesty rule,
-    docs/timeline-canonical-plan.md)."""
+    """Export honesty (docs/timeline-canonical-plan.md §4): kinds the export
+    cannot render yet (wipe) carry export_note + warnings; kinds that DO
+    render since Phase 1 (fade/dissolve, §5.2) carry neither."""
     ctx = _ctx(tmp_path)
     aid = _register_video(ctx, sample_video_path)
     cid = _call("timeline_insert_clip", {"asset_id": aid}, ctx)["clip_id"]
@@ -237,12 +237,24 @@ def test_add_transition_result_carries_export_honesty_note(
 
     out = _call(
         "timeline_add_transition",
-        {"clip_id": cid, "kind": "dissolve", "duration_sec": 0.5},
+        {"clip_id": cid, "kind": "wipe", "duration_sec": 0.5},
         ctx,
     )
     assert out["applied"] is True
     assert "hard cut" in out["export_note"]
+    assert any(w.startswith("W_NOT_EXPORTED:transition_after:") for w in out["warnings"])
+
+    # dissolve renders on export since Phase 1 — no caveat, no warnings.
+    out_dissolve = _call(
+        "timeline_add_transition",
+        {"clip_id": cid, "kind": "dissolve", "duration_sec": 0.5},
+        ctx,
+    )
+    assert out_dissolve["applied"] is True
+    assert "export_note" not in out_dissolve
+    assert "warnings" not in out_dissolve
 
     # A plain cut clears the transition and needs no caveat.
     out_cut = _call("timeline_add_transition", {"clip_id": cid, "kind": "cut"}, ctx)
     assert "export_note" not in out_cut
+    assert "warnings" not in out_cut

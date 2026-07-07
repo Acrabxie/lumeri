@@ -40,6 +40,7 @@ from gemia.session_manager import SessionLimitError, SessionRunner, get_manager
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 from gemia.transport.sse import iter_events
 from gemia.v3_contract import PROTOCOL_VERSION
+from lumerai.export_support import effects_warnings, transition_warnings
 from lumerai.patches import _TRANSITION_KINDS, TimelinePatchError
 
 
@@ -586,10 +587,38 @@ def _session_timeline_op(handler, runner: SessionRunner) -> bool:
     except Exception as exc:
         _json_error(handler, 500, f"applied, but could not reload project: {exc}")
         return True
-    _json_response(handler, 200, _timeline_payload_dict(
+    payload = _timeline_payload_dict(
         runner.session_id, project.project_id, project_state, meta,
-    ))
+    )
+    # Export honesty (docs/timeline-canonical-plan.md §4): the 200 response
+    # carries write-time warnings when the edit stored fields the exporter
+    # will not render today. Warn, never reject.
+    warnings = _user_edit_warnings(op_name, clip_id, body, project_state)
+    if warnings:
+        payload["warnings"] = warnings
+    _json_response(handler, 200, payload)
     return True
+
+
+def _user_edit_warnings(
+    op_name: str, clip_id: str, body: dict, project_state: dict
+) -> list[str]:
+    """Write-time export-honesty warnings for one applied user edit."""
+    if op_name == "add_transition":
+        return transition_warnings(str(body.get("kind") or ""))
+    if op_name == "set_effects":
+        clip = next(
+            (
+                c
+                for c in (project_state.get("timeline", {}).get("clips") or [])
+                if str(c.get("id")) == clip_id
+            ),
+            None,
+        )
+        media_kind = str((clip or {}).get("media_kind") or "video")
+        effects = body.get("effects")
+        return effects_warnings(media_kind, effects if isinstance(effects, dict) else {})
+    return []
 
 
 def _apply_user_undo(handler, runner: SessionRunner, body: dict) -> bool:

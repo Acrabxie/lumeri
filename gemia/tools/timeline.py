@@ -24,6 +24,7 @@ from typing import Any
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration
 from gemia.video.lottie_renderer import select_lottie_renderer
+from lumerai.export_support import effects_warnings, transition_warnings
 
 
 _TEXT_DEFAULT_DURATION = 3.0
@@ -289,14 +290,16 @@ async def dispatch_transition(args: dict[str, Any], ctx: ToolContext) -> dict[st
         op["duration_sec"] = duration_sec
     result = _project(ctx).apply_ops([op], label="timeline_add_transition")
     out = _summary(ctx, result, clip_id=clip_id)
-    if op["kind"] != "cut":
-        # Export honesty (docs/timeline-canonical-plan.md): the transition is
-        # stored and shown on the timeline, but project_export does not render
-        # it yet — say so instead of letting the model promise a dissolve.
+    # Export honesty (docs/timeline-canonical-plan.md §4): fade/dissolve render
+    # on export since Phase 1; kinds without a renderer (wipe) warn at write —
+    # never silently, never rejected (OTIO/replay compatibility).
+    warnings = transition_warnings(op["kind"])
+    if warnings:
+        out["warnings"] = warnings
         out["export_note"] = (
             f"transition '{op['kind']}' is recorded and visible on the "
             "timeline, but final export still renders a hard cut here "
-            "(xfade rendering is planned; see docs/timeline-canonical-plan.md)."
+            "(fade/dissolve render; see docs/timeline-canonical-plan.md)."
         )
     return out
 
@@ -307,8 +310,24 @@ async def dispatch_effects(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     if not isinstance(effects, dict) or not effects:
         raise ValueError("timeline_set_clip_effects needs a non-empty effects object")
     op = {"op": "set_clip_effects", "clip_id": clip_id, "effects": effects}
-    result = _project(ctx).apply_ops([op], label="timeline_set_clip_effects")
-    return _summary(ctx, result, clip_id=clip_id)
+    project = _project(ctx)
+    result = project.apply_ops([op], label="timeline_set_clip_effects")
+    out = _summary(ctx, result, clip_id=clip_id)
+    # Export honesty (docs/timeline-canonical-plan.md §4): warn — never reject —
+    # when the write stores fields the exporter will not render today.
+    clip = next(
+        (
+            c
+            for c in (project.load().get("timeline", {}).get("clips") or [])
+            if str(c.get("id")) == clip_id
+        ),
+        None,
+    )
+    media_kind = str((clip or {}).get("media_kind") or "video")
+    warnings = effects_warnings(media_kind, effects)
+    if warnings:
+        out["warnings"] = warnings
+    return out
 
 
 async def dispatch_add_track(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:

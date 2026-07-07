@@ -1217,6 +1217,13 @@
         render();
         return null;
       }
+      // Export honesty (docs/timeline-canonical-plan.md §4): the edit applied,
+      // but stored fields the exporter won't render — surface the typed
+      // W_NOT_EXPORTED warnings in the message strip. Warn, never silent.
+      if (Array.isArray(data.warnings) && data.warnings.length) {
+        for (const w of data.warnings) state.errors.push(String(w));
+        render();
+      }
       state.projectTimeline = data;
       renderProjectTimeline(data);     // reconcile from authoritative post-state
       return data;
