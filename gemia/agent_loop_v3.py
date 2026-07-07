@@ -210,6 +210,20 @@ def _is_mutating_lumen_tool(name: str) -> bool:
     return name.startswith(_LUMEN_TOOL_PREFIX) and name not in _LUMEN_READONLY_TOOLS
 
 
+# Tools whose children ALREADY settle their own seconds via BudgetGuard
+# reservation/settlement (gemia/subtasks.py). Committing the batch wall-clock on
+# top of that would double-count, so the loop commits 0.0 seconds for them and
+# lets the children's settlements be the truth (docs/multi-agent-plan.md §5.3).
+# The ~1 s orchestration overhead is covered by the tool's _TOOL_COSTS eta row.
+_SELF_SETTLING_TOOLS = frozenset({"spawn_subtasks"})
+
+
+def _commit_seconds(tool_name: str, elapsed: float) -> float:
+    """Wall-elapsed seconds to commit for ``tool_name``. Zero for self-settling
+    tools (their children already committed the real seconds)."""
+    return 0.0 if tool_name in _SELF_SETTLING_TOOLS else elapsed
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Stream accumulators (one stream = one model call)
 # ──────────────────────────────────────────────────────────────────────
@@ -358,6 +372,12 @@ class AgentLoopV3:
 
         _extra = dict(extra or {})
         _extra.setdefault("ask_bridge", self._ask_bridge)
+        # The spawn_subtasks host verb needs a handle back to this loop (to share
+        # the client / registry / project with its children and read plan_mode
+        # live). Children strip ask_bridge from their own ctx.extra, so a child
+        # cannot elicit; agent_loop is present in the PARENT ctx only for the
+        # spawn dispatcher.
+        _extra.setdefault("agent_loop", self)
         self._tool_ctx = ToolContext(
             session_id=session_id,
             output_dir=self.output_dir,
@@ -1421,13 +1441,18 @@ class AgentLoopV3:
                     }
                 )
                 self._tool_ctx.emit_progress = self._make_progress_cb(tc.id, tc.name)
+                # The spawn_subtasks dispatcher anchors its children's SSE events
+                # (subagent_start/result + child tool_exec_*) to THIS call's id.
+                self._tool_ctx.extra["call_id"] = tc.id
 
                 start_ts = time.monotonic()
                 try:
                     result = await DISPATCHER[tc.name](parsed_args, self._tool_ctx)
                 except Exception as exc:
                     elapsed = time.monotonic() - start_ts
-                    self.budget.commit(tc.name, actual_seconds=elapsed)
+                    self.budget.commit(
+                        tc.name, actual_seconds=_commit_seconds(tc.name, elapsed)
+                    )
                     # Surface the failure with its structure intact. A GemiaError
                     # (incl. ToolError) carries error_code / recovery / valid_options
                     # / hint — exactly the material that lets the model self-correct
@@ -1471,7 +1496,9 @@ class AgentLoopV3:
                     continue
 
                 elapsed = time.monotonic() - start_ts
-                self.budget.commit(tc.name, actual_seconds=elapsed)
+                self.budget.commit(
+                    tc.name, actual_seconds=_commit_seconds(tc.name, elapsed)
+                )
                 # Successful dispatch — clear this tool's failure streak entirely.
                 tool_fail_counts.pop(tc.name, None)
                 tools_succeeded += 1

@@ -82,6 +82,15 @@ from gemia.tools import web_search as _web_search
 Dispatcher = Callable[[dict[str, Any], ToolContext], Awaitable[dict[str, Any]]]
 
 
+async def _spawn_subtasks_dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Multi-agent fan-out verb. Imported lazily because ``gemia.subtasks``
+    imports ``DISPATCHER`` from THIS module (child dispatch reuses the shared
+    table) — a top-level import here would be a cycle."""
+    from gemia import subtasks as _subtasks
+
+    return await _subtasks.dispatch(args, ctx)
+
+
 _STUB_REASONS: dict[str, str] = {}
 
 
@@ -193,6 +202,7 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_set_work_area":      _layer.dispatch_lumen_set_work_area,
     "lumen_seek":               _lumen_seek.dispatch,
     "lumen_render_range":       _lumen_render_range.dispatch,
+    "spawn_subtasks":           _spawn_subtasks_dispatch,
 }
 
 

@@ -35,6 +35,8 @@
     "plan_mode_changed",
     "protocol_hello",
     "replay_gap",
+    "subagent_result",
+    "subagent_start",
     "timeline_op",
     "tool_exec_error",
     "tool_exec_progress",

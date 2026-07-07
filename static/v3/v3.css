@@ -173,8 +173,40 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .tool-status.pending { color: var(--pending); border-color: var(--pending); }
 .tool-status.running { color: var(--running); border-color: var(--running); }
 .tool-status.done    { color: var(--ok); border-color: var(--ok); }
+.tool-status.ok      { color: var(--ok); border-color: var(--ok); }
 .tool-status.failed  { color: var(--err); border-color: var(--err); }
+.tool-status.error   { color: var(--err); border-color: var(--err); }
 .tool-status.gated   { color: var(--warn); border-color: var(--warn); }
+.tool-status.timeout { color: var(--warn); border-color: var(--warn); }
+.tool-status.cancelled { color: var(--warn); border-color: var(--warn); }
+.tool-status.needs_user { color: var(--warn); border-color: var(--warn); }
+
+/* Multi-agent fan-out: child sub-agents render indented under a spawn_subtasks
+   call. Each group carries a status chip + summary; its own tool calls render as
+   compact indented lines. */
+.subagents { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.subagent-group {
+  border-left: 2px solid var(--border);
+  padding: 6px 0 6px 12px;
+}
+.subagent-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.subagent-id {
+  font-weight: 600; font-size: 12px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  color: var(--running);
+}
+.subagent-profile { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.subagent-meta { font-size: 11px; color: var(--text-dim); }
+.subagent-goal { font-size: 12px; color: var(--text-dim); margin: 4px 0; }
+.subagent-call { font-size: 12px; margin: 2px 0 2px 8px; color: var(--text-dim); }
+.subagent-branch { color: var(--border); }
+.subagent-call-detail { color: var(--text-dim); }
+.subagent-summary {
+  font: 12px/1.5 ui-monospace, SF Mono, Menlo, monospace;
+  background: var(--bg); padding: 6px 10px; border-radius: 6px; margin-top: 4px;
+}
+.subagent-assets { margin-top: 4px; font-size: 11px; }
+.subagent-assets code { margin-right: 6px; }
 
 .tool-args, .tool-summary {
   font: 12px/1.5 ui-monospace, SF Mono, Menlo, monospace;

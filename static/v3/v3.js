@@ -262,6 +262,7 @@
     const previewHtml = tc.previewAssetId && state.sessionId
       ? `<a class="tool-preview-link" href="/sessions/${state.sessionId}/assets/${tc.previewAssetId}" target="_blank" rel="noopener">open ${tc.previewAssetId} ↗</a>`
       : "";
+    const childrenHtml = renderSubagents(tc);
     return `
       ${reasoningHtml}
       <div class="tool-card${tc.status === "failed" ? " failed" : ""}">
@@ -274,8 +275,54 @@
         ${summaryHtml}
         ${previewHtml}
         ${errorHtml}
+        ${childrenHtml}
       </div>
     `;
+  }
+
+  // Render a spawn_subtasks call's children indented beneath it. Each child is a
+  // group with a status chip + summary; the child's own tool calls render as
+  // compact indented lines within the group.
+  function renderSubagents(tc) {
+    if (!tc.children || !tc.childOrder || !tc.childOrder.length) return "";
+    const groups = tc.childOrder.map((agentId) => {
+      const child = tc.children.get(agentId);
+      if (!child) return "";
+      const callsHtml = (child.callOrder || []).map((k) => {
+        const c = child.calls.get(k);
+        if (!c) return "";
+        const detail = c.status === "done"
+          ? escapeHTML(c.summary || "done")
+          : c.status === "failed"
+            ? escapeHTML(c.error || "failed")
+            : escapeHTML(c.progress?.message || c.status);
+        return `<div class="subagent-call"><span class="subagent-branch">├─</span> <span class="tool-name">${escapeHTML(c.tool_name)}</span> <span class="tool-status ${c.status}">${c.status}</span> <span class="subagent-call-detail">${detail}</span></div>`;
+      }).join("");
+      const metaBits = [];
+      if (typeof child.steps === "number") metaBits.push(`${child.steps} steps`);
+      if (typeof child.spentUsd === "number") metaBits.push(`$${child.spentUsd}`);
+      if (typeof child.spentSeconds === "number") metaBits.push(`${child.spentSeconds}s`);
+      const metaHtml = metaBits.length ? `<span class="subagent-meta">${escapeHTML(metaBits.join(" · "))}</span>` : "";
+      const summaryHtml = child.summary ? `<div class="subagent-summary">${escapeHTML(child.summary)}</div>` : "";
+      const assetsHtml = (child.assetIds && child.assetIds.length)
+        ? `<div class="subagent-assets">${child.assetIds.map((a) => `<code>${escapeHTML(a)}</code>`).join(" ")}</div>`
+        : "";
+      return `
+        <div class="subagent-group">
+          <div class="subagent-head">
+            <span class="subagent-id">${escapeHTML(child.agent_id)}</span>
+            <span class="subagent-profile">${escapeHTML(child.profile)}</span>
+            <span class="tool-status ${child.status}">${escapeHTML(child.status)}</span>
+            ${metaHtml}
+          </div>
+          ${child.goal ? `<div class="subagent-goal">${escapeHTML(child.goal)}</div>` : ""}
+          ${callsHtml}
+          ${summaryHtml}
+          ${assetsHtml}
+        </div>
+      `;
+    }).join("");
+    return `<div class="subagents">${groups}</div>`;
   }
 
   function renderProgress(tc) {
@@ -414,6 +461,36 @@
     return `${n.toFixed(1)}s`;
   }
 
+  // Resolve the child tool-call state a tool_exec_* event with an agent_id
+  // belongs to. Child tool activity rides the EXISTING tool_exec_* kinds
+  // (gemia/subtasks.py) carrying { call_id: <spawn call>, agent_id, tool_call_id }.
+  // Returns null (→ caller ignores) if the spawn call or child isn't tracked yet.
+  function childCallState(ev) {
+    const t = state.currentTurn;
+    if (!t) return null;
+    const spawn = t.toolCalls.get(ev.call_id);
+    if (!spawn || !spawn.children) return null;
+    const child = spawn.children.get(ev.agent_id);
+    if (!child) return null;
+    const key = ev.tool_call_id || ev.call_id;
+    let tc = child.calls.get(key);
+    if (!tc) {
+      tc = {
+        tool_call_id: key,
+        tool_name: ev.tool_name || "tool",
+        status: "running",
+        progress: null,
+        summary: null,
+        previewAssetId: null,
+        error: null,
+        errorCode: null,
+      };
+      child.calls.set(key, tc);
+      child.callOrder.push(key);
+    }
+    return tc;
+  }
+
   // ── event handlers (one per kind, no silent drop) ──────────────────
 
   const handlers = {
@@ -453,6 +530,11 @@
         hint: null,
         reasoning: reasoning || null,
         previewAssetId: null,
+        // Multi-agent fan-out: subagent_start populates this Map (agent_id ->
+        // child group) under a spawn_subtasks call. Child tool_exec_* events
+        // (carrying agent_id) route into the child's own tool list.
+        children: new Map(),
+        childOrder: [],
       });
       t.orderedCallIds.push(ev.call_id);
     },
@@ -462,10 +544,20 @@
       if (tc) tc.args = ev.args;
     },
     tool_exec_start: (ev) => {
+      // agent_id present → child tool activity, route into the child group.
+      if (ev.agent_id) { const c = childCallState(ev); if (c) c.status = "running"; return; }
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
       if (tc) tc.status = "running";
     },
     tool_exec_progress: (ev) => {
+      if (ev.agent_id) {
+        const c = childCallState(ev);
+        if (c) c.progress = {
+          percent: typeof ev.percent === "number" ? ev.percent : null,
+          message: ev.message || null,
+        };
+        return;
+      }
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
       if (!tc) return;
       tc.progress = {
@@ -474,6 +566,15 @@
       };
     },
     tool_exec_result: (ev) => {
+      if (ev.agent_id) {
+        const c = childCallState(ev);
+        if (c) {
+          c.status = "done";
+          c.summary = ev.result?.summary || null;
+          c.previewAssetId = ev.result?.asset_id || null;
+        }
+        return;
+      }
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
       if (!tc) return;
@@ -491,6 +592,11 @@
       }
     },
     tool_exec_error: (ev) => {
+      if (ev.agent_id) {
+        const c = childCallState(ev);
+        if (c) { c.status = "failed"; c.error = ev.error || "unknown error"; c.errorCode = ev.error_code || null; }
+        return;
+      }
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
       if (tc) {
         tc.status = "failed";
@@ -502,6 +608,41 @@
         tc.validOptions = Array.isArray(ev.valid_options) ? ev.valid_options : null;
         tc.hint = ev.hint || null;
       }
+    },
+    subagent_start: (ev) => {
+      // A child of a spawn_subtasks call is starting. Create its group under the
+      // spawn call so its tool activity + result render indented beneath it.
+      const t = state.currentTurn;
+      const spawn = t?.toolCalls.get(ev.call_id);
+      if (!spawn || !spawn.children) return;
+      if (!spawn.children.has(ev.agent_id)) {
+        spawn.children.set(ev.agent_id, {
+          agent_id: ev.agent_id,
+          goal: ev.goal || "",
+          profile: ev.tool_profile || "",
+          status: "running",
+          summary: null,
+          assetIds: [],
+          spentUsd: null,
+          spentSeconds: null,
+          steps: null,
+          calls: new Map(),
+          callOrder: [],
+        });
+        spawn.childOrder.push(ev.agent_id);
+      }
+    },
+    subagent_result: (ev) => {
+      // A child finished (any status). Close its group with the terminal record.
+      const spawn = state.currentTurn?.toolCalls.get(ev.call_id);
+      const child = spawn?.children?.get(ev.agent_id);
+      if (!child) return;
+      child.status = ev.status || "ok";
+      child.summary = ev.summary || null;
+      child.assetIds = Array.isArray(ev.asset_ids) ? ev.asset_ids : [];
+      child.spentUsd = typeof ev.spent_usd === "number" ? ev.spent_usd : null;
+      child.spentSeconds = typeof ev.spent_seconds === "number" ? ev.spent_seconds : null;
+      child.steps = typeof ev.steps === "number" ? ev.steps : null;
     },
     budget_gate: (ev) => {
       const t = state.currentTurn;

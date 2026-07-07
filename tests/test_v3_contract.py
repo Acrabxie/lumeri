@@ -28,6 +28,9 @@ EMIT_FILES = [
     "gemia/transport/sse.py",
     "gemia/tools/_ask_bridge.py",
     "gemia/v3_routes.py",
+    # Multi-agent fan-out emits subagent_start / subagent_result and re-emits the
+    # existing tool_exec_* kinds (with agent_id) for child tool activity.
+    "gemia/subtasks.py",
 ]
 
 _KIND_LITERAL = re.compile(r'"kind":\s*"([a-z_]+)"')

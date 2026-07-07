@@ -101,6 +101,12 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "lumen_render":             {"usd": 0.00, "eta_sec": 20.0},
     "lumen_seek":               {"usd": 0.00, "eta_sec": 1.0},
     "lumen_render_range":       {"usd": 0.00, "eta_sec": 5.0},
+    # Multi-agent fan-out: the verb itself is near-free orchestration; the real
+    # cost of children flows through per-child budget reservations (see
+    # gemia/subtasks.py + docs/multi-agent-plan.md §5). The loop special-cases
+    # spawn_subtasks to commit actual_seconds=0.0 so the batch wall-clock is not
+    # double-counted on top of the children's settled seconds (§5.3).
+    "spawn_subtasks":           {"usd": 0.00, "eta_sec": 1.0},
 }
 
 
@@ -120,6 +126,22 @@ class BudgetDecision:
             "reason": self.reason,
             "alternatives": list(self.alternatives),
         }
+
+
+@dataclass(frozen=True)
+class BudgetReservation:
+    """A budget slice claimed up front by ``reserve()`` / ``reserve_amount()``.
+
+    Salvaged from the stranded RC3 parallel-dispatch branch
+    (``d7f941c:gemia/budget_guard.py:84``). ``tool_name`` is a free-form label
+    for snapshots/logs (it is a real tool name for ``reserve()``, and a label
+    like ``"spawn_subtasks:sub_1"`` for ``reserve_amount()``); the settlement
+    math in ``commit_reserved`` never looks at it.
+    """
+
+    tool_name: str
+    estimated_cost_usd: float
+    estimated_eta_sec: float
 
 
 class BudgetGuard:
@@ -163,6 +185,110 @@ class BudgetGuard:
             )
         return BudgetDecision(ok=True, estimated_cost_usd=cost, estimated_eta_sec=eta)
 
+    def reserve(self, tool_name: str) -> tuple[BudgetDecision, BudgetReservation | None]:
+        """Atomically check and reserve the estimated budget for a future dispatch.
+
+        Parallel tool execution must account for estimates before launching work,
+        otherwise N concurrent calls can all pass ``check()`` against the same
+        stale totals and collectively exceed the session caps. The caller settles
+        the reservation with ``commit_reserved()`` after the call finishes.
+
+        No lock is needed: all callers live on the session event loop and there is
+        no ``await`` between the ``check()`` read and the ``spent_*`` add, so the
+        check-then-add is atomic (see docs/multi-agent-plan.md §5.1).
+        """
+        decision = self.check(tool_name)
+        if not decision.ok:
+            return decision, None
+        reservation = BudgetReservation(
+            tool_name=tool_name,
+            estimated_cost_usd=decision.estimated_cost_usd,
+            estimated_eta_sec=decision.estimated_eta_sec,
+        )
+        self.spent_usd += reservation.estimated_cost_usd
+        self.spent_seconds += reservation.estimated_eta_sec
+        return decision, reservation
+
+    def reserve_amount(
+        self, label: str, *, usd: float, seconds: float
+    ) -> tuple[BudgetDecision, BudgetReservation | None]:
+        """Amount-based reservation for host capabilities (e.g. subtask slices)
+        that are not a single ``_TOOL_COSTS`` row.
+
+        Same atomic check-then-add as ``reserve()``, but the caller supplies the
+        amounts directly. Refuses (and reserves nothing) if the requested slice
+        would push either axis past the cap. ``label`` is echoed onto the
+        reservation for snapshots/logs only.
+        """
+        usd = float(usd)
+        seconds = float(seconds)
+        projected_usd = self.spent_usd + usd
+        projected_sec = self.spent_seconds + seconds
+        if projected_usd > self.max_usd:
+            return (
+                BudgetDecision(
+                    ok=False,
+                    estimated_cost_usd=usd,
+                    estimated_eta_sec=seconds,
+                    reason=(
+                        f"session cost would exceed cap: "
+                        f"${projected_usd:.2f} > ${self.max_usd:.2f}"
+                    ),
+                ),
+                None,
+            )
+        if projected_sec > self.max_seconds:
+            return (
+                BudgetDecision(
+                    ok=False,
+                    estimated_cost_usd=usd,
+                    estimated_eta_sec=seconds,
+                    reason=(
+                        f"session time would exceed cap: "
+                        f"{projected_sec:.0f}s > {self.max_seconds:.0f}s"
+                    ),
+                ),
+                None,
+            )
+        reservation = BudgetReservation(
+            tool_name=label,
+            estimated_cost_usd=usd,
+            estimated_eta_sec=seconds,
+        )
+        self.spent_usd += usd
+        self.spent_seconds += seconds
+        return (
+            BudgetDecision(ok=True, estimated_cost_usd=usd, estimated_eta_sec=seconds),
+            reservation,
+        )
+
+    def commit_reserved(
+        self,
+        reservation: BudgetReservation,
+        *,
+        actual_usd: float | None = None,
+        actual_seconds: float | None = None,
+    ) -> None:
+        """Settle a prior reservation with actual observed resource usage.
+
+        ``spent += actual - estimated`` on each axis. An unspent slice returns
+        automatically: a lower actual produces a negative delta that credits the
+        session totals back down. Falls back to the reserved estimate when an
+        axis's actual is not supplied.
+        """
+        actual_cost = (
+            float(actual_usd)
+            if actual_usd is not None
+            else reservation.estimated_cost_usd
+        )
+        actual_sec = (
+            float(actual_seconds)
+            if actual_seconds is not None
+            else reservation.estimated_eta_sec
+        )
+        self.spent_usd += actual_cost - reservation.estimated_cost_usd
+        self.spent_seconds += actual_sec - reservation.estimated_eta_sec
+
     def commit(
         self,
         tool_name: str,
@@ -199,4 +325,4 @@ def _cheaper(tool_name: str) -> list[str]:
     return []
 
 
-__all__ = ["BudgetGuard", "BudgetDecision", "tool_cost_usd"]
+__all__ = ["BudgetGuard", "BudgetDecision", "BudgetReservation", "tool_cost_usd"]

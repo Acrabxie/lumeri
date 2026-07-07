@@ -13,10 +13,15 @@ BLOCKED because they register user-visible session assets as a side effect
 (``inspect_timeline`` renders a draft export + frame assets, ``extract_frame``
 / ``render_preview`` / ``lumen_render`` / ``lumen_render_range`` /
 ``lumen_seek`` register derived media, ``lumen_select`` saves the layer doc),
-and ``remember`` / ``log_note`` write durable memory files. Planning-quality
-inspection stays available through ``get_timeline`` / ``get_lumenframe`` /
-``probe_media`` / ``analyze_media`` (whose thumbnail is NOT registered) /
-``search_library`` / ``get_media_annotations``.
+and ``remember`` / ``log_note`` write durable memory files. ``spawn_subtasks``
+is BLOCKED because it reserves budget, launches model-driven children whose
+profiles include mutating tools (``annotate_media`` / ``write_media_annotation``)
+and register derived assets (``extract_frame``) — three independently
+disqualifying side effects; children additionally re-read this live flag per
+dispatch (defense in depth for mid-batch toggles). Planning-quality inspection
+stays available through ``get_timeline`` / ``get_lumenframe`` / ``probe_media`` /
+``analyze_media`` (whose thumbnail is NOT registered) / ``search_library`` /
+``get_media_annotations``.
 
 Fail closed: a tool name in neither set (e.g. a newly added tool nobody
 classified yet) is treated as blocked. ``tests/test_plan_mode.py`` asserts
@@ -49,7 +54,8 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # Everything that edits, generates, registers assets, writes files/memory,
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
-    "add_overlay", "adjust_media", "annotate_media", "arrange_timeline",
+    "add_overlay", "adjust_media", "animate_captions", "annotate_media",
+    "arrange_timeline",
     "assemble_shotlist", "build", "color_grade", "composite", "copy_in",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
@@ -66,7 +72,8 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
     "narrate", "remember", "render_preview", "run_shell", "save_skill",
-    "search_media", "set_shotlist", "smart_reframe", "subtitle",
+    "search_media", "set_shotlist", "smart_reframe", "spawn_subtasks",
+    "subtitle",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",
     "timeline_set_clip_time", "timeline_set_track", "timeline_split_clip",

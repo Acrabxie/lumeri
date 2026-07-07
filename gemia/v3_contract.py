@@ -22,8 +22,9 @@ from __future__ import annotations
 PROTOCOL_VERSION = 1
 
 # Every SSE event kind any backend code path may emit. Emit sites live in
-# exactly four files: agent_loop_v3.py, transport/sse.py (replay_gap),
-# tools/_ask_bridge.py (ask_question), v3_routes.py.
+# exactly five files: agent_loop_v3.py, transport/sse.py (replay_gap),
+# tools/_ask_bridge.py (ask_question), v3_routes.py, and subtasks.py
+# (subagent_start / subagent_result + child tool_exec_* with agent_id).
 EVENT_KINDS: frozenset[str] = frozenset({
     "turn_start",
     "model_text_delta",
@@ -33,6 +34,15 @@ EVENT_KINDS: frozenset[str] = frozenset({
     "tool_exec_progress",
     "tool_exec_result",
     "tool_exec_error",
+    # Multi-agent fan-out (docs/multi-agent-plan.md §6). A spawn_subtasks call
+    # launches N bounded children; each child opens with exactly one
+    # subagent_start and closes with exactly one subagent_result. Child TOOL
+    # activity rides the EXISTING tool_exec_* kinds carrying an optional
+    # ``agent_id`` field (absent = the root/parent loop). There is deliberately
+    # NO subagent_progress kind — a synthetic child-percent would be fabricated
+    # narration (transport/sse.py invariant 1).
+    "subagent_start",
+    "subagent_result",
     "timeline_op",
     "budget_gate",
     "plan_gate",
