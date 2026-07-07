@@ -5,7 +5,14 @@ import re
 import uuid
 from typing import Any, Callable
 
-from gemia.project_model import IMAGE_DURATION, _normalize_timeline_clip, normalize_project
+from gemia.project_model import (
+    IMAGE_DURATION,
+    _normalize_shot,
+    _normalize_timeline_clip,
+    empty_shotlist,
+    normalize_project,
+    normalize_shotlist,
+)
 from gemia.video.layers import BLEND_MODES
 
 # Timeline v1 (M1) contract: seconds as floats, rounded to 6 places on write,
@@ -824,7 +831,49 @@ def _op_upsert_asset(project: dict[str, Any], op: dict[str, Any]) -> None:
     _upsert_asset(project, copy.deepcopy(asset))
 
 
+def _op_set_shotlist(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """Replace the whole storyboard IR (outline/storyboard-driven editing)."""
+    raw = op.get("shotlist")
+    if not isinstance(raw, dict):
+        raise TimelinePatchError("E_BAD_ARG", "set_shotlist requires a 'shotlist' object")
+    project["shotlist"] = normalize_shotlist(raw)
+
+
+def _op_update_shot(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """Merge ``fields`` into a single shot located by ``shot_id``.
+
+    Targeted revision so the model can mark a shot ``filled`` (asset_id) or
+    ``placed`` (clip_id), retime it, or reword its text without resending the
+    whole shotlist. Immutable identity keys (``id``) cannot be changed here.
+    """
+    shot_id = str(op.get("shot_id") or "")
+    if not shot_id:
+        raise TimelinePatchError("E_BAD_ARG", "update_shot requires a 'shot_id'")
+    fields = op.get("fields") if isinstance(op.get("fields"), dict) else None
+    if fields is None:
+        raise TimelinePatchError("E_BAD_ARG", "update_shot requires a 'fields' object")
+    shotlist = project.get("shotlist")
+    if not isinstance(shotlist, dict):
+        shotlist = empty_shotlist()
+        project["shotlist"] = shotlist
+    for scene_idx, scene in enumerate(shotlist.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        shots = scene.get("shots") or []
+        for shot_idx, shot in enumerate(shots):
+            if isinstance(shot, dict) and str(shot.get("id") or "") == shot_id:
+                merged = {**shot, **{k: v for k, v in fields.items() if k != "id"}}
+                merged["id"] = shot_id
+                shots[shot_idx] = _normalize_shot(
+                    merged, scene_idx=scene_idx, shot_idx=shot_idx
+                )
+                return
+    raise TimelinePatchError("E_NOT_FOUND", f"update_shot: no shot with id {shot_id}")
+
+
 _OP_HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], None]] = {
+    "set_shotlist": _op_set_shotlist,
+    "update_shot": _op_update_shot,
     "insert_clip": _op_insert_clip,
     "delete_clip": _op_delete_clip,
     "move_clip": _op_move_clip,
