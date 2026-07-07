@@ -498,6 +498,80 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .plan-bar .plan-refine { padding: 6px 14px; }
 
+/* ── Background shell tasks ───────────────────────────────────────────── */
+/* Header chip: dim when idle, accent pulse while running, red on failure. */
+.tasks-chip {
+  font-size: 12px;
+  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+}
+.tasks-chip.running {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(78, 161, 255, 0.10);
+}
+.tasks-chip.running::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: tasks-pulse 1.2s ease-in-out infinite;
+}
+.tasks-chip.has-failed {
+  color: var(--err);
+  border-color: var(--err);
+  background: rgba(255, 80, 80, 0.10);
+}
+@keyframes tasks-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.tasks-bar {
+  padding: 8px 20px;
+  border-top: 1px solid var(--accent);
+  background: rgba(78, 161, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.task-row .task-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.task-row .task-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.task-row .task-status { flex-shrink: 0; color: var(--text-dim); }
+.task-row.running .task-status { color: var(--accent); }
+.task-row.failed .task-status { color: var(--err); }
+.task-row.done .task-status { color: var(--ok); }
+.task-kill {
+  font-size: 11px;
+  padding: 3px 10px;
+  color: var(--err);
+  border-color: var(--err);
+  background: rgba(255, 80, 80, 0.10);
+  flex-shrink: 0;
+}
+.task-kill:hover { border-color: var(--err); background: rgba(255, 80, 80, 0.20); }
+.task-killing { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+
 /* ── Project timeline panel ──────────────────────────────────────────── */
 .project-timeline-panel {
   border-top: 1px solid var(--border);

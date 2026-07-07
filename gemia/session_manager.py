@@ -22,6 +22,7 @@ import dataclasses
 import json
 import os
 import shutil
+import signal
 import threading
 import time
 import uuid
@@ -38,6 +39,18 @@ _DEFAULT_OUTPUT_ROOT = Path("/tmp/lumeri-v3")
 _DEFAULT_MAX_SESSIONS = 20
 _DEFAULT_IDLE_TIMEOUT_SEC = 2 * 60 * 60
 _DEFAULT_SWEEP_INTERVAL_SEC = 60
+
+# Background-job watcher / auto-resume tuning.
+_BG_WATCH_INTERVAL_SEC = 2.0
+_BG_RESUME_MAX_PER_HOUR = 12
+_BG_RESUME_MIN_INTERVAL_SEC = 10.0
+_BG_RESUME_FASTFAIL_INTERVAL_SEC = 30.0
+
+
+def _autoresume_enabled() -> bool:
+    """Auto-wakeup on background completion, default ON (LUMERI_BG_AUTORESUME)."""
+    val = str(os.environ.get("LUMERI_BG_AUTORESUME", "1")).strip().lower()
+    return val not in ("0", "false", "no", "off")
 
 
 class SessionLimitError(RuntimeError):
@@ -94,6 +107,12 @@ class SessionRunner:
         self.created_at = now
         self.last_used_at = now
 
+        # Background-job watcher: single lazily-started task on this session's
+        # loop; auto-resume rate-limit bookkeeping guarded by _state_lock.
+        self._bg_watcher_task: asyncio.Task | None = None
+        self._bg_resume_times: list[float] = []
+        self._bg_last_resume_at = 0.0
+
         # Durable transcript: every event the agent emits is appended to
         # <sessions_root>/<sid>/transcript.jsonl BEFORE it reaches the SSE
         # ring buffer (which holds only 200 events and dies with the process).
@@ -143,13 +162,174 @@ class SessionRunner:
             self._loop.close()
 
     async def _create_agent(self) -> AgentLoopV3:
+        extra: dict[str, Any] = {"on_background_job": self._on_background_job}
+        if self.account_id:
+            extra["account_id"] = self.account_id
         return AgentLoopV3(
             session_id=self.session_id,
             output_dir=self.output_dir,
             sessions_root=self.sessions_root,
             emit_event=self._emit_event,
-            extra={"account_id": self.account_id} if self.account_id else None,
+            extra=extra,
         )
+
+    # ── background-job watcher + auto-resume ─────────────────────────
+
+    def _on_background_job(self, job_id: str) -> None:
+        """Callback fired (on the session loop) when run_shell submits a
+        background job — starts the watcher and snapshots the registry so the
+        job's pid/pgid survive a crash before the first watcher poll."""
+        self._ensure_bg_watcher()
+        try:
+            self.agent.persist_jobs()
+        except Exception:
+            pass
+
+    def _ensure_bg_watcher(self) -> None:
+        """Idempotently start the watcher task on this session's loop.
+
+        Must run on the loop thread (it is: the only callers are the
+        on_background_job tool callback and a resume turn, both on-loop).
+        """
+        if self._bg_watcher_task is not None and not self._bg_watcher_task.done():
+            return
+        self._bg_watcher_task = asyncio.ensure_future(self._bg_watch())
+
+    async def _bg_watch(self) -> None:
+        """Poll pending background shell jobs until none remain.
+
+        On each tick: advance job state + emit SSE + queue completion notices
+        (all inside agent.poll_background_jobs), then auto-resume an idle
+        session to process queued notices. Exits when there is nothing left to
+        watch, so it stays dormant between bursts of background work.
+        """
+        try:
+            while True:
+                try:
+                    summary = self.agent.poll_background_jobs()
+                except Exception:
+                    summary = {"pending": 0, "had_fast_fail": False}
+                pending = int(summary.get("pending", 0) or 0)
+
+                if self.agent.has_pending_background_notifications() and not self.turn_in_progress:
+                    self._auto_resume(bool(summary.get("had_fast_fail")))
+
+                if pending == 0:
+                    if not self.agent.has_pending_background_notifications():
+                        return  # nothing pending, nothing queued → stop watching
+                    # Notices are queued. A turn in progress MIGHT drain them at
+                    # its next top-of-loop, but a turn that ends on a no-tool
+                    # response never loops back to drain — so we must KEEP
+                    # watching while a turn runs and auto-resume once it ends
+                    # idle. Give up only when the session is already idle AND we
+                    # cannot auto-resume (disabled/capped); the next user turn
+                    # will drain them then.
+                    if not self.turn_in_progress and (
+                        not _autoresume_enabled() or self._resume_capped()
+                    ):
+                        return
+
+                await asyncio.sleep(_BG_WATCH_INTERVAL_SEC)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
+
+    def _resume_capped(self) -> bool:
+        now = time.time()
+        with self._state_lock:
+            self._bg_resume_times = [t for t in self._bg_resume_times if now - t < 3600.0]
+            return len(self._bg_resume_times) >= _BG_RESUME_MAX_PER_HOUR
+
+    def _auto_resume(self, fast_fail: bool) -> None:
+        """If the session is idle and within rate limits, CAS-acquire the turn
+        flag and schedule a background-resume turn on the loop.
+
+        Same _state_lock as submit_turn, so a concurrent user turn and an
+        auto-resume can never both start — the loser just no-ops.
+        """
+        if not _autoresume_enabled():
+            return
+        now = time.time()
+        with self._state_lock:
+            if self._turn_in_progress:
+                return
+            self._bg_resume_times = [t for t in self._bg_resume_times if now - t < 3600.0]
+            if len(self._bg_resume_times) >= _BG_RESUME_MAX_PER_HOUR:
+                return
+            min_interval = (
+                _BG_RESUME_FASTFAIL_INTERVAL_SEC if fast_fail else _BG_RESUME_MIN_INTERVAL_SEC
+            )
+            if self._bg_last_resume_at and (now - self._bg_last_resume_at) < min_interval:
+                return
+            self._turn_in_progress = True
+            self._bg_last_resume_at = now
+            self._bg_resume_times.append(now)
+            self.last_used_at = now
+
+        async def _run() -> None:
+            try:
+                await self.agent.run_background_resume_turn()
+            finally:
+                with self._state_lock:
+                    self._turn_in_progress = False
+                    self.last_used_at = time.time()
+
+        asyncio.ensure_future(_run())
+
+    def _sweep_background_jobs(self) -> None:
+        """Kill any still-running background shell jobs owned by this session
+        (orphan prevention on close). SIGTERM → brief grace → unconditional group
+        SIGKILL, keyed on the pgid persisted at spawn (getpgid on a dead leader
+        would raise). Terminal states are persisted so a restart does not
+        resurrect a job this close just finished."""
+        try:
+            from gemia.tools import build as _build
+
+            ctx = self.agent._tool_ctx  # noqa: SLF001 — same-package plumbing
+            for record in list(ctx.jobs.list_records()):
+                if record.kind != "shell" or record.last_polled_status in ("done", "failed"):
+                    continue
+                entry = _build._PROCESSES.get(record.job_id)  # noqa: SLF001
+                proc = entry[0] if entry is not None else None
+                # If we hold a handle and the process already exited (e.g. reaped
+                # by a cap-count poll), it is gone — never killpg its pgid, which
+                # the OS may have recycled onto an unrelated process group.
+                if proc is not None and proc.poll() is not None:
+                    _build._PROCESSES.pop(record.job_id, None)  # noqa: SLF001
+                    ctx.jobs.update_from_poll(record.job_id, "failed", error="session closed")
+                    continue
+                pgid = record.pgid or (proc.pid if proc is not None else None)
+                if pgid is None:
+                    continue
+                try:
+                    os.killpg(pgid, signal.SIGTERM)
+                except OSError:
+                    pass
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=2)  # brief grace for a clean SIGTERM exit
+                    except Exception:
+                        pass
+                # Escalate to the whole group unconditionally: a SIGTERM-ignoring
+                # grandchild can outlive a direct child that exited on SIGTERM, so
+                # gating SIGKILL on the direct child still-alive would leak it.
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except OSError:
+                    pass
+                if proc is not None:
+                    try:
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
+                _build._PROCESSES.pop(record.job_id, None)  # noqa: SLF001
+                ctx.jobs.update_from_poll(
+                    record.job_id, "failed", error="session closed"
+                )
+            self.agent.persist_jobs()  # flush terminal states for restart reconcile
+        except Exception:
+            pass
 
     def _emit_event(self, event: dict[str, Any]) -> None:
         """Agent event sink: durable transcript first, then the SSE fan-out.
@@ -537,6 +717,48 @@ class SessionRunner:
             for r in records
         ]
 
+    def list_tasks(self) -> list[dict[str, Any]]:
+        """Snapshot the session's background shell jobs for REST + reconnect
+        reconcile. Direct registry read from the HTTP thread — same discipline
+        as ``list_assets`` (a plain snapshot; the registry is only mutated on
+        the loop thread, and a read racing a mutation sees a coherent record)."""
+        self.touch()
+        records = self.agent._tool_ctx.jobs.list_records()  # noqa: SLF001 — same-package plumbing
+        out: list[dict[str, Any]] = []
+        for r in records:
+            if r.kind != "shell":
+                continue
+            raw = r.last_polled_status
+            status = "running" if raw in ("submitted", "queued", "running") else raw
+            out.append({
+                "job_id": r.job_id,
+                "status": status,
+                "summary": r.summary,
+                "submitted_at": r.submitted_at,
+                "elapsed_sec": round(time.monotonic() - r.submitted_mono, 1),
+                "error": r.final_error,
+            })
+        return out
+
+    def kill_task(self, job_id: str) -> dict[str, Any]:
+        """Kill a background shell job by hopping the kill_job dispatch onto the
+        session loop (killpg + registry mutation must run where the job was
+        spawned). Raises KeyError for an unknown job_id (route maps to 404)."""
+        self.touch()
+        if self._loop.is_closed():
+            raise RuntimeError("session is closed")
+        from gemia.tools import build as _build
+
+        ctx = self.agent._tool_ctx  # noqa: SLF001 — same-package plumbing
+
+        async def _call() -> dict[str, Any]:
+            result = await _build.dispatch_kill({"job_id": job_id}, ctx)
+            self.agent.persist_jobs()  # record the terminal state on the loop thread
+            return result
+
+        fut = asyncio.run_coroutine_threadsafe(_call(), self._loop)
+        return fut.result(timeout=15)
+
     def close(self) -> None:
         if self._loop.is_closed():
             return
@@ -545,6 +767,9 @@ class SessionRunner:
             fut.result(timeout=5)
         except Exception:
             pass
+        # After the watcher task is cancelled (above), reap any background
+        # shell children so they don't outlive the session as orphans.
+        self._sweep_background_jobs()
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=5)
         with self._transcript_lock:

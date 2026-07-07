@@ -17,6 +17,7 @@
     <span class="session-id" id="session-id-label">—</span>
   </div>
   <div class="header-actions">
+    <button type="button" id="tasks-chip" class="tasks-chip" hidden title="后台命令（点击展开）">后台任务</button>
     <button type="button" id="sandbox-toggle-btn" class="sandbox-toggle" title="沙盒已开启（点击关闭）">沙盒</button>
     <span class="status-pill" id="connection-pill">offline</span>
     <button type="button" id="new-session-btn">new session</button>
@@ -58,6 +59,9 @@
 
 <!-- Plan-mode hint / approval bar: filled by v3.js while plan mode is on -->
 <div id="plan-bar" class="plan-bar" hidden></div>
+
+<!-- Background shell tasks: per-task list + kill buttons, toggled by #tasks-chip -->
+<div id="tasks-bar" class="tasks-bar" hidden></div>
 
 <footer class="composer">
   <input type="file" id="upload-input" hidden />

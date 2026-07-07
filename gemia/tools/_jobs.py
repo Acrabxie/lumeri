@@ -48,6 +48,14 @@ class JobRecord:
         final_error: Error message when status=="failed"
         summary: human-readable description of the job
         submitted_mono: time.monotonic() value at submission (not serialized)
+        pid: local process id for kind=="shell"/"build" jobs (None for LROs)
+        pgid: process GROUP id — persisted at spawn because getpgid() on a
+            dead group leader raises; kill/cleanup paths must use this
+        started_epoch: time.time() at spawn, identity anchor for pid-reuse
+            checks after a restart
+        announced: completion already surfaced to the model (notification
+            injected or the model itself polled the terminal state) — the
+            watcher must not announce twice
     """
     job_id: str
     kind: str
@@ -62,6 +70,10 @@ class JobRecord:
     final_error: str | None
     summary: str
     submitted_mono: float = field(default_factory=time.monotonic, repr=False)
+    pid: int | None = None
+    pgid: int | None = None
+    started_epoch: float | None = None
+    announced: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict, skipping submitted_mono."""
@@ -157,6 +169,10 @@ class JobRegistry:
             r for r in self._records.values()
             if r.last_polled_status not in ("done", "failed")
         ]
+
+    def list_records(self) -> list[JobRecord]:
+        """Return every record (any status), insertion order."""
+        return list(self._records.values())
 
     def update_from_poll(
         self,

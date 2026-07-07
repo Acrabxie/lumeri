@@ -157,6 +157,7 @@ _REAL: dict[str, Dispatcher] = {
     "build":              _build.dispatch,
     "check_job":          _build.dispatch_check,
     "wait_for_job":       _build.dispatch_wait,
+    "kill_job":           _build.dispatch_kill,
     "save_skill":         _save_skill.dispatch_save_skill,
     "recall_skills":      _save_skill.dispatch_recall_skills,
     "remember":           _remember.dispatch,

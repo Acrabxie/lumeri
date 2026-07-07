@@ -39,6 +39,8 @@
     sandboxBtn: $("#sandbox-toggle-btn"),
     planBtn: $("#plan-toggle-btn"),
     planBar: $("#plan-bar"),
+    tasksChip: $("#tasks-chip"),
+    tasksBar: $("#tasks-bar"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -65,6 +67,9 @@
     mediaLibraryStatus: "idle",
     planMode: false,            // mirrors the backend per-session flag
     planReady: false,           // a turn completed while planning → offer approval
+    /** @type {Map<string, {job_id:string,status:string,summary:string,exit_code:number|null,elapsed_sec:number|null,output_tail:string}>} */
+    backgroundTasks: new Map(), // job_id → background shell task (run_in_background run_shell)
+    _tasksBarOpen: false,       // header chip expands the per-task list + kill buttons
   };
 
   function newTurn(userMessage) {
@@ -134,6 +139,7 @@
     renderAssets();
     renderMediaLibrary();
     renderPlanUi();
+    renderBackgroundTasks();
   }
 
   // Plan-mode toggle button + hint/approval bar. Signature-guarded like
@@ -170,6 +176,68 @@
         <span class="plan-bar-text">计划模式已开启 — Lumeri 只查看和规划，等你批准后才会改动项目。</span>
       `;
     }
+  }
+
+  const _bgRunning = (s) => s === "running" || s === "submitted" || s === "queued";
+
+  // Header chip (running count / terminal indicator) + collapsible per-task
+  // list with kill buttons. Signature-guarded like renderPlanUi: render() runs
+  // on every SSE event, and rebuilding the bar's innerHTML on each one would
+  // drop the kill button's focus and restart its CSS.
+  function renderBackgroundTasks() {
+    if (!els.tasksChip || !els.tasksBar) return;
+    const tasks = [...state.backgroundTasks.values()];
+    const running = tasks.filter((t) => _bgRunning(t.status));
+    const failed = tasks.filter((t) => t.status === "failed");
+    const sig = tasks
+      .map((t) => `${t.job_id}:${t.status}:${t.exit_code}:${t._killing ? 1 : 0}`)
+      .join("|") + `|open=${state._tasksBarOpen}`;
+    if (sig === state._tasksSig) return;
+    state._tasksSig = sig;
+
+    if (!tasks.length) {
+      els.tasksChip.hidden = true;
+      els.tasksBar.hidden = true;
+      els.tasksBar.innerHTML = "";
+      return;
+    }
+
+    els.tasksChip.hidden = false;
+    els.tasksChip.textContent = running.length
+      ? `后台任务 ×${running.length}`
+      : (failed.length ? `后台任务 ✗${failed.length}` : "后台任务 ✓");
+    els.tasksChip.classList.toggle("running", running.length > 0);
+    els.tasksChip.classList.toggle("has-failed", running.length === 0 && failed.length > 0);
+    els.tasksChip.title = running.length
+      ? `${running.length} 个后台命令运行中（点击展开）`
+      : "后台命令已全部结束（点击展开）";
+
+    if (!state._tasksBarOpen) {
+      els.tasksBar.hidden = true;
+      els.tasksBar.innerHTML = "";
+      return;
+    }
+    els.tasksBar.hidden = false;
+    els.tasksBar.innerHTML = tasks.map((t) => {
+      const isRunning = _bgRunning(t.status);
+      const elapsed = typeof t.elapsed_sec === "number" ? `${t.elapsed_sec.toFixed(0)}s` : "";
+      let statusLabel;
+      if (isRunning) statusLabel = "运行中";
+      else if (t.status === "done") statusLabel = `完成 (退出码 ${t.exit_code ?? 0})`;
+      else statusLabel = "已停止/失败";
+      const killBtn = isRunning
+        ? (t._killing
+            ? `<span class="task-killing">停止中…</span>`
+            : `<button type="button" class="task-kill" data-task-kill="${escapeHTML(t.job_id)}">停止</button>`)
+        : "";
+      return `
+        <div class="task-row ${isRunning ? "running" : escapeHTML(t.status)}">
+          <span class="task-id">${escapeHTML(t.job_id)}</span>
+          <span class="task-summary" title="${escapeHTML(t.summary || "")}">${escapeHTML(t.summary || "")}</span>
+          <span class="task-status">${statusLabel}${elapsed ? " · " + elapsed : ""}</span>
+          ${killBtn}
+        </div>`;
+    }).join("");
   }
 
   function renderTurn(turn, idx) {
@@ -643,6 +711,23 @@
       child.spentUsd = typeof ev.spent_usd === "number" ? ev.spent_usd : null;
       child.spentSeconds = typeof ev.spent_seconds === "number" ? ev.spent_seconds : null;
       child.steps = typeof ev.steps === "number" ? ev.steps : null;
+    },
+    background_task_update: (ev) => {
+      // A run_in_background run_shell job changed status. These arrive both
+      // mid-turn and between turns (the per-session watcher runs on the
+      // session loop), so they update session-scoped state, not currentTurn.
+      if (!ev.job_id) return;
+      const prev = state.backgroundTasks.get(ev.job_id) || {};
+      state.backgroundTasks.set(ev.job_id, {
+        job_id: ev.job_id,
+        status: ev.status || prev.status || "running",
+        summary: ev.summary || prev.summary || "",
+        exit_code: typeof ev.exit_code === "number" ? ev.exit_code : (prev.exit_code ?? null),
+        elapsed_sec: typeof ev.elapsed_sec === "number" ? ev.elapsed_sec : (prev.elapsed_sec ?? null),
+        output_tail: ev.output_tail || prev.output_tail || "",
+        // A fresh authoritative status clears any optimistic "停止中…" flag.
+        _killing: false,
+      });
     },
     budget_gate: (ev) => {
       const t = state.currentTurn;
@@ -1611,6 +1696,27 @@
       state.planMode = data.plan_mode;
       if (!state.planMode) state.planReady = false;
     }
+    // Reconcile background shell tasks after an SSE gap: the server snapshot is
+    // authoritative (it survives the 200-event ring overflow the SSE replay
+    // can't). exit_code/output_tail aren't in the REST list — keep any we
+    // already learned from a prior background_task_update.
+    if (Array.isArray(data.tasks)) {
+      const next = new Map();
+      for (const t of data.tasks) {
+        if (!t || !t.job_id) continue;
+        const prev = state.backgroundTasks.get(t.job_id) || {};
+        next.set(t.job_id, {
+          job_id: t.job_id,
+          status: t.status || prev.status || "running",
+          summary: t.summary || prev.summary || "",
+          exit_code: prev.exit_code ?? null,
+          elapsed_sec: typeof t.elapsed_sec === "number" ? t.elapsed_sec : (prev.elapsed_sec ?? null),
+          output_tail: prev.output_tail || "",
+          _killing: false,
+        });
+      }
+      state.backgroundTasks = next;
+    }
   }
 
   async function fetchMediaLibrary() {
@@ -1853,6 +1959,40 @@
       state.planReady = false;
       render();
     }
+  });
+
+  // ── background tasks ────────────────────────────────────────────────
+  // Chip toggles the per-task list; kill buttons POST to the kill route. The
+  // authoritative "failed/killed" status still arrives via the watcher's
+  // background_task_update SSE, so this only sets an optimistic "停止中…".
+  els.tasksChip?.addEventListener("click", () => {
+    state._tasksBarOpen = !state._tasksBarOpen;
+    render();
+  });
+
+  async function killBackgroundTask(jobId) {
+    if (!state.sessionId) return;
+    const t = state.backgroundTasks.get(jobId);
+    if (t) t._killing = true;   // reflected as "停止中…" until the SSE lands
+    render();
+    try {
+      const r = await fetch(
+        `/sessions/${state.sessionId}/tasks/${encodeURIComponent(jobId)}/kill`,
+        { method: "POST" },
+      );
+      if (!r.ok) throw new Error(`kill failed: ${r.status}`);
+    } catch (err) {
+      if (t) t._killing = false;
+      state.errors.push(`停止任务失败: ${err.message}`);
+      render();
+    }
+  }
+
+  document.addEventListener("click", (e) => {
+    const killEl = e.target.closest("[data-task-kill]");
+    if (!killEl) return;
+    const jobId = killEl.dataset.taskKill;
+    if (jobId) killBackgroundTask(jobId);
   });
 
   // ── sandbox toggle ──────────────────────────────────────────────────

@@ -61,6 +61,18 @@ def test_known_mutators_are_blocked() -> None:
         assert is_plan_safe(name), name
 
 
+def test_background_job_verbs_are_classified_conservatively() -> None:
+    """kill_job is a mutating side effect (SIGKILLs a process group) so it must
+    be BLOCKED in plan mode alongside run_shell/build. The read-only pollers
+    check_job/wait_for_job stay ALLOWED so the model can still observe a job it
+    submitted before entering plan mode."""
+    assert "kill_job" in PLAN_BLOCKED_TOOLS
+    assert not is_plan_safe("kill_job")
+    for name in ("check_job", "wait_for_job"):
+        assert name in PLAN_ALLOWED_TOOLS, name
+        assert is_plan_safe(name), name
+
+
 # ── fake model clients (mirrors test_v3_completion_gate.py) ──────────────────
 
 

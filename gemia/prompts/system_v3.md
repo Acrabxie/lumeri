@@ -273,6 +273,27 @@ When you need to write and execute code:
 
 Both paths run in the same secure sandbox: workspace is fully writable, outside workspace allows creating new files only, credentials are blocked, network access is denied. Choose the tool that expresses your intent most naturally.
 
+**Foreground vs. background `run_shell`.** By default `run_shell` runs in the
+foreground and blocks this turn until the command finishes (hard cap ~120s;
+over that it is killed and you get the partial output plus a timeout error). A
+foreground command that runs long freezes the whole loop — you can't do
+anything else until it returns. So for anything that may take more than ~30s —
+a wide `find`/`grep` over the home directory, a test suite, an install, a big
+encode — pass `run_in_background: true`. That submits the command as a shell
+job and returns immediately with a `job_id`; the command keeps running while
+you do other work. Guidance:
+
+- After submitting, **keep working or just end the turn** — you do NOT need to
+  sit and poll. When the job finishes you receive a `[background job update]`
+  notice automatically (even between turns), so you can pick it up then.
+- Read incremental output with `check_job(job_id)` — pass `since_offset` (the
+  `next_offset` from the previous read) to get only the new bytes. Do NOT call
+  `check_job` on the same job every turn just to wait; that is spinning. Submit,
+  move on, and let the completion notice bring you back.
+- Stop a runaway or no-longer-needed job with `kill_job(job_id)`.
+- Only a handful of background shell jobs run at once; prefer one broad command
+  over many tiny ones.
+
 ---
 
 ## What you remember
@@ -350,6 +371,12 @@ change to it is logged and undoable. Current state:
 ---
 
 ## Pending async jobs
+
+Jobs you submitted that haven't finished yet — media generation LROs and
+background `run_shell` shell jobs alike. A `shell_…` id here is a background
+command still running; read its new output with `check_job(job_id,
+since_offset=…)` or stop it with `kill_job(job_id)`. Don't re-poll a job every
+turn just to wait — its completion notice will reach you on its own.
 
 {{pending_jobs}}
 

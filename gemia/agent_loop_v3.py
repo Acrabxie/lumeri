@@ -79,6 +79,7 @@ from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
 from gemia.tools._ask_bridge import AskBridge
 from gemia.tools._context import ProgressUpdate
+from gemia.tools._jobs import JobRegistry
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
 
 
@@ -185,6 +186,12 @@ _TRANSIENT_RETRY_NUDGE_THRESHOLD = 8
 # structured turn_error and stop. Distinct args (real progress / different work)
 # never trip it.
 _DOOM_LOOP_THRESHOLD = 3
+
+# Job-polling verbs are exempt from the doom-loop guard: three identical
+# check_job(job_id=X) calls in a row are legitimate polling of a background
+# job, not a stuck model. Their spam ceiling is handled by prompt guidance
+# ("don't busy-poll; completion is announced") + the budget guard instead.
+_DOOM_LOOP_EXEMPT_TOOLS = frozenset({"check_job", "wait_for_job", "kill_job"})
 
 # Post-edit self-correction (ported from opencode pattern #2: append LSP
 # diagnostics to a tool_result right after an edit). After a SUCCESSFUL
@@ -370,6 +377,18 @@ class AgentLoopV3:
         # HTTP thread via deliver_ask_answer).
         self._ask_bridge = AskBridge(self._emit)
 
+        # Completed-background-job notices awaiting injection into the
+        # conversation. Plain list, no lock: the session watcher coroutine and
+        # the turn coroutine run on the SAME per-session event loop thread.
+        self._bg_notifications: list[dict[str, Any]] = []
+        # Background-job watcher bookkeeping (all touched only on the loop
+        # thread, so no lock): last SSE status emitted per job (emit-on-change),
+        # jobs whose wall-clock was budget-committed (commit-once), and jobs
+        # fully handled so the watcher can skip them.
+        self._bg_last_emitted: dict[str, str] = {}
+        self._bg_committed: set[str] = set()
+        self._bg_finalized: set[str] = set()
+
         _extra = dict(extra or {})
         _extra.setdefault("ask_bridge", self._ask_bridge)
         # The spawn_subtasks host verb needs a handle back to this loop (to share
@@ -390,6 +409,9 @@ class AgentLoopV3:
         self.sessions_root = Path(sessions_root) if sessions_root else None
         if self.sessions_root is not None:
             self._write_session_meta(turn_count=0)
+            # Restore + reconcile background shell jobs left over from a prior
+            # process for this session id (best-effort; never raises).
+            self._load_and_reconcile_jobs()
 
     def _write_session_meta(self, *, turn_count: int) -> None:
         """Write a v2-SessionStore-compatible meta.json so legacy loaders can read it."""
@@ -447,6 +469,289 @@ class AgentLoopV3:
     def add_external_asset(self, path: Path, *, summary: str = "") -> str:
         record = self.registry.add_external(Path(path), summary=summary or None)
         return record.asset_id
+
+    # ── background jobs (watcher-facing) ─────────────────────────────
+
+    def emit_background_update(self, payload: dict[str, Any]) -> None:
+        """SSE emit for a background job state change (called by the session
+        watcher). Lives here because agent_loop_v3.py is one of the four
+        whitelisted emit sites — the kind must stay a literal string. The
+        trailing literal wins over any stray "kind" in the payload."""
+        self._emit({**payload, "kind": "background_task_update"})
+
+    def _jobs_state_path(self) -> Path | None:
+        """Where this session's background-job registry is persisted, or None
+        for an ephemeral session (no sessions_root)."""
+        if self.sessions_root is None:
+            return None
+        return self.sessions_root / self.session_id / "jobs.json"
+
+    def persist_jobs(self) -> None:
+        """Best-effort snapshot of the job registry to <sid>/jobs.json.
+
+        Bookkeeping, not correctness-critical — a failed write must never surface
+        to a tool call or the watcher, so every error is swallowed. Called on
+        submit, after a watcher poll finalizes a job, and after a kill; the
+        persisted pid/pgid/started_epoch let a restart reconcile mid-flight jobs.
+        """
+        path = self._jobs_state_path()
+        if path is None:
+            return
+        try:
+            self._tool_ctx.jobs.save(path)
+        except Exception:
+            pass
+
+    def _load_and_reconcile_jobs(self) -> None:
+        """Restore background shell jobs from <sid>/jobs.json and reconcile any
+        that were still mid-flight when the previous process stopped.
+
+        LRO kinds (video/audio) are intentionally skipped: they have no local
+        process and their existing flow already treats a restart as lost, so
+        re-injecting them would be an out-of-scope behaviour change. For shell
+        jobs — an already-terminal job is re-injected as-is (and re-queues its
+        completion notice if the model never got to see it); a non-terminal job
+        is reconciled to an honest failed state via reconcile_orphan_shell_job
+        (which NEVER kills). Every restored job is marked finalized in the
+        watcher bookkeeping so the live watcher won't double-process it, and the
+        reconciled states are persisted back immediately.
+        """
+        path = self._jobs_state_path()
+        if path is None or not path.exists():
+            return
+        try:
+            saved = JobRegistry.load(path)
+        except Exception:
+            return
+
+        from gemia.tools.build import (
+            reconcile_orphan_shell_job,
+            shell_job_output_tail,
+        )
+
+        changed = False
+        for record in saved.list_records():
+            if record.kind != "shell":
+                continue
+            # A fresh session's registry is empty; skip a duplicate defensively.
+            try:
+                self._tool_ctx.jobs.get(record.job_id)
+                continue
+            except KeyError:
+                pass
+            self._tool_ctx.jobs._records[record.job_id] = record  # noqa: SLF001
+
+            if record.last_polled_status in ("done", "failed"):
+                if not record.announced:
+                    elapsed = (
+                        max(0.0, time.time() - record.started_epoch)
+                        if record.started_epoch is not None
+                        else None
+                    )
+                    self.queue_background_notification({
+                        "job_id": record.job_id,
+                        "status": record.last_polled_status,
+                        "exit_code": None,
+                        "summary": record.summary,
+                        "error": record.final_error,
+                        "elapsed_sec": elapsed,
+                        "output_tail": shell_job_output_tail(record, self._tool_ctx),
+                    })
+                    record.announced = True
+                    changed = True
+            else:
+                notice = reconcile_orphan_shell_job(record, self._tool_ctx)
+                self.queue_background_notification(notice)
+                record.announced = True
+                changed = True
+
+            # Restored jobs are terminal now: keep the live watcher from
+            # re-emitting/re-committing/re-announcing them.
+            self._bg_finalized.add(record.job_id)
+            self._bg_last_emitted[record.job_id] = record.last_polled_status
+            self._bg_committed.add(record.job_id)
+
+        if changed:
+            self.persist_jobs()
+
+    def queue_background_notification(self, payload: dict[str, Any]) -> None:
+        """Queue a completed-job notice for injection into the conversation.
+
+        Same-loop only (watcher coroutine): if a turn is running, the notice
+        is drained at the top of its next model-call iteration; otherwise the
+        session watcher triggers run_background_resume_turn.
+        """
+        self._bg_notifications.append(dict(payload))
+
+    def has_pending_background_notifications(self) -> bool:
+        return bool(self._bg_notifications)
+
+    def _drain_background_notifications(self) -> str | None:
+        """Render and clear queued job notices as one synthetic message body."""
+        if not self._bg_notifications:
+            return None
+        drained, self._bg_notifications = self._bg_notifications, []
+        lines = ["[background job update — host notice, not user input]"]
+        for p in drained:
+            head = f"- {p.get('job_id')} → {p.get('status')}"
+            details = []
+            if p.get("exit_code") is not None:
+                details.append(f"exit {p['exit_code']}")
+            if p.get("elapsed_sec") is not None:
+                details.append(f"took {p['elapsed_sec']:.0f}s")
+            if details:
+                head += f" ({', '.join(details)})"
+            lines.append(head)
+            if p.get("summary"):
+                lines.append(f"  command: {p['summary']}")
+            if p.get("error"):
+                lines.append(f"  error: {p['error']}")
+            tail = str(p.get("output_tail") or "").strip()
+            if tail:
+                lines.append("  output tail:")
+                lines.extend(f"    {ln}" for ln in tail.splitlines()[-15:])
+        lines.append(
+            "If you were waiting on this job, continue that work now "
+            "(check_job gives the full log); otherwise ignore this notice."
+        )
+        return "\n".join(lines)
+
+    async def run_background_resume_turn(self) -> bool:
+        """Run one model turn triggered by background-job completion, with no
+        user input. Returns False without running when the queue is already
+        empty (e.g. a concurrent turn drained it first).
+
+        Deliberately does NOT touch _pinned_intent — a host notice is not the
+        session goal — and reuses the normal turn bookkeeping otherwise.
+        """
+        note = self._drain_background_notifications()
+        if note is None:
+            return False
+        self._messages.append({"role": "user", "content": note})
+        self._trim_rolling_window()
+        try:
+            await self._drive_turn()
+        finally:
+            self._turn_count += 1
+            if self.sessions_root is not None:
+                self._write_session_meta(turn_count=self._turn_count)
+        return True
+
+    # Cap the model-facing output tail carried in a completion notice; the
+    # model can check_job for the full log if it needs more.
+    _BG_NOTIFY_TAIL_CHARS = 2000
+    # Cap the tail carried in the SSE background_task_update payload.
+    _BG_SSE_TAIL_CHARS = 1000
+    # A job that failed this fast is almost certainly a typo/immediate error;
+    # back the auto-resume off harder so a broken command can't storm-wake.
+    _BG_FAST_FAIL_SEC = 3.0
+
+    def poll_background_jobs(self) -> dict[str, Any]:
+        """Poll every pending background shell job once (called by the session
+        watcher on the loop thread).
+
+        Side effects: advances each job's registry state via _check_job_impl,
+        emits a background_task_update SSE on status change, budget-commits the
+        real wall-clock once per job at completion, and queues a completion
+        notice for any newly-terminal job the model has not already seen.
+
+        Returns {pending, newly_terminal, had_fast_fail} for the watcher's
+        scheduling decisions.
+        """
+        from gemia.tools.build import _PROCESSES, _check_job_impl
+
+        ctx = self._tool_ctx
+        pending = 0
+        newly_terminal: list[str] = []
+        terminal_seen: list[str] = []
+        had_fast_fail = False
+
+        for record in list(ctx.jobs.list_records()):
+            if record.kind != "shell" or record.job_id in self._bg_finalized:
+                continue
+            try:
+                result = _check_job_impl(record.job_id, ctx, mark_announced=False)
+            except Exception:
+                # A transient poll error (e.g. a slow SIGKILL reap raising
+                # TimeoutExpired) must not drop a still-live job from the pending
+                # count — that could make the watcher exit and permanently strand
+                # it. Keep it counted while its process is still tracked; the next
+                # tick retries and self-heals.
+                if record.job_id in _PROCESSES:
+                    pending += 1
+                continue
+            status = str(result.get("status") or record.last_polled_status)
+            if status not in ("done", "failed"):
+                pending += 1
+
+            elapsed = None
+            if record.started_epoch is not None:
+                elapsed = max(0.0, time.time() - record.started_epoch)
+
+            if self._bg_last_emitted.get(record.job_id) != status:
+                self._bg_last_emitted[record.job_id] = status
+                tail = str(result.get("stdout_tail") or "")[-self._BG_SSE_TAIL_CHARS:]
+                payload = {
+                    "job_id": record.job_id,
+                    "status": status,
+                    "exit_code": result.get("exit_code"),
+                    "summary": record.summary,
+                    "output_tail": tail,
+                }
+                if elapsed is not None:
+                    payload["elapsed_sec"] = round(elapsed, 1)
+                self.emit_background_update(payload)
+
+            if status in ("done", "failed"):
+                # Persist the terminal state even when the model already saw it
+                # via a check_job/wait_for_job (which sets announced=True WITHOUT
+                # persisting). Otherwise jobs.json stays at the submit-time
+                # non-terminal snapshot and a restart would reconcile a finished
+                # job into a false "failed" with a bogus completion notice.
+                terminal_seen.append(record.job_id)
+                if record.job_id not in self._bg_committed:
+                    self._bg_committed.add(record.job_id)
+                    self.budget.commit(
+                        "run_shell",
+                        actual_seconds=elapsed if elapsed is not None else 0.0,
+                    )
+                if not record.announced:
+                    record.announced = True
+                    newly_terminal.append(record.job_id)
+                    if (
+                        status == "failed"
+                        and elapsed is not None
+                        and elapsed < self._BG_FAST_FAIL_SEC
+                    ):
+                        had_fast_fail = True
+                    self.queue_background_notification(
+                        {
+                            "job_id": record.job_id,
+                            "status": status,
+                            "exit_code": result.get("exit_code"),
+                            "summary": record.summary,
+                            "error": result.get("error") or record.final_error,
+                            "elapsed_sec": elapsed,
+                            "output_tail": str(result.get("stdout_tail") or "")[
+                                -self._BG_NOTIFY_TAIL_CHARS:
+                            ],
+                        }
+                    )
+                self._bg_finalized.add(record.job_id)
+
+        # Persist durable transitions (submitted/running → done/failed) so a
+        # restart reconciles from the true terminal state. terminal_seen covers
+        # jobs the model already announced too, closing the resurrect-as-failed
+        # gap; running-only ticks aren't persisted (reconcile treats a stale
+        # 'running' the same anyway).
+        if terminal_seen:
+            self.persist_jobs()
+
+        return {
+            "pending": pending,
+            "newly_terminal": newly_terminal,
+            "had_fast_fail": had_fast_fail,
+        }
 
     # Cap for the injected layer-tree summary: a deep comp tree must not
     # balloon every prompt; past this the model should lumen_get for detail.
@@ -1143,6 +1448,14 @@ class AgentLoopV3:
         failed_job_ids: set[str] = set()
 
         while True:
+            # Background jobs that completed mid-turn: inject their notices as
+            # one synthetic user message BEFORE the next model call (role
+            # "user" — a role:"tool" message without a matching call id would
+            # break the alternating-role contract).
+            bg_note = self._drain_background_notifications()
+            if bg_note is not None:
+                self._messages.append({"role": "user", "content": bg_note})
+
             accum = _StreamAccumulator()
             messages = self.render_messages()
 
@@ -1532,7 +1845,10 @@ class AgentLoopV3:
                 # distinct args (real work) never trip it. Like opencode, a call
                 # that did not actually dispatch (raised / gated / bad-JSON args)
                 # is not recorded here — those stay owned by repeated-failure nudges.
-                recent_tool_calls.append((tc.name, tc.args))
+                # Polling verbs are exempt (see _DOOM_LOOP_EXEMPT_TOOLS):
+                # identical repeated check_job calls are legal waiting.
+                if tc.name not in _DOOM_LOOP_EXEMPT_TOOLS:
+                    recent_tool_calls.append((tc.name, tc.args))
                 if self._is_doom_loop(recent_tool_calls):
                     self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
                     self._emit_turn_wrapup(

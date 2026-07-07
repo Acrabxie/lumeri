@@ -60,7 +60,7 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
     "file_write", "generate_audio", "generate_image", "generate_video",
-    "inspect_lottie", "inspect_timeline", "log_note",
+    "inspect_lottie", "inspect_timeline", "kill_job", "log_note",
     "lumen_add_layer", "lumen_delete_layer", "lumen_key",
     "lumen_merge_compositions", "lumen_move_layer", "lumen_patch",
     "lumen_render", "lumen_render_range", "lumen_retime_segment",
