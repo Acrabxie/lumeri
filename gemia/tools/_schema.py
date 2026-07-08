@@ -754,6 +754,28 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "enum": ["youtube", "instagram", "tiktok", "twitter", "prores", "generic"],
                 "description": "Optional platform preset for additional tuning.",
             },
+            "codec": {
+                "type": "string",
+                "enum": ["h264", "h265"],
+                "description": "Video codec for mp4/mov (default h264). h265/HEVC gives a smaller file at similar quality; ignored for webm/gif.",
+            },
+            "video_bitrate": {
+                "type": "string",
+                "description": "Optional target video bitrate (e.g. '8M', '800k'). Switches from quality-based CRF to constrained bitrate; use for a fixed delivery size.",
+            },
+            "color": {
+                "type": "string",
+                "enum": ["auto", "bt709"],
+                "description": "Tag Rec.709 primaries/transfer/matrix (bt709) for broadcast-correct HD color, or leave auto (default).",
+            },
+            "fps": {
+                "type": "number",
+                "description": "Optional output frame-rate override (1-120).",
+            },
+            "audio_bitrate": {
+                "type": "string",
+                "description": "Optional audio bitrate override (e.g. '192k', '256k').",
+            },
         },
         ["asset_id", "format", "quality"],
     ),
