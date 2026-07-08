@@ -1713,6 +1713,49 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["moves"],
     ),
     _tool(
+        "align_audio",
+        "Align multiple audio/video assets to a reference using cross-correlation. "
+        "Detects time offsets and provides natural language suggestions for syncing. "
+        "Read-only analysis; produces no new assets.",
+        {
+            "reference_asset_id": {
+                "type": "string",
+                "description": "ID of the reference audio/video asset (required).",
+            },
+            "asset_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of asset IDs to align against the reference (required).",
+            },
+            "max_offset_sec": {
+                "type": "number",
+                "description": "Optional maximum allowed offset in seconds.",
+            },
+        },
+        ["reference_asset_id", "asset_ids"],
+    ),
+    _tool(
+        "detect_beats",
+        "Detect beats, tempo, and optionally onsets in an audio/video asset. "
+        "Provides beat times and suggested cut points for timeline editing. "
+        "Read-only analysis; produces no new assets.",
+        {
+            "asset_id": {
+                "type": "string",
+                "description": "ID of the audio/video asset (required).",
+            },
+            "include_onsets": {
+                "type": "boolean",
+                "description": "Include onset detection in results (default false).",
+            },
+            "cut_every": {
+                "type": "integer",
+                "description": "Take every Nth beat/onset (default 1).",
+            },
+        },
+        ["asset_id"],
+    ),
+    _tool(
         "elicit",
         "Ask the user a structured question and wait for their answer before "
         "continuing. Use this when a creative/destructive choice is genuinely the "

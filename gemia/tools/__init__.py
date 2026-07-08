@@ -37,6 +37,8 @@ from gemia.tools._schema import TOOL_NAMES, TOOL_SCHEMAS
 
 from gemia.tools import add_overlay as _add_overlay
 from gemia.tools import adjust_media as _adjust_media
+from gemia.tools import align_audio as _align_audio
+from gemia.tools import detect_beats as _detect_beats
 from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import animate_captions as _animate_captions
 from gemia.tools import arrange_timeline as _arrange_timeline
@@ -98,8 +100,10 @@ def _make_stub(name: str) -> Dispatcher:
 
 
 _REAL: dict[str, Dispatcher] = {
+    "align_audio":        _align_audio.dispatch,
     "analyze_media":      _analyze_media.dispatch,
     "adjust_media":       _adjust_media.dispatch,
+    "detect_beats":       _detect_beats.dispatch,
     "paint_overlay":      _paint.dispatch_overlay,
     "paint_mask_effect":  _paint.dispatch_mask_effect,
     "edit_video":         _edit_video.dispatch,

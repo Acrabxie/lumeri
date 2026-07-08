@@ -22,6 +22,9 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "generate_video":     {"usd": 2.80,  "eta_sec": 120.0},  # Veo 3.1 fast, 8s
     "generate_audio":     {"usd": 0.00,  "eta_sec": 45.0},   # Lyria 3 clip — preview, currently free
     "analyze_media":      {"usd": 0.01,  "eta_sec": 4.0},    # rough Gemini text estimate
+    # Audio analysis (zero money, time only).
+    "align_audio":        {"usd": 0.00, "eta_sec": 2.0},    # cross-correlation
+    "detect_beats":       {"usd": 0.00, "eta_sec": 2.0},    # librosa beat detection
     # Local ffmpeg (zero money, time only).
     "edit_image":         {"usd": 0.00, "eta_sec": 4.0},
     "edit_video":         {"usd": 0.00, "eta_sec": 10.0},

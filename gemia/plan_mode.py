@@ -26,8 +26,10 @@ from __future__ import annotations
 
 # Pure reads / state queries / user interaction. Safe while planning.
 PLAN_ALLOWED_TOOLS = frozenset({
+    "align_audio",          # audio analysis; detects sync offsets
     "analyze_media",        # ffprobe + unregistered thumbnail only
     "check_job",            # polls an already-submitted job
+    "detect_beats",         # audio analysis; detects beats/onsets
     "elicit",               # ask the user; no state written
     "file_list",
     "file_read",
