@@ -327,6 +327,36 @@ inline alpha data; alpha/luma mattes can borrow sibling layers. For green/blue
 screen or brightness keying, use `lumen_key` with chroma, advanced_chroma, or
 luma before rendering and inspecting pixels.
 
+### Time & speed editing — reach for the named verb, not raw patch
+
+Editing *when* and *how fast* a layer plays has a dedicated verb for each
+intent. Use these instead of hand-writing a `lumen_patch` for time — the named
+verbs validate ranges, keep later layers consistent, and land as one undoable
+step:
+
+- `lumen_set_range` — set a layer's *source in/out* (which part of the source
+  media plays) without moving it on the timeline. Reach for it to trim what a
+  clip shows, not where it sits.
+- `lumen_retime_segment` — change a segment's **duration or constant speed**
+  ("make this shot 2s", "play it at 0.5×"). The one tool for uniform slow-mo /
+  speed-up of a single segment.
+- `lumen_speed_ramp` — **variable** speed across a range (ease into slow-mo and
+  back out). Only when the speed must change *within* the clip; for one constant
+  speed use `lumen_retime_segment`.
+- `lumen_time_remap` — keyframed time: pin source times to timeline times
+  (freeze frames, hold-then-run, non-linear time). The most general and the last
+  resort — prefer retime/ramp when they already express the intent.
+- `lumen_reverse` — play a range backwards.
+- `lumen_ripple_delete` — remove a range **and close the gap**, pulling later
+  layers earlier. Use it (not a plain delete) whenever you don't want a hole
+  left behind.
+- `lumen_merge_compositions` — nest one composition into another to treat a
+  group of layers as a single retimeable / movable unit.
+
+Rule of thumb: name the intent — trim source, constant speed, ramp, keyframe
+time, reverse, delete-and-close, or nest — and pick the matching verb above.
+Drop to `lumen_patch` only for a property no named verb covers.
+
 ### Available operations (lumenframe.ops vocabulary):
 
 {{lumenframe_ops}}
