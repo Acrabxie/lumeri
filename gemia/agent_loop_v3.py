@@ -114,6 +114,15 @@ _SELFCHECK_MAX_LISTED = 8
 _VISUAL_ASSET_KINDS = {"image", "video", "lottie"}
 
 
+_GATE_VOICE_TEXT = (
+    "表达方式：以上核对是你交付前的内部检查步骤，不是回复的模板。"
+    "最终回复要像一个同事交活那样自然地说话，按这一回合实际发生的事"
+    "来组织内容：做了什么、结果怎么样、有什么值得注意的地方；有失败就如实说明。"
+    "不要按固定的标题或清单结构逐项汇报，不要把内部检查清单本身复述给用户，"
+    "也不要用「项目已圆满完成」这类礼节性套话收尾。用用户最新消息的语言回复。"
+)
+
+
 def _goal_check_text(pinned_intent: str | None, plan_mode: bool) -> str:
     """The RC4 goal-check wording, shared by the gate builder and its
     degraded fallback so the two can never drift apart."""
@@ -130,12 +139,14 @@ def _goal_check_text(pinned_intent: str | None, plan_mode: bool) -> str:
             "——呈现计划本身就是本回合的成功产出，不要调用会被计划模式拦截的修改类工具。"
             "若计划还缺关键信息，先用只读工具补齐再完成计划。"
             "若确实被卡住需要用户输入，明确说明。"
+            "\n\n" + _GATE_VOICE_TEXT
         )
     return (
         f"目标核对：{pinned_summary}。"
         "若已完全完成，简短确认做了什么然后停下。"
         "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
         "若确实被卡住需要用户输入，明确说明。"
+        "\n\n" + _GATE_VOICE_TEXT
     )
 
 
@@ -659,7 +670,11 @@ class AgentLoopV3:
             "original request or your memory of earlier turns. Re-read the full "
             "Timeline / Layer Document / asset registry above before a consequential "
             "step; after a change, confirm the result here and correct course if it "
-            "diverged.]\n" + "\n".join(snaps)
+            "diverged. Narrate and reply in the USER's language (match their latest "
+            "message) from the first line of the turn — no stock English openers, and "
+            "vary your phrasing: never open every narration line with the same formula "
+            "(e.g. 「我将…」/'I will …').]\n"
+            + "\n".join(snaps)
         )
 
     def _append_tool_result(self, call_id: str, payload: Any) -> None:
