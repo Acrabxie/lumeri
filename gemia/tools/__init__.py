@@ -46,6 +46,8 @@ from gemia.tools import assemble_shotlist as _assemble_shotlist
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
+from gemia.tools import deck as _deck
+from gemia.tools import draft_deck as _draft_deck
 from gemia.tools import edit_audio as _edit_audio
 from gemia.tools import edit_image as _edit_image
 from gemia.tools import edit_video as _edit_video
@@ -134,6 +136,10 @@ _REAL: dict[str, Dispatcher] = {
     "update_shot":        _shotlist.dispatch_update_shot,
     "get_shotlist":       _shotlist.dispatch_get,
     "refine_shot":        _refine_shot.dispatch,
+    "draft_deck":         _draft_deck.dispatch,
+    "set_deck":           _deck.dispatch_set,
+    "update_slide":       _deck.dispatch_update_slide,
+    "get_deck":           _deck.dispatch_get,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,
     "write_media_annotation": _media_annotations.dispatch_write,

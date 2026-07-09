@@ -626,6 +626,124 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["shot_id"],
     ),
     _tool(
+        "draft_deck",
+        "Draft a COMPLETE presentation deck (slide plan) in one call — the START of any deck task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Slides carry semantic blocks, notes, builds, and a default_path. It REPLACES the current deck (replace=false previews without persisting). A scaffold — refine per slide with update_slide after.",
+        {
+            "theme": {"type": "string", "description": "One line describing the deck, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
+            "template": {"type": "string", "enum": ["pitch", "report", "teach"], "description": "Structure for theme mode. Default 'pitch'."},
+            "from_shotlist": {"type": "boolean", "description": "true = build the deck from the current shotlist instead of a theme (video→deck migration)."},
+            "language": {"type": "string", "enum": ["zh", "en"], "description": "Language of the drafted text. Auto-detected if omitted."},
+            "replace": {"type": "boolean", "description": "Replace the current deck (default true). false = return the draft without persisting."},
+        },
+        [],
+    ),
+    _tool(
+        "set_deck",
+        "Set or replace the WHOLE deck IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_deck, and for single-slide edits prefer update_slide. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds (each dwell_sec > 0), interaction links, and a transition. STRICTLY validated: duplicate slide ids, link targets pointing at missing slides, a default_path that does not cover every slide exactly once, or dwell_sec <= 0 are rejected (E_BAD_ARG). Missing structural fields are backfilled. Persisted + undoable.",
+        {
+            "deck": {
+                "type": "object",
+                "description": "The deck plan.",
+                "properties": {
+                    "version": {"type": "integer", "description": "IR version. Currently 1 (optional; backfilled)."},
+                    "theme": {
+                        "type": "object",
+                        "description": "Deck-level look: one mood for the WHOLE deck (per-slide moods read as collage).",
+                        "properties": {
+                            "tokens": {"type": "object", "description": "Design-token overrides (optional)."},
+                            "mood": {"type": "string", "description": "Deck-wide tone, e.g. 'calm-tech', 'confident'."},
+                            "aspect": {"type": "string", "description": "Canvas aspect, default '16:9'."},
+                        },
+                    },
+                    "slides": {
+                        "type": "array",
+                        "description": "Ordered slides.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Stable slide id you will reference in update_slide/links/default_path (optional; auto-filled)."},
+                                "layout": {"type": "string", "description": "Layout template name, e.g. 'title', 'content', 'stat', 'full-bleed'."},
+                                "title": {"type": "string", "description": "Slide heading."},
+                                "blocks": {
+                                    "type": "array",
+                                    "description": "Semantic content blocks — the content truth. kind='text' (text and/or bullets), 'stat' (value+label big number), 'image' (asset_id or query+source), 'shape' (accent shape), 'group' (children: homogeneous sub-blocks, e.g. 3 feature cards).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "kind": {"type": "string", "enum": ["text", "stat", "image", "shape", "group"]},
+                                            "role": {"type": "string", "description": "Slot hint, e.g. 'title', 'body', 'hero', 'cta', 'card'."},
+                                            "text": {"type": "string"},
+                                            "bullets": {"type": "array", "items": {"type": "string"}},
+                                            "style_token": {"type": "string"},
+                                            "value": {"type": "string", "description": "stat: the big number, e.g. '97'."},
+                                            "label": {"type": "string", "description": "stat: what the number means."},
+                                            "asset_id": {"type": "string", "description": "image: a registered asset."},
+                                            "source": {"type": "string", "description": "image: how to fill it ('search'/'generate')."},
+                                            "query": {"type": "string", "description": "image: search query when not yet filled."},
+                                            "shape": {"type": "string", "description": "shape: e.g. 'rect'."},
+                                            "fill_token": {"type": "string"},
+                                            "children": {"type": "array", "description": "group: homogeneous sub-blocks.", "items": {"type": "object"}},
+                                        },
+                                    },
+                                },
+                                "notes": {"type": "string", "description": "Speaker notes (the shotlist narration's descendant)."},
+                                "builds": {
+                                    "type": "array",
+                                    "description": "Ordered build states. dwell_sec (> 0) is the autoplay/mp4 hold; presentation mode holds until interaction.",
+                                    "items": {"type": "object", "properties": {
+                                        "id": {"type": "string"},
+                                        "dwell_sec": {"type": "number"}}},
+                                },
+                                "links": {
+                                    "type": "array",
+                                    "description": "Interaction out-edges; omit for the implicit advance. target: 'next', 'slide:<id>', or 'url:<https url>'.",
+                                    "items": {"type": "object", "properties": {
+                                        "trigger": {"type": "string", "description": "'advance' or 'hotspot:<block ref>'."},
+                                        "target": {"type": "string"}}},
+                                },
+                                "transition": {
+                                    "type": "object",
+                                    "description": "Transition into this slide. v1: 'cut' (default) or 'fade'.",
+                                    "properties": {"kind": {"type": "string", "enum": ["cut", "fade"]}},
+                                },
+                            },
+                        },
+                    },
+                    "default_path": {"type": "array", "items": {"type": "string"}, "description": "Slide-id order for autoplay/mp4 flattening. Must cover every slide exactly once (backfilled to slide order if omitted)."},
+                },
+            },
+        },
+        ["deck"],
+    ),
+    _tool(
+        "update_slide",
+        "Revise ONE slide in the current deck by id without resending the whole plan — reword blocks/title/notes, retune builds (dwell_sec), change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. The deck is re-validated after the merge, so an edit cannot dangle a link or zero a dwell. Persisted + undoable.",
+        {
+            "slide_id": {"type": "string", "description": "The slide's id (from set_deck / get_deck)."},
+            "fields": {
+                "type": "object",
+                "description": "Fields to merge, e.g. {title, blocks, notes, builds, links, layout, transition, mood_override}.",
+                "properties": {
+                    "layout": {"type": "string"},
+                    "title": {"type": "string"},
+                    "blocks": {"type": "array", "items": {"type": "object"}},
+                    "notes": {"type": "string"},
+                    "mood_override": {"type": "string"},
+                    "builds": {"type": "array", "items": {"type": "object"}},
+                    "links": {"type": "array", "items": {"type": "object"}},
+                    "transition": {"type": "object"},
+                },
+            },
+        },
+        ["slide_id", "fields"],
+    ),
+    _tool(
+        "get_deck",
+        "Read the current deck (presentation plan): each slide's id, layout, block kinds, build count/dwell, title, notes, and non-default links, plus the full IR. Call before revising slides so you use the right slide ids.",
+        {},
+        [],
+    ),
+    _tool(
         "narrate",
         "Turn a line of script into spoken voiceover (human-voice text-to-speech). Use this for narration/口播/解说 — generate_audio only makes music. Returns an audio asset_id and its measured duration, so you can pace the cut to the voiceover. Pass a system voice name (English 'Ava'/'Samantha', Chinese 'Tingting'/'Meijia') or omit for the system default.",
         {

@@ -76,6 +76,9 @@ The function-calling schemas list the full set. The short version:
   full storyboard), `set_shotlist` / `update_shot` / `get_shotlist` (the
   storyboard plan), `assemble_shotlist` (lay it onto the timeline),
   `refine_shot` (edit one placed shot in place). See the storyboard playbook.
+- **Deck / presentation** — `draft_deck` (one-line theme or the current
+  shotlist → a full slide plan), `set_deck` / `update_slide` / `get_deck`
+  (the deck plan). See the deck note below.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -120,6 +123,16 @@ renders until you assemble it, so it's cheap to draft and revise.
 
 Don't skip the plan and hand-place clips for multi-shot work: the shotlist is
 what makes the edit revisable, auditable, and undoable as one coherent story.
+
+## Making a deck (presentation)
+
+For deck/presentation/PPT work, start with `draft_deck` — a one-line theme
+plus a template (`pitch`/`report`/`teach`) scaffolds the whole slide plan, or
+`from_shotlist=true` converts an existing storyboard into slides. Then refine
+per slide with `update_slide` (reword blocks, edit speaker notes, retune build
+dwell) instead of resending the whole deck; `get_deck` for the current slide
+ids. Content lives in semantic blocks — text stays text, never baked into a
+generated image. Drafting and revising are free and undoable.
 
 ## Working principles
 

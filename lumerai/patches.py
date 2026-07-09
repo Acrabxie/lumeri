@@ -8,8 +8,11 @@ from typing import Any, Callable
 from gemia.project_model import (
     IMAGE_DURATION,
     _normalize_shot,
+    _normalize_slide,
     _normalize_timeline_clip,
+    empty_deck,
     empty_shotlist,
+    normalize_deck,
     normalize_project,
     normalize_shotlist,
 )
@@ -871,9 +874,99 @@ def _op_update_shot(project: dict[str, Any], op: dict[str, Any]) -> None:
     raise TimelinePatchError("E_NOT_FOUND", f"update_shot: no shot with id {shot_id}")
 
 
+# ── deck ops ─────────────────────────────────────────────────────────
+# Validation semantics deliberately diverge from the shotlist precedent
+# (deck-interactive-video-plan §2.3): normalize_deck stays never-raises
+# (structural gaps are backfilled), but the deck has REFERENCE-integrity
+# constraints the shotlist does not have, and those reject strictly here.
+
+
+def _validate_deck(deck: dict[str, Any]) -> None:
+    """Reject reference-integrity violations with TimelinePatchError E_BAD_ARG.
+
+    Runs on the post-normalize deck: duplicate slide ids, dangling
+    ``links.target``, a ``default_path`` that is not an exact cover of the
+    slide ids, and any build with ``dwell_sec <= 0``.
+    """
+    slides = deck.get("slides") or []
+    slide_ids: list[str] = [str(slide.get("id")) for slide in slides]
+    seen: set[str] = set()
+    for slide_id in slide_ids:
+        if slide_id in seen:
+            raise TimelinePatchError("E_BAD_ARG", f"duplicate slide id: {slide_id}")
+        seen.add(slide_id)
+    for slide in slides:
+        slide_id = str(slide.get("id"))
+        for build in slide.get("builds") or []:
+            dwell = _as_float(build.get("dwell_sec"))
+            if dwell <= 0:
+                raise TimelinePatchError(
+                    "E_BAD_ARG",
+                    f"slide {slide_id} build {build.get('id')} dwell_sec must be > 0, got {dwell}",
+                )
+        for link in slide.get("links") or []:
+            target = str(link.get("target") or "")
+            if target == "next" or target.startswith("url:"):
+                continue
+            ref = target[len("slide:"):] if target.startswith("slide:") else target
+            if ref not in seen:
+                raise TimelinePatchError(
+                    "E_BAD_ARG",
+                    f"slide {slide_id} link target references missing slide: {target}",
+                )
+    path = [str(item) for item in deck.get("default_path") or []]
+    if sorted(path) != sorted(slide_ids):
+        raise TimelinePatchError(
+            "E_BAD_ARG",
+            "default_path must cover every slide id exactly once: "
+            f"path={path} slides={slide_ids}",
+        )
+
+
+def _op_set_deck(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """Replace the whole deck IR (slides + interaction graph)."""
+    raw = op.get("deck")
+    if not isinstance(raw, dict):
+        raise TimelinePatchError("E_BAD_ARG", "set_deck requires a 'deck' object")
+    deck = normalize_deck(raw)
+    _validate_deck(deck)
+    project["deck"] = deck
+
+
+def _op_update_slide(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """Merge ``fields`` into a single slide located by ``slide_id``.
+
+    Targeted revision (blocks/notes/builds/links/layout/transition/title —
+    any subset) without resending the whole deck. The slide ``id`` itself is
+    immutable. The merged slide is re-normalized and the whole deck is
+    re-validated so a partial edit can never dangle a link or zero a dwell.
+    """
+    slide_id = str(op.get("slide_id") or "")
+    if not slide_id:
+        raise TimelinePatchError("E_BAD_ARG", "update_slide requires a 'slide_id'")
+    fields = op.get("fields") if isinstance(op.get("fields"), dict) else None
+    if fields is None:
+        raise TimelinePatchError("E_BAD_ARG", "update_slide requires a 'fields' object")
+    deck = project.get("deck")
+    if not isinstance(deck, dict):
+        deck = empty_deck()
+        project["deck"] = deck
+    slides = deck.get("slides") or []
+    for slide_idx, slide in enumerate(slides):
+        if isinstance(slide, dict) and str(slide.get("id") or "") == slide_id:
+            merged = {**slide, **{k: v for k, v in fields.items() if k != "id"}}
+            merged["id"] = slide_id
+            slides[slide_idx] = _normalize_slide(merged, slide_idx=slide_idx)
+            _validate_deck(deck)
+            return
+    raise TimelinePatchError("E_NOT_FOUND", f"update_slide: no slide with id {slide_id}")
+
+
 _OP_HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], None]] = {
     "set_shotlist": _op_set_shotlist,
     "update_shot": _op_update_shot,
+    "set_deck": _op_set_deck,
+    "update_slide": _op_update_slide,
     "insert_clip": _op_insert_clip,
     "delete_clip": _op_delete_clip,
     "move_clip": _op_move_clip,

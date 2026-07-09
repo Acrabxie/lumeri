@@ -60,6 +60,7 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
             "generator": "gemia",
         },
         "shotlist": empty_shotlist(),
+        "deck": empty_deck(),
     }
 
 
@@ -163,6 +164,154 @@ def iter_shots(shotlist: dict[str, Any]):
         for shot in scene.get("shots") or []:
             if isinstance(shot, dict):
                 yield scene, shot
+
+
+# ── deck IR ───────────────────────────────────────────────────────────────
+# The deck is a slide/interaction plan (deck-interactive-video-plan §2.1) that
+# lives inside project_state next to the shotlist, so every mutation inherits
+# the append-only patch log (undo + audit) for free. Normalization here is
+# STRUCTURE-tolerant only: missing fields are backfilled, garbage entries are
+# dropped (but never a whole slide), ids are auto-filled. REFERENCE integrity
+# (duplicate slide ids, dangling link targets, default_path coverage,
+# dwell_sec > 0) is deliberately NOT enforced here — lumerai.patches validates
+# it strictly at patch time so ProjectStore.load() can never raise on stored
+# state.
+
+DECK_VERSION = 1
+DECK_BLOCK_KINDS = {"text", "stat", "image", "shape", "group"}
+DECK_DEFAULT_DWELL = 3.0
+_DECK_TRANSITIONS = {"cut", "fade"}  # v1 = cut + single-sided fade (spec §3.4)
+
+
+def empty_deck() -> dict[str, Any]:
+    return {
+        "version": DECK_VERSION,
+        "theme": {"tokens": {}, "mood": "", "aspect": "16:9"},
+        "slides": [],
+        "default_path": [],
+    }
+
+
+def _normalize_deck_block(raw: Any, *, allow_group: bool = True) -> dict[str, Any] | None:
+    """One semantic content block. Unknown kinds and unknown keys are dropped
+    (garbage tolerance); a ``None`` return means the block itself was garbage."""
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in DECK_BLOCK_KINDS or (kind == "group" and not allow_group):
+        return None
+    block: dict[str, Any] = {"kind": kind}
+    role = _optional_str(raw.get("role"))
+    if role:
+        block["role"] = role
+    if kind == "text":
+        block["text"] = str(raw.get("text") or "")
+        bullets = raw.get("bullets") if isinstance(raw.get("bullets"), list) else []
+        block["bullets"] = [str(item) for item in bullets if str(item or "")]
+        style_token = _optional_str(raw.get("style_token"))
+        if style_token:
+            block["style_token"] = style_token
+    elif kind == "stat":
+        block["value"] = str(raw.get("value") or "")
+        block["label"] = str(raw.get("label") or "")
+    elif kind == "image":
+        block["asset_id"] = _optional_str(raw.get("asset_id"))
+        block["source"] = _optional_str(raw.get("source"))
+        query = _optional_str(raw.get("query"))
+        if query:
+            block["query"] = query
+    elif kind == "shape":
+        block["shape"] = str(raw.get("shape") or "rect")
+        fill_token = _optional_str(raw.get("fill_token"))
+        if fill_token:
+            block["fill_token"] = fill_token
+    elif kind == "group":
+        children_raw = raw.get("children") if isinstance(raw.get("children"), list) else []
+        children = [
+            _normalize_deck_block(child, allow_group=False) for child in children_raw
+        ]
+        block["children"] = [child for child in children if child is not None]
+    return block
+
+
+def _normalize_build(raw: Any, *, build_idx: int) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    # A missing/garbage dwell backfills to a sane default; an EXPLICIT numeric
+    # value is preserved even when <= 0 so strict validation can reject it.
+    return {
+        "id": str(raw.get("id") or "") or f"b{build_idx + 1}",
+        "dwell_sec": _float_or(raw.get("dwell_sec"), DECK_DEFAULT_DWELL),
+    }
+
+
+def _normalize_link(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    trigger = str(raw.get("trigger") or "").strip()
+    target = str(raw.get("target") or "").strip()
+    if not trigger or not target:
+        return None
+    return {"trigger": trigger, "target": target}
+
+
+def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
+    raw = raw if isinstance(raw, dict) else {}
+    blocks_raw = raw.get("blocks") if isinstance(raw.get("blocks"), list) else []
+    blocks = [_normalize_deck_block(block) for block in blocks_raw]
+    builds_raw = raw.get("builds") if isinstance(raw.get("builds"), list) else []
+    builds = [
+        _normalize_build(build, build_idx=i)
+        for i, build in enumerate(builds_raw)
+        if isinstance(build, dict)
+    ]
+    if not builds:  # every slide has at least its full build-state
+        builds = [{"id": "b1", "dwell_sec": DECK_DEFAULT_DWELL}]
+    links_raw = raw.get("links") if isinstance(raw.get("links"), list) else []
+    links = [_normalize_link(link) for link in links_raw]
+    transition_raw = raw.get("transition") if isinstance(raw.get("transition"), dict) else {}
+    kind = str(transition_raw.get("kind") or "cut").strip().lower()
+    if kind not in _DECK_TRANSITIONS:
+        kind = "cut"
+    return {
+        "id": str(raw.get("id") or "") or f"s{slide_idx + 1}",
+        "layout": str(raw.get("layout") or "content"),
+        "title": str(raw.get("title") or ""),
+        "blocks": [block for block in blocks if block is not None],
+        "notes": str(raw.get("notes") or ""),
+        "mood_override": _optional_str(raw.get("mood_override")),
+        "builds": builds,
+        "links": [link for link in links if link is not None],
+        "transition": {"kind": kind},
+    }
+
+
+def normalize_deck(raw: Any) -> dict[str, Any]:
+    """Coerce a (possibly partial, model-authored) deck into canonical shape.
+
+    Never raises — mirror of ``normalize_shotlist``. A missing/empty
+    ``default_path`` is backfilled to cover every slide in order; a PROVIDED
+    one is kept verbatim so strict validation can reject a bad cover.
+    """
+    if not isinstance(raw, dict):
+        return empty_deck()
+    theme_raw = raw.get("theme") if isinstance(raw.get("theme"), dict) else {}
+    tokens = theme_raw.get("tokens") if isinstance(theme_raw.get("tokens"), dict) else {}
+    slides_raw = raw.get("slides") if isinstance(raw.get("slides"), list) else []
+    slides = [_normalize_slide(slide, slide_idx=i) for i, slide in enumerate(slides_raw)]
+    path_raw = raw.get("default_path") if isinstance(raw.get("default_path"), list) else []
+    default_path = [str(item) for item in path_raw if str(item or "")]
+    if not default_path:
+        default_path = [slide["id"] for slide in slides]
+    return {
+        "version": DECK_VERSION,
+        "theme": {
+            "tokens": dict(tokens),
+            "mood": str(theme_raw.get("mood") or ""),
+            "aspect": str(theme_raw.get("aspect") or "16:9"),
+        },
+        "slides": slides,
+        "default_path": default_path,
+    }
 
 
 def normalize_project(
@@ -338,6 +487,10 @@ def _normalize_canonical_project(project: dict[str, Any], *, account_id: str | N
     metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
     normalized["metadata"] = {**normalized["metadata"], **metadata}
     normalized["shotlist"] = normalize_shotlist(project.get("shotlist"))
+    # Pass the deck through explicitly: normalize rebuilds from empty_project()
+    # and copies known keys, so without this line ProjectStore.load() would
+    # silently strip project_state.deck on every read (spec §2.4).
+    normalized["deck"] = normalize_deck(project.get("deck"))
     return normalized
 
 
@@ -624,12 +777,16 @@ def _utc_now() -> str:
 
 
 __all__ = [
+    "DECK_BLOCK_KINDS",
+    "DECK_VERSION",
     "IMAGE_DURATION",
     "PROJECT_SCHEMA",
     "PROJECT_SCHEMA_VERSION",
     "clip_count",
+    "empty_deck",
     "empty_project",
     "is_canonical_project",
     "legacy_project_state_from_project",
+    "normalize_deck",
     "normalize_project",
 ]
