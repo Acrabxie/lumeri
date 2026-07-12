@@ -15,8 +15,8 @@ The deck lives inside project_state and every mutation flows through
 ``ctx.project.apply_ops`` — versioned, auditable, and undoable via
 ``timeline_undo`` exactly like timeline and shotlist edits. Mutations return
 a compact text view of the post-state so the model does not need a
-follow-up read. The "deck-op" label keeps deck patches distinguishable from
-timeline ones (the hook for a future on_patch state_scope field).
+follow-up read. Deck patches surface as ``timeline_op`` events with
+``state_scope=deck`` so clients can refresh the right project projection.
 """
 from __future__ import annotations
 
