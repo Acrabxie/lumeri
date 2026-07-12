@@ -12,6 +12,7 @@ from gemia.deck.materialize import (
     DeckMaterializeError,
     RenderedDeckFrame,
     build_deck_pager_url,
+    build_deck_pager_url_from_manifest,
     render_deck_frames,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "TOKEN_VERSION",
     "RenderedDeckFrame",
     "build_deck_pager_url",
+    "build_deck_pager_url_from_manifest",
     "layout_slide",
     "rasterize_slide",
     "render_deck_frames",

@@ -746,6 +746,29 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         [],
     ),
     _tool(
+        "refine_slide",
+        "Revise ONE slide in an assembled deck and immediately refresh the presentation pager + dedicated Deck timeline. With a current frame cache it rerenders only that slide and reuses every unchanged slide frame; if the deck was not assembled or the cache is stale, it safely materializes the whole deck. Use update_slide instead while still planning. Unrelated timeline clips survive.",
+        {
+            "slide_id": {"type": "string", "description": "The slide id from get_deck."},
+            "fields": {
+                "type": "object",
+                "description": "Fields to merge into this slide: layout, title, blocks, notes, mood_override, builds, links, or transition.",
+                "properties": {
+                    "layout": {"type": "string"},
+                    "title": {"type": "string"},
+                    "blocks": {"type": "array", "items": {"type": "object"}},
+                    "notes": {"type": "string"},
+                    "mood_override": {"type": "string"},
+                    "builds": {"type": "array", "items": {"type": "object"}},
+                    "links": {"type": "array", "items": {"type": "object"}},
+                    "transition": {"type": "object"},
+                },
+            },
+            "fail_on_overflow": {"type": "boolean", "description": "When true, leave the valid IR edit in place but refuse timeline refresh if any slide still overflows."},
+        },
+        ["slide_id", "fields"],
+    ),
+    _tool(
         "assemble_deck",
         "Materialize the current deck into every build-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Deck timeline tracks in default_path/build order using each build's dwell_sec. Re-running the same deck reuses the frame cache and replaces only the dedicated Deck tracks; unrelated timeline clips survive. Current MP4 flattening renders cut transitions; authored fade transitions are reported as explicit degradations.",
         {

@@ -10,6 +10,7 @@ import pytest
 from gemia.deck import (
     DeckMaterializeError,
     build_deck_pager_url,
+    build_deck_pager_url_from_manifest,
     render_deck_frames,
 )
 from gemia.project_model import normalize_deck
@@ -163,3 +164,16 @@ def test_pager_frame_limit_is_enforced(font_tokens) -> None:
     frame = render_deck_frames(_deck(font_tokens))[0]
     with pytest.raises(DeckMaterializeError, match="at most 512"):
         build_deck_pager_url("session_1", [frame] * 513, ["img_001"] * 513)
+
+
+def test_manifest_pager_rejects_invalid_indices() -> None:
+    with pytest.raises(DeckMaterializeError, match="non-negative"):
+        build_deck_pager_url_from_manifest(
+            "session_1",
+            [{"slide_index": -1, "build_index": 0, "asset_id": "img_001"}],
+        )
+    with pytest.raises(DeckMaterializeError, match="integers"):
+        build_deck_pager_url_from_manifest(
+            "session_1",
+            [{"slide_index": "bad", "build_index": 0, "asset_id": "img_001"}],
+        )

@@ -79,6 +79,7 @@ from gemia.tools import search_library as _search_library
 from gemia.tools import search_media as _search_media
 from gemia.tools import draft_shotlist as _draft_shotlist
 from gemia.tools import refine_shot as _refine_shot
+from gemia.tools import refine_slide as _refine_slide
 from gemia.tools import search_frames as _search_frames
 from gemia.tools import shotlist as _shotlist
 from gemia.tools import smart_reframe as _smart_reframe
@@ -141,6 +142,7 @@ _REAL: dict[str, Dispatcher] = {
     "draft_deck":         _draft_deck.dispatch,
     "set_deck":           _deck.dispatch_set,
     "update_slide":       _deck.dispatch_update_slide,
+    "refine_slide":       _refine_slide.dispatch,
     "get_deck":           _deck.dispatch_get,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,

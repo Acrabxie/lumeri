@@ -52,6 +52,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "draft_deck":         {"usd": 0.00, "eta_sec": 0.3},
     "set_deck":           {"usd": 0.00, "eta_sec": 0.2},
     "update_slide":       {"usd": 0.00, "eta_sec": 0.2},
+    "refine_slide":       {"usd": 0.00, "eta_sec": 5.0},
     "get_deck":           {"usd": 0.00, "eta_sec": 0.1},
     "refine_shot":        {"usd": 0.00, "eta_sec": 3.0},
     "assemble_shotlist":  {"usd": 0.00, "eta_sec": 8.0},

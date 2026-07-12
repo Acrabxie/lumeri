@@ -32,6 +32,10 @@ def _deck_hash(deck: Mapping[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
+def deck_frame_cache_key(deck: Mapping[str, Any], *, scale: int = 1) -> str:
+    return f"{_deck_hash(deck)}:{scale}x"
+
+
 def _valid_cached_frames(ctx: ToolContext, key: str) -> dict[str, Any] | None:
     cache = ctx.extra.get("deck_frame_cache")
     if not isinstance(cache, dict) or cache.get("key") != key:
@@ -218,7 +222,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         )
     strict = bool(args.get("fail_on_overflow", False))
     digest = _deck_hash(deck)
-    cache_key = f"{digest}:1x"
+    cache_key = deck_frame_cache_key(deck)
     rendered = _valid_cached_frames(ctx, cache_key)
     if rendered is None:
         rendered = materialize_deck_frame_assets(
@@ -233,7 +237,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     total_duration = sum(float(frame.get("dwell_sec") or 0.0) for frame in frames)
     if total_duration <= 0:
         raise DeckMaterializeError("deck total dwell must be positive")
-    black_key = f"{digest}:{width}x{height}:{fps:g}:{total_duration:.6f}"
+    black_key = f"{width}x{height}:{fps:g}:{total_duration:.6f}"
     black_asset_id = await _ensure_black_video(
         ctx,
         duration=total_duration,
@@ -278,4 +282,9 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     }
 
 
-__all__ = ["DECK_FRAME_TRACK", "DECK_VIDEO_TRACK", "dispatch"]
+__all__ = [
+    "DECK_FRAME_TRACK",
+    "DECK_VIDEO_TRACK",
+    "deck_frame_cache_key",
+    "dispatch",
+]

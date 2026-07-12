@@ -163,21 +163,60 @@ def build_deck_pager_url(
     first_build_only: bool = False,
 ) -> str:
     """Build the only URL shape accepted by ``static/v3/deck.js``."""
-    session = _session_id(session_id)
     if len(frames) != len(frame_asset_ids):
         raise DeckMaterializeError("frame_asset_ids must match rendered frames one-for-one")
-    pairs = list(zip(frames, frame_asset_ids))
+    entries = [
+        {
+            "slide_index": frame.slide_index,
+            "build_index": frame.build_index,
+            "asset_id": asset_id,
+        }
+        for frame, asset_id in zip(frames, frame_asset_ids)
+    ]
+    return build_deck_pager_url_from_manifest(
+        session_id, entries, first_build_only=first_build_only
+    )
+
+
+def build_deck_pager_url_from_manifest(
+    session_id: str,
+    frames: Sequence[Mapping[str, Any]],
+    *,
+    first_build_only: bool = False,
+) -> str:
+    """Build the pager URL from a registered-frame manifest.
+
+    The manifest form lets single-slide refinement reuse unchanged registered
+    frames without retaining raster bytes or private renderer objects in the
+    session cache.
+    """
+    session = _session_id(session_id)
+    try:
+        pairs = [
+            (
+                int(frame.get("slide_index", -1)),
+                int(frame.get("build_index", -1)),
+                _asset_id(frame.get("asset_id")),
+            )
+            for frame in frames
+            if isinstance(frame, Mapping)
+        ]
+    except DeckMaterializeError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise DeckMaterializeError("pager frame indices must be integers") from exc
+    if len(pairs) != len(frames):
+        raise DeckMaterializeError("pager frame manifest must contain mappings")
+    if any(slide_index < 0 or build_index < 0 for slide_index, build_index, _ in pairs):
+        raise DeckMaterializeError("pager frame indices must be non-negative")
     if first_build_only:
-        pairs = [(frame, asset) for frame, asset in pairs if frame.build_index == 0]
+        pairs = [item for item in pairs if item[1] == 0]
     if len(pairs) > 512:
         raise DeckMaterializeError("pager supports at most 512 frames")
     params: list[tuple[str, str]] = [("session_id", session)]
     params.extend(
-        (
-            "frame",
-            f"{frame.slide_index}:{frame.build_index}:{_asset_id(asset_id)}",
-        )
-        for frame, asset_id in pairs
+        ("frame", f"{slide_index}:{build_index}:{asset_id}")
+        for slide_index, build_index, asset_id in pairs
     )
     return "/v3/deck.html?" + urlencode(params)
 
@@ -186,5 +225,6 @@ __all__ = [
     "DeckMaterializeError",
     "RenderedDeckFrame",
     "build_deck_pager_url",
+    "build_deck_pager_url_from_manifest",
     "render_deck_frames",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 import re
@@ -12,7 +13,10 @@ from gemia.deck import DeckMaterializeError
 from gemia.project_model import normalize_deck
 from gemia.text import TextLayoutError, measure_text
 from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools.deck_frames import materialize_deck_frame_assets
+from gemia.tools.deck_frames import (
+    materialize_deck_frame_assets,
+    rematerialize_deck_slide_assets,
+)
 from gemia.video.fonts import get_font_catalog
 
 
@@ -113,3 +117,63 @@ def test_session_adapter_fails_before_allocating_when_source_is_missing(tmp_path
         materialize_deck_frame_assets(deck, ctx)
     assert ctx.registry.list_records() == []
     assert list(tmp_path.glob("img_*.png")) == []
+
+
+def test_single_slide_rematerialization_reuses_unchanged_registered_frames(tmp_path, tokens) -> None:
+    ctx = _ctx(tmp_path)
+    deck = normalize_deck({
+        "theme": {"tokens": tokens},
+        "slides": [
+            {
+                "id": "s1", "layout": "content", "title": "Before",
+                "blocks": [{"id": "one", "kind": "shape", "role": "accent"}],
+                "builds": [
+                    {"id": "b1", "dwell_sec": 1, "visible_block_ids": []},
+                    {"id": "b2", "dwell_sec": 2, "visible_block_ids": ["one"]},
+                ],
+            },
+            {
+                "id": "s2", "layout": "content", "title": "Unchanged",
+                "blocks": [{"id": "two", "kind": "shape", "role": "accent"}],
+                "builds": [
+                    {"id": "b1", "dwell_sec": 3, "visible_block_ids": ["two"]},
+                ],
+            },
+        ],
+        "default_path": ["s2", "s1"],
+    })
+    first = materialize_deck_frame_assets(deck, ctx)
+    first_by_slide = {
+        slide_id: [
+            frame["asset_id"] for frame in first["frames"]
+            if frame["slide_id"] == slide_id
+        ]
+        for slide_id in ("s1", "s2")
+    }
+
+    revised = deepcopy(deck)
+    revised["slides"][0]["title"] = "After"
+    second = rematerialize_deck_slide_assets(
+        revised, ctx, slide_id="s1", previous=first
+    )
+
+    second_by_slide = {
+        slide_id: [
+            frame["asset_id"] for frame in second["frames"]
+            if frame["slide_id"] == slide_id
+        ]
+        for slide_id in ("s1", "s2")
+    }
+    assert second["rematerialization_scope"] == "slide"
+    assert second["rematerialized_slide_id"] == "s1"
+    assert second_by_slide["s2"] == first_by_slide["s2"]
+    assert second_by_slide["s1"] != first_by_slide["s1"]
+    assert len(ctx.registry.list_records()) == 5  # 3 initial + 2 changed builds
+    assert [(frame["slide_index"], frame["build_index"]) for frame in second["frames"]] == [
+        (0, 0), (1, 0), (1, 1),
+    ]
+    assert parse_qs(urlparse(second["pager_url"]).query)["frame"] == [
+        f"0:0:{second_by_slide['s2'][0]}",
+        f"1:0:{second_by_slide['s1'][0]}",
+        f"1:1:{second_by_slide['s1'][1]}",
+    ]

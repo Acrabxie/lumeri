@@ -78,7 +78,8 @@ The function-calling schemas list the full set. The short version:
   `refine_shot` (edit one placed shot in place). See the storyboard playbook.
 - **Deck / presentation** — `draft_deck` (one-line theme or the current
   shotlist → a full slide plan), `set_deck` / `update_slide` / `get_deck`
-  (the deck plan). See the deck note below.
+  (the deck plan), `assemble_deck` (builds → pager + timeline), then
+  `refine_slide` for one assembled-page revision. See the deck note below.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -135,6 +136,9 @@ ids. Content lives in semantic blocks — text stays text, never baked into a
 generated image. Drafting and revising are free and undoable. When the plan is
 ready, call `assemble_deck` to render every build, obtain the presentation
 pager URL, and lay the flattened build states onto the timeline for export.
+After assembly, use `refine_slide` for one-page feedback: it revises the IR,
+rerenders only that page when the prior frame cache is current, and refreshes
+the dedicated Deck timeline while preserving unrelated clips.
 
 ## Working principles
 

@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from gemia.deck import (
     DeckMaterializeError,
     build_deck_pager_url,
+    build_deck_pager_url_from_manifest,
     render_deck_frames,
 )
 from gemia.tools._context import ToolContext
@@ -123,7 +124,162 @@ def materialize_deck_frame_assets(
             f"rendered {len({frame.slide_id for frame in frames})} slide(s) / "
             f"{len(frames)} build state(s)"
         ),
+        "rematerialization_scope": "deck",
     }
 
 
-__all__ = ["materialize_deck_frame_assets"]
+def _ordered_slides(deck: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    slides = [
+        slide for slide in deck.get("slides") or [] if isinstance(slide, Mapping)
+    ]
+    by_id = {str(slide.get("id") or ""): slide for slide in slides}
+    path = [str(value or "") for value in deck.get("default_path") or []]
+    if not path:
+        path = list(by_id)
+    if not path or len(path) != len(by_id) or set(path) != set(by_id):
+        raise DeckMaterializeError("deck.default_path must cover every slide exactly once")
+    return [by_id[slide_id] for slide_id in path]
+
+
+def _expected_builds(slide: Mapping[str, Any]) -> list[tuple[str, float]]:
+    builds = [
+        build for build in slide.get("builds") or [] if isinstance(build, Mapping)
+    ]
+    if not builds:
+        return [("b1", 3.0)]
+    return [
+        (str(build.get("id") or "b1"), float(build.get("dwell_sec") or 0.0))
+        for build in builds
+    ]
+
+
+def _reusable_frames(
+    previous: Mapping[str, Any] | None,
+    ctx: ToolContext,
+    slides: list[Mapping[str, Any]],
+    changed_slide_id: str,
+) -> dict[str, list[dict[str, Any]]] | None:
+    if not isinstance(previous, Mapping):
+        return None
+    raw_frames = previous.get("frames")
+    if not isinstance(raw_frames, list):
+        return None
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for raw in raw_frames:
+        if not isinstance(raw, Mapping):
+            return None
+        frame = dict(raw)
+        slide_id = str(frame.get("slide_id") or "")
+        asset_id = str(frame.get("asset_id") or "")
+        if not slide_id or not asset_id or not ctx.registry.contains(asset_id):
+            return None
+        if not ctx.registry.get(asset_id).path.is_file():
+            return None
+        grouped.setdefault(slide_id, []).append(frame)
+    for slide in slides:
+        slide_id = str(slide.get("id") or "")
+        if slide_id == changed_slide_id:
+            continue
+        actual = sorted(
+            grouped.get(slide_id) or [],
+            key=lambda frame: int(frame.get("build_index", -1)),
+        )
+        expected = _expected_builds(slide)
+        if len(actual) != len(expected):
+            return None
+        for index, (frame, (build_id, dwell)) in enumerate(zip(actual, expected)):
+            if int(frame.get("build_index", -1)) != index:
+                return None
+            if str(frame.get("build_id") or "") != build_id:
+                return None
+            if abs(float(frame.get("dwell_sec") or 0.0) - dwell) > 1e-6:
+                return None
+        grouped[slide_id] = actual
+    return grouped
+
+
+def rematerialize_deck_slide_assets(
+    deck: Mapping[str, Any],
+    ctx: ToolContext,
+    *,
+    slide_id: str,
+    previous: Mapping[str, Any] | None,
+    scale: int = 1,
+    fail_on_overflow: bool = False,
+) -> dict[str, Any]:
+    """Render one changed slide and reuse every unchanged registered frame.
+
+    If the prior frame manifest is missing or stale, this safely falls back to
+    whole-deck materialization; callers can surface the returned scope.
+    """
+    slides = _ordered_slides(deck)
+    target = next(
+        (slide for slide in slides if str(slide.get("id") or "") == slide_id),
+        None,
+    )
+    if target is None:
+        raise DeckMaterializeError(f"slide not found: {slide_id!r}")
+    reusable = _reusable_frames(previous, ctx, slides, slide_id)
+    if reusable is None:
+        return materialize_deck_frame_assets(
+            deck, ctx, scale=scale, fail_on_overflow=fail_on_overflow
+        )
+    if fail_on_overflow:
+        for other_id, frames in reusable.items():
+            if other_id != slide_id and any(frame.get("overflow") for frame in frames):
+                raise DeckMaterializeError(
+                    f"cached slide {other_id} contains overflow; refine that copy first"
+                )
+
+    subdeck = dict(deck)
+    subdeck["slides"] = [target]
+    subdeck["default_path"] = [slide_id]
+    changed = materialize_deck_frame_assets(
+        subdeck, ctx, scale=scale, fail_on_overflow=fail_on_overflow
+    )
+    changed_frames = [
+        dict(frame) for frame in changed.get("frames") or []
+        if isinstance(frame, Mapping)
+    ]
+    manifest: list[dict[str, Any]] = []
+    for slide_index, slide in enumerate(slides):
+        current_id = str(slide.get("id") or "")
+        source = changed_frames if current_id == slide_id else reusable[current_id]
+        for build_index, source_frame in enumerate(source):
+            frame = dict(source_frame)
+            frame["slide_index"] = slide_index
+            frame["build_index"] = build_index
+            manifest.append(frame)
+
+    asset_ids = [str(frame.get("asset_id") or "") for frame in manifest]
+    overflow = [
+        {
+            "slide_id": str(frame.get("slide_id") or ""),
+            "build_id": str(frame.get("build_id") or ""),
+            "items": [dict(item) for item in frame.get("overflow") or []],
+        }
+        for frame in manifest
+        if frame.get("overflow")
+    ]
+    return {
+        "kind": "deck",
+        "asset_id": asset_ids[0] if asset_ids else None,
+        "frame_asset_ids": asset_ids,
+        "frames": manifest,
+        "pager_url": build_deck_pager_url_from_manifest(ctx.session_id, manifest),
+        "first_build_pager_url": build_deck_pager_url_from_manifest(
+            ctx.session_id, manifest, first_build_only=True
+        ),
+        "slide_count": len(slides),
+        "frame_count": len(manifest),
+        "overflow": overflow,
+        "summary": (
+            f"rematerialized slide {slide_id} and reused "
+            f"{len(slides) - 1} unchanged slide(s)"
+        ),
+        "rematerialization_scope": "slide",
+        "rematerialized_slide_id": slide_id,
+    }
+
+
+__all__ = ["materialize_deck_frame_assets", "rematerialize_deck_slide_assets"]
