@@ -55,7 +55,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
     "add_overlay", "adjust_media", "animate_captions", "annotate_media",
-    "arrange_timeline", "assemble_shotlist",
+    "arrange_timeline", "assemble_deck", "assemble_shotlist",
     "build", "color_grade", "composite", "copy_in", "draft_deck",
     "draft_shotlist",
     "edit_audio", "edit_image", "edit_video", "export",

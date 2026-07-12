@@ -55,6 +55,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "get_deck":           {"usd": 0.00, "eta_sec": 0.1},
     "refine_shot":        {"usd": 0.00, "eta_sec": 3.0},
     "assemble_shotlist":  {"usd": 0.00, "eta_sec": 8.0},
+    "assemble_deck":      {"usd": 0.00, "eta_sec": 12.0},
     "narrate":            {"usd": 0.00, "eta_sec": 4.0},
     "subtitle":           {"usd": 0.00, "eta_sec": 4.0},
     "animate_captions":   {"usd": 0.00, "eta_sec": 5.0},

@@ -746,6 +746,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         [],
     ),
     _tool(
+        "assemble_deck",
+        "Materialize the current deck into every build-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Deck timeline tracks in default_path/build order using each build's dwell_sec. Re-running the same deck reuses the frame cache and replaces only the dedicated Deck tracks; unrelated timeline clips survive. Current MP4 flattening renders cut transitions; authored fade transitions are reported as explicit degradations.",
+        {
+            "fail_on_overflow": {"type": "boolean", "description": "When true, refuse to assemble if any text still overflows after the two allowed autofit steps. Default false returns overflow details for refine."},
+        },
+        [],
+    ),
+    _tool(
         "narrate",
         "Turn a line of script into spoken voiceover (human-voice text-to-speech). Use this for narration/口播/解说 — generate_audio only makes music. Returns an audio asset_id and its measured duration, so you can pace the cut to the voiceover. Pass a system voice name (English 'Ava'/'Samantha', Chinese 'Tingting'/'Meijia') or omit for the system default.",
         {

@@ -1,7 +1,8 @@
 """Session adapter for Deck build-state PNG materialization.
 
-This is intentionally not a model verb yet. Phase 1b's ``assemble_deck`` will
-reuse it before placing the registered images on the clip timeline.
+``assemble_deck`` reuses this adapter before placing the registered images on
+the clip timeline.  Keeping rasterization here also gives ``refine_slide`` one
+place to rematerialize slide changes.
 """
 from __future__ import annotations
 

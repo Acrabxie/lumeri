@@ -43,6 +43,7 @@ from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import animate_captions as _animate_captions
 from gemia.tools import arrange_timeline as _arrange_timeline
 from gemia.tools import assemble_shotlist as _assemble_shotlist
+from gemia.tools import assemble_deck as _assemble_deck
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
@@ -131,6 +132,7 @@ _REAL: dict[str, Dispatcher] = {
     "subtitle":           _subtitle.dispatch,
     "animate_captions":   _animate_captions.dispatch,
     "assemble_shotlist":  _assemble_shotlist.dispatch,
+    "assemble_deck":      _assemble_deck.dispatch,
     "draft_shotlist":     _draft_shotlist.dispatch,
     "set_shotlist":       _shotlist.dispatch_set,
     "update_shot":        _shotlist.dispatch_update_shot,

@@ -132,7 +132,9 @@ plus a template (`pitch`/`report`/`teach`) scaffolds the whole slide plan, or
 per slide with `update_slide` (reword blocks, edit speaker notes, retune build
 dwell) instead of resending the whole deck; `get_deck` for the current slide
 ids. Content lives in semantic blocks — text stays text, never baked into a
-generated image. Drafting and revising are free and undoable.
+generated image. Drafting and revising are free and undoable. When the plan is
+ready, call `assemble_deck` to render every build, obtain the presentation
+pager URL, and lay the flattened build states onto the timeline for export.
 
 ## Working principles
 
