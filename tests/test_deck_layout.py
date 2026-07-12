@@ -173,8 +173,28 @@ def test_content_homogeneous_groups_are_horizontal_cards(theme_tokens, count) ->
     assert len(cards) == count
     assert cards[0]["rect_px"][0] == 160
     assert cards[-1]["rect_px"][0] + cards[-1]["rect_px"][2] == 1352
+    assert all(item["rect_px"][1:] == [464, item["rect_px"][2], 360] for item in cards)
     for left, right in zip(cards, cards[1:]):
         assert right["rect_px"][0] - (left["rect_px"][0] + left["rect_px"][2]) == 32
+
+
+def test_progressive_bullet_groups_remain_a_vertical_reading_flow(theme_tokens) -> None:
+    slide = _slide({
+        "id": "s-bullets", "layout": "content", "title": "Bullets",
+        "blocks": [{"id": "bullets", "kind": "group", "role": "bullets", "children": [
+            {"id": "one", "kind": "text", "role": "bullet", "text": "First"},
+            {"id": "two", "kind": "text", "role": "bullet", "text": "Second"},
+            {"id": "three", "kind": "text", "role": "bullet", "text": "Third"},
+        ]}],
+    })
+    result = layout_slide(slide, theme_tokens=theme_tokens)
+    items = [_placed(result, block_ref=block_ref, kind="text") for block_ref in ("one", "two", "three")]
+    assert [item["rect_px"][0] for item in items] == [160, 160, 160]
+    assert all(item["rect_px"][2] == 1192 for item in items)
+    assert [item["text"] for item in items] == ["• First", "• Second", "• Third"]
+    assert [item["rect_px"][3] for item in items] == [96, 96, 96]
+    for first, second in zip(items, items[1:]):
+        assert second["rect_px"][1] - (first["rect_px"][1] + first["rect_px"][3]) == 16
 
 
 def test_stat_and_full_bleed_template_goldens(theme_tokens) -> None:

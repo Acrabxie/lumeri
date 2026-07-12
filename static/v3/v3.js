@@ -262,6 +262,9 @@
     const previewHtml = tc.previewAssetId && state.sessionId
       ? `<a class="tool-preview-link" href="/sessions/${state.sessionId}/assets/${tc.previewAssetId}" target="_blank" rel="noopener">open ${tc.previewAssetId} ↗</a>`
       : "";
+    const pagerHtml = tc.pagerUrl
+      ? `<a class="tool-preview-link" href="${escapeHTML(tc.pagerUrl)}" target="_blank" rel="noopener">present deck ↗</a>`
+      : "";
     return `
       ${reasoningHtml}
       <div class="tool-card${tc.status === "failed" ? " failed" : ""}">
@@ -273,6 +276,7 @@
         ${progressHtml}
         ${summaryHtml}
         ${previewHtml}
+        ${pagerHtml}
         ${errorHtml}
       </div>
     `;
@@ -453,6 +457,7 @@
         hint: null,
         reasoning: reasoning || null,
         previewAssetId: null,
+        pagerUrl: null,
       });
       t.orderedCallIds.push(ev.call_id);
     },
@@ -480,6 +485,7 @@
       tc.status = "done";
       tc.summary = ev.result?.summary || null;
       tc.previewAssetId = ev.result?.asset_id || null;
+      tc.pagerUrl = safeDeckPagerUrl(ev.result?.pager_url);
       if (tc.previewAssetId) {
         state.assets.push({
           asset_id: tc.previewAssetId,
@@ -634,6 +640,17 @@
     if (String(assetId).startsWith("img_")) return "image";
     if (String(assetId).startsWith("aud_")) return "audio";
     return "video";
+  }
+
+  function safeDeckPagerUrl(value) {
+    if (typeof value !== "string" || !value) return null;
+    try {
+      const parsed = new URL(value, window.location.origin);
+      if (parsed.origin !== window.location.origin || parsed.pathname !== "/v3/deck.html") return null;
+      return `${parsed.pathname}${parsed.search}`;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── SSE connection ──────────────────────────────────────────────────

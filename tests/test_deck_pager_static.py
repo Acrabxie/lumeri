@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HTML_PATH = ROOT / "static" / "v3" / "deck.html"
 CSS_PATH = ROOT / "static" / "v3" / "deck.css"
 JS_PATH = ROOT / "static" / "v3" / "deck.js"
+V3_JS_PATH = ROOT / "static" / "v3" / "v3.js"
 
 
 def test_deck_pager_is_self_contained_and_referrer_safe() -> None:
@@ -53,6 +54,15 @@ def test_deck_pager_has_required_navigation_and_next_frame_preload() -> None:
     assert "preloadNextFrame()" in source
     assert "aspect-ratio: 16 / 9" in css
     assert "object-fit: contain" in css
+
+
+def test_main_v3_ui_only_surfaces_same_origin_deck_pager_urls() -> None:
+    source = V3_JS_PATH.read_text(encoding="utf-8")
+
+    assert "tc.pagerUrl = safeDeckPagerUrl(ev.result?.pager_url)" in source
+    assert 'parsed.origin !== window.location.origin' in source
+    assert 'parsed.pathname !== "/v3/deck.html"' in source
+    assert "present deck ↗" in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")

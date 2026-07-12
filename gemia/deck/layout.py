@@ -352,13 +352,14 @@ def _contains_cjk(text: str) -> bool:
 
 def _text_value(block: Mapping[str, Any]) -> tuple[str, str, list[str]]:
     original = str(block.get("text") or "")
+    role = str(block.get("role") or "").strip().lower()
     raw_bullets = block.get("bullets")
     bullets = (
         [str(item) for item in raw_bullets if str(item or "")]
         if isinstance(raw_bullets, list)
         else []
     )
-    parts = [original] if original else []
+    parts = [f"• {original}" if role == "bullet" else original] if original else []
     parts.extend(f"• {item}" for item in bullets)
     return "\n".join(parts), original, bullets
 
@@ -659,6 +660,8 @@ def _entity_fixed_height(raw: Mapping[str, Any]) -> int | None:
         return 8
     if kind == "text" and role in _CAPTION_ROLES:
         return 96
+    if kind == "text" and role == "bullet":
+        return 96
     return None
 
 
@@ -774,23 +777,30 @@ def _layout_entity(
         for child in children
         if isinstance(child, Mapping)
     ]
+    group_role = str(raw.get("role") or "").strip().lower()
     homogeneous_horizontal = (
         len(children) in {3, 4, 5}
         and len(direct_kinds) == len(children)
         and len(set(direct_kinds)) == 1
         and direct_kinds[0] != "group"
+        and group_role in {"body", "card", "cards", "grid", "grid-cards", "steps", "products"}
     )
     output: list[dict[str, Any]] = []
     if homogeneous_horizontal:
+        horizontal_rect = list(rect)
+        if horizontal_rect[3] > 360:
+            horizontal_rect[1] += (horizontal_rect[3] - 360) // 2
+            horizontal_rect[3] = 360
         rects = _horizontal_rects(
-            rect, len(children), gap=int(tokens["spacing.group-gap"])
+            horizontal_rect, len(children), gap=int(tokens["spacing.group-gap"])
         )
-        group_role = str(raw.get("role") or "").strip().lower()
         for index, (child, child_rect) in enumerate(zip(children, rects), 1):
             leaf = by_identity.get(id(child))
             if leaf is None:
                 raise DeckLayoutError("horizontal groups may contain semantic leaves only")
-            cardish = group_role in {"card", "cards", "grid", "grid-cards"} or leaf.role == "card"
+            cardish = group_role in {
+                "body", "card", "cards", "grid", "grid-cards", "steps", "products"
+            } or leaf.role == "card"
             output.extend(
                 _layout_leaf_entity(
                     leaf,
@@ -805,7 +815,11 @@ def _layout_entity(
 
     mapped_children = [child for child in children if isinstance(child, Mapping)]
     child_rects = _stack_rects(
-        mapped_children, rect, gap=int(tokens["spacing.block-gap"])
+        mapped_children,
+        rect,
+        gap=int(tokens[
+            "spacing.bullet-gap" if group_role == "bullets" else "spacing.block-gap"
+        ]),
     )
     for index, (child, child_rect) in enumerate(zip(mapped_children, child_rects), 1):
         output.extend(
