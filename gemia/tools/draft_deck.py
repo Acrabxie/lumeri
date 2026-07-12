@@ -54,6 +54,66 @@ def _text(text: str, *, role: str = "body", bullets: list[str] | None = None,
     return block
 
 
+def _bullets(items: list[str]) -> dict[str, Any]:
+    """A progressively revealable bullet list.
+
+    Bullets are individual text leaves under a semantic group, rather than
+    strings trapped inside one text block. Build snapshots can therefore reveal
+    them one by one while the group still gives the layout engine one list slot.
+    """
+    return {
+        "kind": "group",
+        "role": "bullets",
+        "children": [_text(item, role="bullet") for item in items],
+    }
+
+
+def _assign_draft_block_ids(blocks: list[dict[str, Any]], path: tuple[int, ...] = ()) -> None:
+    for index, block in enumerate(blocks):
+        block_path = (*path, index + 1)
+        block["id"] = "blk_" + "_".join(str(part) for part in block_path)
+        if block.get("kind") == "group":
+            children = block.get("children")
+            if isinstance(children, list):
+                _assign_draft_block_ids(children, block_path)
+
+
+def _draft_leaf_ids(blocks: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for block in blocks:
+        if block.get("kind") == "group":
+            children = block.get("children")
+            if isinstance(children, list):
+                ids.extend(_draft_leaf_ids(children))
+        else:
+            ids.append(str(block["id"]))
+    return ids
+
+
+def _finalize_draft_slides(slides: list[dict[str, Any]]) -> None:
+    """Materialize deterministic ids and full cumulative build snapshots."""
+    for slide in slides:
+        blocks = slide.get("blocks") if isinstance(slide.get("blocks"), list) else []
+        _assign_draft_block_ids(blocks)
+        leaf_ids = _draft_leaf_ids(blocks)
+        builds = slide.get("builds") if isinstance(slide.get("builds"), list) else []
+        if not builds:
+            builds = [{"id": "b1", "dwell_sec": 3.0}]
+            slide["builds"] = builds
+        build_count = len(builds)
+        leaf_count = len(leaf_ids)
+        for index, build in enumerate(builds):
+            build["id"] = f"b{index + 1}"
+            # Evenly distribute authored leaves across builds. The snapshot is
+            # cumulative and the final threshold is always the exact leaf set.
+            threshold = (
+                (leaf_count * (index + 1) + build_count - 1) // build_count
+                if leaf_count
+                else 0
+            )
+            build["visible_block_ids"] = leaf_ids[:threshold]
+
+
 def _pitch_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
     def L(z: str, e: str) -> str:
         return z if zh else e
@@ -69,14 +129,15 @@ def _pitch_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
                     "Open with the theme in one line; pause so the title lands."),
          "builds": [{"id": "b1", "dwell_sec": 2.5}]},
         {"layout": "content", "title": L("痛点", "The problem"),
-         "blocks": [_text("", role="body", bullets=[
+         "blocks": [_bullets([
              L("现状的第一个摩擦点", "The first friction in the status quo"),
              L("它带来的实际代价", "What it actually costs"),
              L("为什么现有做法不够", "Why current approaches fall short"),
          ])],
          "notes": L("点明观众正面临的问题，用一个具体场景引起共鸣。",
                     "Name the problem the audience faces; make it concrete."),
-         "builds": [{"id": "b1", "dwell_sec": 1.5}, {"id": "b2", "dwell_sec": 3.0}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.2}, {"id": "b2", "dwell_sec": 1.2},
+                    {"id": "b3", "dwell_sec": 1.6}]},
         {"layout": "content", "title": L("方案", "The solution"),
          "blocks": [
              _text(L("用一句话说清方案如何化解上一页的痛点",
@@ -128,34 +189,38 @@ def _report_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
          "notes": L("开场：报告主题与时间范围。", "Open with the topic and the period covered."),
          "builds": [{"id": "b1", "dwell_sec": 2.5}]},
         {"layout": "content", "title": L("摘要", "Executive summary"),
-         "blocks": [_text("", role="body", bullets=[
+         "blocks": [_bullets([
              L("最重要的结论", "The single most important conclusion"),
              L("支撑它的关键证据", "The key evidence behind it"),
              L("建议采取的行动", "The action it implies"),
          ])],
          "notes": L("三十秒版本：先给结论，再给证据。", "The 30-second version: conclusion first."),
-         "builds": [{"id": "b1", "dwell_sec": 3.5}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.0}, {"id": "b2", "dwell_sec": 1.0},
+                    {"id": "b3", "dwell_sec": 1.5}]},
         {"layout": "content", "title": L("关键发现", "Key findings"),
-         "blocks": [_text("", role="body", bullets=[
-             L("发现一", "Finding one"), L("发现二", "Finding two"), L("发现三", "Finding three"),
-         ]), {"kind": "image", "role": "evidence", "source": "search",
-              "query": L(f"{theme} 图表", f"{theme} chart")}],
+         "blocks": [{"kind": "image", "role": "evidence", "source": "search",
+                     "query": L(f"{theme} 图表", f"{theme} chart")},
+                    _bullets([
+                        L("发现一", "Finding one"), L("发现二", "Finding two"),
+                        L("发现三", "Finding three"),
+                    ])],
          "notes": L("每条发现配一句解释，不展开细节。", "One explaining sentence per finding."),
-         "builds": [{"id": "b1", "dwell_sec": 1.5}, {"id": "b2", "dwell_sec": 3.0}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.5}, {"id": "b2", "dwell_sec": 1.5},
+                    {"id": "b3", "dwell_sec": 1.5}]},
         {"layout": "stat", "title": L("数据", "The numbers"),
          "blocks": [
              {"kind": "stat", "value": "—", "label": L("核心指标一", "primary metric")},
              {"kind": "stat", "value": "—", "label": L("核心指标二", "secondary metric")},
          ],
          "notes": L("替换为真实指标；只放能记住的数字。", "Swap in real metrics; only memorable numbers."),
-         "builds": [{"id": "b1", "dwell_sec": 2.5}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.2}, {"id": "b2", "dwell_sec": 1.3}]},
         {"layout": "content", "title": L("风险与建议", "Risks and recommendations"),
-         "blocks": [_text("", role="body", bullets=[
+         "blocks": [_bullets([
              L("主要风险及其对策", "The main risk and its mitigation"),
              L("下一步建议", "Recommended next step"),
          ])],
          "notes": L("诚实列风险，给出对应动作。", "Be honest about risk; pair each with an action."),
-         "builds": [{"id": "b1", "dwell_sec": 3.0}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.5}, {"id": "b2", "dwell_sec": 1.5}]},
         {"layout": "full-bleed", "title": L("结论", "Conclusion"),
          "blocks": [_text(L("一句话结论 + 需要谁做什么决定", "The one-line conclusion + the decision needed"),
                           role="cta", style_token="type.display")],
@@ -175,13 +240,14 @@ def _teach_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
          "notes": L("开场：这节课解决什么问题。", "Open with the question this lesson answers."),
          "builds": [{"id": "b1", "dwell_sec": 2.5}]},
         {"layout": "content", "title": L("学习目标", "What you'll learn"),
-         "blocks": [_text("", role="body", bullets=[
+         "blocks": [_bullets([
              L("目标一：理解核心概念", "Understand the core concept"),
              L("目标二：看懂一个真实例子", "Read one real example"),
              L("目标三：能自己动手复现", "Reproduce it yourself"),
          ])],
          "notes": L("先立预期：学完能做到什么。", "Set expectations: what they can do afterwards."),
-         "builds": [{"id": "b1", "dwell_sec": 3.0}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.0}, {"id": "b2", "dwell_sec": 1.0},
+                    {"id": "b3", "dwell_sec": 1.0}]},
         {"layout": "content", "title": L("核心概念", "The core concept"),
          "blocks": [
              _text(L("用一个类比讲清概念本身", "Explain the concept through one analogy"), role="body"),
@@ -200,12 +266,12 @@ def _teach_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
          "builds": [{"id": "b1", "dwell_sec": 1.5}, {"id": "b2", "dwell_sec": 1.5},
                     {"id": "b3", "dwell_sec": 1.5}]},
         {"layout": "content", "title": L("回顾", "Recap"),
-         "blocks": [_text("", role="body", bullets=[
+         "blocks": [_bullets([
              L("刚才学了什么", "What we covered"),
              L("最容易踩的坑", "The most common mistake"),
          ])],
          "notes": L("用提问式回顾巩固记忆。", "Recap with questions, not restatement."),
-         "builds": [{"id": "b1", "dwell_sec": 2.5}]},
+         "builds": [{"id": "b1", "dwell_sec": 1.2}, {"id": "b2", "dwell_sec": 1.3}]},
         {"layout": "full-bleed", "title": L("动手试试", "Try it yourself"),
          "blocks": [_text(L("动手试试 →", "Try it yourself →"), role="cta",
                           style_token="type.display")],
@@ -228,6 +294,7 @@ def build_deck(theme: str, *, template: str = "pitch", lang: str = "en") -> dict
         slide["id"] = f"s{i + 1}"
         slide["transition"] = {"kind": "cut"}
         slide["links"] = []
+    _finalize_draft_slides(slides)
     return {
         "version": 1,
         "theme": {"tokens": {}, "mood": mood, "aspect": "16:9"},
@@ -292,6 +359,7 @@ def deck_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
 
     moods = [str(shot.get("mood")) for shot in shots if shot.get("mood")]
     mood = Counter(moods).most_common(1)[0][0] if moods else ""
+    _finalize_draft_slides(slides)
     return {
         "version": 1,
         "theme": {"tokens": {}, "mood": mood, "aspect": "16:9"},

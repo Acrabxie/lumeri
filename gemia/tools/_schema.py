@@ -627,7 +627,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "draft_deck",
-        "Draft a COMPLETE presentation deck (slide plan) in one call — the START of any deck task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Slides carry semantic blocks, notes, builds, and a default_path. It REPLACES the current deck (replace=false previews without persisting). A scaffold — refine per slide with update_slide after.",
+        "Draft a COMPLETE presentation deck (slide plan) in one call — the START of any deck task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative build visibility. It REPLACES the current deck (replace=false previews without persisting). A scaffold — refine per slide with update_slide after.",
         {
             "theme": {"type": "string", "description": "One line describing the deck, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
             "template": {"type": "string", "enum": ["pitch", "report", "teach"], "description": "Structure for theme mode. Default 'pitch'."},
@@ -639,7 +639,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "set_deck",
-        "Set or replace the WHOLE deck IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_deck, and for single-slide edits prefer update_slide. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds (each dwell_sec > 0), interaction links, and a transition. STRICTLY validated: duplicate slide ids, link targets pointing at missing slides, a default_path that does not cover every slide exactly once, or dwell_sec <= 0 are rejected (E_BAD_ARG). Missing structural fields are backfilled. Persisted + undoable.",
+        "Set or replace the WHOLE deck IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_deck, and for single-slide edits prefer update_slide. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds, interaction links, and a transition. Each build is a FULL cumulative snapshot in visible_block_ids (leaf ids only): snapshots must be monotonic and the final build must exactly cover every leaf. STRICTLY validated: duplicate slide/block/build ids, invalid build visibility, dangling slide links, incomplete default_path, or dwell_sec <= 0 are rejected (E_BAD_ARG). Legacy builds without visible_block_ids backfill to all leaves. Persisted + undoable.",
         {
             "deck": {
                 "type": "object",
@@ -670,6 +670,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                                     "items": {
                                         "type": "object",
                                         "properties": {
+                                            "id": {"type": "string", "description": "Stable id within this slide. Optional input; deterministically backfilled as blk_1 / blk_1_1 by source path."},
                                             "kind": {"type": "string", "enum": ["text", "stat", "image", "shape", "group"]},
                                             "role": {"type": "string", "description": "Slot hint, e.g. 'title', 'body', 'hero', 'cta', 'card'."},
                                             "text": {"type": "string"},
@@ -682,17 +683,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                                             "query": {"type": "string", "description": "image: search query when not yet filled."},
                                             "shape": {"type": "string", "description": "shape: e.g. 'rect'."},
                                             "fill_token": {"type": "string"},
-                                            "children": {"type": "array", "description": "group: homogeneous sub-blocks.", "items": {"type": "object"}},
+                                            "children": {"type": "array", "description": "group: nested semantic blocks. Every child also has a stable id; builds reference renderable non-group leaves, never the group id.", "items": {"type": "object"}},
                                         },
                                     },
                                 },
                                 "notes": {"type": "string", "description": "Speaker notes (the shotlist narration's descendant)."},
                                 "builds": {
                                     "type": "array",
-                                    "description": "Ordered build states. dwell_sec (> 0) is the autoplay/mp4 hold; presentation mode holds until interaction.",
+                                    "description": "Ordered build states. visible_block_ids is the FULL cumulative leaf-id snapshot for that state (not a delta); it may start empty, must only grow, and the final state must exactly cover every renderable leaf. Missing/wrong-type visibility on legacy input backfills all leaves. dwell_sec (> 0) is the autoplay/mp4 hold; presentation mode holds until interaction.",
                                     "items": {"type": "object", "properties": {
                                         "id": {"type": "string"},
-                                        "dwell_sec": {"type": "number"}}},
+                                        "dwell_sec": {"type": "number"},
+                                        "visible_block_ids": {"type": "array", "items": {"type": "string"}, "description": "Unique ids of every leaf visible at this state. Group ids are invalid."}}},
                                 },
                                 "links": {
                                     "type": "array",
@@ -717,7 +719,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "update_slide",
-        "Revise ONE slide in the current deck by id without resending the whole plan — reword blocks/title/notes, retune builds (dwell_sec), change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. The deck is re-validated after the merge, so an edit cannot dangle a link or zero a dwell. Persisted + undoable.",
+        "Revise ONE slide in the current deck by id without resending the whole plan — reword blocks/title/notes, retune cumulative build visibility/dwell, change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. If block ids change, update visible_block_ids in the same call; each full snapshot must grow monotonically and end with every leaf visible. Persisted + undoable.",
         {
             "slide_id": {"type": "string", "description": "The slide's id (from set_deck / get_deck)."},
             "fields": {

@@ -172,7 +172,7 @@ def iter_shots(shotlist: dict[str, Any]):
 # the append-only patch log (undo + audit) for free. Normalization here is
 # STRUCTURE-tolerant only: missing fields are backfilled, garbage entries are
 # dropped (but never a whole slide), ids are auto-filled. REFERENCE integrity
-# (duplicate slide ids, dangling link targets, default_path coverage,
+# (duplicate ids, dangling build/link references, default_path coverage,
 # dwell_sec > 0) is deliberately NOT enforced here — lumerai.patches validates
 # it strictly at patch time so ProjectStore.load() can never raise on stored
 # state.
@@ -192,15 +192,30 @@ def empty_deck() -> dict[str, Any]:
     }
 
 
-def _normalize_deck_block(raw: Any, *, allow_group: bool = True) -> dict[str, Any] | None:
-    """One semantic content block. Unknown kinds and unknown keys are dropped
-    (garbage tolerance); a ``None`` return means the block itself was garbage."""
+def _normalize_deck_block(
+    raw: Any,
+    *,
+    block_path: tuple[int, ...] = (1,),
+    _ancestors: frozenset[int] = frozenset(),
+) -> dict[str, Any] | None:
+    """Normalize one semantic content block, including nested groups.
+
+    Every accepted block receives a stable id. Model-authored ids survive;
+    otherwise the source position becomes ``blk_1``, ``blk_1_2``, and so on.
+    Unknown kinds/keys are dropped and cyclic/depth-hostile Python input is
+    truncated, keeping the public ``normalize_deck`` contract never-raises for
+    JSON-shaped input.
+    """
     if not isinstance(raw, dict):
         return None
     kind = str(raw.get("kind") or "").strip().lower()
-    if kind not in DECK_BLOCK_KINDS or (kind == "group" and not allow_group):
+    if kind not in DECK_BLOCK_KINDS:
         return None
-    block: dict[str, Any] = {"kind": kind}
+    fallback_id = "blk_" + "_".join(str(part) for part in block_path)
+    block: dict[str, Any] = {
+        "id": str(raw.get("id") or "").strip() or fallback_id,
+        "kind": kind,
+    }
     role = _optional_str(raw.get("role"))
     if role:
         block["role"] = role
@@ -227,20 +242,61 @@ def _normalize_deck_block(raw: Any, *, allow_group: bool = True) -> dict[str, An
             block["fill_token"] = fill_token
     elif kind == "group":
         children_raw = raw.get("children") if isinstance(raw.get("children"), list) else []
+        raw_identity = id(raw)
+        if raw_identity in _ancestors or len(block_path) >= 32:
+            children_raw = []
+        ancestors = _ancestors | {raw_identity}
         children = [
-            _normalize_deck_block(child, allow_group=False) for child in children_raw
+            _normalize_deck_block(
+                child,
+                block_path=(*block_path, child_idx + 1),
+                _ancestors=ancestors,
+            )
+            for child_idx, child in enumerate(children_raw)
         ]
         block["children"] = [child for child in children if child is not None]
     return block
 
 
-def _normalize_build(raw: Any, *, build_idx: int) -> dict[str, Any]:
+def _deck_leaf_block_ids(blocks: Any) -> list[str]:
+    """Return renderable (non-group) block ids in deterministic paint order."""
+    ids: list[str] = []
+    if not isinstance(blocks, list):
+        return ids
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("kind") == "group":
+            ids.extend(_deck_leaf_block_ids(block.get("children")))
+        else:
+            block_id = str(block.get("id") or "")
+            if block_id:
+                ids.append(block_id)
+    return ids
+
+
+def _normalize_build(
+    raw: Any,
+    *,
+    build_idx: int,
+    leaf_block_ids: list[str],
+) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     # A missing/garbage dwell backfills to a sane default; an EXPLICIT numeric
     # value is preserved even when <= 0 so strict validation can reject it.
+    visible_raw = raw.get("visible_block_ids")
+    # Backward compatibility: v1 decks authored before build visibility existed
+    # meant "the whole slide" at every build. An explicit [] is meaningful and
+    # must remain an empty first state; only a missing/wrong-type value backfills.
+    visible = (
+        [str(item or "").strip() for item in visible_raw]
+        if isinstance(visible_raw, list)
+        else list(leaf_block_ids)
+    )
     return {
         "id": str(raw.get("id") or "") or f"b{build_idx + 1}",
         "dwell_sec": _float_or(raw.get("dwell_sec"), DECK_DEFAULT_DWELL),
+        "visible_block_ids": visible,
     }
 
 
@@ -257,15 +313,24 @@ def _normalize_link(raw: Any) -> dict[str, Any] | None:
 def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     blocks_raw = raw.get("blocks") if isinstance(raw.get("blocks"), list) else []
-    blocks = [_normalize_deck_block(block) for block in blocks_raw]
+    blocks = [
+        _normalize_deck_block(block, block_path=(block_idx + 1,))
+        for block_idx, block in enumerate(blocks_raw)
+    ]
+    blocks = [block for block in blocks if block is not None]
+    leaf_block_ids = _deck_leaf_block_ids(blocks)
     builds_raw = raw.get("builds") if isinstance(raw.get("builds"), list) else []
     builds = [
-        _normalize_build(build, build_idx=i)
+        _normalize_build(build, build_idx=i, leaf_block_ids=leaf_block_ids)
         for i, build in enumerate(builds_raw)
         if isinstance(build, dict)
     ]
     if not builds:  # every slide has at least its full build-state
-        builds = [{"id": "b1", "dwell_sec": DECK_DEFAULT_DWELL}]
+        builds = [{
+            "id": "b1",
+            "dwell_sec": DECK_DEFAULT_DWELL,
+            "visible_block_ids": list(leaf_block_ids),
+        }]
     links_raw = raw.get("links") if isinstance(raw.get("links"), list) else []
     links = [_normalize_link(link) for link in links_raw]
     transition_raw = raw.get("transition") if isinstance(raw.get("transition"), dict) else {}
@@ -276,7 +341,7 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
         "id": str(raw.get("id") or "") or f"s{slide_idx + 1}",
         "layout": str(raw.get("layout") or "content"),
         "title": str(raw.get("title") or ""),
-        "blocks": [block for block in blocks if block is not None],
+        "blocks": blocks,
         "notes": str(raw.get("notes") or ""),
         "mood_override": _optional_str(raw.get("mood_override")),
         "builds": builds,

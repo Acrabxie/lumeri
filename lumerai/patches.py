@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 import uuid
 from typing import Any, Callable
 
 from gemia.project_model import (
     IMAGE_DURATION,
+    _deck_leaf_block_ids,
     _normalize_shot,
     _normalize_slide,
     _normalize_timeline_clip,
@@ -884,9 +886,10 @@ def _op_update_shot(project: dict[str, Any], op: dict[str, Any]) -> None:
 def _validate_deck(deck: dict[str, Any]) -> None:
     """Reject reference-integrity violations with TimelinePatchError E_BAD_ARG.
 
-    Runs on the post-normalize deck: duplicate slide ids, dangling
-    ``links.target``, a ``default_path`` that is not an exact cover of the
-    slide ids, and any build with ``dwell_sec <= 0``.
+    Runs on the post-normalize deck: ids must be unique in their scope; build
+    visibility is a monotonic sequence of full leaf-block snapshots whose last
+    state exactly covers the slide; links/default_path must remain resolvable;
+    and every dwell must be positive.
     """
     slides = deck.get("slides") or []
     slide_ids: list[str] = [str(slide.get("id")) for slide in slides]
@@ -897,13 +900,82 @@ def _validate_deck(deck: dict[str, Any]) -> None:
         seen.add(slide_id)
     for slide in slides:
         slide_id = str(slide.get("id"))
+        block_ids: set[str] = set()
+
+        def visit_blocks(blocks: Any) -> None:
+            for block in blocks if isinstance(blocks, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                block_id = str(block.get("id") or "")
+                if not block_id:
+                    raise TimelinePatchError(
+                        "E_BAD_ARG", f"slide {slide_id} block id must be non-empty"
+                    )
+                if block_id in block_ids:
+                    raise TimelinePatchError(
+                        "E_BAD_ARG", f"slide {slide_id} duplicate block id: {block_id}"
+                    )
+                block_ids.add(block_id)
+                if block.get("kind") == "group":
+                    visit_blocks(block.get("children"))
+
+        visit_blocks(slide.get("blocks"))
+        leaf_ids = _deck_leaf_block_ids(slide.get("blocks"))
+        leaf_id_set = set(leaf_ids)
+        build_ids: set[str] = set()
+        previous_visible: set[str] = set()
+        final_visible: set[str] | None = None
         for build in slide.get("builds") or []:
+            build_id = str(build.get("id") or "")
+            if build_id in build_ids:
+                raise TimelinePatchError(
+                    "E_BAD_ARG", f"slide {slide_id} duplicate build id: {build_id}"
+                )
+            build_ids.add(build_id)
             dwell = _as_float(build.get("dwell_sec"))
-            if dwell <= 0:
+            if not math.isfinite(dwell) or dwell <= 0:
                 raise TimelinePatchError(
                     "E_BAD_ARG",
-                    f"slide {slide_id} build {build.get('id')} dwell_sec must be > 0, got {dwell}",
+                    f"slide {slide_id} build {build_id} dwell_sec must be > 0, got {dwell}",
                 )
+            visible = build.get("visible_block_ids")
+            visible = visible if isinstance(visible, list) else []
+            visible_seen: set[str] = set()
+            for raw_ref in visible:
+                ref = str(raw_ref or "")
+                if not ref:
+                    raise TimelinePatchError(
+                        "E_BAD_ARG",
+                        f"slide {slide_id} build {build_id} visible block id must be non-empty",
+                    )
+                if ref in visible_seen:
+                    raise TimelinePatchError(
+                        "E_BAD_ARG",
+                        f"slide {slide_id} build {build_id} duplicate visible block id: {ref}",
+                    )
+                if ref not in leaf_id_set:
+                    raise TimelinePatchError(
+                        "E_BAD_ARG",
+                        f"slide {slide_id} build {build_id} references missing leaf block: {ref}",
+                    )
+                visible_seen.add(ref)
+            if not previous_visible.issubset(visible_seen):
+                hidden_again = sorted(previous_visible - visible_seen)
+                raise TimelinePatchError(
+                    "E_BAD_ARG",
+                    f"slide {slide_id} build {build_id} visibility must be monotonic; "
+                    f"blocks hidden again: {hidden_again}",
+                )
+            previous_visible = visible_seen
+            final_visible = visible_seen
+        if final_visible != leaf_id_set:
+            missing = sorted(leaf_id_set - (final_visible or set()))
+            extra = sorted((final_visible or set()) - leaf_id_set)
+            raise TimelinePatchError(
+                "E_BAD_ARG",
+                f"slide {slide_id} final build must exactly cover every leaf block; "
+                f"missing={missing} extra={extra}",
+            )
         for link in slide.get("links") or []:
             target = str(link.get("target") or "")
             if target == "next" or target.startswith("url:"):

@@ -46,14 +46,30 @@ def _blocks_summary(blocks: list[dict[str, Any]]) -> str:
     ) or "empty"
 
 
+def _leaf_count(blocks: Any) -> int:
+    count = 0
+    for block in blocks if isinstance(blocks, list) else []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("kind") == "group":
+            count += _leaf_count(block.get("children"))
+        else:
+            count += 1
+    return count
+
+
 def _slide_line(slide: dict[str, Any]) -> str:
     builds = [b for b in slide.get("builds") or [] if isinstance(b, dict)]
     dwell = sum(float(b.get("dwell_sec") or 0) for b in builds)
+    leaf_count = _leaf_count(slide.get("blocks"))
+    visibility = "→".join(
+        str(len(build.get("visible_block_ids") or [])) for build in builds
+    ) or "0"
     bits = [
         f"  [{slide.get('id')}]",
         str(slide.get("layout") or "content"),
         _blocks_summary(slide.get("blocks") or []),
-        f"{len(builds)} build ~{dwell:.1f}s",
+        f"{len(builds)} build {visibility}/{leaf_count} visible ~{dwell:.1f}s",
     ]
     line = " ".join(bits)
     title = str(slide.get("title") or "").strip()

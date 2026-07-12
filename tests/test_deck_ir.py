@@ -4,9 +4,10 @@ Covers the load-bearing behaviors of deck-interactive-video-plan §2:
 - the GOLDEN persistence test (§2.4): set_deck → ProjectStore reload → every
   deck field survives — this is the test that kills the silent normalize
   strip (`_normalize_canonical_project` rebuilding state without the deck);
-- strict reference-integrity validation (§2.3): duplicate slide ids, dangling
-  link targets, a default_path that is not an exact cover, dwell_sec <= 0 —
-  all TimelinePatchError E_BAD_ARG — while structural gaps backfill;
+- strict reference-integrity validation (§2.3): duplicate slide/block/build
+  ids, invalid/non-monotonic build visibility, dangling link targets, a
+  default_path that is not an exact cover, dwell_sec <= 0 — all
+  TimelinePatchError E_BAD_ARG — while structural gaps backfill;
 - update_slide partial edits + timeline_undo rolling the deck back;
 - draft_deck theme mode (pitch structure) and from_shotlist migration (§2.2);
 - the real dispatch registrations (no stubs).
@@ -42,6 +43,42 @@ def _ctx(tmp_path: Path) -> ToolContext:
 
 def _call(verb: str, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     return asyncio.run(DISPATCHER[verb](args, ctx))
+
+
+def _walk_blocks(blocks: Any):
+    for block in blocks if isinstance(blocks, list) else []:
+        if not isinstance(block, dict):
+            continue
+        yield block
+        if block.get("kind") == "group":
+            yield from _walk_blocks(block.get("children"))
+
+
+def _leaf_ids(slide: dict[str, Any]) -> list[str]:
+    return [
+        str(block["id"])
+        for block in _walk_blocks(slide.get("blocks"))
+        if block.get("kind") != "group"
+    ]
+
+
+def _assert_explicit_build_contract(deck: dict[str, Any]) -> None:
+    for slide in deck["slides"]:
+        all_ids = [str(block.get("id") or "") for block in _walk_blocks(slide["blocks"])]
+        assert all(all_ids) and len(all_ids) == len(set(all_ids))
+        leaves = set(_leaf_ids(slide))
+        previous: set[str] = set()
+        build_ids: list[str] = []
+        for build in slide["builds"]:
+            build_ids.append(build["id"])
+            assert "visible_block_ids" in build
+            visible = build["visible_block_ids"]
+            assert len(visible) == len(set(visible))
+            current = set(visible)
+            assert previous <= current <= leaves
+            previous = current
+        assert len(build_ids) == len(set(build_ids))
+        assert previous == leaves
 
 
 _DECK = {
@@ -95,18 +132,26 @@ def test_set_deck_survives_store_reload_field_by_field(tmp_path):
     s1, s2 = deck["slides"]
     assert s1["layout"] == "title" and s1["title"] == "One Lumen"
     assert s1["blocks"][0]["kind"] == "text"
+    assert [block["id"] for block in s1["blocks"]] == ["blk_1", "blk_2"]
     assert s1["blocks"][0]["text"] == "One Lumen"
     assert s1["blocks"][0]["style_token"] == "type.display"
     assert s1["blocks"][1]["kind"] == "shape"
     assert s1["blocks"][1]["fill_token"] == "color.accent"
     assert s1["notes"] == "开场：一句话点出主题。"
     assert [b["dwell_sec"] for b in s1["builds"]] == [1.2, 2.0]
+    assert [b["visible_block_ids"] for b in s1["builds"]] == [
+        ["blk_1", "blk_2"], ["blk_1", "blk_2"],
+    ]  # legacy builds without visibility mean full slide
     assert s1["links"] == [{"trigger": "hotspot:blk_cta", "target": "slide:s2"}]
     assert s1["transition"] == {"kind": "cut"}
-    assert s2["blocks"][0] == {"kind": "stat", "value": "97", "label": "工具数"}
+    assert s2["blocks"][0] == {
+        "id": "blk_1", "kind": "stat", "value": "97", "label": "工具数",
+    }
     assert s2["blocks"][1]["asset_id"] == "img_003"
     assert s2["blocks"][2]["kind"] == "group"
+    assert s2["blocks"][2]["id"] == "blk_3"
     assert [c["text"] for c in s2["blocks"][2]["children"]] == ["卡一", "卡二"]
+    assert [c["id"] for c in s2["blocks"][2]["children"]] == ["blk_3_1", "blk_3_2"]
     assert s2["mood_override"] == "energetic"
     assert s2["links"][1] == {"trigger": "hotspot:blk_url", "target": "url:https://lumeri.app"}
     assert s2["transition"] == {"kind": "fade"}
@@ -121,6 +166,49 @@ def test_empty_project_has_deck_and_normalize_is_idempotent():
     assert deck["version"] == 1 and deck["slides"] == [] and deck["default_path"] == []
     once = normalize_deck(_DECK)
     assert normalize_deck(once) == once
+
+
+def test_normalize_assigns_recursive_path_ids_and_preserves_explicit_empty_visibility():
+    deck = normalize_deck({"slides": [{
+        "blocks": [
+            {"kind": "group", "children": [
+                {"kind": "text", "text": "one"},
+                {"kind": "group", "children": [{"kind": "shape"}]},
+            ]},
+            {"id": "hero", "kind": "image"},
+        ],
+        "builds": [
+            {"id": "intro", "dwell_sec": 1, "visible_block_ids": []},
+            {"id": "full", "dwell_sec": 2,
+             "visible_block_ids": ["blk_1_1", "blk_1_2_1", "hero"]},
+        ],
+    }]})
+    slide = deck["slides"][0]
+    assert [block["id"] for block in _walk_blocks(slide["blocks"])] == [
+        "blk_1", "blk_1_1", "blk_1_2", "blk_1_2_1", "hero",
+    ]
+    assert [build["visible_block_ids"] for build in slide["builds"]] == [
+        [], ["blk_1_1", "blk_1_2_1", "hero"],
+    ]
+    assert normalize_deck(deck) == deck
+
+
+def test_legacy_or_wrong_type_visibility_and_missing_builds_backfill_full_leaves():
+    deck = normalize_deck({"slides": [
+        {"blocks": [{"kind": "text", "text": "a"}, {"kind": "shape"}],
+         "builds": [
+             {"id": "legacy", "dwell_sec": 1},
+             {"id": "wrong", "dwell_sec": 1, "visible_block_ids": "blk_1"},
+         ]},
+        {"blocks": [{"id": "only", "kind": "stat"}]},
+    ]})
+    first, second = deck["slides"]
+    assert [build["visible_block_ids"] for build in first["builds"]] == [
+        ["blk_1", "blk_2"], ["blk_1", "blk_2"],
+    ]
+    assert second["builds"] == [{
+        "id": "b1", "dwell_sec": 3.0, "visible_block_ids": ["only"],
+    }]
 
 
 # ── strict validation: the four E_BAD_ARG classes (§2.3) ─────────────────
@@ -164,9 +252,93 @@ def test_non_positive_dwell_rejected(tmp_path):
     bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": 0}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
         _call("set_deck", {"deck": bad}, ctx)
+    bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": float("inf")}]
+    with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
+        _call("set_deck", {"deck": bad}, ctx)
     bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": -1.5}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
         _call("set_deck", {"deck": bad}, ctx)
+
+
+def _one_slide_deck(blocks: list[dict[str, Any]], builds: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "slides": [{"id": "s1", "blocks": blocks, "builds": builds}],
+        "default_path": ["s1"],
+    }
+
+
+def test_recursive_block_ids_and_build_ids_must_be_unique(tmp_path):
+    ctx = _ctx(tmp_path)
+    duplicate_blocks = _one_slide_deck(
+        [{"id": "dup", "kind": "group", "children": [
+            {"id": "dup", "kind": "text", "text": "child"},
+        ]}],
+        [{"id": "b1", "dwell_sec": 1}],
+    )
+    with pytest.raises(ValueError, match="E_BAD_ARG.*duplicate block id: dup"):
+        _call("set_deck", {"deck": duplicate_blocks}, ctx)
+
+    duplicate_builds = _one_slide_deck(
+        [{"id": "leaf", "kind": "text", "text": "x"}],
+        [{"id": "same", "dwell_sec": 1}, {"id": "same", "dwell_sec": 1}],
+    )
+    with pytest.raises(ValueError, match="E_BAD_ARG.*duplicate build id: same"):
+        _call("set_deck", {"deck": duplicate_builds}, ctx)
+
+
+def test_visible_refs_must_be_nonempty_unique_existing_leaves(tmp_path):
+    ctx = _ctx(tmp_path)
+    blocks = [{"id": "leaf", "kind": "text", "text": "x"}]
+    cases = [
+        ([""], "visible block id must be non-empty"),
+        (["leaf", "leaf"], "duplicate visible block id"),
+        (["ghost"], "references missing leaf block"),
+    ]
+    for visible, message in cases:
+        bad = _one_slide_deck(
+            blocks, [{"id": "b1", "dwell_sec": 1, "visible_block_ids": visible}],
+        )
+        with pytest.raises(ValueError, match=f"E_BAD_ARG.*{message}"):
+            _call("set_deck", {"deck": bad}, ctx)
+
+    group_ref = _one_slide_deck(
+        [{"id": "group", "kind": "group", "children": [
+            {"id": "leaf", "kind": "text", "text": "x"},
+        ]}],
+        [{"id": "b1", "dwell_sec": 1, "visible_block_ids": ["group"]}],
+    )
+    with pytest.raises(ValueError, match="E_BAD_ARG.*references missing leaf block: group"):
+        _call("set_deck", {"deck": group_ref}, ctx)
+
+
+def test_build_snapshots_must_be_monotonic_and_finish_with_exact_leaf_cover(tmp_path):
+    ctx = _ctx(tmp_path)
+    blocks = [
+        {"id": "a", "kind": "text", "text": "a"},
+        {"id": "b", "kind": "text", "text": "b"},
+    ]
+    nonmonotonic = _one_slide_deck(blocks, [
+        {"id": "b1", "dwell_sec": 1, "visible_block_ids": ["a", "b"]},
+        {"id": "b2", "dwell_sec": 1, "visible_block_ids": ["b"]},
+    ])
+    with pytest.raises(ValueError, match="E_BAD_ARG.*visibility must be monotonic"):
+        _call("set_deck", {"deck": nonmonotonic}, ctx)
+
+    incomplete = _one_slide_deck(blocks, [
+        {"id": "b1", "dwell_sec": 1, "visible_block_ids": ["a"]},
+    ])
+    with pytest.raises(ValueError, match="E_BAD_ARG.*final build must exactly cover"):
+        _call("set_deck", {"deck": incomplete}, ctx)
+
+    valid = _one_slide_deck(blocks, [
+        {"id": "b1", "dwell_sec": 0.5, "visible_block_ids": []},
+        {"id": "b2", "dwell_sec": 0.5, "visible_block_ids": ["a"]},
+        {"id": "b3", "dwell_sec": 1.0, "visible_block_ids": ["a", "b"]},
+    ])
+    _call("set_deck", {"deck": valid}, ctx)
+    assert [build["visible_block_ids"] for build in ctx.project.load()["deck"]["slides"][0]["builds"]] == [
+        [], ["a"], ["a", "b"],
+    ]
 
 
 # ── structural tolerance: gaps backfill, garbage drops, slides survive ───
@@ -184,7 +356,10 @@ def test_structural_defaults_backfill_without_dropping_slides(tmp_path):
     assert slide["layout"] == "content"
     assert "garbage_key" not in slide              # unknown keys dropped
     assert [b["kind"] for b in slide["blocks"]] == ["text"]  # garbage blocks dropped
-    assert slide["builds"] == [{"id": "b1", "dwell_sec": 3.0}]  # build backfilled
+    assert slide["blocks"][0]["id"] == "blk_2"  # source-path id survives garbage before it
+    assert slide["builds"] == [{
+        "id": "b1", "dwell_sec": 3.0, "visible_block_ids": ["blk_2"],
+    }]  # one full build backfilled
     assert slide["links"] == [] and slide["transition"] == {"kind": "cut"}
     assert deck["default_path"] == ["s1"]          # path backfilled to cover
 
@@ -238,6 +413,37 @@ def test_draft_deck_pitch_structure(tmp_path):
     assert all(s["notes"] for s in slides)                    # speaker notes everywhere
     assert deck["default_path"] == [s["id"] for s in slides]  # exact cover
     assert all(b["dwell_sec"] > 0 for s in slides for b in s["builds"])
+    _assert_explicit_build_contract(deck)
+
+
+@pytest.mark.parametrize("template", ["pitch", "report", "teach"])
+def test_draft_templates_progressively_reveal_grouped_bullets_and_cards(tmp_path, template):
+    ctx = _ctx(tmp_path)
+    deck = _call("draft_deck", {
+        "theme": "A focus timer", "template": template, "replace": False,
+    }, ctx)["deck"]
+    _assert_explicit_build_contract(deck)
+    groups = [
+        block
+        for slide in deck["slides"]
+        for block in _walk_blocks(slide["blocks"])
+        if block.get("kind") == "group" and block.get("role") in {"bullets", "cards"}
+    ]
+    assert groups
+    for group in groups:
+        slide = next(
+            slide for slide in deck["slides"]
+            if any(block is group for block in _walk_blocks(slide["blocks"]))
+        )
+        child_ids = _leaf_ids({"blocks": group["children"]})
+        first_seen = [
+            next(
+                index for index, build in enumerate(slide["builds"])
+                if child_id in build["visible_block_ids"]
+            )
+            for child_id in child_ids
+        ]
+        assert first_seen == list(range(len(child_ids)))
 
 
 def test_draft_deck_language_and_templates(tmp_path):
@@ -317,6 +523,12 @@ def test_draft_deck_from_shotlist_maps_per_spec(tmp_path):
 
     assert deck["theme"]["mood"] == "hopeful"                  # mood mode of shots
     assert deck["default_path"] == [s["id"] for s in slides]
+    _assert_explicit_build_contract(deck)
+    assert all(len(slide["builds"]) == 1 for slide in slides)
+    assert all(
+        set(slide["builds"][0]["visible_block_ids"]) == set(_leaf_ids(slide))
+        for slide in slides
+    )
 
 
 def test_draft_deck_from_empty_shotlist_raises_tool_error(tmp_path):
