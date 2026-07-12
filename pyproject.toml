@@ -16,6 +16,7 @@ dependencies = [
     "certifi",
     "PyYAML>=6",
     "opentimelineio>=0.17",
+    "regex>=2024.11.6",
 ]
 
 [project.scripts]
