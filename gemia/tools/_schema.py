@@ -626,32 +626,32 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["shot_id"],
     ),
     _tool(
-        "draft_deck",
-        "Draft a COMPLETE presentation deck (slide plan) in one call — the START of any deck task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative build visibility. It REPLACES the current deck (replace=false previews without persisting). A scaffold — refine per slide with update_slide after.",
+        "draft_quanta",
+        "Draft a COMPLETE presentation quanta (slide plan) in one call — the START of any quanta task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative build visibility. It REPLACES the current quanta (replace=false previews without persisting). A scaffold — refine per slide with update_quantum after.",
         {
-            "theme": {"type": "string", "description": "One line describing the deck, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
+            "theme": {"type": "string", "description": "One line describing the quanta, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
             "template": {"type": "string", "enum": ["pitch", "report", "teach"], "description": "Structure for theme mode. Default 'pitch'."},
-            "from_shotlist": {"type": "boolean", "description": "true = build the deck from the current shotlist instead of a theme (video→deck migration)."},
+            "from_shotlist": {"type": "boolean", "description": "true = build the quanta from the current shotlist instead of a theme (video→quanta migration)."},
             "language": {"type": "string", "enum": ["zh", "en"], "description": "Language of the drafted text. Auto-detected if omitted."},
-            "replace": {"type": "boolean", "description": "Replace the current deck (default true). false = return the draft without persisting."},
+            "replace": {"type": "boolean", "description": "Replace the current quanta (default true). false = return the draft without persisting."},
         },
         [],
     ),
     _tool(
-        "set_deck",
-        "Set or replace the WHOLE deck IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_deck, and for single-slide edits prefer update_slide. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds, interaction links, and a transition. Each build is a FULL cumulative snapshot in visible_block_ids (leaf ids only): snapshots must be monotonic and the final build must exactly cover every leaf. STRICTLY validated: duplicate slide/block/build ids, invalid build visibility, dangling slide links, incomplete default_path, or dwell_sec <= 0 are rejected (E_BAD_ARG). Legacy builds without visible_block_ids backfill to all leaves. Persisted + undoable.",
+        "set_quanta",
+        "Set or replace the WHOLE quanta IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_quanta, and for single-slide edits prefer update_quantum. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds, interaction links, and a transition. Each build is a FULL cumulative snapshot in visible_block_ids (leaf ids only): snapshots must be monotonic and the final build must exactly cover every leaf. STRICTLY validated: duplicate slide/block/build ids, invalid build visibility, dangling slide links, incomplete default_path, or dwell_sec <= 0 are rejected (E_BAD_ARG). Legacy builds without visible_block_ids backfill to all leaves. Persisted + undoable.",
         {
-            "deck": {
+            "quanta": {
                 "type": "object",
-                "description": "The deck plan.",
+                "description": "The quanta plan.",
                 "properties": {
                     "version": {"type": "integer", "description": "IR version. Currently 1 (optional; backfilled)."},
                     "theme": {
                         "type": "object",
-                        "description": "Deck-level look: one mood for the WHOLE deck (per-slide moods read as collage).",
+                        "description": "Quanta-level look: one mood for the WHOLE quanta (per-slide moods read as collage).",
                         "properties": {
                             "tokens": {"type": "object", "description": "Design-token overrides (optional)."},
-                            "mood": {"type": "string", "description": "Deck-wide tone, e.g. 'calm-tech', 'confident'."},
+                            "mood": {"type": "string", "description": "Quanta-wide tone, e.g. 'calm-tech', 'confident'."},
                             "aspect": {"type": "string", "description": "Canvas aspect, default '16:9'."},
                         },
                     },
@@ -661,7 +661,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "items": {
                             "type": "object",
                             "properties": {
-                                "id": {"type": "string", "description": "Stable slide id you will reference in update_slide/links/default_path (optional; auto-filled)."},
+                                "id": {"type": "string", "description": "Stable slide id you will reference in update_quantum/links/default_path (optional; auto-filled)."},
                                 "layout": {"type": "string", "description": "Layout template name, e.g. 'title', 'content', 'stat', 'full-bleed'."},
                                 "title": {"type": "string", "description": "Slide heading."},
                                 "blocks": {
@@ -715,13 +715,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
         },
-        ["deck"],
+        ["quanta"],
     ),
     _tool(
-        "update_slide",
-        "Revise ONE slide in the current deck by id without resending the whole plan — reword blocks/title/notes, retune cumulative build visibility/dwell, change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. If block ids change, update visible_block_ids in the same call; each full snapshot must grow monotonically and end with every leaf visible. Persisted + undoable.",
+        "update_quantum",
+        "Revise ONE slide in the current quanta by id without resending the whole plan — reword blocks/title/notes, retune cumulative build visibility/dwell, change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. If block ids change, update visible_block_ids in the same call; each full snapshot must grow monotonically and end with every leaf visible. Persisted + undoable.",
         {
-            "slide_id": {"type": "string", "description": "The slide's id (from set_deck / get_deck)."},
+            "slide_id": {"type": "string", "description": "The slide's id (from set_quanta / get_quanta)."},
             "fields": {
                 "type": "object",
                 "description": "Fields to merge, e.g. {title, blocks, notes, builds, links, layout, transition, mood_override}.",
@@ -740,16 +740,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["slide_id", "fields"],
     ),
     _tool(
-        "get_deck",
-        "Read the current deck (presentation plan): each slide's id, layout, block kinds, build count/dwell, title, notes, and non-default links, plus the full IR. Call before revising slides so you use the right slide ids.",
+        "get_quanta",
+        "Read the current quanta (presentation plan): each slide's id, layout, block kinds, build count/dwell, title, notes, and non-default links, plus the full IR. Call before revising slides so you use the right slide ids.",
         {},
         [],
     ),
     _tool(
-        "refine_slide",
-        "Revise ONE slide in an assembled deck and immediately refresh the presentation pager + dedicated Deck timeline. With a current frame cache it rerenders only that slide and reuses every unchanged slide frame; if the deck was not assembled or the cache is stale, it safely materializes the whole deck. Use update_slide instead while still planning. Unrelated timeline clips survive.",
+        "refine_quantum",
+        "Revise ONE slide in an assembled quanta and immediately refresh the presentation pager + dedicated Quanta timeline. With a current frame cache it rerenders only that slide and reuses every unchanged slide frame; if the quanta was not assembled or the cache is stale, it safely materializes the whole quanta. Use update_quantum instead while still planning. Unrelated timeline clips survive.",
         {
-            "slide_id": {"type": "string", "description": "The slide id from get_deck."},
+            "slide_id": {"type": "string", "description": "The slide id from get_quanta."},
             "fields": {
                 "type": "object",
                 "description": "Fields to merge into this slide: layout, title, blocks, notes, mood_override, builds, links, or transition.",
@@ -769,8 +769,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["slide_id", "fields"],
     ),
     _tool(
-        "assemble_deck",
-        "Materialize the current deck into every build-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Deck timeline tracks in default_path/build order using each build's dwell_sec. Re-running the same deck reuses the frame cache and replaces only the dedicated Deck tracks; unrelated timeline clips survive. Current MP4 flattening renders cut transitions; authored fade transitions are reported as explicit degradations.",
+        "assemble_quanta",
+        "Materialize the current quanta into every build-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Quanta timeline tracks in default_path/build order using each build's dwell_sec. Re-running the same quanta reuses the frame cache and replaces only the dedicated Quanta tracks; unrelated timeline clips survive. Current MP4 flattening renders cut transitions; authored fade transitions are reported as explicit degradations.",
         {
             "fail_on_overflow": {"type": "boolean", "description": "When true, refuse to assemble if any text still overflows after the two allowed autofit steps. Default false returns overflow details for refine."},
         },

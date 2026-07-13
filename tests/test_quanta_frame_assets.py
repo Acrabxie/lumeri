@@ -9,13 +9,13 @@ from urllib.parse import parse_qs, urlparse
 from PIL import Image
 import pytest
 
-from gemia.deck import DeckMaterializeError
-from gemia.project_model import normalize_deck
+from gemia.quanta import QuantaMaterializeError
+from gemia.project_model import normalize_quanta
 from gemia.text import TextLayoutError, measure_text
 from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools.deck_frames import (
-    materialize_deck_frame_assets,
-    rematerialize_deck_slide_assets,
+from gemia.tools.quanta_frames import (
+    materialize_quanta_frame_assets,
+    rematerialize_quanta_slide_assets,
 )
 from gemia.video.fonts import get_font_catalog
 
@@ -65,8 +65,8 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
     ctx = _ctx(tmp_path)
     source_path = tmp_path / "source.png"
     Image.new("RGB", (32, 18), "#5fc6de").save(source_path)
-    source_id = ctx.registry.add_external(source_path, summary="deck hero").asset_id
-    deck = normalize_deck({
+    source_id = ctx.registry.add_external(source_path, summary="quanta hero").asset_id
+    quanta = normalize_quanta({
         "theme": {"tokens": tokens},
         "slides": [{
             "id": "s1", "layout": "full-bleed", "title": "",
@@ -80,9 +80,9 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
             ],
         }],
     })
-    result = materialize_deck_frame_assets(deck, ctx)
+    result = materialize_quanta_frame_assets(quanta, ctx)
 
-    assert result["kind"] == "deck" and result["frame_count"] == 2
+    assert result["kind"] == "quanta" and result["frame_count"] == 2
     assert result["slide_count"] == 1 and result["asset_id"] == result["frame_asset_ids"][0]
     assert result["overflow"] == []
     for asset_id in result["frame_asset_ids"]:
@@ -94,7 +94,7 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
 
     parsed = urlparse(result["pager_url"])
     query = parse_qs(parsed.query)
-    assert parsed.path == "/v3/deck.html"
+    assert parsed.path == "/v3/quanta.html"
     assert query["session_id"] == ["session_1"]
     assert query["frame"] == [
         f"0:0:{result['frame_asset_ids'][0]}",
@@ -106,22 +106,22 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
 
 def test_session_adapter_fails_before_allocating_when_source_is_missing(tmp_path, tokens) -> None:
     ctx = _ctx(tmp_path)
-    deck = normalize_deck({
+    quanta = normalize_quanta({
         "theme": {"tokens": tokens},
         "slides": [{
             "id": "s1", "layout": "full-bleed", "title": "",
             "blocks": [{"id": "hero", "kind": "image", "asset_id": "img_999"}],
         }],
     })
-    with pytest.raises(DeckMaterializeError, match="not in this session registry"):
-        materialize_deck_frame_assets(deck, ctx)
+    with pytest.raises(QuantaMaterializeError, match="not in this session registry"):
+        materialize_quanta_frame_assets(quanta, ctx)
     assert ctx.registry.list_records() == []
     assert list(tmp_path.glob("img_*.png")) == []
 
 
 def test_single_slide_rematerialization_reuses_unchanged_registered_frames(tmp_path, tokens) -> None:
     ctx = _ctx(tmp_path)
-    deck = normalize_deck({
+    quanta = normalize_quanta({
         "theme": {"tokens": tokens},
         "slides": [
             {
@@ -142,7 +142,7 @@ def test_single_slide_rematerialization_reuses_unchanged_registered_frames(tmp_p
         ],
         "default_path": ["s2", "s1"],
     })
-    first = materialize_deck_frame_assets(deck, ctx)
+    first = materialize_quanta_frame_assets(quanta, ctx)
     first_by_slide = {
         slide_id: [
             frame["asset_id"] for frame in first["frames"]
@@ -151,9 +151,9 @@ def test_single_slide_rematerialization_reuses_unchanged_registered_frames(tmp_p
         for slide_id in ("s1", "s2")
     }
 
-    revised = deepcopy(deck)
+    revised = deepcopy(quanta)
     revised["slides"][0]["title"] = "After"
-    second = rematerialize_deck_slide_assets(
+    second = rematerialize_quanta_slide_assets(
         revised, ctx, slide_id="s1", previous=first
     )
 

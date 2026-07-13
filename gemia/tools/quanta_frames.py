@@ -1,7 +1,7 @@
-"""Session adapter for Deck build-state PNG materialization.
+"""Session adapter for Quanta build-state PNG materialization.
 
-``assemble_deck`` reuses this adapter before placing the registered images on
-the clip timeline.  Keeping rasterization here also gives ``refine_slide`` one
+``assemble_quanta`` reuses this adapter before placing the registered images on
+the clip timeline.  Keeping rasterization here also gives ``refine_quantum`` one
 place to rematerialize slide changes.
 """
 from __future__ import annotations
@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from gemia.deck import (
-    DeckMaterializeError,
-    build_deck_pager_url,
-    build_deck_pager_url_from_manifest,
-    render_deck_frames,
+from gemia.quanta import (
+    QuantaMaterializeError,
+    build_quanta_pager_url,
+    build_quanta_pager_url_from_manifest,
+    render_quanta_frames,
 )
 from gemia.tools._context import ToolContext
 
@@ -32,8 +32,8 @@ def _image_asset_ids(blocks: Any) -> list[str]:
     return result
 
 
-def materialize_deck_frame_assets(
-    deck: Mapping[str, Any],
+def materialize_quanta_frame_assets(
+    quanta: Mapping[str, Any],
     ctx: ToolContext,
     *,
     scale: int = 1,
@@ -42,12 +42,12 @@ def materialize_deck_frame_assets(
     """Render, write, and register all build frames for one session.
 
     Rendering completes in memory before any output asset is allocated, so a
-    layout/font/source failure cannot leave a partial registered deck.
+    layout/font/source failure cannot leave a partial registered quanta.
     """
-    if not isinstance(deck, Mapping):
-        raise DeckMaterializeError("deck must be a mapping")
+    if not isinstance(quanta, Mapping):
+        raise QuantaMaterializeError("quanta must be a mapping")
     source_ids: list[str] = []
-    for slide in deck.get("slides") or []:
+    for slide in quanta.get("slides") or []:
         if isinstance(slide, Mapping):
             for asset_id in _image_asset_ids(slide.get("blocks")):
                 if asset_id not in source_ids:
@@ -55,23 +55,23 @@ def materialize_deck_frame_assets(
     image_sources: dict[str, bytes] = {}
     for asset_id in source_ids:
         if not ctx.registry.contains(asset_id):
-            raise DeckMaterializeError(
-                f"deck image asset {asset_id!r} is not in this session registry"
+            raise QuantaMaterializeError(
+                f"quanta image asset {asset_id!r} is not in this session registry"
             )
         record = ctx.registry.get(asset_id)
         if record.kind != "image":
-            raise DeckMaterializeError(
-                f"deck image asset {asset_id!r} is {record.kind!r}, expected 'image'"
+            raise QuantaMaterializeError(
+                f"quanta image asset {asset_id!r} is {record.kind!r}, expected 'image'"
             )
         try:
             image_sources[asset_id] = Path(record.path).read_bytes()
         except OSError as exc:
-            raise DeckMaterializeError(
-                f"deck image asset {asset_id!r} cannot be read"
+            raise QuantaMaterializeError(
+                f"quanta image asset {asset_id!r} cannot be read"
             ) from exc
 
-    frames = render_deck_frames(
-        deck,
+    frames = render_quanta_frames(
+        quanta,
         image_sources=image_sources,
         scale=scale,
         fail_on_overflow=fail_on_overflow,
@@ -89,7 +89,7 @@ def materialize_deck_frame_assets(
             kind="image",
             path=path,
             summary=(
-                f"deck frame {frame.slide_id}/{frame.build_id} "
+                f"quanta frame {frame.slide_id}/{frame.build_id} "
                 f"({frame.slide_index + 1}:{frame.build_index + 1})"
             ),
             lineage=frame.source_asset_ids,
@@ -97,8 +97,8 @@ def materialize_deck_frame_assets(
         asset_ids.append(asset_id)
         manifest.append(frame.manifest_entry(asset_id))
 
-    pager_url = build_deck_pager_url(ctx.session_id, frames, asset_ids)
-    first_build_pager_url = build_deck_pager_url(
+    pager_url = build_quanta_pager_url(ctx.session_id, frames, asset_ids)
+    first_build_pager_url = build_quanta_pager_url(
         ctx.session_id, frames, asset_ids, first_build_only=True
     )
     overflow = [
@@ -111,7 +111,7 @@ def materialize_deck_frame_assets(
         if frame.overflow
     ]
     return {
-        "kind": "deck",
+        "kind": "quanta",
         "asset_id": asset_ids[0] if asset_ids else None,
         "frame_asset_ids": asset_ids,
         "frames": manifest,
@@ -124,20 +124,20 @@ def materialize_deck_frame_assets(
             f"rendered {len({frame.slide_id for frame in frames})} slide(s) / "
             f"{len(frames)} build state(s)"
         ),
-        "rematerialization_scope": "deck",
+        "rematerialization_scope": "quanta",
     }
 
 
-def _ordered_slides(deck: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def _ordered_slides(quanta: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     slides = [
-        slide for slide in deck.get("slides") or [] if isinstance(slide, Mapping)
+        slide for slide in quanta.get("slides") or [] if isinstance(slide, Mapping)
     ]
     by_id = {str(slide.get("id") or ""): slide for slide in slides}
-    path = [str(value or "") for value in deck.get("default_path") or []]
+    path = [str(value or "") for value in quanta.get("default_path") or []]
     if not path:
         path = list(by_id)
     if not path or len(path) != len(by_id) or set(path) != set(by_id):
-        raise DeckMaterializeError("deck.default_path must cover every slide exactly once")
+        raise QuantaMaterializeError("quanta.default_path must cover every slide exactly once")
     return [by_id[slide_id] for slide_id in path]
 
 
@@ -198,8 +198,8 @@ def _reusable_frames(
     return grouped
 
 
-def rematerialize_deck_slide_assets(
-    deck: Mapping[str, Any],
+def rematerialize_quanta_slide_assets(
+    quanta: Mapping[str, Any],
     ctx: ToolContext,
     *,
     slide_id: str,
@@ -210,32 +210,32 @@ def rematerialize_deck_slide_assets(
     """Render one changed slide and reuse every unchanged registered frame.
 
     If the prior frame manifest is missing or stale, this safely falls back to
-    whole-deck materialization; callers can surface the returned scope.
+    whole-quanta materialization; callers can surface the returned scope.
     """
-    slides = _ordered_slides(deck)
+    slides = _ordered_slides(quanta)
     target = next(
         (slide for slide in slides if str(slide.get("id") or "") == slide_id),
         None,
     )
     if target is None:
-        raise DeckMaterializeError(f"slide not found: {slide_id!r}")
+        raise QuantaMaterializeError(f"slide not found: {slide_id!r}")
     reusable = _reusable_frames(previous, ctx, slides, slide_id)
     if reusable is None:
-        return materialize_deck_frame_assets(
-            deck, ctx, scale=scale, fail_on_overflow=fail_on_overflow
+        return materialize_quanta_frame_assets(
+            quanta, ctx, scale=scale, fail_on_overflow=fail_on_overflow
         )
     if fail_on_overflow:
         for other_id, frames in reusable.items():
             if other_id != slide_id and any(frame.get("overflow") for frame in frames):
-                raise DeckMaterializeError(
+                raise QuantaMaterializeError(
                     f"cached slide {other_id} contains overflow; refine that copy first"
                 )
 
-    subdeck = dict(deck)
-    subdeck["slides"] = [target]
-    subdeck["default_path"] = [slide_id]
-    changed = materialize_deck_frame_assets(
-        subdeck, ctx, scale=scale, fail_on_overflow=fail_on_overflow
+    subquanta = dict(quanta)
+    subquanta["slides"] = [target]
+    subquanta["default_path"] = [slide_id]
+    changed = materialize_quanta_frame_assets(
+        subquanta, ctx, scale=scale, fail_on_overflow=fail_on_overflow
     )
     changed_frames = [
         dict(frame) for frame in changed.get("frames") or []
@@ -262,12 +262,12 @@ def rematerialize_deck_slide_assets(
         if frame.get("overflow")
     ]
     return {
-        "kind": "deck",
+        "kind": "quanta",
         "asset_id": asset_ids[0] if asset_ids else None,
         "frame_asset_ids": asset_ids,
         "frames": manifest,
-        "pager_url": build_deck_pager_url_from_manifest(ctx.session_id, manifest),
-        "first_build_pager_url": build_deck_pager_url_from_manifest(
+        "pager_url": build_quanta_pager_url_from_manifest(ctx.session_id, manifest),
+        "first_build_pager_url": build_quanta_pager_url_from_manifest(
             ctx.session_id, manifest, first_build_only=True
         ),
         "slide_count": len(slides),
@@ -282,4 +282,4 @@ def rematerialize_deck_slide_assets(
     }
 
 
-__all__ = ["materialize_deck_frame_assets", "rematerialize_deck_slide_assets"]
+__all__ = ["materialize_quanta_frame_assets", "rematerialize_quanta_slide_assets"]

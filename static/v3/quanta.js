@@ -5,7 +5,7 @@
   const FRAME_PATTERN = /^(0|[1-9]\d*):(0|[1-9]\d*):([A-Za-z0-9_-]{1,64})$/;
   const MAX_FRAMES = 512;
 
-  function parseDeckQuery(search) {
+  function parseQuantaQuery(search) {
     const params = new URLSearchParams(search || "");
     const sessionValues = params.getAll("session_id");
 
@@ -21,7 +21,7 @@
 
     const rawFrames = params.getAll("frame");
     if (rawFrames.length > MAX_FRAMES) {
-      return { ok: false, error: `Deck exceeds the ${MAX_FRAMES}-frame limit` };
+      return { ok: false, error: `Quanta exceeds the ${MAX_FRAMES}-frame limit` };
     }
 
     const frames = [];
@@ -53,7 +53,7 @@
 
   function assetUrl(sessionId, assetId) {
     if (!SESSION_PATTERN.test(sessionId) || !/^[A-Za-z0-9_-]{1,64}$/.test(assetId)) {
-      throw new TypeError("Invalid deck asset reference");
+      throw new TypeError("Invalid quanta asset reference");
     }
     return `/sessions/${encodeURIComponent(sessionId)}/assets/${encodeURIComponent(assetId)}`;
   }
@@ -81,7 +81,7 @@
 
   const api = Object.freeze({
     MAX_FRAMES,
-    parseDeckQuery,
+    parseQuantaQuery,
     assetUrl,
     navigationIndex,
     isFormControlOrEditable,
@@ -107,7 +107,7 @@
 
     let currentIndex = 0;
     let preloadedImage = null;
-    const config = parseDeckQuery(root.location.search);
+    const config = parseQuantaQuery(root.location.search);
 
     function setProgressText(slideText, buildText, frameText) {
       slideProgress.textContent = slideText;
@@ -119,7 +119,7 @@
       image.hidden = true;
       statePanel.hidden = false;
       statePanel.className = kind === "error" ? "state-panel error" : "state-panel";
-      stateKicker.textContent = kind === "error" ? "PLAYBACK ERROR" : "LUMERI DECK";
+      stateKicker.textContent = kind === "error" ? "PLAYBACK ERROR" : "LUMERI QUANTA";
       stateTitle.textContent = title;
       stateDetail.textContent = detail;
     }
@@ -128,7 +128,7 @@
       setProgressText("Slide —", "Build —", "Frame —");
       previousButton.disabled = true;
       nextButton.disabled = true;
-      showState("error", "Invalid deck URL", config.error);
+      showState("error", "Invalid quanta URL", config.error);
       return;
     }
 
@@ -136,7 +136,7 @@
       setProgressText("Slide —", "Build —", "Frame 0 / 0");
       previousButton.disabled = true;
       nextButton.disabled = true;
-      showState("empty", "No frames to present", "Render the deck and pass its frame assets in playback order.");
+      showState("empty", "No frames to present", "Render the quanta and pass its frame assets in playback order.");
       return;
     }
 

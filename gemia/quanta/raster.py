@@ -1,4 +1,4 @@
-"""Pure Pillow rasterizer for deterministic Lumeri Deck display lists."""
+"""Pure Pillow rasterizer for deterministic Lumeri Quanta display lists."""
 from __future__ import annotations
 
 import io
@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 
-class DeckRasterError(ValueError):
+class QuantaRasterError(ValueError):
     """Raised when a placed slide cannot be rasterized honestly."""
 
 
@@ -26,9 +26,9 @@ def _byte(value: str, name: str) -> int:
     try:
         number = float(value.strip())
     except ValueError as exc:
-        raise DeckRasterError(f"{name} must be numeric") from exc
+        raise QuantaRasterError(f"{name} must be numeric") from exc
     if not math.isfinite(number) or not 0 <= number <= 255:
-        raise DeckRasterError(f"{name} must be in [0, 255]")
+        raise QuantaRasterError(f"{name} must be in [0, 255]")
     return int(round(number))
 
 
@@ -40,9 +40,9 @@ def _alpha(value: str) -> int:
         else:
             number = float(text)
     except ValueError as exc:
-        raise DeckRasterError("alpha must be numeric") from exc
+        raise QuantaRasterError("alpha must be numeric") from exc
     if not math.isfinite(number) or not 0 <= number <= 1:
-        raise DeckRasterError("alpha must be in [0, 1]")
+        raise QuantaRasterError("alpha must be in [0, 1]")
     return int(round(number * 255))
 
 
@@ -53,17 +53,17 @@ def _solid_color(value: Any) -> tuple[int, int, int, int]:
         if len(raw) in {3, 4}:
             raw = "".join(char * 2 for char in raw)
         if len(raw) not in {6, 8} or not re.fullmatch(r"[0-9a-fA-F]+", raw):
-            raise DeckRasterError(f"unsupported hex color {text!r}")
+            raise QuantaRasterError(f"unsupported hex color {text!r}")
         if len(raw) == 6:
             raw += "ff"
         return tuple(int(raw[index:index + 2], 16) for index in range(0, 8, 2))  # type: ignore[return-value]
     match = _RGB_RE.fullmatch(text)
     if not match:
-        raise DeckRasterError(f"unsupported solid color {text!r}")
+        raise QuantaRasterError(f"unsupported solid color {text!r}")
     parts = [part.strip() for part in match.group(1).split(",")]
     expected = 4 if text.casefold().startswith("rgba") else 3
     if len(parts) != expected:
-        raise DeckRasterError(f"unsupported rgb color {text!r}")
+        raise QuantaRasterError(f"unsupported rgb color {text!r}")
     red, green, blue = (_byte(parts[index], f"rgb channel {index}") for index in range(3))
     alpha = _alpha(parts[3]) if expected == 4 else 255
     return red, green, blue, alpha
@@ -78,33 +78,33 @@ def _gradient_stops(value: Any) -> tuple[tuple[int, int, int, int], tuple[int, i
 
 def _scale_factor(value: Any) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 4:
-        raise DeckRasterError("scale must be an integer in [1, 4]")
+        raise QuantaRasterError("scale must be an integer in [1, 4]")
     return value
 
 
 def _canvas(layout: Mapping[str, Any], scale: int) -> tuple[int, int]:
     raw = layout.get("canvas_px")
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) != 2:
-        raise DeckRasterError("layout.canvas_px must be [width, height]")
+        raise QuantaRasterError("layout.canvas_px must be [width, height]")
     width, height = raw
     if (
         not isinstance(width, int) or isinstance(width, bool) or width <= 0
         or not isinstance(height, int) or isinstance(height, bool) or height <= 0
     ):
-        raise DeckRasterError("layout canvas dimensions must be positive integers")
+        raise QuantaRasterError("layout canvas dimensions must be positive integers")
     return width * scale, height * scale
 
 
 def _rect(raw: Any, canvas: tuple[int, int], scale: int) -> tuple[int, int, int, int]:
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) != 4:
-        raise DeckRasterError("primitive.rect_px must be [x, y, width, height]")
+        raise QuantaRasterError("primitive.rect_px must be [x, y, width, height]")
     if any(not isinstance(value, int) or isinstance(value, bool) for value in raw):
-        raise DeckRasterError("primitive.rect_px values must be integers")
+        raise QuantaRasterError("primitive.rect_px values must be integers")
     x, y, width, height = (int(value) * scale for value in raw)
     if x < 0 or y < 0 or width <= 0 or height <= 0:
-        raise DeckRasterError(f"invalid primitive rect {list(raw)!r}")
+        raise QuantaRasterError(f"invalid primitive rect {list(raw)!r}")
     if x + width > canvas[0] or y + height > canvas[1]:
-        raise DeckRasterError(f"primitive rect escapes canvas: {list(raw)!r}")
+        raise QuantaRasterError(f"primitive rect escapes canvas: {list(raw)!r}")
     return x, y, width, height
 
 
@@ -126,26 +126,26 @@ def _anchor_offset(container: int, item: int, mode: str, *, axis: str) -> int:
 
 def _open_image(payload: Any, asset_id: str) -> Image.Image:
     if not isinstance(payload, (bytes, bytearray, memoryview)):
-        raise DeckRasterError(f"image source {asset_id!r} must be bytes")
+        raise QuantaRasterError(f"image source {asset_id!r} must be bytes")
     try:
         with Image.open(io.BytesIO(bytes(payload))) as opened:
             image = ImageOps.exif_transpose(opened)
             image.load()
             return image.convert("RGBA")
     except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise DeckRasterError(f"image source {asset_id!r} is not a decodable image") from exc
+        raise QuantaRasterError(f"image source {asset_id!r} is not a decodable image") from exc
 
 
 def _fit_image(source: Image.Image, size: tuple[int, int], fit: str, anchor: str) -> Image.Image:
     target_width, target_height = size
     if source.width <= 0 or source.height <= 0:
-        raise DeckRasterError("source image has empty dimensions")
+        raise QuantaRasterError("source image has empty dimensions")
     if fit == "cover":
         ratio = max(target_width / source.width, target_height / source.height)
     elif fit == "contain":
         ratio = min(target_width / source.width, target_height / source.height)
     else:
-        raise DeckRasterError(f"unsupported image fit {fit!r}")
+        raise QuantaRasterError(f"unsupported image fit {fit!r}")
     resized_width = max(1, int(math.ceil(source.width * ratio)))
     resized_height = max(1, int(math.ceil(source.height * ratio)))
     resized = source.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
@@ -182,7 +182,7 @@ def _shape_layer(size: tuple[int, int], primitive: Mapping[str, Any], scale: int
     if shape == "rect" or shape == "line":
         return paint
     if shape not in {"rounded-rect", "ellipse"}:
-        raise DeckRasterError(f"unsupported shape primitive {shape!r}")
+        raise QuantaRasterError(f"unsupported shape primitive {shape!r}")
     mask = Image.new("L", size, 0)
     draw = ImageDraw.Draw(mask)
     bounds = (0, 0, size[0] - 1, size[1] - 1)
@@ -191,7 +191,7 @@ def _shape_layer(size: tuple[int, int], primitive: Mapping[str, Any], scale: int
     else:
         raw_radius = primitive.get("corner_radius_px", 0)
         if not isinstance(raw_radius, int) or isinstance(raw_radius, bool) or raw_radius < 0:
-            raise DeckRasterError("corner_radius_px must be a non-negative integer")
+            raise QuantaRasterError("corner_radius_px must be a non-negative integer")
         radius = min(raw_radius * scale, min(size) // 2)
         draw.rounded_rectangle(bounds, radius=radius, fill=255)
     paint.putalpha(ImageChops.multiply(paint.getchannel("A"), mask))
@@ -212,11 +212,11 @@ def _render_image(
 ) -> None:
     asset_id = str(primitive.get("asset_id") or "").strip()
     if not asset_id:
-        raise DeckRasterError(
+        raise QuantaRasterError(
             f"image block {primitive.get('block_ref')!r} has no asset_id; fill it before rasterizing"
         )
     if asset_id not in image_sources:
-        raise DeckRasterError(f"image asset {asset_id!r} is missing from image_sources")
+        raise QuantaRasterError(f"image asset {asset_id!r} is missing from image_sources")
     source = _open_image(image_sources[asset_id], asset_id)
     fit = str(primitive.get("fit") or "cover").strip().lower()
     anchor = str(primitive.get("anchor") or "center").strip().lower()
@@ -225,7 +225,7 @@ def _render_image(
         "bottom-left", "bottom-right",
     }
     if anchor not in allowed_anchors:
-        raise DeckRasterError(f"unsupported image anchor {anchor!r}")
+        raise QuantaRasterError(f"unsupported image anchor {anchor!r}")
     x, y, width, height = rect
     fitted = _fit_image(source, (width, height), fit, anchor)
     canvas.alpha_composite(fitted, (x, y))
@@ -234,30 +234,30 @@ def _render_image(
 def _render_text(canvas: Image.Image, primitive: Mapping[str, Any], rect: tuple[int, int, int, int], scale: int) -> None:
     style = primitive.get("style")
     if not isinstance(style, Mapping):
-        raise DeckRasterError("text primitive is missing style")
+        raise QuantaRasterError("text primitive is missing style")
     path = str(style.get("path") or "").strip()
     face_index = style.get("face_index")
     final_size = style.get("final_size_px")
     if not path or not isinstance(face_index, int) or isinstance(face_index, bool):
-        raise DeckRasterError("text style must include path and integer face_index")
+        raise QuantaRasterError("text style must include path and integer face_index")
     if not isinstance(final_size, int) or isinstance(final_size, bool) or final_size <= 0:
-        raise DeckRasterError("text style.final_size_px must be a positive integer")
+        raise QuantaRasterError("text style.final_size_px must be a positive integer")
     try:
         font = ImageFont.truetype(path, final_size * scale, index=face_index)
     except (OSError, ValueError) as exc:
-        raise DeckRasterError(
+        raise QuantaRasterError(
             f"unable to load text font {path!r} face {face_index} at {final_size * scale}px"
         ) from exc
     lines = primitive.get("line_breaks")
     if not isinstance(lines, list) or any(not isinstance(line, str) for line in lines):
-        raise DeckRasterError("text primitive.line_breaks must be a list of strings")
+        raise QuantaRasterError("text primitive.line_breaks must be a list of strings")
     line_height = primitive.get("line_height_px")
     if not isinstance(line_height, int) or isinstance(line_height, bool) or line_height <= 0:
-        raise DeckRasterError("text primitive.line_height_px must be a positive integer")
+        raise QuantaRasterError("text primitive.line_height_px must be a positive integer")
     color = _solid_color(style.get("color"))
     align = str(primitive.get("align") or "left").strip().lower()
     if align not in {"left", "center", "right"}:
-        raise DeckRasterError(f"unsupported text alignment {align!r}")
+        raise QuantaRasterError(f"unsupported text alignment {align!r}")
     x, y, width, _height = rect
     draw = ImageDraw.Draw(canvas)
     for line_index, line in enumerate(lines):
@@ -286,22 +286,22 @@ def rasterize_slide(
     supplied by the caller under their semantic ``asset_id``.
     """
     if not isinstance(placed_slide, Mapping):
-        raise DeckRasterError("placed_slide must be a mapping")
+        raise QuantaRasterError("placed_slide must be a mapping")
     scale = _scale_factor(scale)
     canvas_size = _canvas(placed_slide, scale)
     background = _solid_color(placed_slide.get("background_color") or "#000000")
     if background[3] != 255:
-        raise DeckRasterError("background_color must be opaque")
+        raise QuantaRasterError("background_color must be opaque")
     canvas = Image.new("RGBA", canvas_size, background)
     if image_sources is not None and not isinstance(image_sources, Mapping):
-        raise DeckRasterError("image_sources must be a mapping of asset_id to bytes")
+        raise QuantaRasterError("image_sources must be a mapping of asset_id to bytes")
     sources = image_sources or {}
     primitives = placed_slide.get("placed_blocks")
     if not isinstance(primitives, list):
-        raise DeckRasterError("placed_slide.placed_blocks must be a list")
+        raise QuantaRasterError("placed_slide.placed_blocks must be a list")
     for index, primitive in enumerate(primitives):
         if not isinstance(primitive, Mapping):
-            raise DeckRasterError(f"placed primitive {index} must be a mapping")
+            raise QuantaRasterError(f"placed primitive {index} must be a mapping")
         rect = _rect(primitive.get("rect_px"), canvas_size, scale)
         kind = str(primitive.get("kind") or "").strip().lower()
         if kind == "shape":
@@ -311,9 +311,9 @@ def rasterize_slide(
         elif kind == "text":
             _render_text(canvas, primitive, rect, scale)
         else:
-            raise DeckRasterError(f"unsupported placed primitive kind {kind!r}")
+            raise QuantaRasterError(f"unsupported placed primitive kind {kind!r}")
     output = io.BytesIO()
-    # The deck canvas is fully painted by background_color. RGB avoids hidden
+    # The quanta canvas is fully painted by background_color. RGB avoids hidden
     # alpha differences and no pnginfo argument means no timestamps/metadata.
     canvas.convert("RGB").save(
         output,
@@ -324,4 +324,4 @@ def rasterize_slide(
     return output.getvalue()
 
 
-__all__ = ["DeckRasterError", "rasterize_slide"]
+__all__ = ["QuantaRasterError", "rasterize_slide"]

@@ -133,21 +133,21 @@ def test_file_route_serves_temp_outputs_without_allowing_escape(monkeypatch, tmp
     assert unknown_root["status"] == 403
 
 
-def test_deck_pager_static_files_support_get_head_and_query_strings() -> None:
-    path = "/v3/deck.html?session_id=session_1&frame=0:0:img_001"
+def test_quanta_pager_static_files_support_get_head_and_query_strings() -> None:
+    path = "/v3/quanta.html?session_id=session_1&frame=0:0:img_001"
     get_response = run_server_handler(server._Handler, create_raw_request("GET", path))
     head_response = run_server_handler(server._Handler, create_raw_request("HEAD", path))
 
     assert get_response["status"] == 200
     assert get_response["headers"].get("content-type", "").startswith("text/html")
-    assert b'/v3/deck.js' in get_response["body"]
+    assert b'/v3/quanta.js' in get_response["body"]
     assert head_response["status"] == 200
     assert head_response["body"] == b""
     assert head_response["headers"].get("content-length") == str(len(get_response["body"]))
 
     for asset_path, content_type in (
-        ("/v3/deck.css?cache=1", "text/css"),
-        ("/v3/deck.js?cache=1", "text/javascript"),
+        ("/v3/quanta.css?cache=1", "text/css"),
+        ("/v3/quanta.js?cache=1", "text/javascript"),
     ):
         response = run_server_handler(server._Handler, create_raw_request("GET", asset_path))
         assert response["status"] == 200

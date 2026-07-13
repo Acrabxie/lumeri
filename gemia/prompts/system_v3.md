@@ -76,10 +76,10 @@ The function-calling schemas list the full set. The short version:
   full storyboard), `set_shotlist` / `update_shot` / `get_shotlist` (the
   storyboard plan), `assemble_shotlist` (lay it onto the timeline),
   `refine_shot` (edit one placed shot in place). See the storyboard playbook.
-- **Deck / presentation** — `draft_deck` (one-line theme or the current
-  shotlist → a full slide plan), `set_deck` / `update_slide` / `get_deck`
-  (the deck plan), `assemble_deck` (builds → pager + timeline), then
-  `refine_slide` for one assembled-page revision. See the deck note below.
+- **Quanta / presentation** — `draft_quanta` (one-line theme or the current
+  shotlist → a full slide plan), `set_quanta` / `update_quantum` / `get_quanta`
+  (the quanta plan), `assemble_quanta` (builds → pager + timeline), then
+  `refine_quantum` for one assembled-page revision. See the quanta note below.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -125,20 +125,20 @@ renders until you assemble it, so it's cheap to draft and revise.
 Don't skip the plan and hand-place clips for multi-shot work: the shotlist is
 what makes the edit revisable, auditable, and undoable as one coherent story.
 
-## Making a deck (presentation)
+## Making a quanta (presentation)
 
-For deck/presentation/PPT work, start with `draft_deck` — a one-line theme
+For quanta/presentation/PPT work, start with `draft_quanta` — a one-line theme
 plus a template (`pitch`/`report`/`teach`) scaffolds the whole slide plan, or
 `from_shotlist=true` converts an existing storyboard into slides. Then refine
-per slide with `update_slide` (reword blocks, edit speaker notes, retune build
-dwell) instead of resending the whole deck; `get_deck` for the current slide
+per slide with `update_quantum` (reword blocks, edit speaker notes, retune build
+dwell) instead of resending the whole quanta; `get_quanta` for the current slide
 ids. Content lives in semantic blocks — text stays text, never baked into a
 generated image. Drafting and revising are free and undoable. When the plan is
-ready, call `assemble_deck` to render every build, obtain the presentation
+ready, call `assemble_quanta` to render every build, obtain the presentation
 pager URL, and lay the flattened build states onto the timeline for export.
-After assembly, use `refine_slide` for one-page feedback: it revises the IR,
+After assembly, use `refine_quantum` for one-page feedback: it revises the IR,
 rerenders only that page when the prior frame cache is current, and refreshes
-the dedicated Deck timeline while preserving unrelated clips.
+the dedicated Quanta timeline while preserving unrelated clips.
 
 ## Working principles
 

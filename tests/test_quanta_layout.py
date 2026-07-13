@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from gemia.deck import DEFAULT_DECK_TOKENS, DeckLayoutError, layout_slide
-from gemia.project_model import normalize_deck
+from gemia.quanta import DEFAULT_QUANTA_TOKENS, QuantaLayoutError, layout_slide
+from gemia.project_model import normalize_quanta
 from gemia.text import TextLayoutError, measure_text
 from gemia.video.fonts import get_font_catalog
 
@@ -59,7 +59,7 @@ def theme_tokens() -> dict[str, Any]:
 
 
 def _slide(raw: dict[str, Any]) -> dict[str, Any]:
-    return normalize_deck({"slides": [raw]})["slides"][0]
+    return normalize_quanta({"slides": [raw]})["slides"][0]
 
 
 def _placed(result: dict[str, Any], *, block_ref: str, kind: str, slot: str | None = None):
@@ -271,19 +271,19 @@ def test_layout_rejects_bad_tokens_unknown_templates_and_media_conflicts(theme_t
         "id": "s", "layout": "content", "title": "Title",
         "blocks": [{"id": "body", "kind": "text", "text": "Body"}],
     })
-    with pytest.raises(DeckLayoutError, match="unsupported theme token"):
+    with pytest.raises(QuantaLayoutError, match="unsupported theme token"):
         layout_slide(slide, theme_tokens={**theme_tokens, "grid.gutter": 40})
-    with pytest.raises(DeckLayoutError, match="does not exist"):
+    with pytest.raises(QuantaLayoutError, match="does not exist"):
         layout_slide(slide, theme_tokens={
             **theme_tokens,
             "font.latin.body": {"family": "Missing", "path": "/missing.ttf", "weight": 400},
         })
-    with pytest.raises(DeckLayoutError, match="CSS"):
+    with pytest.raises(QuantaLayoutError, match="CSS"):
         layout_slide(slide, theme_tokens={**theme_tokens, "color.accent": "not-a-color"})
 
     bad_layout = dict(slide)
     bad_layout["layout"] = "freeform"
-    with pytest.raises(DeckLayoutError, match="unknown deck layout"):
+    with pytest.raises(QuantaLayoutError, match="unknown quanta layout"):
         layout_slide(bad_layout, theme_tokens=theme_tokens)
 
     conflict = _slide({
@@ -292,7 +292,7 @@ def test_layout_rejects_bad_tokens_unknown_templates_and_media_conflicts(theme_t
             {"id": "two", "kind": "image", "asset_id": "img_2"},
         ],
     })
-    with pytest.raises(DeckLayoutError, match="at most one"):
+    with pytest.raises(QuantaLayoutError, match="at most one"):
         layout_slide(conflict, theme_tokens=theme_tokens)
 
     nested_heading = _slide({
@@ -301,9 +301,9 @@ def test_layout_rejects_bad_tokens_unknown_templates_and_media_conflicts(theme_t
             {"id": "heading", "kind": "text", "role": "title", "text": "Nested"},
         ]}],
     })
-    with pytest.raises(DeckLayoutError, match="heading at top level"):
+    with pytest.raises(QuantaLayoutError, match="heading at top level"):
         layout_slide(nested_heading, theme_tokens=theme_tokens)
 
-    monkeypatch.setitem(DEFAULT_DECK_TOKENS, "grid.gutter", 31)
-    with pytest.raises(DeckLayoutError, match="grid identity"):
+    monkeypatch.setitem(DEFAULT_QUANTA_TOKENS, "grid.gutter", 31)
+    with pytest.raises(QuantaLayoutError, match="grid identity"):
         layout_slide(slide, theme_tokens=theme_tokens)

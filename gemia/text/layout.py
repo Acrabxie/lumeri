@@ -1,6 +1,6 @@
 """Deterministic text measurement, line breaking, and two-step autofit.
 
-The video and deck products share this module so layout decisions and rendered
+The video and quanta products share this module so layout decisions and rendered
 line breaks cannot quietly diverge.  It deliberately stays below either domain:
 fonts are resolved through :mod:`gemia.video.fonts`, while every operation after
 font resolution is a pure function of text, font bytes, and numeric bounds.
@@ -95,7 +95,7 @@ class TextLayoutResult:
     overflow_reasons: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
-        """Return the stable shape consumed by deck ``placed blocks``."""
+        """Return the stable shape consumed by quanta ``placed blocks``."""
         return {
             "style": {
                 "family": self.family,

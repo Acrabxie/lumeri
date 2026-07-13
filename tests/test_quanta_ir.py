@@ -1,15 +1,15 @@
-"""Deck IR (Slice 1): ops, persistence, validation, and drafting end-to-end.
+"""Quanta IR (Slice 1): ops, persistence, validation, and drafting end-to-end.
 
 Covers the load-bearing behaviors of deck-interactive-video-plan §2:
-- the GOLDEN persistence test (§2.4): set_deck → ProjectStore reload → every
-  deck field survives — this is the test that kills the silent normalize
-  strip (`_normalize_canonical_project` rebuilding state without the deck);
+- the GOLDEN persistence test (§2.4): set_quanta → ProjectStore reload → every
+  quanta field survives — this is the test that kills the silent normalize
+  strip (`_normalize_canonical_project` rebuilding state without the quanta);
 - strict reference-integrity validation (§2.3): duplicate slide/block/build
   ids, invalid/non-monotonic build visibility, dangling link targets, a
   default_path that is not an exact cover, dwell_sec <= 0 — all
   TimelinePatchError E_BAD_ARG — while structural gaps backfill;
-- update_slide partial edits + timeline_undo rolling the deck back;
-- draft_deck theme mode (pitch structure) and from_shotlist migration (§2.2);
+- update_quantum partial edits + timeline_undo rolling the quanta back;
+- draft_quanta theme mode (pitch structure) and from_shotlist migration (§2.2);
 - the real dispatch registrations (no stubs).
 
 Everything runs against tmp_path-rooted ProjectStores; nothing touches the
@@ -24,13 +24,13 @@ from typing import Any
 import pytest
 
 from gemia.errors import ToolError
-from gemia.project_model import empty_project, normalize_deck
+from gemia.project_model import empty_project, normalize_quanta
 from gemia.project_store import ProjectHandle, ProjectStore
 from gemia.tools import DISPATCHER
 from gemia.tools._context import AssetRegistry, ToolContext
 
 
-_PROJECT_ID = "v3-deck01"
+_PROJECT_ID = "v3-quanta01"
 
 
 def _ctx(tmp_path: Path) -> ToolContext:
@@ -62,8 +62,8 @@ def _leaf_ids(slide: dict[str, Any]) -> list[str]:
     ]
 
 
-def _assert_explicit_build_contract(deck: dict[str, Any]) -> None:
-    for slide in deck["slides"]:
+def _assert_explicit_build_contract(quanta: dict[str, Any]) -> None:
+    for slide in quanta["slides"]:
         all_ids = [str(block.get("id") or "") for block in _walk_blocks(slide["blocks"])]
         assert all(all_ids) and len(all_ids) == len(set(all_ids))
         leaves = set(_leaf_ids(slide))
@@ -81,7 +81,7 @@ def _assert_explicit_build_contract(deck: dict[str, Any]) -> None:
         assert previous == leaves
 
 
-_DECK = {
+_QUANTA = {
     "version": 1,
     "theme": {"tokens": {"color.accent": "#5FC6DE"}, "mood": "calm-tech", "aspect": "16:9"},
     "slides": [
@@ -115,21 +115,21 @@ _DECK = {
 
 
 # ── golden persistence (§2.4: kills the silent normalize strip) ──────────
-def test_set_deck_survives_store_reload_field_by_field(tmp_path):
+def test_set_quanta_survives_store_reload_field_by_field(tmp_path):
     ctx = _ctx(tmp_path)
-    out = _call("set_deck", {"deck": _DECK}, ctx)
+    out = _call("set_quanta", {"quanta": _QUANTA}, ctx)
     assert out["applied"] is True and out["slide_count"] == 2
 
     # A BRAND-NEW store reading state.json from disk — the full load() path
-    # (normalize_project → _normalize_canonical_project) must pass deck through.
-    deck = ProjectStore(tmp_path / "project").load(_PROJECT_ID)["deck"]
+    # (normalize_project → _normalize_canonical_project) must pass quanta through.
+    quanta = ProjectStore(tmp_path / "project").load(_PROJECT_ID)["quanta"]
 
-    assert deck["version"] == 1
-    assert deck["theme"]["mood"] == "calm-tech"
-    assert deck["theme"]["aspect"] == "16:9"
-    assert deck["theme"]["tokens"] == {"color.accent": "#5FC6DE"}
-    assert [s["id"] for s in deck["slides"]] == ["s1", "s2"]
-    s1, s2 = deck["slides"]
+    assert quanta["version"] == 1
+    assert quanta["theme"]["mood"] == "calm-tech"
+    assert quanta["theme"]["aspect"] == "16:9"
+    assert quanta["theme"]["tokens"] == {"color.accent": "#5FC6DE"}
+    assert [s["id"] for s in quanta["slides"]] == ["s1", "s2"]
+    s1, s2 = quanta["slides"]
     assert s1["layout"] == "title" and s1["title"] == "One Lumen"
     assert s1["blocks"][0]["kind"] == "text"
     assert [block["id"] for block in s1["blocks"]] == ["blk_1", "blk_2"]
@@ -155,21 +155,21 @@ def test_set_deck_survives_store_reload_field_by_field(tmp_path):
     assert s2["mood_override"] == "energetic"
     assert s2["links"][1] == {"trigger": "hotspot:blk_url", "target": "url:https://lumeri.app"}
     assert s2["transition"] == {"kind": "fade"}
-    assert deck["default_path"] == ["s1", "s2"]
+    assert quanta["default_path"] == ["s1", "s2"]
 
-    # load() must be idempotent on the deck (a second read changes nothing).
-    assert ProjectStore(tmp_path / "project").load(_PROJECT_ID)["deck"] == deck
+    # load() must be idempotent on the quanta (a second read changes nothing).
+    assert ProjectStore(tmp_path / "project").load(_PROJECT_ID)["quanta"] == quanta
 
 
-def test_empty_project_has_deck_and_normalize_is_idempotent():
-    deck = empty_project()["deck"]
-    assert deck["version"] == 1 and deck["slides"] == [] and deck["default_path"] == []
-    once = normalize_deck(_DECK)
-    assert normalize_deck(once) == once
+def test_empty_project_has_quanta_and_normalize_is_idempotent():
+    quanta = empty_project()["quanta"]
+    assert quanta["version"] == 1 and quanta["slides"] == [] and quanta["default_path"] == []
+    once = normalize_quanta(_QUANTA)
+    assert normalize_quanta(once) == once
 
 
 def test_normalize_assigns_recursive_path_ids_and_preserves_explicit_empty_visibility():
-    deck = normalize_deck({"slides": [{
+    quanta = normalize_quanta({"slides": [{
         "blocks": [
             {"kind": "group", "children": [
                 {"kind": "text", "text": "one"},
@@ -183,18 +183,18 @@ def test_normalize_assigns_recursive_path_ids_and_preserves_explicit_empty_visib
              "visible_block_ids": ["blk_1_1", "blk_1_2_1", "hero"]},
         ],
     }]})
-    slide = deck["slides"][0]
+    slide = quanta["slides"][0]
     assert [block["id"] for block in _walk_blocks(slide["blocks"])] == [
         "blk_1", "blk_1_1", "blk_1_2", "blk_1_2_1", "hero",
     ]
     assert [build["visible_block_ids"] for build in slide["builds"]] == [
         [], ["blk_1_1", "blk_1_2_1", "hero"],
     ]
-    assert normalize_deck(deck) == deck
+    assert normalize_quanta(quanta) == quanta
 
 
 def test_legacy_or_wrong_type_visibility_and_missing_builds_backfill_full_leaves():
-    deck = normalize_deck({"slides": [
+    quanta = normalize_quanta({"slides": [
         {"blocks": [{"kind": "text", "text": "a"}, {"kind": "shape"}],
          "builds": [
              {"id": "legacy", "dwell_sec": 1},
@@ -202,7 +202,7 @@ def test_legacy_or_wrong_type_visibility_and_missing_builds_backfill_full_leaves
          ]},
         {"blocks": [{"id": "only", "kind": "stat"}]},
     ]})
-    first, second = deck["slides"]
+    first, second = quanta["slides"]
     assert [build["visible_block_ids"] for build in first["builds"]] == [
         ["blk_1", "blk_2"], ["blk_1", "blk_2"],
     ]
@@ -212,55 +212,55 @@ def test_legacy_or_wrong_type_visibility_and_missing_builds_backfill_full_leaves
 
 
 # ── strict validation: the four E_BAD_ARG classes (§2.3) ─────────────────
-def _deck_with(**overrides: Any) -> dict[str, Any]:
+def _quanta_with(**overrides: Any) -> dict[str, Any]:
     import copy
 
-    deck = copy.deepcopy(_DECK)
-    deck.update(overrides)
-    return deck
+    quanta = copy.deepcopy(_QUANTA)
+    quanta.update(overrides)
+    return quanta
 
 
 def test_duplicate_slide_id_rejected(tmp_path):
     ctx = _ctx(tmp_path)
-    bad = _deck_with()
+    bad = _quanta_with()
     bad["slides"][1]["id"] = "s1"
     with pytest.raises(ValueError, match="E_BAD_ARG.*duplicate slide id"):
-        _call("set_deck", {"deck": bad}, ctx)
+        _call("set_quanta", {"quanta": bad}, ctx)
     # the failed patch never landed
-    assert ctx.project.load()["deck"]["slides"] == []
+    assert ctx.project.load()["quanta"]["slides"] == []
 
 
 def test_dangling_link_target_rejected(tmp_path):
     ctx = _ctx(tmp_path)
-    bad = _deck_with()
+    bad = _quanta_with()
     bad["slides"][0]["links"] = [{"trigger": "hotspot:blk_cta", "target": "slide:ghost"}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*missing slide"):
-        _call("set_deck", {"deck": bad}, ctx)
+        _call("set_quanta", {"quanta": bad}, ctx)
 
 
 def test_default_path_must_cover_all_slides_exactly(tmp_path):
     ctx = _ctx(tmp_path)
     with pytest.raises(ValueError, match="E_BAD_ARG.*default_path"):
-        _call("set_deck", {"deck": _deck_with(default_path=["s1"])}, ctx)
+        _call("set_quanta", {"quanta": _quanta_with(default_path=["s1"])}, ctx)
     with pytest.raises(ValueError, match="E_BAD_ARG.*default_path"):
-        _call("set_deck", {"deck": _deck_with(default_path=["s1", "s1", "s2"])}, ctx)
+        _call("set_quanta", {"quanta": _quanta_with(default_path=["s1", "s1", "s2"])}, ctx)
 
 
 def test_non_positive_dwell_rejected(tmp_path):
     ctx = _ctx(tmp_path)
-    bad = _deck_with()
+    bad = _quanta_with()
     bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": 0}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
-        _call("set_deck", {"deck": bad}, ctx)
+        _call("set_quanta", {"quanta": bad}, ctx)
     bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": float("inf")}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
-        _call("set_deck", {"deck": bad}, ctx)
+        _call("set_quanta", {"quanta": bad}, ctx)
     bad["slides"][0]["builds"] = [{"id": "b1", "dwell_sec": -1.5}]
     with pytest.raises(ValueError, match="E_BAD_ARG.*dwell_sec"):
-        _call("set_deck", {"deck": bad}, ctx)
+        _call("set_quanta", {"quanta": bad}, ctx)
 
 
-def _one_slide_deck(blocks: list[dict[str, Any]], builds: list[dict[str, Any]]) -> dict[str, Any]:
+def _one_slide_quanta(blocks: list[dict[str, Any]], builds: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "slides": [{"id": "s1", "blocks": blocks, "builds": builds}],
         "default_path": ["s1"],
@@ -269,21 +269,21 @@ def _one_slide_deck(blocks: list[dict[str, Any]], builds: list[dict[str, Any]]) 
 
 def test_recursive_block_ids_and_build_ids_must_be_unique(tmp_path):
     ctx = _ctx(tmp_path)
-    duplicate_blocks = _one_slide_deck(
+    duplicate_blocks = _one_slide_quanta(
         [{"id": "dup", "kind": "group", "children": [
             {"id": "dup", "kind": "text", "text": "child"},
         ]}],
         [{"id": "b1", "dwell_sec": 1}],
     )
     with pytest.raises(ValueError, match="E_BAD_ARG.*duplicate block id: dup"):
-        _call("set_deck", {"deck": duplicate_blocks}, ctx)
+        _call("set_quanta", {"quanta": duplicate_blocks}, ctx)
 
-    duplicate_builds = _one_slide_deck(
+    duplicate_builds = _one_slide_quanta(
         [{"id": "leaf", "kind": "text", "text": "x"}],
         [{"id": "same", "dwell_sec": 1}, {"id": "same", "dwell_sec": 1}],
     )
     with pytest.raises(ValueError, match="E_BAD_ARG.*duplicate build id: same"):
-        _call("set_deck", {"deck": duplicate_builds}, ctx)
+        _call("set_quanta", {"quanta": duplicate_builds}, ctx)
 
 
 def test_visible_refs_must_be_nonempty_unique_existing_leaves(tmp_path):
@@ -295,20 +295,20 @@ def test_visible_refs_must_be_nonempty_unique_existing_leaves(tmp_path):
         (["ghost"], "references missing leaf block"),
     ]
     for visible, message in cases:
-        bad = _one_slide_deck(
+        bad = _one_slide_quanta(
             blocks, [{"id": "b1", "dwell_sec": 1, "visible_block_ids": visible}],
         )
         with pytest.raises(ValueError, match=f"E_BAD_ARG.*{message}"):
-            _call("set_deck", {"deck": bad}, ctx)
+            _call("set_quanta", {"quanta": bad}, ctx)
 
-    group_ref = _one_slide_deck(
+    group_ref = _one_slide_quanta(
         [{"id": "group", "kind": "group", "children": [
             {"id": "leaf", "kind": "text", "text": "x"},
         ]}],
         [{"id": "b1", "dwell_sec": 1, "visible_block_ids": ["group"]}],
     )
     with pytest.raises(ValueError, match="E_BAD_ARG.*references missing leaf block: group"):
-        _call("set_deck", {"deck": group_ref}, ctx)
+        _call("set_quanta", {"quanta": group_ref}, ctx)
 
 
 def test_build_snapshots_must_be_monotonic_and_finish_with_exact_leaf_cover(tmp_path):
@@ -317,26 +317,26 @@ def test_build_snapshots_must_be_monotonic_and_finish_with_exact_leaf_cover(tmp_
         {"id": "a", "kind": "text", "text": "a"},
         {"id": "b", "kind": "text", "text": "b"},
     ]
-    nonmonotonic = _one_slide_deck(blocks, [
+    nonmonotonic = _one_slide_quanta(blocks, [
         {"id": "b1", "dwell_sec": 1, "visible_block_ids": ["a", "b"]},
         {"id": "b2", "dwell_sec": 1, "visible_block_ids": ["b"]},
     ])
     with pytest.raises(ValueError, match="E_BAD_ARG.*visibility must be monotonic"):
-        _call("set_deck", {"deck": nonmonotonic}, ctx)
+        _call("set_quanta", {"quanta": nonmonotonic}, ctx)
 
-    incomplete = _one_slide_deck(blocks, [
+    incomplete = _one_slide_quanta(blocks, [
         {"id": "b1", "dwell_sec": 1, "visible_block_ids": ["a"]},
     ])
     with pytest.raises(ValueError, match="E_BAD_ARG.*final build must exactly cover"):
-        _call("set_deck", {"deck": incomplete}, ctx)
+        _call("set_quanta", {"quanta": incomplete}, ctx)
 
-    valid = _one_slide_deck(blocks, [
+    valid = _one_slide_quanta(blocks, [
         {"id": "b1", "dwell_sec": 0.5, "visible_block_ids": []},
         {"id": "b2", "dwell_sec": 0.5, "visible_block_ids": ["a"]},
         {"id": "b3", "dwell_sec": 1.0, "visible_block_ids": ["a", "b"]},
     ])
-    _call("set_deck", {"deck": valid}, ctx)
-    assert [build["visible_block_ids"] for build in ctx.project.load()["deck"]["slides"][0]["builds"]] == [
+    _call("set_quanta", {"quanta": valid}, ctx)
+    assert [build["visible_block_ids"] for build in ctx.project.load()["quanta"]["slides"][0]["builds"]] == [
         [], ["a"], ["a", "b"],
     ]
 
@@ -344,14 +344,14 @@ def test_build_snapshots_must_be_monotonic_and_finish_with_exact_leaf_cover(tmp_
 # ── structural tolerance: gaps backfill, garbage drops, slides survive ───
 def test_structural_defaults_backfill_without_dropping_slides(tmp_path):
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": {"slides": [
+    _call("set_quanta", {"quanta": {"slides": [
         {"title": "只有标题", "garbage_key": 1,
          "blocks": [{"kind": "nope"}, {"kind": "text", "text": "ok"}, "junk"]},
     ]}}, ctx)
-    deck = ctx.project.load()["deck"]
-    assert deck["version"] == 1
-    assert deck["theme"] == {"tokens": {}, "mood": "", "aspect": "16:9"}
-    (slide,) = deck["slides"]                      # garbage never drops a slide
+    quanta = ctx.project.load()["quanta"]
+    assert quanta["version"] == 1
+    assert quanta["theme"] == {"tokens": {}, "mood": "", "aspect": "16:9"}
+    (slide,) = quanta["slides"]                      # garbage never drops a slide
     assert slide["id"] == "s1"                     # id backfilled
     assert slide["layout"] == "content"
     assert "garbage_key" not in slide              # unknown keys dropped
@@ -361,20 +361,20 @@ def test_structural_defaults_backfill_without_dropping_slides(tmp_path):
         "id": "b1", "dwell_sec": 3.0, "visible_block_ids": ["blk_2"],
     }]  # one full build backfilled
     assert slide["links"] == [] and slide["transition"] == {"kind": "cut"}
-    assert deck["default_path"] == ["s1"]          # path backfilled to cover
+    assert quanta["default_path"] == ["s1"]          # path backfilled to cover
 
 
-# ── update_slide + undo ──────────────────────────────────────────────────
-def test_update_slide_partial_edit_and_undo(tmp_path):
+# ── update_quantum + undo ──────────────────────────────────────────────────
+def test_update_quantum_partial_edit_and_undo(tmp_path):
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": _DECK}, ctx)
-    out = _call("update_slide", {"slide_id": "s2", "fields": {
+    _call("set_quanta", {"quanta": _QUANTA}, ctx)
+    out = _call("update_quantum", {"slide_id": "s2", "fields": {
         "notes": "改后的讲稿。", "builds": [{"id": "b1", "dwell_sec": 5.0}],
     }}, ctx)
     assert out["applied"] is True and out["updated_slide"] == "s2"
 
-    deck = ctx.project.load()["deck"]
-    s1, s2 = deck["slides"]
+    quanta = ctx.project.load()["quanta"]
+    s1, s2 = quanta["slides"]
     assert s2["notes"] == "改后的讲稿。"
     assert [b["dwell_sec"] for b in s2["builds"]] == [5.0]
     assert s2["title"] == "数据"                    # untouched fields survive
@@ -382,57 +382,57 @@ def test_update_slide_partial_edit_and_undo(tmp_path):
 
     # invalid partial edits are rejected by the same strict validation
     with pytest.raises(ValueError, match="E_BAD_ARG.*missing slide"):
-        _call("update_slide", {"slide_id": "s2", "fields": {
+        _call("update_quantum", {"slide_id": "s2", "fields": {
             "links": [{"trigger": "hotspot:x", "target": "slide:ghost"}]}}, ctx)
     with pytest.raises(ValueError, match="E_NOT_FOUND"):
-        _call("update_slide", {"slide_id": "ghost", "fields": {"notes": "x"}}, ctx)
+        _call("update_quantum", {"slide_id": "ghost", "fields": {"notes": "x"}}, ctx)
     with pytest.raises(ValueError):
-        _call("update_slide", {"slide_id": "s2", "fields": {}}, ctx)
+        _call("update_quantum", {"slide_id": "s2", "fields": {}}, ctx)
 
-    # timeline_undo rewinds the deck patch like any other patch-log entry
+    # timeline_undo rewinds the quanta patch like any other patch-log entry
     _call("timeline_undo", {"steps": 1}, ctx)
-    s2_back = ctx.project.load()["deck"]["slides"][1]
+    s2_back = ctx.project.load()["quanta"]["slides"][1]
     assert s2_back["notes"] == "数据页讲稿。"
     assert [b["dwell_sec"] for b in s2_back["builds"]] == [3.0]
 
 
-# ── draft_deck: theme mode ───────────────────────────────────────────────
-def test_draft_deck_pitch_structure(tmp_path):
+# ── draft_quanta: theme mode ───────────────────────────────────────────────
+def test_draft_quanta_pitch_structure(tmp_path):
     ctx = _ctx(tmp_path)
-    out = _call("draft_deck", {"theme": "Lumeri 产品介绍"}, ctx)
+    out = _call("draft_quanta", {"theme": "Lumeri 产品介绍"}, ctx)
     assert out["persisted"] is True and out["source"] == "theme"
     assert out["template"] == "pitch" and out["language"] == "zh"
 
-    deck = ctx.project.load()["deck"]
-    slides = deck["slides"]
+    quanta = ctx.project.load()["quanta"]
+    slides = quanta["slides"]
     assert len(slides) == 6                                   # Hook→…→CTA
     assert slides[0]["layout"] == "title"                     # cover first
     kinds = {b["kind"] for s in slides for b in s["blocks"]}
     assert {"text", "stat", "image", "shape", "group"} <= kinds  # every v1 block kind used
     assert any(b["kind"] == "stat" for b in slides[4]["blocks"])  # numbers page
     assert all(s["notes"] for s in slides)                    # speaker notes everywhere
-    assert deck["default_path"] == [s["id"] for s in slides]  # exact cover
+    assert quanta["default_path"] == [s["id"] for s in slides]  # exact cover
     assert all(b["dwell_sec"] > 0 for s in slides for b in s["builds"])
-    _assert_explicit_build_contract(deck)
+    _assert_explicit_build_contract(quanta)
 
 
 @pytest.mark.parametrize("template", ["pitch", "report", "teach"])
 def test_draft_templates_progressively_reveal_grouped_bullets_and_cards(tmp_path, template):
     ctx = _ctx(tmp_path)
-    deck = _call("draft_deck", {
+    quanta = _call("draft_quanta", {
         "theme": "A focus timer", "template": template, "replace": False,
-    }, ctx)["deck"]
-    _assert_explicit_build_contract(deck)
+    }, ctx)["quanta"]
+    _assert_explicit_build_contract(quanta)
     groups = [
         block
-        for slide in deck["slides"]
+        for slide in quanta["slides"]
         for block in _walk_blocks(slide["blocks"])
         if block.get("kind") == "group" and block.get("role") in {"bullets", "cards"}
     ]
     assert groups
     for group in groups:
         slide = next(
-            slide for slide in deck["slides"]
+            slide for slide in quanta["slides"]
             if any(block is group for block in _walk_blocks(slide["blocks"]))
         )
         child_ids = _leaf_ids({"blocks": group["children"]})
@@ -446,27 +446,27 @@ def test_draft_templates_progressively_reveal_grouped_bullets_and_cards(tmp_path
         assert first_seen == list(range(len(child_ids)))
 
 
-def test_draft_deck_language_and_templates(tmp_path):
+def test_draft_quanta_language_and_templates(tmp_path):
     ctx = _ctx(tmp_path)
-    out = _call("draft_deck", {"theme": "A minimalist focus timer", "template": "report"}, ctx)
+    out = _call("draft_quanta", {"theme": "A minimalist focus timer", "template": "report"}, ctx)
     assert out["language"] == "en" and out["template"] == "report"
-    deck = ctx.project.load()["deck"]
-    assert not any("一" <= c <= "鿿" for c in deck["slides"][0]["notes"])
+    quanta = ctx.project.load()["quanta"]
+    assert not any("一" <= c <= "鿿" for c in quanta["slides"][0]["notes"])
     # teach is the third template and validation still guards inputs
     with pytest.raises(ValueError):
-        _call("draft_deck", {"theme": "ok", "template": "nope"}, ctx)
+        _call("draft_quanta", {"theme": "ok", "template": "nope"}, ctx)
     with pytest.raises(ValueError):
-        _call("draft_deck", {"theme": "   "}, ctx)
+        _call("draft_quanta", {"theme": "   "}, ctx)
 
 
-def test_draft_deck_replace_false_previews_without_persisting(tmp_path):
+def test_draft_quanta_replace_false_previews_without_persisting(tmp_path):
     ctx = _ctx(tmp_path)
-    out = _call("draft_deck", {"theme": "A focus timer", "replace": False}, ctx)
-    assert out["persisted"] is False and out["deck"]["slides"]
-    assert ctx.project.load()["deck"]["slides"] == []          # nothing written
+    out = _call("draft_quanta", {"theme": "A focus timer", "replace": False}, ctx)
+    assert out["persisted"] is False and out["quanta"]["slides"]
+    assert ctx.project.load()["quanta"]["slides"] == []          # nothing written
 
 
-# ── draft_deck: from_shotlist migration (§2.2) ───────────────────────────
+# ── draft_quanta: from_shotlist migration (§2.2) ───────────────────────────
 _STORYBOARD = {
     "logline": "极简专注计时器宣传",
     "style": "cinematic, warm",
@@ -493,14 +493,14 @@ _STORYBOARD = {
 }
 
 
-def test_draft_deck_from_shotlist_maps_per_spec(tmp_path):
+def test_draft_quanta_from_shotlist_maps_per_spec(tmp_path):
     ctx = _ctx(tmp_path)
     _call("set_shotlist", {"shotlist": _STORYBOARD}, ctx)
-    out = _call("draft_deck", {"from_shotlist": True}, ctx)
+    out = _call("draft_quanta", {"from_shotlist": True}, ctx)
     assert out["persisted"] is True and out["source"] == "shotlist"
 
-    deck = ctx.project.load()["deck"]
-    slides = deck["slides"]
+    quanta = ctx.project.load()["quanta"]
+    slides = quanta["slides"]
     assert len(slides) == 4                                    # auto cover + 3 shots
     cover = slides[0]
     assert cover["layout"] == "title" and cover["title"] == "极简专注计时器宣传"
@@ -521,9 +521,9 @@ def test_draft_deck_from_shotlist_maps_per_spec(tmp_path):
     assert problem_img.get("asset_id") in (None, "")
     assert [b["dwell_sec"] for b in problem["builds"]] == [3.0]
 
-    assert deck["theme"]["mood"] == "hopeful"                  # mood mode of shots
-    assert deck["default_path"] == [s["id"] for s in slides]
-    _assert_explicit_build_contract(deck)
+    assert quanta["theme"]["mood"] == "hopeful"                  # mood mode of shots
+    assert quanta["default_path"] == [s["id"] for s in slides]
+    _assert_explicit_build_contract(quanta)
     assert all(len(slide["builds"]) == 1 for slide in slides)
     assert all(
         set(slide["builds"][0]["visible_block_ids"]) == set(_leaf_ids(slide))
@@ -531,25 +531,25 @@ def test_draft_deck_from_shotlist_maps_per_spec(tmp_path):
     )
 
 
-def test_draft_deck_from_empty_shotlist_raises_tool_error(tmp_path):
+def test_draft_quanta_from_empty_shotlist_raises_tool_error(tmp_path):
     ctx = _ctx(tmp_path)
     with pytest.raises(ToolError, match="shotlist is empty"):
-        _call("draft_deck", {"from_shotlist": True}, ctx)
+        _call("draft_quanta", {"from_shotlist": True}, ctx)
 
 
 # ── registration ─────────────────────────────────────────────────────────
-def test_deck_dispatchers_are_real_not_stubs():
-    for name in ("draft_deck", "set_deck", "update_slide", "get_deck"):
+def test_quanta_dispatchers_are_real_not_stubs():
+    for name in ("draft_quanta", "set_quanta", "update_quantum", "get_quanta"):
         assert name in DISPATCHER
         assert "stub" not in getattr(DISPATCHER[name], "__qualname__", "").lower()
 
 
-def test_get_deck_reads_back_text_and_ir(tmp_path):
+def test_get_quanta_reads_back_text_and_ir(tmp_path):
     ctx = _ctx(tmp_path)
-    empty = _call("get_deck", {}, ctx)
-    assert empty["slide_count"] == 0 and "deck empty" in empty["deck_text"]
-    _call("set_deck", {"deck": _DECK}, ctx)
-    got = _call("get_deck", {}, ctx)
+    empty = _call("get_quanta", {}, ctx)
+    assert empty["slide_count"] == 0 and "quanta empty" in empty["quanta_text"]
+    _call("set_quanta", {"quanta": _QUANTA}, ctx)
+    got = _call("get_quanta", {}, ctx)
     assert got["slide_count"] == 2
-    assert "[s1]" in got["deck_text"] and "One Lumen" in got["deck_text"]
-    assert [s["id"] for s in got["deck"]["slides"]] == ["s1", "s2"]
+    assert "[s1]" in got["quanta_text"] and "One Lumen" in got["quanta_text"]
+    assert [s["id"] for s in got["quanta"]["slides"]] == ["s1", "s2"]

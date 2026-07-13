@@ -1,20 +1,20 @@
-"""draft_deck -- scaffold a full deck IR in one call, two ways.
+"""draft_quanta -- scaffold a full quanta IR in one call, two ways.
 
 Theme mode: give it a single sentence ("一句话主题") and it drafts a COMPLETE
-deck — slides with semantic blocks (text/stat/image/shape/group), speaker
+quanta — slides with semantic blocks (text/stat/image/shape/group), speaker
 notes, build states with dwell times, and a default_path — following a proven
 structure (pitch: Hook → Problem → Solution → Highlights → Numbers → CTA;
 report / teach are the analysis and lesson arcs), then persists it through
-the same ``set_deck`` patch op the model uses by hand.
+the same ``set_quanta`` patch op the model uses by hand.
 
-from_shotlist mode: converts the CURRENT storyboard into a deck using the
+from_shotlist mode: converts the CURRENT storyboard into a quanta using the
 spec §2.2 migration table (shot → slide, narration → notes, on_screen_text →
 title/text block, shot footage → image block, mood mode → theme.mood,
 duration → the slide's single build dwell) plus an auto title cover. This is
-the first concrete video↔deck synergy: plan a video, get its deck for free.
+the first concrete video↔quanta synergy: plan a video, get its quanta for free.
 
-It is a SCAFFOLD, not a finished deck: wording, stats, imagery, and dwell
-times are meant to be revised with ``update_slide``. Nothing renders here;
+It is a SCAFFOLD, not a finished quanta: wording, stats, imagery, and dwell
+times are meant to be revised with ``update_quantum``. Nothing renders here;
 drafting is free. Language (zh/en) is auto-detected unless overridden.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from gemia.tools._context import ToolContext
 
 def _project(ctx: ToolContext):
     if ctx.project is None:
-        raise ValueError("draft_deck needs a project-backed session (ctx.project is None)")
+        raise ValueError("draft_quanta needs a project-backed session (ctx.project is None)")
     return ctx.project
 
 
@@ -284,8 +284,8 @@ def _teach_slides(theme: str, zh: bool) -> tuple[str, list[dict[str, Any]]]:
 _TEMPLATES = {"pitch": _pitch_slides, "report": _report_slides, "teach": _teach_slides}
 
 
-def build_deck(theme: str, *, template: str = "pitch", lang: str = "en") -> dict[str, Any]:
-    """Pure builder (no I/O): theme + template -> a normalized-shape deck dict."""
+def build_quanta(theme: str, *, template: str = "pitch", lang: str = "en") -> dict[str, Any]:
+    """Pure builder (no I/O): theme + template -> a normalized-shape quanta dict."""
     theme = (theme or "").strip()
     zh = lang == "zh"
     slides_fn = _TEMPLATES.get(template, _pitch_slides)
@@ -304,12 +304,12 @@ def build_deck(theme: str, *, template: str = "pitch", lang: str = "en") -> dict
 
 
 # ── from_shotlist migration (spec §2.2) ───────────────────────────────────
-def deck_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
-    """Pure mapper (no I/O): the current storyboard -> a deck dict.
+def quanta_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
+    """Pure mapper (no I/O): the current storyboard -> a quanta dict.
 
     shot → slide; narration → notes; on_screen_text → title + text block;
     shot footage (asset_id / search_query / description) → image block;
-    mood mode → deck-level theme.mood; duration → the slide's single build
+    mood mode → quanta-level theme.mood; duration → the slide's single build
     dwell; plus an auto title cover as slide one.
     """
     shots = [shot for _scene, shot in iter_shots(shotlist)]
@@ -318,7 +318,7 @@ def deck_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
         str(s.get("narration") or "") + str(s.get("on_screen_text") or "") for s in shots
     )
     zh = _has_cjk(sample)
-    title = logline or ("未命名演示" if zh else "Untitled deck")
+    title = logline or ("未命名演示" if zh else "Untitled quanta")
 
     slides: list[dict[str, Any]] = [{
         "id": "s1", "layout": "title", "title": title,
@@ -353,7 +353,7 @@ def deck_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
             "builds": [{"id": "b1",
                         "dwell_sec": max(0.1, float(shot.get("duration_sec") or 3.0))}],
             "links": [],
-            # deck v1 transitions are cut|fade; dissolve/fade map to fade.
+            # quanta v1 transitions are cut|fade; dissolve/fade map to fade.
             "transition": {"kind": "fade" if kind in ("dissolve", "fade") else "cut"},
         })
 
@@ -369,7 +369,7 @@ def deck_from_shotlist(shotlist: dict[str, Any]) -> dict[str, Any]:
 
 
 async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    from gemia.tools import deck as _deck
+    from gemia.tools import quanta as _quanta
 
     project = _project(ctx)
     from_shotlist = bool(args.get("from_shotlist", False))
@@ -379,12 +379,12 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         shotlist = (project.load() or {}).get("shotlist") or {}
         if not any(True for _ in iter_shots(shotlist)):
             raise ToolError(
-                "the shotlist is empty — there is nothing to convert into a deck",
+                "the shotlist is empty — there is nothing to convert into a quanta",
                 code="E_NOT_FOUND",
                 recovery=RECOVERY_SWITCH_TOOL,
-                hint="draft_shotlist/set_shotlist first, or call draft_deck with a 'theme' instead",
+                hint="draft_shotlist/set_shotlist first, or call draft_quanta with a 'theme' instead",
             )
-        drafted = deck_from_shotlist(shotlist)
+        drafted = quanta_from_shotlist(shotlist)
         source = "shotlist"
         lang = "zh" if _has_cjk(str(shotlist.get("logline") or "")) else "en"
         template = None
@@ -392,14 +392,14 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         theme = str(args.get("theme") or "").strip()
         if not theme:
             raise ValueError(
-                "draft_deck requires a non-empty 'theme' (one line describing the deck), "
+                "draft_quanta requires a non-empty 'theme' (one line describing the quanta), "
                 "or from_shotlist=true to convert the current storyboard"
             )
         template = str(args.get("template") or "pitch").strip().lower()
         if template not in _TEMPLATES:
             raise ValueError(f"unknown template {template!r}; use one of {sorted(_TEMPLATES)}")
         lang = _detect_lang(theme, args.get("language"))
-        drafted = build_deck(theme, template=template, lang=lang)
+        drafted = build_quanta(theme, template=template, lang=lang)
         source = "theme"
 
     slide_count = len(drafted["slides"])
@@ -407,25 +407,25 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         return {
             "drafted": True, "persisted": False, "source": source,
             "template": template, "language": lang, "slide_count": slide_count,
-            "deck": drafted,
-            "deck_text": _deck.render_deck_text(drafted),
-            "summary": f"drafted a {slide_count}-slide deck from {source} — NOT persisted (replace=false)",
+            "quanta": drafted,
+            "quanta_text": _quanta.render_quanta_text(drafted),
+            "summary": f"drafted a {slide_count}-slide quanta from {source} — NOT persisted (replace=false)",
         }
 
-    result = project.apply_ops([{"op": "set_deck", "deck": drafted}], label="draft_deck")
-    stored = (project.load() or {}).get("deck") or {}
+    result = project.apply_ops([{"op": "set_quanta", "quanta": drafted}], label="draft_quanta")
+    stored = (project.load() or {}).get("quanta") or {}
     return {
         "drafted": True, "persisted": True, "source": source,
         "template": template, "language": lang,
         "seq": result.get("patch_seq_end"),
         "slide_count": len(stored.get("slides") or []),
-        "deck_text": _deck.render_deck_text(stored),
+        "quanta_text": _quanta.render_quanta_text(stored),
         "summary": (
-            f"drafted a {slide_count}-slide deck from {source} and set it as the deck — "
-            "now refine wording/blocks/dwell per slide with update_slide "
-            "(get_deck to re-read ids). A scaffold: revise before presenting."
+            f"drafted a {slide_count}-slide quanta from {source} and set it as the quanta — "
+            "now refine wording/blocks/dwell per slide with update_quantum "
+            "(get_quanta to re-read ids). A scaffold: revise before presenting."
         ),
     }
 
 
-__all__ = ["dispatch", "build_deck", "deck_from_shotlist"]
+__all__ = ["dispatch", "build_quanta", "quanta_from_shotlist"]

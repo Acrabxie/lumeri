@@ -284,7 +284,7 @@ class ProjectStore:
         tmp.replace(path)
 
 
-_DECK_PATCH_OPS = frozenset({"set_deck", "update_slide"})
+_QUANTA_PATCH_OPS = frozenset({"set_quanta", "update_quantum"})
 _SHOTLIST_PATCH_OPS = frozenset({"set_shotlist", "update_shot"})
 
 
@@ -293,8 +293,8 @@ def _patch_state_scope(ops: list[dict[str, Any]]) -> str:
     scopes: set[str] = set()
     for op in ops:
         name = str(op.get("op") or "") if isinstance(op, dict) else ""
-        if name in _DECK_PATCH_OPS:
-            scopes.add("deck")
+        if name in _QUANTA_PATCH_OPS:
+            scopes.add("quanta")
         elif name in _SHOTLIST_PATCH_OPS:
             scopes.add("shotlist")
         else:

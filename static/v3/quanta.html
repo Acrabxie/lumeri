@@ -8,15 +8,15 @@
     http-equiv="Content-Security-Policy"
     content="default-src 'none'; img-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
   />
-  <title>Lumeri Deck</title>
-  <link rel="stylesheet" href="/v3/deck.css" />
+  <title>Lumeri Quanta</title>
+  <link rel="stylesheet" href="/v3/quanta.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="wordmark" aria-label="Lumeri Deck">
+    <div class="wordmark" aria-label="Lumeri Quanta">
       <span class="spark" aria-hidden="true">✦</span>
       <span>LUMERI</span>
-      <span class="product">DECK</span>
+      <span class="product">QUANTA</span>
     </div>
     <div class="progress" id="progress" aria-live="polite">
       <span id="slide-progress">Slide —</span>
@@ -33,13 +33,13 @@
       id="stage"
       role="button"
       tabindex="0"
-      aria-label="Advance to the next deck frame"
+      aria-label="Advance to the next quanta frame"
       aria-describedby="keyboard-hint"
     >
       <img id="frame-image" alt="" referrerpolicy="no-referrer" decoding="async" hidden />
       <section class="state-panel" id="state-panel" aria-live="polite">
-        <p class="state-kicker" id="state-kicker">LUMERI DECK</p>
-        <h1 id="state-title">Preparing deck</h1>
+        <p class="state-kicker" id="state-kicker">LUMERI QUANTA</p>
+        <h1 id="state-title">Preparing quanta</h1>
         <p id="state-detail">Validating the playback manifest…</p>
       </section>
     </div>
@@ -51,6 +51,6 @@
     <button type="button" id="next-button" aria-label="Next frame">→</button>
   </footer>
 
-  <script src="/v3/deck.js" defer></script>
+  <script src="/v3/quanta.js" defer></script>
 </body>
 </html>

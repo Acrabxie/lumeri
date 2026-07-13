@@ -7,26 +7,26 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML_PATH = ROOT / "static" / "v3" / "deck.html"
-CSS_PATH = ROOT / "static" / "v3" / "deck.css"
-JS_PATH = ROOT / "static" / "v3" / "deck.js"
+HTML_PATH = ROOT / "static" / "v3" / "quanta.html"
+CSS_PATH = ROOT / "static" / "v3" / "quanta.css"
+JS_PATH = ROOT / "static" / "v3" / "quanta.js"
 V3_JS_PATH = ROOT / "static" / "v3" / "v3.js"
 
 
-def test_deck_pager_is_self_contained_and_referrer_safe() -> None:
+def test_quanta_pager_is_self_contained_and_referrer_safe() -> None:
     html = HTML_PATH.read_text(encoding="utf-8")
 
     assert '<meta name="referrer" content="no-referrer"' in html
     assert 'default-src \'none\'' in html
     assert 'img-src \'self\'' in html
-    assert '<link rel="stylesheet" href="/v3/deck.css"' in html
-    assert '<script src="/v3/deck.js" defer>' in html
+    assert '<link rel="stylesheet" href="/v3/quanta.css"' in html
+    assert '<script src="/v3/quanta.js" defer>' in html
     assert 'referrerpolicy="no-referrer"' in html
     assert "https://" not in html
     assert "http://" not in html
 
 
-def test_deck_pager_source_locks_asset_urls_and_avoids_html_injection() -> None:
+def test_quanta_pager_source_locks_asset_urls_and_avoids_html_injection() -> None:
     source = JS_PATH.read_text(encoding="utf-8")
 
     assert 'params.getAll("session_id")' in source
@@ -42,7 +42,7 @@ def test_deck_pager_source_locks_asset_urls_and_avoids_html_injection() -> None:
     assert "textContent" in source
 
 
-def test_deck_pager_has_required_navigation_and_next_frame_preload() -> None:
+def test_quanta_pager_has_required_navigation_and_next_frame_preload() -> None:
     source = JS_PATH.read_text(encoding="utf-8")
     css = CSS_PATH.read_text(encoding="utf-8")
 
@@ -56,31 +56,31 @@ def test_deck_pager_has_required_navigation_and_next_frame_preload() -> None:
     assert "object-fit: contain" in css
 
 
-def test_main_v3_ui_only_surfaces_same_origin_deck_pager_urls() -> None:
+def test_main_v3_ui_only_surfaces_same_origin_quanta_pager_urls() -> None:
     source = V3_JS_PATH.read_text(encoding="utf-8")
 
-    assert "tc.pagerUrl = safeDeckPagerUrl(ev.result?.pager_url)" in source
+    assert "tc.pagerUrl = safeQuantaPagerUrl(ev.result?.pager_url)" in source
     assert 'parsed.origin !== window.location.origin' in source
-    assert 'parsed.pathname !== "/v3/deck.html"' in source
-    assert "present deck ↗" in source
+    assert 'parsed.pathname !== "/v3/quanta.html"' in source
+    assert "present quanta ↗" in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_deck_query_parser_and_navigation_execute_without_browser_dependencies() -> None:
+def test_quanta_query_parser_and_navigation_execute_without_browser_dependencies() -> None:
     node_program = f"""
 const core = require({json.dumps(str(JS_PATH))});
-const valid = core.parseDeckQuery("?session_id=session_1&frame=2:3:img_second&frame=0:0:img_first");
-const empty = core.parseDeckQuery("?session_id=session_1");
+const valid = core.parseQuantaQuery("?session_id=session_1&frame=2:3:img_second&frame=0:0:img_first");
+const empty = core.parseQuantaQuery("?session_id=session_1");
 const invalid = [
-  core.parseDeckQuery("?session_id=../bad&frame=0:0:img_1"),
-  core.parseDeckQuery("?session_id=session_1&frame=-1:0:img_1"),
-  core.parseDeckQuery("?session_id=session_1&frame=0:0:..%2Fsecret"),
-  core.parseDeckQuery("?session_id=session_1&other=value"),
-  core.parseDeckQuery("?session_id=session_1&session_id=session_2"),
+  core.parseQuantaQuery("?session_id=../bad&frame=0:0:img_1"),
+  core.parseQuantaQuery("?session_id=session_1&frame=-1:0:img_1"),
+  core.parseQuantaQuery("?session_id=session_1&frame=0:0:..%2Fsecret"),
+  core.parseQuantaQuery("?session_id=session_1&other=value"),
+  core.parseQuantaQuery("?session_id=session_1&session_id=session_2"),
 ];
 const tooMany = new URLSearchParams({{ session_id: "session_1" }});
 for (let i = 0; i < 513; i += 1) tooMany.append("frame", `0:${{i}}:img_${{i}}`);
-invalid.push(core.parseDeckQuery(`?${{tooMany.toString()}}`));
+invalid.push(core.parseQuantaQuery(`?${{tooMany.toString()}}`));
 const output = {{
   valid,
   empty,

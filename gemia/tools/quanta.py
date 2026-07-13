@@ -1,22 +1,22 @@
-"""deck_* verbs: the model's read/write interface to the deck IR.
+"""quanta_* verbs: the model's read/write interface to the quanta IR.
 
-Deck-driven authoring mirrors the shotlist flow (a deck is "structured,
+Quanta-driven authoring mirrors the shotlist flow (a quanta is "structured,
 interactive video" — see docs/deck-interactive-video-plan.md):
 
     1. The model turns the user's topic into a slide plan and calls
-       ``set_deck`` (or scaffolds one with ``draft_deck``) — slides carrying
+       ``set_quanta`` (or scaffolds one with ``draft_quanta``) — slides carrying
        semantic content blocks (text/stat/image/shape/group), speaker notes,
        build states, and interaction links.
-    2. Per slide it refines wording/blocks/timing with ``update_slide``.
-    3. Later phases materialize the deck (assemble_deck) — nothing renders
+    2. Per slide it refines wording/blocks/timing with ``update_quantum``.
+    3. Later phases materialize the quanta (assemble_quanta) — nothing renders
        here; drafting and revising the plan is free.
 
-The deck lives inside project_state and every mutation flows through
+The quanta lives inside project_state and every mutation flows through
 ``ctx.project.apply_ops`` — versioned, auditable, and undoable via
 ``timeline_undo`` exactly like timeline and shotlist edits. Mutations return
 a compact text view of the post-state so the model does not need a
-follow-up read. Deck patches surface as ``timeline_op`` events with
-``state_scope=deck`` so clients can refresh the right project projection.
+follow-up read. Quanta patches surface as ``timeline_op`` events with
+``state_scope=quanta`` so clients can refresh the right project projection.
 """
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ from typing import Any
 
 from gemia.tools._context import ToolContext
 
-DECK_OP_LABEL = "deck-op"
+QUANTA_OP_LABEL = "quanta-op"
 
 
 def _project(ctx: ToolContext):
     if ctx.project is None:
         raise ValueError(
-            "deck verbs need a project-backed session (ctx.project is None)"
+            "quanta verbs need a project-backed session (ctx.project is None)"
         )
     return ctx.project
 
@@ -87,13 +87,13 @@ def _slide_line(slide: dict[str, Any]) -> str:
     return line
 
 
-def render_deck_text(deck: dict[str, Any]) -> str:
-    """One-screen human/model-readable view of the deck."""
-    deck = deck or {}
-    slides = deck.get("slides") or []
+def render_quanta_text(quanta: dict[str, Any]) -> str:
+    """One-screen human/model-readable view of the quanta."""
+    quanta = quanta or {}
+    slides = quanta.get("slides") or []
     if not slides:
-        return "(deck empty — call draft_deck or set_deck to plan slides)"
-    theme = deck.get("theme") or {}
+        return "(quanta empty — call draft_quanta or set_quanta to plan slides)"
+    theme = quanta.get("theme") or {}
     head_bits = []
     if theme.get("mood"):
         head_bits.append(f"mood: {theme['mood']}")
@@ -110,18 +110,18 @@ def render_deck_text(deck: dict[str, Any]) -> str:
             for b in slide.get("builds") or []
             if isinstance(b, dict)
         )
-    path = deck.get("default_path") or []
+    path = quanta.get("default_path") or []
     lines.append(f"— {len(slides)} slides, ~{dwell:.1f}s dwell, path {'→'.join(path)}")
     return "\n".join(lines)
 
 
 def _summary(ctx: ToolContext, result: dict[str, Any], **extra: Any) -> dict[str, Any]:
-    deck = (ctx.project.load() if ctx.project else {}).get("deck") or {}
+    quanta = (ctx.project.load() if ctx.project else {}).get("quanta") or {}
     out = {
         "applied": True,
         "seq": result.get("patch_seq_end"),
-        "slide_count": len(deck.get("slides") or []),
-        "deck": render_deck_text(deck),
+        "slide_count": len(quanta.get("slides") or []),
+        "quanta": render_quanta_text(quanta),
     }
     out.update(extra)
     return out
@@ -129,41 +129,41 @@ def _summary(ctx: ToolContext, result: dict[str, Any], **extra: Any) -> dict[str
 
 # ── write ───────────────────────────────────────────────────────────────
 async def dispatch_set(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    deck = args.get("deck")
-    if not isinstance(deck, dict):
+    quanta = args.get("quanta")
+    if not isinstance(quanta, dict):
         raise ValueError(
-            "set_deck requires a 'deck' object with slides[] and default_path"
+            "set_quanta requires a 'quanta' object with slides[] and default_path"
         )
     project = _project(ctx)
     result = project.apply_ops(
-        [{"op": "set_deck", "deck": deck}], label=DECK_OP_LABEL
+        [{"op": "set_quanta", "quanta": quanta}], label=QUANTA_OP_LABEL
     )
     return _summary(ctx, result)
 
 
-async def dispatch_update_slide(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+async def dispatch_update_quantum(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     slide_id = str(args.get("slide_id") or "")
     if not slide_id:
-        raise ValueError("update_slide requires 'slide_id'")
+        raise ValueError("update_quantum requires 'slide_id'")
     fields = args.get("fields")
     if not isinstance(fields, dict) or not fields:
-        raise ValueError("update_slide requires a non-empty 'fields' object")
+        raise ValueError("update_quantum requires a non-empty 'fields' object")
     project = _project(ctx)
     result = project.apply_ops(
-        [{"op": "update_slide", "slide_id": slide_id, "fields": fields}],
-        label=DECK_OP_LABEL,
+        [{"op": "update_quantum", "slide_id": slide_id, "fields": fields}],
+        label=QUANTA_OP_LABEL,
     )
     return _summary(ctx, result, updated_slide=slide_id)
 
 
 # ── read ────────────────────────────────────────────────────────────────
 async def dispatch_get(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    deck = _project(ctx).load().get("deck") or {}
+    quanta = _project(ctx).load().get("quanta") or {}
     return {
-        "slide_count": len(deck.get("slides") or []),
-        "deck_text": render_deck_text(deck),
-        "deck": deck,
+        "slide_count": len(quanta.get("slides") or []),
+        "quanta_text": render_quanta_text(quanta),
+        "quanta": quanta,
     }
 
 
-__all__ = ["dispatch_set", "dispatch_update_slide", "dispatch_get", "render_deck_text"]
+__all__ = ["dispatch_set", "dispatch_update_quantum", "dispatch_get", "render_quanta_text"]

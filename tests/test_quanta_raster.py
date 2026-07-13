@@ -8,8 +8,8 @@ from typing import Any
 from PIL import Image
 import pytest
 
-from gemia.deck import DeckRasterError, layout_slide, rasterize_slide
-from gemia.project_model import normalize_deck
+from gemia.quanta import QuantaRasterError, layout_slide, rasterize_slide
+from gemia.project_model import normalize_quanta
 from gemia.text import TextLayoutError, measure_text
 from gemia.video.fonts import get_font_catalog
 
@@ -75,7 +75,7 @@ def _font(sample="Lumeri") -> tuple[dict[str, Any], int]:
         except TextLayoutError:
             continue
         # Resolve the exact TTC face through the public layout result.
-        slide = normalize_deck({"slides": [{
+        slide = normalize_quanta({"slides": [{
             "id": "font", "layout": "content", "blocks": [
                 {"id": "text", "kind": "text", "text": sample},
             ],
@@ -159,7 +159,7 @@ def test_text_uses_final_size_and_exact_face_index(monkeypatch) -> None:
         "z_index": 1, "source_order": 0, "line_breaks": ["Lumeri"],
         "line_height_px": line_height, "style": style,
     }
-    import gemia.deck.raster as raster_module
+    import gemia.quanta.raster as raster_module
 
     original = raster_module.ImageFont.truetype
     calls: list[tuple[str, int, int]] = []
@@ -187,38 +187,38 @@ def test_raster_scale_multiplies_canvas_and_geometry() -> None:
 
 @pytest.mark.parametrize("scale", [0, 5, 1.5, True])
 def test_invalid_scale_is_rejected(scale) -> None:
-    with pytest.raises(DeckRasterError, match="scale"):
+    with pytest.raises(QuantaRasterError, match="scale"):
         rasterize_slide(_placed(size=(10, 10)), scale=scale)
 
 
 def test_missing_bad_or_unresolved_images_fail_closed() -> None:
     no_asset = _placed(_image([0, 0, 10, 10], asset=""), size=(10, 10))
-    with pytest.raises(DeckRasterError, match="no asset_id"):
+    with pytest.raises(QuantaRasterError, match="no asset_id"):
         rasterize_slide(no_asset)
     missing = _placed(_image([0, 0, 10, 10]), size=(10, 10))
-    with pytest.raises(DeckRasterError, match="missing from image_sources"):
+    with pytest.raises(QuantaRasterError, match="missing from image_sources"):
         rasterize_slide(missing)
-    with pytest.raises(DeckRasterError, match="must be bytes"):
+    with pytest.raises(QuantaRasterError, match="must be bytes"):
         rasterize_slide(missing, image_sources={"img_001": Path("/tmp/image.png")})  # type: ignore[dict-item]
-    with pytest.raises(DeckRasterError, match="not a decodable image"):
+    with pytest.raises(QuantaRasterError, match="not a decodable image"):
         rasterize_slide(missing, image_sources={"img_001": b"not-image"})
 
 
 def test_bad_primitives_and_colors_fail_closed() -> None:
-    with pytest.raises(DeckRasterError, match="escapes canvas"):
+    with pytest.raises(QuantaRasterError, match="escapes canvas"):
         rasterize_slide(_placed(_shape([9, 9, 2, 2], "#fff"), size=(10, 10)))
-    with pytest.raises(DeckRasterError, match="unsupported .*color"):
+    with pytest.raises(QuantaRasterError, match="unsupported .*color"):
         rasterize_slide(_placed(_shape([0, 0, 5, 5], "rgba(nope)"), size=(10, 10)))
-    with pytest.raises(DeckRasterError, match="background_color must be opaque"):
+    with pytest.raises(QuantaRasterError, match="background_color must be opaque"):
         rasterize_slide(_placed(size=(10, 10), background="rgba(0,0,0,0.5)"))
-    with pytest.raises(DeckRasterError, match="image_sources must be a mapping"):
+    with pytest.raises(QuantaRasterError, match="image_sources must be a mapping"):
         rasterize_slide(_placed(size=(10, 10)), image_sources=[])  # type: ignore[arg-type]
-    with pytest.raises(DeckRasterError, match="unsupported image fit"):
+    with pytest.raises(QuantaRasterError, match="unsupported image fit"):
         rasterize_slide(
             _placed(_image([0, 0, 10, 10], fit="stretch"), size=(10, 10)),
             image_sources={"img_001": _png((2, 2), "red")},
         )
-    with pytest.raises(DeckRasterError, match="unsupported placed primitive"):
+    with pytest.raises(QuantaRasterError, match="unsupported placed primitive"):
         rasterize_slide(_placed({
             "kind": "video", "block_ref": "v", "rect_px": [0, 0, 5, 5],
         }, size=(10, 10)))
@@ -228,7 +228,7 @@ def test_layout_to_raster_cjk_gold_standard_when_hiragino_is_available() -> None
     hiragino = Path("/System/Library/Fonts/Hiragino Sans GB.ttc")
     if not hiragino.exists():
         pytest.skip("macOS Hiragino fixture unavailable")
-    slide = normalize_deck({"slides": [{
+    slide = normalize_quanta({"slides": [{
         "id": "cjk", "layout": "content", "title": "中文标题",
         "blocks": [{"id": "body", "kind": "text", "text": "中文首帧清晰可见"}],
     }]})["slides"][0]

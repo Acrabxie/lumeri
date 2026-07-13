@@ -8,13 +8,13 @@ from typing import Any, Callable
 
 from gemia.project_model import (
     IMAGE_DURATION,
-    _deck_leaf_block_ids,
+    _quanta_leaf_block_ids,
     _normalize_shot,
     _normalize_slide,
     _normalize_timeline_clip,
-    empty_deck,
+    empty_quanta,
     empty_shotlist,
-    normalize_deck,
+    normalize_quanta,
     normalize_project,
     normalize_shotlist,
 )
@@ -876,22 +876,22 @@ def _op_update_shot(project: dict[str, Any], op: dict[str, Any]) -> None:
     raise TimelinePatchError("E_NOT_FOUND", f"update_shot: no shot with id {shot_id}")
 
 
-# ── deck ops ─────────────────────────────────────────────────────────
+# ── quanta ops ─────────────────────────────────────────────────────────
 # Validation semantics deliberately diverge from the shotlist precedent
-# (deck-interactive-video-plan §2.3): normalize_deck stays never-raises
-# (structural gaps are backfilled), but the deck has REFERENCE-integrity
+# (deck-interactive-video-plan §2.3): normalize_quanta stays never-raises
+# (structural gaps are backfilled), but the quanta has REFERENCE-integrity
 # constraints the shotlist does not have, and those reject strictly here.
 
 
-def _validate_deck(deck: dict[str, Any]) -> None:
+def _validate_quanta(quanta: dict[str, Any]) -> None:
     """Reject reference-integrity violations with TimelinePatchError E_BAD_ARG.
 
-    Runs on the post-normalize deck: ids must be unique in their scope; build
+    Runs on the post-normalize quanta: ids must be unique in their scope; build
     visibility is a monotonic sequence of full leaf-block snapshots whose last
     state exactly covers the slide; links/default_path must remain resolvable;
     and every dwell must be positive.
     """
-    slides = deck.get("slides") or []
+    slides = quanta.get("slides") or []
     slide_ids: list[str] = [str(slide.get("id")) for slide in slides]
     seen: set[str] = set()
     for slide_id in slide_ids:
@@ -920,7 +920,7 @@ def _validate_deck(deck: dict[str, Any]) -> None:
                     visit_blocks(block.get("children"))
 
         visit_blocks(slide.get("blocks"))
-        leaf_ids = _deck_leaf_block_ids(slide.get("blocks"))
+        leaf_ids = _quanta_leaf_block_ids(slide.get("blocks"))
         leaf_id_set = set(leaf_ids)
         build_ids: set[str] = set()
         previous_visible: set[str] = set()
@@ -986,7 +986,7 @@ def _validate_deck(deck: dict[str, Any]) -> None:
                     "E_BAD_ARG",
                     f"slide {slide_id} link target references missing slide: {target}",
                 )
-    path = [str(item) for item in deck.get("default_path") or []]
+    path = [str(item) for item in quanta.get("default_path") or []]
     if sorted(path) != sorted(slide_ids):
         raise TimelinePatchError(
             "E_BAD_ARG",
@@ -995,50 +995,50 @@ def _validate_deck(deck: dict[str, Any]) -> None:
         )
 
 
-def _op_set_deck(project: dict[str, Any], op: dict[str, Any]) -> None:
-    """Replace the whole deck IR (slides + interaction graph)."""
-    raw = op.get("deck")
+def _op_set_quanta(project: dict[str, Any], op: dict[str, Any]) -> None:
+    """Replace the whole quanta IR (slides + interaction graph)."""
+    raw = op.get("quanta")
     if not isinstance(raw, dict):
-        raise TimelinePatchError("E_BAD_ARG", "set_deck requires a 'deck' object")
-    deck = normalize_deck(raw)
-    _validate_deck(deck)
-    project["deck"] = deck
+        raise TimelinePatchError("E_BAD_ARG", "set_quanta requires a 'quanta' object")
+    quanta = normalize_quanta(raw)
+    _validate_quanta(quanta)
+    project["quanta"] = quanta
 
 
-def _op_update_slide(project: dict[str, Any], op: dict[str, Any]) -> None:
+def _op_update_quantum(project: dict[str, Any], op: dict[str, Any]) -> None:
     """Merge ``fields`` into a single slide located by ``slide_id``.
 
     Targeted revision (blocks/notes/builds/links/layout/transition/title —
-    any subset) without resending the whole deck. The slide ``id`` itself is
-    immutable. The merged slide is re-normalized and the whole deck is
+    any subset) without resending the whole quanta. The slide ``id`` itself is
+    immutable. The merged slide is re-normalized and the whole quanta is
     re-validated so a partial edit can never dangle a link or zero a dwell.
     """
     slide_id = str(op.get("slide_id") or "")
     if not slide_id:
-        raise TimelinePatchError("E_BAD_ARG", "update_slide requires a 'slide_id'")
+        raise TimelinePatchError("E_BAD_ARG", "update_quantum requires a 'slide_id'")
     fields = op.get("fields") if isinstance(op.get("fields"), dict) else None
     if fields is None:
-        raise TimelinePatchError("E_BAD_ARG", "update_slide requires a 'fields' object")
-    deck = project.get("deck")
-    if not isinstance(deck, dict):
-        deck = empty_deck()
-        project["deck"] = deck
-    slides = deck.get("slides") or []
+        raise TimelinePatchError("E_BAD_ARG", "update_quantum requires a 'fields' object")
+    quanta = project.get("quanta")
+    if not isinstance(quanta, dict):
+        quanta = empty_quanta()
+        project["quanta"] = quanta
+    slides = quanta.get("slides") or []
     for slide_idx, slide in enumerate(slides):
         if isinstance(slide, dict) and str(slide.get("id") or "") == slide_id:
             merged = {**slide, **{k: v for k, v in fields.items() if k != "id"}}
             merged["id"] = slide_id
             slides[slide_idx] = _normalize_slide(merged, slide_idx=slide_idx)
-            _validate_deck(deck)
+            _validate_quanta(quanta)
             return
-    raise TimelinePatchError("E_NOT_FOUND", f"update_slide: no slide with id {slide_id}")
+    raise TimelinePatchError("E_NOT_FOUND", f"update_quantum: no slide with id {slide_id}")
 
 
 _OP_HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], None]] = {
     "set_shotlist": _op_set_shotlist,
     "update_shot": _op_update_shot,
-    "set_deck": _op_set_deck,
-    "update_slide": _op_update_slide,
+    "set_quanta": _op_set_quanta,
+    "update_quantum": _op_update_quantum,
     "insert_clip": _op_insert_clip,
     "delete_clip": _op_delete_clip,
     "move_clip": _op_move_clip,

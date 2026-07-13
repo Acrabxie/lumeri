@@ -12,13 +12,13 @@ from gemia.budget_guard import BudgetGuard
 from gemia.plan_mode import is_plan_safe
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER
-from gemia.tools import assemble_deck as assemble_tool
-from gemia.tools import refine_slide as refine_tool
+from gemia.tools import assemble_quanta as assemble_tool
+from gemia.tools import refine_quantum as refine_tool
 from gemia.tools._context import AssetRegistry, ToolContext
 
 
 def _ctx(tmp_path: Path) -> ToolContext:
-    handle = ProjectHandle.open(tmp_path / "project", "deck-refine", session_id="session_1")
+    handle = ProjectHandle.open(tmp_path / "project", "quanta-refine", session_id="session_1")
     return ToolContext(
         session_id="session_1",
         output_dir=tmp_path,
@@ -32,7 +32,7 @@ def _call(name: str, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     return asyncio.run(DISPATCHER[name](args, ctx))
 
 
-def _deck() -> dict[str, Any]:
+def _quanta() -> dict[str, Any]:
     return {
         "slides": [
             {
@@ -64,7 +64,7 @@ def _png() -> bytes:
 def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
     calls = {"materialize": 0, "black": 0}
 
-    def fake_materialize(_deck, call_ctx, **_kwargs):
+    def fake_materialize(_quanta, call_ctx, **_kwargs):
         calls["materialize"] += 1
         frames = []
         asset_ids = []
@@ -75,7 +75,7 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
             path = call_ctx.child_path(asset_id, ".png")
             path.write_bytes(_png())
             call_ctx.registry.register_output(
-                asset_id, kind="image", path=path, summary="deck frame"
+                asset_id, kind="image", path=path, summary="quanta frame"
             )
             asset_ids.append(asset_id)
             frames.append({
@@ -89,16 +89,16 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
                 "overflow": [],
             })
         return {
-            "kind": "deck", "asset_id": asset_ids[0],
+            "kind": "quanta", "asset_id": asset_ids[0],
             "frame_asset_ids": asset_ids, "frames": frames,
-            "pager_url": "/v3/deck.html?session_id=session_1",
-            "first_build_pager_url": "/v3/deck.html?session_id=session_1",
+            "pager_url": "/v3/quanta.html?session_id=session_1",
+            "first_build_pager_url": "/v3/quanta.html?session_id=session_1",
             "slide_count": 2, "frame_count": 3, "overflow": [],
-            "summary": "rendered", "rematerialization_scope": "deck",
+            "summary": "rendered", "rematerialization_scope": "quanta",
         }
 
     async def fake_black(call_ctx, **kwargs):
-        cached = call_ctx.extra.get("deck_black_video_cache")
+        cached = call_ctx.extra.get("quanta_black_video_cache")
         if isinstance(cached, dict) and cached.get("key") == kwargs["cache_key"]:
             return cached["asset_id"]
         calls["black"] += 1
@@ -106,29 +106,29 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
         path = call_ctx.child_path(asset_id, ".mp4")
         path.write_bytes(b"fake video")
         call_ctx.registry.register_output(
-            asset_id, kind="video", path=path, summary="deck background"
+            asset_id, kind="video", path=path, summary="quanta background"
         )
-        call_ctx.extra["deck_black_video_cache"] = {
+        call_ctx.extra["quanta_black_video_cache"] = {
             "key": kwargs["cache_key"], "asset_id": asset_id,
         }
         return asset_id
 
-    monkeypatch.setattr(assemble_tool, "materialize_deck_frame_assets", fake_materialize)
+    monkeypatch.setattr(assemble_tool, "materialize_quanta_frame_assets", fake_materialize)
     monkeypatch.setattr(assemble_tool, "_ensure_black_video", fake_black)
     return calls
 
 
-def test_refine_slide_uses_current_cache_and_reassembles(tmp_path, monkeypatch) -> None:
+def test_refine_quantum_uses_current_cache_and_reassembles(tmp_path, monkeypatch) -> None:
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": _deck()}, ctx)
+    _call("set_quanta", {"quanta": _quanta()}, ctx)
     calls = _install_assemble_fakes(monkeypatch, ctx)
-    initial = _call("assemble_deck", {}, ctx)
-    old_cache_result = ctx.extra["deck_frame_cache"]["result"]
+    initial = _call("assemble_quanta", {}, ctx)
+    old_cache_result = ctx.extra["quanta_frame_cache"]["result"]
     selective_calls = []
 
-    def fake_rematerialize(deck, _ctx, **kwargs):
+    def fake_rematerialize(quanta, _ctx, **kwargs):
         selective_calls.append(kwargs)
-        assert deck["slides"][0]["title"] == "After"
+        assert quanta["slides"][0]["title"] == "After"
         assert kwargs["previous"] is old_cache_result
         result = dict(old_cache_result)
         result["rematerialization_scope"] = "slide"
@@ -136,54 +136,54 @@ def test_refine_slide_uses_current_cache_and_reassembles(tmp_path, monkeypatch) 
         result["summary"] = "rematerialized slide s1 and reused 1 unchanged slide"
         return result
 
-    monkeypatch.setattr(refine_tool, "rematerialize_deck_slide_assets", fake_rematerialize)
+    monkeypatch.setattr(refine_tool, "rematerialize_quanta_slide_assets", fake_rematerialize)
     result = _call(
-        "refine_slide", {"slide_id": "s1", "fields": {"title": "After"}}, ctx
+        "refine_quantum", {"slide_id": "s1", "fields": {"title": "After"}}, ctx
     )
 
     assert result["refined"] is True and result["updated_slide"] == "s1"
     assert result["rematerialization_scope"] == "slide"
     assert result["frame_asset_ids"] == initial["frame_asset_ids"]
-    assert ctx.project.load()["deck"]["slides"][0]["title"] == "After"
+    assert ctx.project.load()["quanta"]["slides"][0]["title"] == "After"
     assert len(selective_calls) == 1
     assert calls == {"materialize": 1, "black": 1}
     assert len(ctx.project.load()["timeline"]["clips"]) == 4
 
 
-def test_refine_slide_invalid_id_keeps_current_frame_cache(tmp_path, monkeypatch) -> None:
+def test_refine_quantum_invalid_id_keeps_current_frame_cache(tmp_path, monkeypatch) -> None:
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": _deck()}, ctx)
+    _call("set_quanta", {"quanta": _quanta()}, ctx)
     _install_assemble_fakes(monkeypatch, ctx)
-    _call("assemble_deck", {}, ctx)
-    cache = ctx.extra["deck_frame_cache"]
+    _call("assemble_quanta", {}, ctx)
+    cache = ctx.extra["quanta_frame_cache"]
     monkeypatch.setattr(
         refine_tool,
-        "rematerialize_deck_slide_assets",
+        "rematerialize_quanta_slide_assets",
         lambda *_args, **_kwargs: pytest.fail("must not render an invalid edit"),
     )
 
     with pytest.raises(ValueError, match="no slide with id ghost"):
         _call(
-            "refine_slide",
+            "refine_quantum",
             {"slide_id": "ghost", "fields": {"title": "No"}},
             ctx,
         )
-    assert ctx.extra["deck_frame_cache"] is cache
+    assert ctx.extra["quanta_frame_cache"] is cache
 
 
-def test_refine_slide_empty_deck_is_actionable(tmp_path) -> None:
+def test_refine_quantum_empty_quanta_is_actionable(tmp_path) -> None:
     ctx = _ctx(tmp_path)
-    with pytest.raises(ValueError, match="deck is empty"):
+    with pytest.raises(ValueError, match="quanta is empty"):
         _call(
-            "refine_slide",
+            "refine_quantum",
             {"slide_id": "s1", "fields": {"title": "No"}},
             ctx,
         )
 
 
-def test_refine_slide_is_registered_blocked_in_plan_and_budgeted() -> None:
-    assert "refine_slide" in DISPATCHER
-    assert "stub" not in DISPATCHER["refine_slide"].__qualname__.lower()
-    assert is_plan_safe("refine_slide") is False
-    decision = BudgetGuard(max_usd=1, max_seconds=100).check("refine_slide")
+def test_refine_quantum_is_registered_blocked_in_plan_and_budgeted() -> None:
+    assert "refine_quantum" in DISPATCHER
+    assert "stub" not in DISPATCHER["refine_quantum"].__qualname__.lower()
+    assert is_plan_safe("refine_quantum") is False
+    decision = BudgetGuard(max_usd=1, max_seconds=100).check("refine_quantum")
     assert decision.ok is True and decision.estimated_eta_sec == 5.0

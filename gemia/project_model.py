@@ -60,7 +60,7 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
             "generator": "gemia",
         },
         "shotlist": empty_shotlist(),
-        "deck": empty_deck(),
+        "quanta": empty_quanta(),
     }
 
 
@@ -166,8 +166,8 @@ def iter_shots(shotlist: dict[str, Any]):
                 yield scene, shot
 
 
-# ── deck IR ───────────────────────────────────────────────────────────────
-# The deck is a slide/interaction plan (deck-interactive-video-plan §2.1) that
+# ── quanta IR ───────────────────────────────────────────────────────────────
+# The quanta is a slide/interaction plan (deck-interactive-video-plan §2.1) that
 # lives inside project_state next to the shotlist, so every mutation inherits
 # the append-only patch log (undo + audit) for free. Normalization here is
 # STRUCTURE-tolerant only: missing fields are backfilled, garbage entries are
@@ -177,22 +177,22 @@ def iter_shots(shotlist: dict[str, Any]):
 # it strictly at patch time so ProjectStore.load() can never raise on stored
 # state.
 
-DECK_VERSION = 1
-DECK_BLOCK_KINDS = {"text", "stat", "image", "shape", "group"}
-DECK_DEFAULT_DWELL = 3.0
-_DECK_TRANSITIONS = {"cut", "fade"}  # v1 = cut + single-sided fade (spec §3.4)
+QUANTA_VERSION = 1
+QUANTA_BLOCK_KINDS = {"text", "stat", "image", "shape", "group"}
+QUANTA_DEFAULT_DWELL = 3.0
+_QUANTA_TRANSITIONS = {"cut", "fade"}  # v1 = cut + single-sided fade (spec §3.4)
 
 
-def empty_deck() -> dict[str, Any]:
+def empty_quanta() -> dict[str, Any]:
     return {
-        "version": DECK_VERSION,
+        "version": QUANTA_VERSION,
         "theme": {"tokens": {}, "mood": "", "aspect": "16:9"},
         "slides": [],
         "default_path": [],
     }
 
 
-def _normalize_deck_block(
+def _normalize_quanta_block(
     raw: Any,
     *,
     block_path: tuple[int, ...] = (1,),
@@ -203,13 +203,13 @@ def _normalize_deck_block(
     Every accepted block receives a stable id. Model-authored ids survive;
     otherwise the source position becomes ``blk_1``, ``blk_1_2``, and so on.
     Unknown kinds/keys are dropped and cyclic/depth-hostile Python input is
-    truncated, keeping the public ``normalize_deck`` contract never-raises for
+    truncated, keeping the public ``normalize_quanta`` contract never-raises for
     JSON-shaped input.
     """
     if not isinstance(raw, dict):
         return None
     kind = str(raw.get("kind") or "").strip().lower()
-    if kind not in DECK_BLOCK_KINDS:
+    if kind not in QUANTA_BLOCK_KINDS:
         return None
     fallback_id = "blk_" + "_".join(str(part) for part in block_path)
     block: dict[str, Any] = {
@@ -247,7 +247,7 @@ def _normalize_deck_block(
             children_raw = []
         ancestors = _ancestors | {raw_identity}
         children = [
-            _normalize_deck_block(
+            _normalize_quanta_block(
                 child,
                 block_path=(*block_path, child_idx + 1),
                 _ancestors=ancestors,
@@ -258,7 +258,7 @@ def _normalize_deck_block(
     return block
 
 
-def _deck_leaf_block_ids(blocks: Any) -> list[str]:
+def _quanta_leaf_block_ids(blocks: Any) -> list[str]:
     """Return renderable (non-group) block ids in deterministic paint order."""
     ids: list[str] = []
     if not isinstance(blocks, list):
@@ -267,7 +267,7 @@ def _deck_leaf_block_ids(blocks: Any) -> list[str]:
         if not isinstance(block, dict):
             continue
         if block.get("kind") == "group":
-            ids.extend(_deck_leaf_block_ids(block.get("children")))
+            ids.extend(_quanta_leaf_block_ids(block.get("children")))
         else:
             block_id = str(block.get("id") or "")
             if block_id:
@@ -285,7 +285,7 @@ def _normalize_build(
     # A missing/garbage dwell backfills to a sane default; an EXPLICIT numeric
     # value is preserved even when <= 0 so strict validation can reject it.
     visible_raw = raw.get("visible_block_ids")
-    # Backward compatibility: v1 decks authored before build visibility existed
+    # Backward compatibility: v1 quanta docs authored before build visibility existed
     # meant "the whole slide" at every build. An explicit [] is meaningful and
     # must remain an empty first state; only a missing/wrong-type value backfills.
     visible = (
@@ -295,7 +295,7 @@ def _normalize_build(
     )
     return {
         "id": str(raw.get("id") or "") or f"b{build_idx + 1}",
-        "dwell_sec": _float_or(raw.get("dwell_sec"), DECK_DEFAULT_DWELL),
+        "dwell_sec": _float_or(raw.get("dwell_sec"), QUANTA_DEFAULT_DWELL),
         "visible_block_ids": visible,
     }
 
@@ -314,11 +314,11 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     blocks_raw = raw.get("blocks") if isinstance(raw.get("blocks"), list) else []
     blocks = [
-        _normalize_deck_block(block, block_path=(block_idx + 1,))
+        _normalize_quanta_block(block, block_path=(block_idx + 1,))
         for block_idx, block in enumerate(blocks_raw)
     ]
     blocks = [block for block in blocks if block is not None]
-    leaf_block_ids = _deck_leaf_block_ids(blocks)
+    leaf_block_ids = _quanta_leaf_block_ids(blocks)
     builds_raw = raw.get("builds") if isinstance(raw.get("builds"), list) else []
     builds = [
         _normalize_build(build, build_idx=i, leaf_block_ids=leaf_block_ids)
@@ -328,14 +328,14 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     if not builds:  # every slide has at least its full build-state
         builds = [{
             "id": "b1",
-            "dwell_sec": DECK_DEFAULT_DWELL,
+            "dwell_sec": QUANTA_DEFAULT_DWELL,
             "visible_block_ids": list(leaf_block_ids),
         }]
     links_raw = raw.get("links") if isinstance(raw.get("links"), list) else []
     links = [_normalize_link(link) for link in links_raw]
     transition_raw = raw.get("transition") if isinstance(raw.get("transition"), dict) else {}
     kind = str(transition_raw.get("kind") or "cut").strip().lower()
-    if kind not in _DECK_TRANSITIONS:
+    if kind not in _QUANTA_TRANSITIONS:
         kind = "cut"
     return {
         "id": str(raw.get("id") or "") or f"s{slide_idx + 1}",
@@ -350,15 +350,15 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     }
 
 
-def normalize_deck(raw: Any) -> dict[str, Any]:
-    """Coerce a (possibly partial, model-authored) deck into canonical shape.
+def normalize_quanta(raw: Any) -> dict[str, Any]:
+    """Coerce a (possibly partial, model-authored) quanta into canonical shape.
 
     Never raises — mirror of ``normalize_shotlist``. A missing/empty
     ``default_path`` is backfilled to cover every slide in order; a PROVIDED
     one is kept verbatim so strict validation can reject a bad cover.
     """
     if not isinstance(raw, dict):
-        return empty_deck()
+        return empty_quanta()
     theme_raw = raw.get("theme") if isinstance(raw.get("theme"), dict) else {}
     tokens = theme_raw.get("tokens") if isinstance(theme_raw.get("tokens"), dict) else {}
     slides_raw = raw.get("slides") if isinstance(raw.get("slides"), list) else []
@@ -368,7 +368,7 @@ def normalize_deck(raw: Any) -> dict[str, Any]:
     if not default_path:
         default_path = [slide["id"] for slide in slides]
     return {
-        "version": DECK_VERSION,
+        "version": QUANTA_VERSION,
         "theme": {
             "tokens": dict(tokens),
             "mood": str(theme_raw.get("mood") or ""),
@@ -552,10 +552,10 @@ def _normalize_canonical_project(project: dict[str, Any], *, account_id: str | N
     metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
     normalized["metadata"] = {**normalized["metadata"], **metadata}
     normalized["shotlist"] = normalize_shotlist(project.get("shotlist"))
-    # Pass the deck through explicitly: normalize rebuilds from empty_project()
+    # Pass the quanta through explicitly: normalize rebuilds from empty_project()
     # and copies known keys, so without this line ProjectStore.load() would
-    # silently strip project_state.deck on every read (spec §2.4).
-    normalized["deck"] = normalize_deck(project.get("deck"))
+    # silently strip project_state.quanta on every read (spec §2.4).
+    normalized["quanta"] = normalize_quanta(project.get("quanta"))
     return normalized
 
 
@@ -842,16 +842,16 @@ def _utc_now() -> str:
 
 
 __all__ = [
-    "DECK_BLOCK_KINDS",
-    "DECK_VERSION",
+    "QUANTA_BLOCK_KINDS",
+    "QUANTA_VERSION",
     "IMAGE_DURATION",
     "PROJECT_SCHEMA",
     "PROJECT_SCHEMA_VERSION",
     "clip_count",
-    "empty_deck",
+    "empty_quanta",
     "empty_project",
     "is_canonical_project",
     "legacy_project_state_from_project",
-    "normalize_deck",
+    "normalize_quanta",
     "normalize_project",
 ]

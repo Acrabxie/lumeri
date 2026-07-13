@@ -1,9 +1,9 @@
-# Dogfood 首作：「Lumeri 产品介绍 pitch deck」逐页内容清单
+# Dogfood 首作：「Lumeri 产品介绍 pitch quanta」逐页内容清单
 
-- status: draft（2026-07-08，写作时 `docs/video-deck-synergy.md` 尚不存在，协同结构落地后按需对齐）
-- 用途：① 从内容反推布局模板需求，验证首发 4 模板（`title` / `content` / `stat` / `full-bleed`）够不够（deck-interactive-video-plan §3.5）；② 开工后 `draft_deck` / `refine_slide` 的真实验收素材。
+- status: draft（2026-07-08，写作时 `docs/video-quanta-synergy.md` 尚不存在，协同结构落地后按需对齐）
+- 用途：① 从内容反推布局模板需求，验证首发 4 模板（`title` / `content` / `stat` / `full-bleed`）够不够（deck-interactive-video-plan §3.5）；② 开工后 `draft_quanta` / `refine_quantum` 的真实验收素材。
 - 上游依据：`docs/deck-interactive-video-plan.md` §1（目标用户/单向门）、§2.1（blocks kind：text/stat/image/shape/group）、§3.5（首发 4 模板+槽位思想）、§8（dogfood：数据页只用 stat 块，曲线图表 Phase 3 前不承诺）。
-- 文案纪律（产品原则直译）：**图案优先于文字**——每页一个念头，body ≤3 个要点、每要点 ≤12 字；stat 页数据表达只用 stat 块（大数字+标签），全份 deck 零曲线零图表；一切图像素材**不含任何烧入文字**（§7 生死约束）。
+- 文案纪律（产品原则直译）：**图案优先于文字**——每页一个念头，body ≤3 个要点、每要点 ≤12 字；stat 页数据表达只用 stat 块（大数字+标签），全份 quanta 零曲线零图表；一切图像素材**不含任何烧入文字**（§7 生死约束）。
 - builds 语义：`dwell_sec` 仅供自动播放 / `.mp4` 压平消费；presentation mode 驻留至交互推进（§2.1）。
 - 数字口径总注：**所有 stat 数值以发布时实测为准**；本文给的是口径与当前基线，不是承诺值。
 
@@ -18,7 +18,7 @@
   - `text` / role `title`：`Lumeri`（style_token: type.display）
   - `text` / role `subtitle`：`让创作只剩下想法`
   - `shape` / role `accent`：双光带细线（fill_token: color.accent，呼应 logo #5FC6DE）。
-- **notes**：开场不抢话，让画面先呼吸两秒；一句话点题：Lumeri 是一个创作 agent 家族，今天讲两件事——Video 和 Deck。
+- **notes**：开场不抢话，让画面先呼吸两秒；一句话点题：Lumeri 是一个创作 agent 家族，今天讲两件事——Video 和 Quanta。
 - **builds**：2 步。b1 = 背景+accent 光带（dwell 2.0）；b2 = +标题与副标（dwell 3.0）。
 - **素材需求**：**复用**《One Lumen》辉光球高光帧（挑暗部占比大、右侧留白够放字的一帧）。
 
@@ -67,23 +67,23 @@
 - **builds**：1 步。b1 = 整页（dwell 4.0）。
 - **素材需求**：**复用**《One Lumen》成片剧照；若现场有条件，notes 里备一手：hotspot 跳转播放 mp4 片段（Phase 2 后再启用，v1 不承诺）。
 
-## s6 Deck 主张 · 演示文稿，本身就是影片
+## s6 Quanta 主张 · 演示文稿，本身就是影片
 
-- **页目标**：抛出 Deck 的核心命题，全场只此一句（本页兼任章节转折页）。
+- **页目标**：抛出 Quanta 的核心命题，全场只此一句（本页兼任章节转折页）。
 - **layout**：`full-bleed`
 - **blocks 草案**：
   - `image` / role `background`：冰晶分形暗帧。
   - `text` / role `title`：`演示文稿，本身就是影片`
-- **notes**：一句带过血统：Flash 的 stop()、Keynote 的动画时间线，本质都是「影片+驻留点」；Lumeri Deck 把这个本质做成母体。
+- **notes**：一句带过血统：Flash 的 stop()、Keynote 的动画时间线，本质都是「影片+驻留点」；Lumeri Quanta 把这个本质做成母体。
 - **builds**：2 步。b1 = 背景（1.2）；b2 = +主张句（3.5）。
 - **素材需求**：**复用**《One Lumen》冰晶分形帧（压暗处理，保证字面对比度）。
 
-## s7 结构揭示 · deck = 幻灯片 + hold + 交互图
+## s7 结构揭示 · quanta = 幻灯片 + hold + 交互图
 
 - **页目标**：用一行公式讲清概念层，并当场用「hold」演示 hold。
 - **layout**：`content`
 - **blocks 草案**：
-  - `text` / role `title`：`deck = 幻灯片 + hold + 交互图`
+  - `text` / role `title`：`quanta = 幻灯片 + hold + 交互图`
   - `text` / role `body`：bullets = [`hold：等交互再继续`, `交互图：点击即分支`, `video = 线性退化情形`]
 - **notes**：讲稿设计成自证：讲到「hold」时就停在半 build 状态不动，说「现在这一页正在 hold 等我」；最后点出 video 只是零 hold 的特例。
 - **builds**：4 步。b1 = 标题公式（1.5）；b2/b3/b4 = 逐条 bullet（各 1.2，末态 3.0）。
@@ -96,34 +96,34 @@
 - **blocks 草案**：
   - `text` / role `title`：`不是概念，是运行中的系统`
   - `group` / role `stats`：children = 4 个 `stat` 块：
-    - `{ value: "97+", label: "Agent 工具" }` — 口径：`gemia/tools/_schema.py` 注册工具数；当前基线 97，deck 七件套上线后 100+；**以发布时实测为准**。
+    - `{ value: "97+", label: "Agent 工具" }` — 口径：`gemia/tools/_schema.py` 注册工具数；当前基线 97，quanta 七件套上线后 100+；**以发布时实测为准**。
     - `{ value: "4", label: "首发模板 · 做深" }` — 口径：Phase 1a 布局模板数（title/content/stat/full-bleed）。
     - `{ value: "2", label: "导出通路 mp4 · pptx" }` — 口径：v1 实际可用导出格式数（HTML player 属 P3，不计入、不口头承诺）。
-    - `{ value: "<5s", label: "改一页，回到演示" }` — 口径：refine_slide 单页重物化延迟预算（方案 §5.1）；**以发布时实测为准，未达标则本条撤下**。
+    - `{ value: "<5s", label: "改一页，回到演示" }` — 口径：refine_quantum 单页重物化延迟预算（方案 §5.1）；**以发布时实测为准，未达标则本条撤下**。
 - **notes**：每个数字一句话讲口径，尤其 97+ 要点明是「已注册可调用的工具」，不是功能点数——诚实本身是卖点。
 - **builds**：5 步。b1 = 标题（1.0）；b2–b5 = 四个大数字逐个亮起（各 0.8，末态 3.0）。
 - **素材需求**：无图；大数字即视觉主体（stat 模板的存在理由）。
 
 ## s9 家族页 · 一个 Lumeri，一族创作
 
-- **页目标**：亮出母品牌版图——Deck 不是孤品，是 Lumeri 家族一员。
+- **页目标**：亮出母品牌版图——Quanta 不是孤品，是 Lumeri 家族一员。
 - **layout**：`content`（body 槽装同构 group×5） **[模板缺口→见汇总 G1]**
 - **blocks 草案**：
   - `text` / role `title`：`一个 Lumeri，一族创作`
-  - `group` / role `body`：children = 5 个同构 `text` 块：[`Video · 影片`, `Deck · 演示`, `Image · 图像`, `Audio · 声音`, `CAD · 图纸`]（产品线名英文，注释中文；理想形态五卡网格）。
-- **notes**：一句定关系：Lumeri 是母品牌，Video 已出首作，Deck 是今天的主角，其余产品线共享同一套 agent 底座与美学管线。
-- **builds**：3 步。b1 = 标题（1.2）；b2 = Video+Deck 先亮（今天的两位主角，1.5）；b3 = 其余三条补全（2.5）。
+  - `group` / role `body`：children = 5 个同构 `text` 块：[`Video · 影片`, `Quanta · 演示`, `Image · 图像`, `Audio · 声音`, `CAD · 图纸`]（产品线名英文，注释中文；理想形态五卡网格）。
+- **notes**：一句定关系：Lumeri 是母品牌，Video 已出首作，Quanta 是今天的主角，其余产品线共享同一套 agent 底座与美学管线。
+- **builds**：3 步。b1 = 标题（1.2）；b2 = Video+Quanta 先亮（今天的两位主角，1.5）；b3 = 其余三条补全（2.5）。
 - **素材需求**：v1 无图。P3 grid-cards 落地后可为每卡配 generate_image 抽象符号，提示词方向：「冰蓝深空底、单一发光几何符号（球体/波形/晶格/线框），风格与《One Lumen》同源，**画面绝不出现任何文字或字母**」。
 
 ## s10 元卖点 · 这份演示，就是它自己做的
 
-- **页目标**：揭底 dogfood，并现场 refine_slide 改一页给观众看——产品演示即产品证明。
+- **页目标**：揭底 dogfood，并现场 refine_quantum 改一页给观众看——产品演示即产品证明。
 - **layout**：`content`
 - **blocks 草案**：
   - `text` / role `title`：`这份演示，就是它自己做的`
-  - `text` / role `body`：bullets = [`每页出自 draft_deck`, `现在，当场改一页`]
+  - `text` / role `body`：bullets = [`每页出自 draft_quanta`, `现在，当场改一页`]
   - `shape` / role `accent`：光点强调（呼应 logo 光点）。
-- **notes**：演示脚本：请观众现场提一个改法（换个词/改个数），切到对话窗跑 `refine_slide`，回到演示页面刷新——用 <5s 的往返闭环把「agent 生成 + 对话精修」演成一个动作。
+- **notes**：演示脚本：请观众现场提一个改法（换个词/改个数），切到对话窗跑 `refine_quantum`，回到演示页面刷新——用 <5s 的往返闭环把「agent 生成 + 对话精修」演成一个动作。
 - **builds**：3 步。b1 = 标题（1.5）；b2 = bullet 1（1.2）；b3 = bullet 2（3.0，hold 在此进入现场演示）。
 - **素材需求**：无图。links 备一条 `hotspot:blk_cta → slide:s8`（改完数据页后一键跳回数据页看结果，交互图跳边的真实用例；v1 若 hotspot 排量吃紧则删，靠键盘跳页）。
 
@@ -145,7 +145,7 @@
 - **blocks 草案**：
   - `text` / role `title`：`三步，不画大饼`
   - `text` / role `body`：bullets = [`P1 生成 + 四模板`, `P2 播放器 + 直编`, `P3 图表 + 动效`]
-- **notes**：点明「图表在 P3 才有，所以今天这份 deck 一根曲线都没有」——把红线讲成纪律故事；P2 硬门是用 Lumeri 播放器对真人完整讲一遍。
+- **notes**：点明「图表在 P3 才有，所以今天这份 quanta 一根曲线都没有」——把红线讲成纪律故事；P2 硬门是用 Lumeri 播放器对真人完整讲一遍。
 - **builds**：4 步。b1 = 标题（1.2）；b2/b3/b4 = 逐阶段亮（各 1.2，末态 2.5）。
 - **素材需求**：无图。
 
@@ -177,15 +177,15 @@
 
 ### G2：split（左右对照）——刻意回避，无页受损
 
-- 初拟大纲里「Lumeri vs 传统工具」对比页天然要 split。**处置：删掉对比页**，其论点拆给 s3（定位主张）与 s11（诚实边界）——pitch 里"我是什么"比"他不行"更符合 less is more。split 留 Phase 2，不因本 deck 提前。
+- 初拟大纲里「Lumeri vs 传统工具」对比页天然要 split。**处置：删掉对比页**，其论点拆给 s3（定位主张）与 s11（诚实边界）——pitch 里"我是什么"比"他不行"更符合 less is more。split 留 Phase 2，不因本 quanta 提前。
 
 ### G3：quote（大字引言）——full-bleed 已覆盖
 
-- s6「演示文稿，本身就是影片」是全份 deck 唯一的大字主张页，full-bleed 的 title 槽（满幅底图+display 级大字）完全承载，且比白底 quote 更符合品牌视觉。quote 模板 Phase 2 再说。
+- s6「演示文稿，本身就是影片」是全份 quanta 唯一的大字主张页，full-bleed 的 title 槽（满幅底图+display 级大字）完全承载，且比白底 quote 更符合品牌视觉。quote 模板 Phase 2 再说。
 
 ### G4：section-divider（章节页）——由 full-bleed 兼职
 
-- 本 deck 只有一个章节转折（Video → Deck，即 s6），full-bleed 兼任即可；13 页的 pitch 不需要专职分隔页。P3 不变。
+- 本 quanta 只有一个章节转折（Video → Quanta，即 s6），full-bleed 兼任即可；13 页的 pitch 不需要专职分隔页。P3 不变。
 
 ### 总结论
 

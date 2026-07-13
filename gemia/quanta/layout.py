@@ -1,6 +1,6 @@
-"""Deterministic placed-block layout for Lumeri Deck v1.
+"""Deterministic placed-block layout for Lumeri Quanta v1.
 
-The semantic deck IR deliberately does not contain pixel geometry.  This
+The semantic quanta IR deliberately does not contain pixel geometry.  This
 module is the single projection from that IR to a flat, JSON-serializable
 display list consumed by raster, pager, and (later) PPTX exporters.
 
@@ -13,7 +13,7 @@ Two rules are load-bearing:
   PPTX choose different line breaks today.
 
 The token values below are the machine-readable subset of
-``lumeri-design-manuals/DECK.md``.  Geometry and type scale are intentionally
+``lumeri-design-manuals/QUANTA.md``.  Geometry and type scale are intentionally
 not theme-overridable in v1; a theme may change the documented color and font
 roles only.  This keeps the 12-column identity a hard invariant.
 """
@@ -30,17 +30,17 @@ from typing import Any, Iterable, Mapping, Sequence
 from gemia.text import TextLayoutError, autofit_text
 
 
-LAYOUT_VERSION = "deck-layout-v1"
-TOKEN_VERSION = "deck-v1"
+LAYOUT_VERSION = "quanta-layout-v1"
+TOKEN_VERSION = "quanta-v1"
 
 
-class DeckLayoutError(ValueError):
+class QuantaLayoutError(ValueError):
     """Raised when a slide cannot satisfy the deterministic v1 contract."""
 
 
-# Flat keys match the syntax already stored in deck.theme.tokens.  Keep this
+# Flat keys match the syntax already stored in quanta.theme.tokens.  Keep this
 # as ordinary JSON-shaped data: callers often snapshot it into manifests.
-DEFAULT_DECK_TOKENS: dict[str, Any] = {
+DEFAULT_QUANTA_TOKENS: dict[str, Any] = {
     "canvas.width": 1920,
     "canvas.height": 1080,
     "spacing.page-margin-x": 160,
@@ -122,15 +122,15 @@ DEFAULT_DECK_TOKENS: dict[str, Any] = {
 }
 
 _COLOR_OVERRIDE_KEYS = frozenset(
-    key for key in DEFAULT_DECK_TOKENS if key.startswith("color.")
+    key for key in DEFAULT_QUANTA_TOKENS if key.startswith("color.")
 )
 _FONT_OVERRIDE_KEYS = frozenset(
-    key for key in DEFAULT_DECK_TOKENS if key.startswith("font.")
+    key for key in DEFAULT_QUANTA_TOKENS if key.startswith("font.")
 )
 _THEME_OVERRIDE_KEYS = _COLOR_OVERRIDE_KEYS | _FONT_OVERRIDE_KEYS
 _NUMERIC_TOKEN_KEYS = frozenset(
     key
-    for key, value in DEFAULT_DECK_TOKENS.items()
+    for key, value in DEFAULT_QUANTA_TOKENS.items()
     if isinstance(value, (int, float)) and not isinstance(value, bool)
 )
 _LAYOUTS = frozenset({"title", "content", "stat", "full-bleed"})
@@ -158,48 +158,48 @@ class _Leaf:
 
 def _finite(value: Any, name: str, *, minimum: float | None = None) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise DeckLayoutError(f"{name} must be a finite number")
+        raise QuantaLayoutError(f"{name} must be a finite number")
     number = float(value)
     if not math.isfinite(number):
-        raise DeckLayoutError(f"{name} must be a finite number")
+        raise QuantaLayoutError(f"{name} must be a finite number")
     if minimum is not None and number < minimum:
-        raise DeckLayoutError(f"{name} must be >= {minimum:g}")
+        raise QuantaLayoutError(f"{name} must be >= {minimum:g}")
     return number
 
 
 def _validate_font_token(value: Any, name: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
-        raise DeckLayoutError(f"{name} must be a family/path/weight mapping")
+        raise QuantaLayoutError(f"{name} must be a family/path/weight mapping")
     unknown = set(value) - {"family", "path", "weight"}
     if unknown:
-        raise DeckLayoutError(f"{name} has unsupported fields: {sorted(unknown)!r}")
+        raise QuantaLayoutError(f"{name} has unsupported fields: {sorted(unknown)!r}")
     family = str(value.get("family") or "").strip()
     path = str(value.get("path") or "").strip()
     weight = value.get("weight")
     if not family or not path:
-        raise DeckLayoutError(f"{name} must provide non-empty family and path")
+        raise QuantaLayoutError(f"{name} must provide non-empty family and path")
     if not isinstance(weight, int) or isinstance(weight, bool) or not 1 <= weight <= 1000:
-        raise DeckLayoutError(f"{name}.weight must be an integer in [1, 1000]")
+        raise QuantaLayoutError(f"{name}.weight must be an integer in [1, 1000]")
     if not Path(path).expanduser().is_file():
-        raise DeckLayoutError(f"{name}.path does not exist: {path!r}")
+        raise QuantaLayoutError(f"{name}.path does not exist: {path!r}")
     return {"family": family, "path": path, "weight": weight}
 
 
 def _resolve_tokens(theme_tokens: Mapping[str, Any] | None) -> dict[str, Any]:
     if theme_tokens is not None and not isinstance(theme_tokens, Mapping):
-        raise DeckLayoutError("theme_tokens must be a mapping when provided")
+        raise QuantaLayoutError("theme_tokens must be a mapping when provided")
     overrides = dict(theme_tokens or {})
     unknown = sorted(set(overrides) - _THEME_OVERRIDE_KEYS)
     if unknown:
-        raise DeckLayoutError(
+        raise QuantaLayoutError(
             "unsupported theme token override(s): " + ", ".join(unknown)
         )
-    tokens = deepcopy(DEFAULT_DECK_TOKENS)
+    tokens = deepcopy(DEFAULT_QUANTA_TOKENS)
     for key, value in overrides.items():
         if key in _COLOR_OVERRIDE_KEYS:
             color = str(value or "").strip()
             if not _COLOR_RE.fullmatch(color):
-                raise DeckLayoutError(f"{key} must be a CSS hex/rgb(a)/gradient color")
+                raise QuantaLayoutError(f"{key} must be a CSS hex/rgb(a)/gradient color")
             tokens[key] = color
         else:
             tokens[key] = _validate_font_token(value, key)
@@ -209,7 +209,7 @@ def _resolve_tokens(theme_tokens: Mapping[str, Any] | None) -> dict[str, Any]:
     for key in _COLOR_OVERRIDE_KEYS:
         color = str(tokens[key] or "").strip()
         if not _COLOR_RE.fullmatch(color):
-            raise DeckLayoutError(f"invalid built-in color token {key}")
+            raise QuantaLayoutError(f"invalid built-in color token {key}")
     for key in _FONT_OVERRIDE_KEYS:
         tokens[key] = _validate_font_token(tokens[key], key)
 
@@ -219,27 +219,27 @@ def _resolve_tokens(theme_tokens: Mapping[str, Any] | None) -> dict[str, Any]:
     margin_x = int(tokens["spacing.page-margin-x"])
     canvas_width = int(tokens["canvas.width"])
     if columns * column_width + (columns - 1) * gutter + 2 * margin_x != canvas_width:
-        raise DeckLayoutError("deck-v1 12-column grid identity is invalid")
+        raise QuantaLayoutError("quanta-v1 12-column grid identity is invalid")
     if canvas_width - 2 * margin_x != int(tokens["grid.content-width"]):
-        raise DeckLayoutError("deck-v1 content-width identity is invalid")
+        raise QuantaLayoutError("quanta-v1 content-width identity is invalid")
     if (
         int(tokens["canvas.height"])
         - 2 * int(tokens["spacing.page-margin-y"])
         != int(tokens["grid.content-height"])
     ):
-        raise DeckLayoutError("deck-v1 content-height identity is invalid")
+        raise QuantaLayoutError("quanta-v1 content-height identity is invalid")
     return tokens
 
 
 def _canvas(value: Sequence[int]) -> tuple[int, int, float]:
     if isinstance(value, (str, bytes)):
-        raise DeckLayoutError("canvas must be a (width, height) pair")
+        raise QuantaLayoutError("canvas must be a (width, height) pair")
     try:
         parts = tuple(value)
     except TypeError as exc:
-        raise DeckLayoutError("canvas must be a (width, height) pair") from exc
+        raise QuantaLayoutError("canvas must be a (width, height) pair") from exc
     if len(parts) != 2:
-        raise DeckLayoutError("canvas must be a (width, height) pair")
+        raise QuantaLayoutError("canvas must be a (width, height) pair")
     width, height = parts
     if (
         not isinstance(width, int)
@@ -249,9 +249,9 @@ def _canvas(value: Sequence[int]) -> tuple[int, int, float]:
         or width <= 0
         or height <= 0
     ):
-        raise DeckLayoutError("canvas width and height must be positive integers")
+        raise QuantaLayoutError("canvas width and height must be positive integers")
     if width * 9 != height * 16:
-        raise DeckLayoutError("deck-v1 canvas must preserve the 16:9 aspect")
+        raise QuantaLayoutError("quanta-v1 canvas must preserve the 16:9 aspect")
     return width, height, width / 1920.0
 
 
@@ -271,14 +271,14 @@ def _scale_rect(rect: Sequence[int], scale: float) -> list[int]:
 def _inset_rect(rect: Sequence[int], inset: int) -> list[int]:
     x, y, width, height = rect
     if width <= 2 * inset or height <= 2 * inset:
-        raise DeckLayoutError("card is too small for spacing.card-pad")
+        raise QuantaLayoutError("card is too small for spacing.card-pad")
     return [x + inset, y + inset, width - 2 * inset, height - 2 * inset]
 
 
 def _column_span(start: int, end: int, tokens: Mapping[str, Any]) -> list[int]:
     columns = int(tokens["grid.columns"])
     if not 1 <= start <= end <= columns:
-        raise DeckLayoutError(f"invalid deck grid span {start}..{end}")
+        raise QuantaLayoutError(f"invalid quanta grid span {start}..{end}")
     margin = int(tokens["spacing.page-margin-x"])
     column = int(tokens["grid.column-width"])
     gutter = int(tokens["grid.gutter"])
@@ -294,22 +294,22 @@ def _walk_blocks(blocks: Any) -> tuple[list[_Leaf], dict[int, _Leaf]]:
 
     def visit(raw: Any, path: tuple[int, ...]) -> None:
         if not isinstance(raw, Mapping):
-            raise DeckLayoutError(f"deck block at {path!r} must be a mapping")
+            raise QuantaLayoutError(f"quanta block at {path!r} must be a mapping")
         kind = str(raw.get("kind") or "").strip().lower()
         if kind not in {"text", "stat", "image", "shape", "group"}:
-            raise DeckLayoutError(f"unsupported deck block kind {kind!r} at {path!r}")
+            raise QuantaLayoutError(f"unsupported quanta block kind {kind!r} at {path!r}")
         if kind == "group":
             children = raw.get("children")
             if not isinstance(children, list):
-                raise DeckLayoutError(f"group at {path!r} must provide children")
+                raise QuantaLayoutError(f"group at {path!r} must provide children")
             for index, child in enumerate(children, 1):
                 visit(child, (*path, index))
             return
         block_ref = str(raw.get("id") or "").strip()
         if not block_ref:
-            raise DeckLayoutError(f"semantic leaf at {path!r} is missing a stable id")
+            raise QuantaLayoutError(f"semantic leaf at {path!r} is missing a stable id")
         if block_ref in seen_ids:
-            raise DeckLayoutError(f"duplicate semantic leaf id {block_ref!r}")
+            raise QuantaLayoutError(f"duplicate semantic leaf id {block_ref!r}")
         seen_ids.add(block_ref)
         leaf = _Leaf(raw, block_ref, len(leaves))
         leaves.append(leaf)
@@ -368,7 +368,7 @@ def _text_role_style(role: str, style_token: Any, *, default: str) -> str:
     token = str(style_token or "").strip()
     if token:
         if token not in {"type.display", "type.h1", "type.h2", "type.body", "type.caption"}:
-            raise DeckLayoutError(f"unsupported text style token {token!r}")
+            raise QuantaLayoutError(f"unsupported text style token {token!r}")
         return token.removeprefix("type.")
     if role in _TEXT_ROLES_TITLE:
         return default
@@ -436,7 +436,7 @@ def _text_primitive(
         actual_role, block.get("style_token"), default=default_style
     )
     if actual_style not in {"display", "h1", "h2", "body", "caption"}:
-        raise DeckLayoutError(f"unsupported resolved text style {actual_style!r}")
+        raise QuantaLayoutError(f"unsupported resolved text style {actual_style!r}")
     has_cjk = _contains_cjk(rendered)
     font = _font_for(actual_style, has_cjk, tokens)
     preferred = _scaled(tokens[f"type.{actual_style}.size"], scale)
@@ -445,7 +445,7 @@ def _text_primitive(
     preferred = max(preferred, fallback + 1)
     rect_px = _scale_rect(rect, scale)
     if rect_px[2] <= 0 or rect_px[3] <= 0:
-        raise DeckLayoutError(f"text block {leaf.block_ref!r} has an empty slot")
+        raise QuantaLayoutError(f"text block {leaf.block_ref!r} has an empty slot")
     if max_lines is None:
         max_lines = {
             "display": 2,
@@ -468,13 +468,13 @@ def _text_primitive(
             line_spacing=line_spacing,
         )
     except TextLayoutError as exc:
-        raise DeckLayoutError(f"text block {leaf.block_ref!r}: {exc}") from exc
+        raise QuantaLayoutError(f"text block {leaf.block_ref!r}: {exc}") from exc
     color_key = color_token or (
         "color.text-secondary" if actual_role in _CAPTION_ROLES or actual_role == "label"
         else "color.text-primary"
     )
     if color_key not in tokens:
-        raise DeckLayoutError(f"unknown text color token {color_key!r}")
+        raise QuantaLayoutError(f"unknown text color token {color_key!r}")
     primitive = _primitive_base(
         kind="text", leaf=leaf, slot=slot, rect=rect, z_index=20, scale=scale
     )
@@ -521,13 +521,13 @@ def _image_primitive(
 ) -> dict[str, Any]:
     fit = str(leaf.block.get("fit") or default_fit).strip().lower()
     if fit not in {"cover", "contain"}:
-        raise DeckLayoutError(f"image {leaf.block_ref!r} has unsupported fit {fit!r}")
+        raise QuantaLayoutError(f"image {leaf.block_ref!r} has unsupported fit {fit!r}")
     anchor = str(leaf.block.get("anchor") or "center").strip().lower()
     if anchor not in {
         "center", "top", "bottom", "left", "right",
         "top-left", "top-right", "bottom-left", "bottom-right",
     }:
-        raise DeckLayoutError(
+        raise QuantaLayoutError(
             f"image {leaf.block_ref!r} has unsupported anchor {anchor!r}"
         )
     primitive = _primitive_base(
@@ -558,7 +558,7 @@ def _shape_primitive(
 ) -> dict[str, Any]:
     resolved_shape = str(shape or leaf.block.get("shape") or "rect").strip().lower()
     if resolved_shape not in {"rect", "rounded-rect", "line", "ellipse"}:
-        raise DeckLayoutError(
+        raise QuantaLayoutError(
             f"shape {leaf.block_ref!r} has unsupported primitive {resolved_shape!r}"
         )
     token = str(
@@ -567,7 +567,7 @@ def _shape_primitive(
         or ("color.accent" if leaf.role == "accent" else "color.surface-raised")
     ).strip()
     if token not in tokens or not token.startswith("color."):
-        raise DeckLayoutError(f"shape {leaf.block_ref!r} has unknown fill token {token!r}")
+        raise QuantaLayoutError(f"shape {leaf.block_ref!r} has unknown fill token {token!r}")
     primitive = _primitive_base(
         kind="shape", leaf=leaf, slot=slot, rect=rect, z_index=z_index, scale=scale
     )
@@ -615,14 +615,14 @@ def _stat_primitives(
     x, y, width, height = rect
     pad = int(tokens["spacing.card-pad"])
     if width <= 2 * pad or height <= 2 * pad + 120:
-        raise DeckLayoutError(f"stat card {leaf.block_ref!r} is too small")
+        raise QuantaLayoutError(f"stat card {leaf.block_ref!r} is too small")
     inner_width = width - 2 * pad
     inner_height = height - 2 * pad
     value_height = max(120, int(round(inner_height * 0.54)))
     gap = int(tokens["spacing.block-gap"])
     label_height = inner_height - value_height - gap
     if label_height <= 0:
-        raise DeckLayoutError(f"stat card {leaf.block_ref!r} cannot fit value and label")
+        raise QuantaLayoutError(f"stat card {leaf.block_ref!r} cannot fit value and label")
     card = _synthetic_card(leaf, rect, f"{slot}.card", tokens=tokens, scale=scale)
     value = _text_primitive(
         leaf,
@@ -678,7 +678,7 @@ def _stack_rects(
     available = height - gap * (len(entities) - 1) - sum(v or 0 for v in fixed)
     flexible_count = sum(value is None for value in fixed)
     if available < flexible_count:
-        raise DeckLayoutError("content entities do not fit the template body slot")
+        raise QuantaLayoutError("content entities do not fit the template body slot")
     flexible_sizes: list[int] = []
     if flexible_count:
         base, remainder = divmod(available, flexible_count)
@@ -700,7 +700,7 @@ def _horizontal_rects(rect: Sequence[int], count: int, *, gap: int) -> list[list
     x, y, width, height = rect
     available = width - gap * (count - 1)
     if available < count:
-        raise DeckLayoutError("group is too narrow for its homogeneous children")
+        raise QuantaLayoutError("group is too narrow for its homogeneous children")
     base, remainder = divmod(available, count)
     widths = [base + (1 if index < remainder else 0) for index in range(count)]
     result: list[list[int]] = []
@@ -749,7 +749,7 @@ def _layout_leaf_entity(
             _stat_primitives(leaf, content_rect, slot, tokens=tokens, scale=scale)
         )
     else:  # pragma: no cover - _walk_blocks establishes the invariant.
-        raise DeckLayoutError(f"unsupported leaf kind {leaf.kind!r}")
+        raise QuantaLayoutError(f"unsupported leaf kind {leaf.kind!r}")
     return output
 
 
@@ -766,7 +766,7 @@ def _layout_entity(
     if kind != "group":
         leaf = by_identity.get(id(raw))
         if leaf is None:
-            raise DeckLayoutError("internal leaf identity mismatch")
+            raise QuantaLayoutError("internal leaf identity mismatch")
         return _layout_leaf_entity(leaf, rect, slot, tokens=tokens, scale=scale)
 
     children = raw.get("children")
@@ -797,7 +797,7 @@ def _layout_entity(
         for index, (child, child_rect) in enumerate(zip(children, rects), 1):
             leaf = by_identity.get(id(child))
             if leaf is None:
-                raise DeckLayoutError("horizontal groups may contain semantic leaves only")
+                raise QuantaLayoutError("horizontal groups may contain semantic leaves only")
             cardish = group_role in {
                 "body", "card", "cards", "grid", "grid-cards", "steps", "products"
             } or leaf.role == "card"
@@ -853,7 +853,7 @@ def _heading_leaf(leaves: Sequence[_Leaf], slide_title: str, *, fallback_first: 
         if leaf not in candidates:
             candidates.append(leaf)
     if len(candidates) > 1:
-        raise DeckLayoutError("slide has multiple conflicting semantic title blocks")
+        raise QuantaLayoutError("slide has multiple conflicting semantic title blocks")
     if candidates:
         return candidates[0]
     if fallback_first:
@@ -882,12 +882,12 @@ def _layout_title(
     output: list[dict[str, Any]] = []
     images = [leaf for leaf in leaves if leaf.kind == "image"]
     if len(images) > 1:
-        raise DeckLayoutError("title layout supports at most one hero image")
+        raise QuantaLayoutError("title layout supports at most one hero image")
     special = [*images, *(leaf for leaf in leaves if leaf.kind == "shape" and leaf.role == "accent")]
     if heading is not None:
         special.append(heading)
     if any(id(leaf.block) not in top_level_identities for leaf in special):
-        raise DeckLayoutError(
+        raise QuantaLayoutError(
             "title layout requires title, hero image, and accent slot blocks at top level"
         )
     background_image = bool(images)
@@ -960,7 +960,7 @@ def _layout_content(
     body_height = 960 - body_top
     heading = _heading_leaf(leaves, str(slide.get("title") or ""), fallback_first=False)
     if heading is not None and id(heading.block) not in {id(block) for block in blocks}:
-        raise DeckLayoutError("content layout requires its semantic heading at top level")
+        raise QuantaLayoutError("content layout requires its semantic heading at top level")
     output: list[dict[str, Any]] = []
     if heading is not None:
         output.append(
@@ -977,11 +977,11 @@ def _layout_content(
         )
     top_images = [block for block in blocks if str(block.get("kind") or "").lower() == "image"]
     if len(top_images) > 1:
-        raise DeckLayoutError("content layout supports at most one top-level media block")
+        raise QuantaLayoutError("content layout supports at most one top-level media block")
     if top_images:
         image_leaf = by_identity.get(id(top_images[0]))
         if image_leaf is None:
-            raise DeckLayoutError("content media must be a semantic image leaf")
+            raise QuantaLayoutError("content media must be a semantic image leaf")
         output.append(
             _image_primitive(
                 image_leaf,
@@ -1053,10 +1053,10 @@ def _layout_stat(
         and not (leaf.kind == "shape" and leaf.role == "accent")
     ]
     if extras:
-        raise DeckLayoutError("stat layout only supports a heading, stat leaves, and accent shapes")
+        raise QuantaLayoutError("stat layout only supports a heading, stat leaves, and accent shapes")
     count = len(stats)
     if count < 1 or count > 4:
-        raise DeckLayoutError("stat layout supports one to four stat blocks")
+        raise QuantaLayoutError("stat layout supports one to four stat blocks")
     spans = {
         1: [(1, 12)],
         2: [(1, 6), (7, 12)],
@@ -1104,7 +1104,7 @@ def _layout_full_bleed(
     del blocks, by_identity
     images = [leaf for leaf in leaves if leaf.kind == "image"]
     if len(images) > 1:
-        raise DeckLayoutError("full-bleed layout supports exactly one image plane")
+        raise QuantaLayoutError("full-bleed layout supports exactly one image plane")
     output: list[dict[str, Any]] = []
     if images:
         output.append(
@@ -1121,7 +1121,7 @@ def _layout_full_bleed(
     gap = int(tokens["spacing.block-gap"])
     total = sum(heights) + gap * max(len(heights) - 1, 0)
     if total > 840:
-        raise DeckLayoutError("full-bleed overlay text does not fit its caption slot")
+        raise QuantaLayoutError("full-bleed overlay text does not fit its caption slot")
     cursor = 960 - total
     for index, (leaf, height) in enumerate(zip(ordered_text, heights), 1):
         output.append(
@@ -1144,7 +1144,7 @@ def _layout_full_bleed(
         and not (leaf.kind == "shape" and leaf.role == "accent")
     ]
     if other:
-        raise DeckLayoutError("full-bleed layout supports image, text, and accent leaves only")
+        raise QuantaLayoutError("full-bleed layout supports image, text, and accent leaves only")
     if ordered_text:
         first_y = 960 - total
         for leaf in leaves:
@@ -1173,7 +1173,7 @@ def _selected_build(
     builds = [item for item in raw_builds if isinstance(item, Mapping)] if isinstance(raw_builds, list) else []
     if not builds:
         if build_id is not None:
-            raise DeckLayoutError(f"unknown build id {build_id!r}")
+            raise QuantaLayoutError(f"unknown build id {build_id!r}")
         return None, 3.0, set(leaf_ids)
     selected: Mapping[str, Any] | None = None
     if build_id is None:
@@ -1183,25 +1183,25 @@ def _selected_build(
             (item for item in builds if str(item.get("id") or "") == build_id), None
         )
         if selected is None:
-            raise DeckLayoutError(f"unknown build id {build_id!r}")
+            raise QuantaLayoutError(f"unknown build id {build_id!r}")
     selected_id = str(selected.get("id") or "").strip()
     if not selected_id:
-        raise DeckLayoutError("selected build is missing an id")
+        raise QuantaLayoutError("selected build is missing an id")
     dwell = _finite(selected.get("dwell_sec", 3.0), "build.dwell_sec", minimum=0)
     if dwell <= 0:
-        raise DeckLayoutError("build.dwell_sec must be > 0")
+        raise QuantaLayoutError("build.dwell_sec must be > 0")
     raw_visible = selected.get("visible_block_ids")
     if raw_visible is None:
         visible = list(leaf_ids)
     elif isinstance(raw_visible, list):
         visible = [str(value or "").strip() for value in raw_visible]
     else:
-        raise DeckLayoutError("build.visible_block_ids must be a list")
+        raise QuantaLayoutError("build.visible_block_ids must be a list")
     if len(visible) != len(set(visible)):
-        raise DeckLayoutError("build.visible_block_ids contains duplicates")
+        raise QuantaLayoutError("build.visible_block_ids contains duplicates")
     unknown = sorted(set(visible) - set(leaf_ids))
     if unknown:
-        raise DeckLayoutError(f"build references unknown semantic leaves: {unknown!r}")
+        raise QuantaLayoutError(f"build references unknown semantic leaves: {unknown!r}")
     return selected_id, dwell, set(visible)
 
 
@@ -1254,19 +1254,19 @@ def layout_slide(
     empty display list without moving anything in later builds.
     """
     if not isinstance(slide, Mapping):
-        raise DeckLayoutError("slide must be a mapping")
+        raise QuantaLayoutError("slide must be a mapping")
     tokens = _resolve_tokens(theme_tokens)
     width, height, scale = _canvas(canvas)
     layout = str(slide.get("layout") or "content").strip().lower()
     if layout not in _LAYOUTS:
-        raise DeckLayoutError(f"unknown deck layout {layout!r}")
+        raise QuantaLayoutError(f"unknown quanta layout {layout!r}")
     slide_id = str(slide.get("id") or "").strip()
     if not slide_id:
-        raise DeckLayoutError("slide is missing an id")
+        raise QuantaLayoutError("slide is missing an id")
     raw_blocks = slide.get("blocks")
     blocks = [block for block in raw_blocks if isinstance(block, Mapping)] if isinstance(raw_blocks, list) else []
     if len(blocks) != len(raw_blocks or []):
-        raise DeckLayoutError("slide.blocks must contain mappings only")
+        raise QuantaLayoutError("slide.blocks must contain mappings only")
     leaves, by_identity = _walk_blocks(blocks)
     leaf_ids = [leaf.block_ref for leaf in leaves]
     selected_id, dwell, visible = _selected_build(slide, leaf_ids, build_id)
@@ -1353,13 +1353,13 @@ def layout_slide(
     try:
         json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False)
     except (TypeError, ValueError) as exc:  # pragma: no cover - invariant guard.
-        raise DeckLayoutError(f"layout result is not deterministic JSON: {exc}") from exc
+        raise QuantaLayoutError(f"layout result is not deterministic JSON: {exc}") from exc
     return result
 
 
 __all__ = [
-    "DEFAULT_DECK_TOKENS",
-    "DeckLayoutError",
+    "DEFAULT_QUANTA_TOKENS",
+    "QuantaLayoutError",
     "LAYOUT_VERSION",
     "TOKEN_VERSION",
     "layout_slide",

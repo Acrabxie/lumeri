@@ -13,11 +13,11 @@ from gemia.plan_mode import is_plan_safe
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER
 from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools import assemble_deck as assemble_tool
+from gemia.tools import assemble_quanta as assemble_tool
 
 
 def _ctx(tmp_path: Path) -> ToolContext:
-    handle = ProjectHandle.open(tmp_path / "project", "deck-assemble", session_id="session_1")
+    handle = ProjectHandle.open(tmp_path / "project", "quanta-assemble", session_id="session_1")
     return ToolContext(
         session_id="session_1", output_dir=tmp_path, registry=AssetRegistry(),
         emit_progress=lambda _update: None, project=handle,
@@ -28,7 +28,7 @@ def _call(name: str, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     return asyncio.run(DISPATCHER[name](args, ctx))
 
 
-def _deck() -> dict[str, Any]:
+def _quanta() -> dict[str, Any]:
     return {
         "slides": [
             {"id": "s1", "layout": "content", "title": "", "blocks": [
@@ -56,7 +56,7 @@ def _png_bytes() -> bytes:
 def _install_fakes(monkeypatch):
     calls = {"materialize": 0, "black": 0}
 
-    def fake_materialize(deck, ctx, **_kwargs):
+    def fake_materialize(quanta, ctx, **_kwargs):
         calls["materialize"] += 1
         asset_ids = []
         frames = []
@@ -66,7 +66,7 @@ def _install_fakes(monkeypatch):
             path = ctx.child_path(asset_id, ".png")
             path.write_bytes(_png_bytes())
             ctx.registry.register_output(
-                asset_id, kind="image", path=path, summary="deck frame"
+                asset_id, kind="image", path=path, summary="quanta frame"
             )
             asset_ids.append(asset_id)
             frames.append({
@@ -77,15 +77,15 @@ def _install_fakes(monkeypatch):
                 "source_asset_ids": [], "overflow": [],
             })
         return {
-            "kind": "deck", "asset_id": asset_ids[0], "frame_asset_ids": asset_ids,
-            "frames": frames, "pager_url": "/v3/deck.html?session_id=session_1",
-            "first_build_pager_url": "/v3/deck.html?session_id=session_1",
+            "kind": "quanta", "asset_id": asset_ids[0], "frame_asset_ids": asset_ids,
+            "frames": frames, "pager_url": "/v3/quanta.html?session_id=session_1",
+            "first_build_pager_url": "/v3/quanta.html?session_id=session_1",
             "slide_count": 2, "frame_count": 3, "overflow": [],
             "summary": "rendered",
         }
 
     async def fake_black(ctx, **_kwargs):
-        cached = ctx.extra.get("deck_black_video_cache")
+        cached = ctx.extra.get("quanta_black_video_cache")
         if isinstance(cached, dict) and cached.get("key") == _kwargs["cache_key"]:
             cached_id = str(cached.get("asset_id") or "")
             if cached_id and ctx.registry.contains(cached_id):
@@ -95,33 +95,33 @@ def _install_fakes(monkeypatch):
         path = ctx.child_path(asset_id, ".mp4")
         path.write_bytes(b"fake video")
         ctx.registry.register_output(
-            asset_id, kind="video", path=path, summary="deck background"
+            asset_id, kind="video", path=path, summary="quanta background"
         )
-        ctx.extra["deck_black_video_cache"] = {
+        ctx.extra["quanta_black_video_cache"] = {
             "key": _kwargs["cache_key"], "asset_id": asset_id,
         }
         return asset_id
 
-    monkeypatch.setattr(assemble_tool, "materialize_deck_frame_assets", fake_materialize)
+    monkeypatch.setattr(assemble_tool, "materialize_quanta_frame_assets", fake_materialize)
     monkeypatch.setattr(assemble_tool, "_ensure_black_video", fake_black)
     return calls
 
 
-def test_assemble_deck_atomically_rebuilds_dedicated_tracks_and_reuses_cache(tmp_path, monkeypatch) -> None:
+def test_assemble_quanta_atomically_rebuilds_dedicated_tracks_and_reuses_cache(tmp_path, monkeypatch) -> None:
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": _deck()}, ctx)
+    _call("set_quanta", {"quanta": _quanta()}, ctx)
     calls = _install_fakes(monkeypatch)
 
-    first = _call("assemble_deck", {}, ctx)
+    first = _call("assemble_quanta", {}, ctx)
     assert first["assembled"] is True and first["total_duration_sec"] == 6.0
     assert first["frame_count"] == 3 and first["degradations"] == []
     state = ctx.project.load()
     tracks = {track["id"]: track for track in state["timeline"]["tracks"]}
-    assert tracks[assemble_tool.DECK_VIDEO_TRACK]["kind"] == "video"
-    assert tracks[assemble_tool.DECK_FRAME_TRACK]["kind"] == "overlay"
+    assert tracks[assemble_tool.QUANTA_VIDEO_TRACK]["kind"] == "video"
+    assert tracks[assemble_tool.QUANTA_FRAME_TRACK]["kind"] == "overlay"
     clips = state["timeline"]["clips"]
-    background = [clip for clip in clips if clip["track_id"] == assemble_tool.DECK_VIDEO_TRACK]
-    frames = [clip for clip in clips if clip["track_id"] == assemble_tool.DECK_FRAME_TRACK]
+    background = [clip for clip in clips if clip["track_id"] == assemble_tool.QUANTA_VIDEO_TRACK]
+    frames = [clip for clip in clips if clip["track_id"] == assemble_tool.QUANTA_FRAME_TRACK]
     assert len(background) == 1 and background[0]["duration"] == 6.0
     assert [(clip["start"], clip["duration"]) for clip in frames] == [
         (0.0, 3.0), (3.0, 1.0), (4.0, 2.0),
@@ -130,7 +130,7 @@ def test_assemble_deck_atomically_rebuilds_dedicated_tracks_and_reuses_cache(tmp
     first_frame_ids = list(first["frame_asset_ids"])
     asset_count = len(state["assets"])
 
-    second = _call("assemble_deck", {}, ctx)
+    second = _call("assemble_quanta", {}, ctx)
     state2 = ctx.project.load()
     assert second["frame_asset_ids"] == first_frame_ids
     assert calls == {"materialize": 1, "black": 1}
@@ -139,30 +139,30 @@ def test_assemble_deck_atomically_rebuilds_dedicated_tracks_and_reuses_cache(tmp
     assert [clip["id"] for clip in state2["timeline"]["clips"]] == second["clip_ids"]
 
 
-def test_assemble_deck_preserves_unrelated_timeline_clips(tmp_path, monkeypatch) -> None:
+def test_assemble_quanta_preserves_unrelated_timeline_clips(tmp_path, monkeypatch) -> None:
     ctx = _ctx(tmp_path)
-    _call("set_deck", {"deck": _deck()}, ctx)
+    _call("set_quanta", {"quanta": _quanta()}, ctx)
     unrelated = tmp_path / "unrelated.png"
     unrelated.write_bytes(_png_bytes())
     asset_id = ctx.registry.add_external(unrelated).asset_id
     inserted = _call("timeline_insert_clip", {"asset_id": asset_id, "duration": 9}, ctx)
     calls = _install_fakes(monkeypatch)
 
-    _call("assemble_deck", {}, ctx)
+    _call("assemble_quanta", {}, ctx)
     clips = ctx.project.load()["timeline"]["clips"]
     assert any(clip["id"] == inserted["clip_id"] and clip["track_id"] == "OV1" for clip in clips)
     assert calls["materialize"] == 1
 
 
-def test_assemble_deck_empty_deck_is_actionable(tmp_path) -> None:
+def test_assemble_quanta_empty_quanta_is_actionable(tmp_path) -> None:
     ctx = _ctx(tmp_path)
-    with pytest.raises(ValueError, match="deck is empty"):
-        _call("assemble_deck", {}, ctx)
+    with pytest.raises(ValueError, match="quanta is empty"):
+        _call("assemble_quanta", {}, ctx)
 
 
-def test_assemble_deck_is_registered_blocked_in_plan_and_budgeted() -> None:
-    assert "assemble_deck" in DISPATCHER
-    assert "stub" not in DISPATCHER["assemble_deck"].__qualname__.lower()
-    assert is_plan_safe("assemble_deck") is False
-    decision = BudgetGuard(max_usd=1, max_seconds=100).check("assemble_deck")
+def test_assemble_quanta_is_registered_blocked_in_plan_and_budgeted() -> None:
+    assert "assemble_quanta" in DISPATCHER
+    assert "stub" not in DISPATCHER["assemble_quanta"].__qualname__.lower()
+    assert is_plan_safe("assemble_quanta") is False
+    decision = BudgetGuard(max_usd=1, max_seconds=100).check("assemble_quanta")
     assert decision.ok is True and decision.estimated_eta_sec == 12.0

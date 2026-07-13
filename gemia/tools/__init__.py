@@ -43,12 +43,12 @@ from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import animate_captions as _animate_captions
 from gemia.tools import arrange_timeline as _arrange_timeline
 from gemia.tools import assemble_shotlist as _assemble_shotlist
-from gemia.tools import assemble_deck as _assemble_deck
+from gemia.tools import assemble_quanta as _assemble_quanta
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
 from gemia.tools import composite as _composite
-from gemia.tools import deck as _deck
-from gemia.tools import draft_deck as _draft_deck
+from gemia.tools import quanta as _quanta
+from gemia.tools import draft_quanta as _draft_quanta
 from gemia.tools import edit_audio as _edit_audio
 from gemia.tools import edit_image as _edit_image
 from gemia.tools import edit_video as _edit_video
@@ -79,7 +79,7 @@ from gemia.tools import search_library as _search_library
 from gemia.tools import search_media as _search_media
 from gemia.tools import draft_shotlist as _draft_shotlist
 from gemia.tools import refine_shot as _refine_shot
-from gemia.tools import refine_slide as _refine_slide
+from gemia.tools import refine_quantum as _refine_quantum
 from gemia.tools import search_frames as _search_frames
 from gemia.tools import shotlist as _shotlist
 from gemia.tools import smart_reframe as _smart_reframe
@@ -133,17 +133,17 @@ _REAL: dict[str, Dispatcher] = {
     "subtitle":           _subtitle.dispatch,
     "animate_captions":   _animate_captions.dispatch,
     "assemble_shotlist":  _assemble_shotlist.dispatch,
-    "assemble_deck":      _assemble_deck.dispatch,
+    "assemble_quanta":      _assemble_quanta.dispatch,
     "draft_shotlist":     _draft_shotlist.dispatch,
     "set_shotlist":       _shotlist.dispatch_set,
     "update_shot":        _shotlist.dispatch_update_shot,
     "get_shotlist":       _shotlist.dispatch_get,
     "refine_shot":        _refine_shot.dispatch,
-    "draft_deck":         _draft_deck.dispatch,
-    "set_deck":           _deck.dispatch_set,
-    "update_slide":       _deck.dispatch_update_slide,
-    "refine_slide":       _refine_slide.dispatch,
-    "get_deck":           _deck.dispatch_get,
+    "draft_quanta":         _draft_quanta.dispatch,
+    "set_quanta":           _quanta.dispatch_set,
+    "update_quantum":       _quanta.dispatch_update_quantum,
+    "refine_quantum":       _refine_quantum.dispatch,
+    "get_quanta":           _quanta.dispatch_get,
     "annotate_media":     _media_annotations.dispatch_annotate,
     "get_media_annotations": _media_annotations.dispatch_get,
     "write_media_annotation": _media_annotations.dispatch_write,
