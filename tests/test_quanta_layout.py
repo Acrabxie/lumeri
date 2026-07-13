@@ -8,6 +8,7 @@ import pytest
 
 from gemia.quanta import DEFAULT_QUANTA_TOKENS, QuantaLayoutError, layout_slide
 from gemia.project_model import normalize_quanta
+from gemia.quanta.traverse import flat_view
 from gemia.text import TextLayoutError, measure_text
 from gemia.video.fonts import get_font_catalog
 
@@ -59,7 +60,9 @@ def theme_tokens() -> dict[str, Any]:
 
 
 def _slide(raw: dict[str, Any]) -> dict[str, Any]:
-    return normalize_quanta({"slides": [raw]})["slides"][0]
+    # normalize now yields the canonical state tree; layout keeps consuming
+    # the flat view projection (state ids arrive scope-prefixed, e.g. s1_b1).
+    return flat_view(normalize_quanta({"slides": [raw]}))["slides"][0]
 
 
 def _placed(result: dict[str, Any], *, block_ref: str, kind: str, slot: str | None = None):
@@ -88,8 +91,8 @@ def test_title_template_exact_geometry_and_builds_do_not_reflow(theme_tokens) ->
              "visible_block_ids": ["hero", "accent", "title", "subtitle"]},
         ],
     })
-    first = layout_slide(slide, theme_tokens=theme_tokens, build_id="b1")
-    final = layout_slide(slide, theme_tokens=theme_tokens, build_id="b2")
+    first = layout_slide(slide, theme_tokens=theme_tokens, build_id=slide["builds"][0]["id"])
+    final = layout_slide(slide, theme_tokens=theme_tokens, build_id=slide["builds"][1]["id"])
 
     assert first["safe_rect_px"] == [160, 120, 1600, 840]
     assert _placed(first, block_ref="hero", kind="image")["rect_px"] == [0, 0, 1920, 1080]
@@ -113,7 +116,7 @@ def test_slide_title_is_chrome_but_matching_semantic_heading_is_not_duplicated(t
             {"id": "b2", "dwell_sec": 1, "visible_block_ids": ["body"]},
         ],
     })
-    first = layout_slide(chrome_slide, theme_tokens=theme_tokens, build_id="b1")
+    first = layout_slide(chrome_slide, theme_tokens=theme_tokens, build_id=chrome_slide["builds"][0]["id"])
     chrome = _placed(first, block_ref="slide:s-chrome:title", kind="text")
     assert chrome["rect_px"] == [160, 120, 1600, 160]
 
@@ -129,8 +132,8 @@ def test_slide_title_is_chrome_but_matching_semantic_heading_is_not_duplicated(t
             {"id": "b3", "dwell_sec": 1, "visible_block_ids": ["heading", "body"]},
         ],
     })
-    hidden = layout_slide(semantic_slide, theme_tokens=theme_tokens, build_id="b1")
-    shown = layout_slide(semantic_slide, theme_tokens=theme_tokens, build_id="b2")
+    hidden = layout_slide(semantic_slide, theme_tokens=theme_tokens, build_id=semantic_slide["builds"][0]["id"])
+    shown = layout_slide(semantic_slide, theme_tokens=theme_tokens, build_id=semantic_slide["builds"][1]["id"])
     assert hidden["placed_blocks"] == []
     assert [item["block_ref"] for item in shown["placed_blocks"]] == ["heading"]
 

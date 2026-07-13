@@ -284,7 +284,13 @@ class ProjectStore:
         tmp.replace(path)
 
 
-_QUANTA_PATCH_OPS = frozenset({"set_quanta", "update_quantum"})
+_QUANTA_PATCH_OPS = frozenset({
+    "set_quanta",
+    "patch_quantum",
+    "insert_quantum",
+    "remove_quantum",
+    "move_quantum",
+})
 _SHOTLIST_PATCH_OPS = frozenset({"set_shotlist", "update_shot"})
 
 

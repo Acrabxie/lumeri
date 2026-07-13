@@ -76,10 +76,11 @@ The function-calling schemas list the full set. The short version:
   full storyboard), `set_shotlist` / `update_shot` / `get_shotlist` (the
   storyboard plan), `assemble_shotlist` (lay it onto the timeline),
   `refine_shot` (edit one placed shot in place). See the storyboard playbook.
-- **Quanta / presentation** — `draft_quanta` (one-line theme or the current
-  shotlist → a full slide plan), `set_quanta` / `update_quantum` / `get_quanta`
-  (the quanta plan), `assemble_quanta` (builds → pager + timeline), then
-  `refine_quantum` for one assembled-page revision. See the quanta note below.
+- **Quanta / discrete video (presentation)** — `draft_quanta` (one-line theme
+  or the current shotlist → a full state tree), `set_quanta` / `update_quantum`
+  / `get_quanta` (the tree: patch/insert/remove/move any node), `assemble_quanta`
+  (states → pager + timeline), then `refine_quantum` for one assembled-scope
+  revision. See the quanta note below.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -125,20 +126,30 @@ renders until you assemble it, so it's cheap to draft and revise.
 Don't skip the plan and hand-place clips for multi-shot work: the shotlist is
 what makes the edit revisable, auditable, and undoable as one coherent story.
 
-## Making a quanta (presentation)
+## Making a quanta (discrete video / presentation)
 
-For quanta/presentation/PPT work, start with `draft_quanta` — a one-line theme
-plus a template (`pitch`/`report`/`teach`) scaffolds the whole slide plan, or
-`from_shotlist=true` converts an existing storyboard into slides. Then refine
-per slide with `update_quantum` (reword blocks, edit speaker notes, retune build
-dwell) instead of resending the whole quanta; `get_quanta` for the current slide
+A quanta is a DISCRETE VIDEO: one ordered state tree — groups (sections) →
+content scopes (a screen's blocks) → render states (what's visible, for how
+long). The DFS leaf order is the default path; a plain video is just the
+degenerate case (linear chain, auto advance, zero holds). Start with
+`draft_quanta` — a one-line theme plus a template (`pitch`/`report`/`teach`)
+scaffolds the whole tree, or `from_shotlist=true` converts an existing
+storyboard. Then edit NODES with `update_quantum` instead of resending the
+whole quanta: op='patch' rewords blocks/notes/dwell on one node, op='insert'/
+'remove'/'move' restructure (move IS the reorder verb), and `ops:[…]` batches
+several edits into one atomic undoable patch — e.g. remove a scope AND
+retarget the links that point at it. `get_quanta` shows the tree with quantum
 ids. Content lives in semantic blocks — text stays text, never baked into a
-generated image. Drafting and revising are free and undoable. When the plan is
-ready, call `assemble_quanta` to render every build, obtain the presentation
-pager URL, and lay the flattened build states onto the timeline for export.
-After assembly, use `refine_quantum` for one-page feedback: it revises the IR,
-rerenders only that page when the prior frame cache is current, and refreshes
-the dedicated Quanta timeline while preserving unrelated clips.
+generated image. Interaction links (hotspot jumps, scope exit edges) and
+hidden subtrees (appendix pages reachable only via links) make the tree more
+than a slide list. Drafting and revising are free and undoable. When ready,
+`assemble_quanta` renders every state, returns the presentation pager URL, and
+lays the flattened states onto the timeline for export — hidden subtrees and
+interaction edges stay out of the flatten and are reported as degradations,
+not silently dropped. After assembly, `refine_quantum` gives one-scope
+feedback: it patches the IR, rerenders only the containing scope when the
+frame cache is current, and refreshes the dedicated Quanta tracks while
+preserving unrelated clips.
 
 ## Working principles
 

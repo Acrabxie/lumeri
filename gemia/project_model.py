@@ -167,19 +167,30 @@ def iter_shots(shotlist: dict[str, Any]):
 
 
 # ── quanta IR ───────────────────────────────────────────────────────────────
-# The quanta is a slide/interaction plan (deck-interactive-video-plan §2.1) that
-# lives inside project_state next to the shotlist, so every mutation inherits
-# the append-only patch log (undo + audit) for free. Normalization here is
-# STRUCTURE-tolerant only: missing fields are backfilled, garbage entries are
-# dropped (but never a whole slide), ids are auto-filled. REFERENCE integrity
-# (duplicate ids, dangling build/link references, default_path coverage,
-# dwell_sec > 0) is deliberately NOT enforced here — lumerai.patches validates
-# it strictly at patch time so ProjectStore.load() can never raise on stored
-# state.
+# The quanta is a discrete video — one ordered state tree (quanta-kernel-plan
+# §2) living inside project_state next to the shotlist, so every mutation
+# inherits the append-only patch log (undo + audit) for free. Node kinds are
+# DERIVED from structure, never stored: a node declaring ``blocks`` is a
+# content scope (geometry solves once per scope); its children are state
+# leaves (discrete render states); everything above is a group. The v1 flat
+# ``{slides, default_path}`` shape stays accepted forever as authoring sugar
+# and lifts deterministically through ``gemia.quanta.traverse.lift_flat_quanta``.
+#
+# Normalization here is STRUCTURE-tolerant only: missing fields are
+# backfilled, garbage entries are dropped (but never a whole node), ids are
+# auto-filled. REFERENCE integrity (duplicate ids, dangling link targets,
+# hotspot blocks, dwell_sec > 0, nested content scopes, link mounts on
+# groups) is deliberately NOT enforced here — lumerai.patches validates it
+# strictly at patch time so ProjectStore.load() can never raise on stored
+# state. To keep that split honest, normalize deliberately PRESERVES the two
+# shapes validation must reject instead of silently stripping them: a state
+# child that authored ``blocks`` keeps them (nested-content rejection), and a
+# group that authored ``links`` keeps them (link-mount rejection).
 
-QUANTA_VERSION = 1
+QUANTA_VERSION = 2
 QUANTA_BLOCK_KINDS = {"text", "stat", "image", "shape", "group"}
 QUANTA_DEFAULT_DWELL = 3.0
+QUANTA_ADVANCE_MODES = {"wait", "auto"}
 _QUANTA_TRANSITIONS = {"cut", "fade"}  # v1 = cut + single-sided fade (spec §3.4)
 
 
@@ -187,8 +198,7 @@ def empty_quanta() -> dict[str, Any]:
     return {
         "version": QUANTA_VERSION,
         "theme": {"tokens": {}, "mood": "", "aspect": "16:9"},
-        "slides": [],
-        "default_path": [],
+        "root": {"id": "root", "children": []},
     }
 
 
@@ -275,31 +285,6 @@ def _quanta_leaf_block_ids(blocks: Any) -> list[str]:
     return ids
 
 
-def _normalize_build(
-    raw: Any,
-    *,
-    build_idx: int,
-    leaf_block_ids: list[str],
-) -> dict[str, Any]:
-    raw = raw if isinstance(raw, dict) else {}
-    # A missing/garbage dwell backfills to a sane default; an EXPLICIT numeric
-    # value is preserved even when <= 0 so strict validation can reject it.
-    visible_raw = raw.get("visible_block_ids")
-    # Backward compatibility: v1 quanta docs authored before build visibility existed
-    # meant "the whole slide" at every build. An explicit [] is meaningful and
-    # must remain an empty first state; only a missing/wrong-type value backfills.
-    visible = (
-        [str(item or "").strip() for item in visible_raw]
-        if isinstance(visible_raw, list)
-        else list(leaf_block_ids)
-    )
-    return {
-        "id": str(raw.get("id") or "") or f"b{build_idx + 1}",
-        "dwell_sec": _float_or(raw.get("dwell_sec"), QUANTA_DEFAULT_DWELL),
-        "visible_block_ids": visible,
-    }
-
-
 def _normalize_link(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -307,11 +292,65 @@ def _normalize_link(raw: Any) -> dict[str, Any] | None:
     target = str(raw.get("target") or "").strip()
     if not trigger or not target:
         return None
+    if target.startswith("slide:"):  # v1 grammar lifts to the v2 spelling
+        target = "quantum:" + target[len("slide:"):]
     return {"trigger": trigger, "target": target}
 
 
-def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
+def _normalize_state(
+    raw: Any,
+    *,
+    state_idx: int,
+    scope_id: str,
+    leaf_block_ids: list[str],
+    used_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """One discrete render state (v1's build). ``advance`` is presentation
+    semantics: wait = hold until interaction, auto = advance after dwell."""
     raw = raw if isinstance(raw, dict) else {}
+    visible_raw = raw.get("visible_block_ids")
+    # v1 builds authored before visibility existed meant "the whole scope" at
+    # every state. An explicit [] is meaningful and must remain an empty first
+    # state; only a missing/wrong-type value backfills.
+    visible = (
+        [str(item or "").strip() for item in visible_raw]
+        if isinstance(visible_raw, list)
+        else list(leaf_block_ids)
+    )
+    advance = str(raw.get("advance") or "wait").strip().lower()
+    authored = str(raw.get("id") or "")
+    state_id = authored or f"b{state_idx + 1}"
+    # Same rule as the flat lift: state ids are document-unique by scope
+    # prefix, and already-prefixed ids never re-prefix (round-trip stable).
+    if not state_id.startswith(f"{scope_id}_"):
+        state_id = f"{scope_id}_{state_id}"
+    if not authored and used_ids is not None and state_id in used_ids:
+        # Backfilled ids dodge occupied slots (an id-less state inserted
+        # among authored siblings must not collide); AUTHORED duplicates are
+        # kept verbatim so strict validation rejects them loudly.
+        bump = state_idx + 1
+        while f"{scope_id}_b{bump}" in used_ids:
+            bump += 1
+        state_id = f"{scope_id}_b{bump}"
+    state: dict[str, Any] = {
+        "id": state_id,
+        # A missing/garbage dwell backfills to a sane default; an EXPLICIT
+        # numeric value is preserved even when <= 0 so strict validation can
+        # reject it.
+        "dwell_sec": _float_or(raw.get("dwell_sec"), QUANTA_DEFAULT_DWELL),
+        "visible_block_ids": visible,
+        "advance": advance if advance in QUANTA_ADVANCE_MODES else "wait",
+        "hidden": bool(raw.get("hidden")),
+    }
+    if isinstance(raw.get("blocks"), list):
+        # Nested content under a content scope: preserved verbatim so strict
+        # validation can reject it loudly instead of normalize eating it.
+        state["blocks"] = list(raw["blocks"])
+    return state
+
+
+def _normalize_content_node(raw: dict[str, Any], *, fallback_id: str) -> dict[str, Any]:
+    """A content scope (v1's slide): blocks + state children."""
     blocks_raw = raw.get("blocks") if isinstance(raw.get("blocks"), list) else []
     blocks = [
         _normalize_quanta_block(block, block_path=(block_idx + 1,))
@@ -319,17 +358,38 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     ]
     blocks = [block for block in blocks if block is not None]
     leaf_block_ids = _quanta_leaf_block_ids(blocks)
-    builds_raw = raw.get("builds") if isinstance(raw.get("builds"), list) else []
-    builds = [
-        _normalize_build(build, build_idx=i, leaf_block_ids=leaf_block_ids)
-        for i, build in enumerate(builds_raw)
-        if isinstance(build, dict)
-    ]
-    if not builds:  # every slide has at least its full build-state
-        builds = [{
-            "id": "b1",
+    node_id = str(raw.get("id") or "") or fallback_id
+    # ``children`` is the tree spelling; ``builds`` stays accepted as v1 sugar.
+    # An op that sets ``builds`` explicitly must pop ``children`` first.
+    states_raw = raw.get("children")
+    if not isinstance(states_raw, list):
+        states_raw = raw.get("builds") if isinstance(raw.get("builds"), list) else []
+    states = []
+    used_state_ids: set[str] = {
+        str(state.get("id") or "")
+        for state in states_raw
+        if isinstance(state, dict) and str(state.get("id") or "")
+    }
+    used_state_ids |= {
+        f"{node_id}_{sid}" for sid in list(used_state_ids)
+        if not sid.startswith(f"{node_id}_")
+    }
+    for i, state in enumerate(states_raw):
+        if not isinstance(state, dict):
+            continue
+        normalized_state = _normalize_state(
+            state, state_idx=i, scope_id=node_id,
+            leaf_block_ids=leaf_block_ids, used_ids=used_state_ids,
+        )
+        used_state_ids.add(normalized_state["id"])
+        states.append(normalized_state)
+    if not states:  # every scope has at least its full render state
+        states = [{
+            "id": f"{node_id}_b1",
             "dwell_sec": QUANTA_DEFAULT_DWELL,
             "visible_block_ids": list(leaf_block_ids),
+            "advance": "wait",
+            "hidden": False,
         }]
     links_raw = raw.get("links") if isinstance(raw.get("links"), list) else []
     links = [_normalize_link(link) for link in links_raw]
@@ -338,45 +398,144 @@ def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
     if kind not in _QUANTA_TRANSITIONS:
         kind = "cut"
     return {
-        "id": str(raw.get("id") or "") or f"s{slide_idx + 1}",
+        "id": node_id,
         "layout": str(raw.get("layout") or "content"),
         "title": str(raw.get("title") or ""),
         "blocks": blocks,
         "notes": str(raw.get("notes") or ""),
         "mood_override": _optional_str(raw.get("mood_override")),
-        "builds": builds,
         "links": [link for link in links if link is not None],
         "transition": {"kind": kind},
+        "hidden": bool(raw.get("hidden")),
+        "children": states,
     }
 
 
-def normalize_quanta(raw: Any) -> dict[str, Any]:
-    """Coerce a (possibly partial, model-authored) quanta into canonical shape.
+def _normalize_group_node(
+    raw: dict[str, Any],
+    *,
+    fallback_id: str,
+    node_path: tuple[int, ...],
+    _ancestors: frozenset[int],
+) -> dict[str, Any]:
+    group: dict[str, Any] = {
+        "id": str(raw.get("id") or "") or fallback_id,
+        "title": str(raw.get("title") or ""),
+        "hidden": bool(raw.get("hidden")),
+        "children": _normalize_quanta_children(
+            raw.get("children"), node_path=node_path, _ancestors=_ancestors
+        ),
+    }
+    if isinstance(raw.get("links"), list):
+        # Groups cannot mount interaction edges in v1 — preserved verbatim so
+        # strict validation rejects loudly instead of normalize eating them.
+        group["links"] = [
+            link
+            for link in (_normalize_link(item) for item in raw["links"])
+            if link is not None
+        ]
+    return group
 
-    Never raises — mirror of ``normalize_shotlist``. A missing/empty
-    ``default_path`` is backfilled to cover every slide in order; a PROVIDED
-    one is kept verbatim so strict validation can reject a bad cover.
+
+def _normalize_quanta_children(
+    raw_children: Any,
+    *,
+    node_path: tuple[int, ...],
+    _ancestors: frozenset[int],
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_children, list):
+        return []
+    if len(node_path) >= 32:
+        return []
+    out: list[dict[str, Any]] = []
+    for child_idx, child in enumerate(raw_children):
+        if not isinstance(child, dict):
+            continue
+        identity = id(child)
+        if identity in _ancestors:
+            continue
+        child_path = (*node_path, child_idx + 1)
+        fallback_id = "q" + "_".join(str(part) for part in child_path)
+        if isinstance(child.get("blocks"), list):
+            out.append(_normalize_content_node(child, fallback_id=fallback_id))
+        else:
+            out.append(_normalize_group_node(
+                child,
+                fallback_id=fallback_id,
+                node_path=child_path,
+                _ancestors=_ancestors | {identity},
+            ))
+    return out
+
+
+def _normalize_slide(raw: Any, *, slide_idx: int) -> dict[str, Any]:
+    """Normalize one v1 flat slide (kept as the lift sugar's front half)."""
+    raw = raw if isinstance(raw, dict) else {}
+    node = _normalize_content_node(dict(raw), fallback_id=f"s{slide_idx + 1}")
+    builds = [
+        {
+            "id": state["id"],
+            "dwell_sec": state["dwell_sec"],
+            "visible_block_ids": state["visible_block_ids"],
+            "advance": state["advance"],
+        }
+        for state in node.pop("children")
+    ]
+    node.pop("hidden", None)
+    hidden = bool(raw.get("hidden")) if isinstance(raw, dict) else False
+    slide = {**node, "builds": builds}
+    if hidden:
+        slide["hidden"] = True
+    return slide
+
+
+def normalize_quanta(raw: Any) -> dict[str, Any]:
+    """Coerce a (possibly partial, model-authored) quanta into the canonical
+    v2 state tree. Never raises — mirror of ``normalize_shotlist``.
+
+    Accepts either the v2 tree (``root``) or the v1 flat authoring sugar
+    (``slides`` [+ ``default_path``], which orders the lifted scopes and is
+    then dropped — DFS leaf order IS the default path in v2).
     """
     if not isinstance(raw, dict):
         return empty_quanta()
     theme_raw = raw.get("theme") if isinstance(raw.get("theme"), dict) else {}
     tokens = theme_raw.get("tokens") if isinstance(theme_raw.get("tokens"), dict) else {}
+    theme = {
+        "tokens": dict(tokens),
+        "mood": str(theme_raw.get("mood") or ""),
+        "aspect": str(theme_raw.get("aspect") or "16:9"),
+    }
+    root_raw = raw.get("root")
+    if isinstance(root_raw, dict):
+        return {
+            "version": QUANTA_VERSION,
+            "theme": theme,
+            "root": {
+                "id": "root",
+                "children": _normalize_quanta_children(
+                    root_raw.get("children"),
+                    node_path=(),
+                    _ancestors=frozenset({id(root_raw)}),
+                ),
+            },
+        }
+    # v1 flat sugar: normalize slides first, then lift deterministically.
+    from gemia.quanta.traverse import lift_flat_quanta  # deferred: keeps model import light
+
     slides_raw = raw.get("slides") if isinstance(raw.get("slides"), list) else []
     slides = [_normalize_slide(slide, slide_idx=i) for i, slide in enumerate(slides_raw)]
     path_raw = raw.get("default_path") if isinstance(raw.get("default_path"), list) else []
     default_path = [str(item) for item in path_raw if str(item or "")]
-    if not default_path:
-        default_path = [slide["id"] for slide in slides]
-    return {
-        "version": QUANTA_VERSION,
-        "theme": {
-            "tokens": dict(tokens),
-            "mood": str(theme_raw.get("mood") or ""),
-            "aspect": str(theme_raw.get("aspect") or "16:9"),
-        },
+    lifted = lift_flat_quanta({
+        "version": 1,
+        "theme": theme,
         "slides": slides,
         "default_path": default_path,
-    }
+    })
+    # Lift output is canonical except for state-id backfill spelling; one
+    # more tree pass keeps ``normalize(normalize(x)) == normalize(x)`` exact.
+    return normalize_quanta(lifted)
 
 
 def normalize_project(

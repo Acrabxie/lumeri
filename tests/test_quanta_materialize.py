@@ -78,10 +78,10 @@ def test_render_quanta_frames_follows_default_path_then_build_order_and_is_stabl
     quanta = _quanta(font_tokens)
     first = render_quanta_frames(quanta)
     second = render_quanta_frames(quanta)
-    assert [(f.slide_id, f.build_id, f.dwell_sec) for f in first] == [
-        ("s2", "b1", 3.0), ("s1", "b1", 1.0), ("s1", "b2", 2.0),
+    assert [(f.scope_id, f.state_id, f.dwell_sec) for f in first] == [
+        ("s2", "s2_b1", 3.0), ("s1", "s1_b1", 1.0), ("s1", "s1_b2", 2.0),
     ]
-    assert [(f.slide_index, f.build_index) for f in first] == [(0, 0), (1, 0), (1, 1)]
+    assert [(f.scope_index, f.state_index) for f in first] == [(0, 0), (1, 0), (1, 1)]
     assert [frame.png_bytes for frame in first] == [frame.png_bytes for frame in second]
     assert all(Image.open(BytesIO(frame.png_bytes)).size == (1920, 1080) for frame in first)
     assert first[1].placed_slide["placed_blocks"] == []
@@ -102,7 +102,7 @@ def test_render_quanta_frames_tracks_image_lineage_and_scale(font_tokens) -> Non
     assert frame.source_asset_ids == ("source_1",)
     assert Image.open(BytesIO(frame.png_bytes)).size == (3840, 2160)
     assert frame.manifest_entry("img_009") == {
-        "slide_index": 0, "build_index": 0, "slide_id": "image-slide", "build_id": "b1",
+        "scope_index": 0, "state_index": 0, "scope_id": "image-slide", "state_id": "image-slide_b1",
         "dwell_sec": 3.0, "asset_id": "img_009", "source_asset_ids": ["source_1"],
         "overflow": [],
     }
@@ -133,10 +133,20 @@ def test_missing_image_and_bad_default_path_are_actionable(font_tokens) -> None:
     with pytest.raises(QuantaMaterializeError, match="missing from image_sources"):
         render_quanta_frames(image_quanta)
 
-    quanta = _quanta(font_tokens)
-    quanta["default_path"] = ["s1"]
+    # the canonical tree structurally eliminates bad default_path; the raw
+    # flat-view contract at this seam still rejects one that slips through
+    raw_flat = {
+        "theme": {"tokens": font_tokens},
+        "slides": [
+            {"id": "s1", "layout": "content", "title": "", "blocks": [],
+             "builds": [{"id": "b1", "dwell_sec": 1, "visible_block_ids": []}]},
+            {"id": "s2", "layout": "content", "title": "", "blocks": [],
+             "builds": [{"id": "b1", "dwell_sec": 1, "visible_block_ids": []}]},
+        ],
+        "default_path": ["s1"],
+    }
     with pytest.raises(QuantaMaterializeError, match="cover every slide"):
-        render_quanta_frames(quanta)
+        render_quanta_frames(raw_flat)
 
 
 def test_pager_url_has_only_validated_session_and_frame_references(font_tokens) -> None:
@@ -170,10 +180,10 @@ def test_manifest_pager_rejects_invalid_indices() -> None:
     with pytest.raises(QuantaMaterializeError, match="non-negative"):
         build_quanta_pager_url_from_manifest(
             "session_1",
-            [{"slide_index": -1, "build_index": 0, "asset_id": "img_001"}],
+            [{"scope_index": -1, "state_index": 0, "asset_id": "img_001"}],
         )
     with pytest.raises(QuantaMaterializeError, match="integers"):
         build_quanta_pager_url_from_manifest(
             "session_1",
-            [{"slide_index": "bad", "build_index": 0, "asset_id": "img_001"}],
+            [{"scope_index": "bad", "state_index": 0, "asset_id": "img_001"}],
         )

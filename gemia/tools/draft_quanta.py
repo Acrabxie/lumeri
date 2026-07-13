@@ -402,27 +402,32 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         drafted = build_quanta(theme, template=template, lang=lang)
         source = "theme"
 
-    slide_count = len(drafted["slides"])
+    scope_count = len(drafted["slides"])
+    state_count = sum(
+        len(slide.get("builds") or []) or 1 for slide in drafted["slides"]
+    )
     if not replace:
         return {
             "drafted": True, "persisted": False, "source": source,
-            "template": template, "language": lang, "slide_count": slide_count,
+            "template": template, "language": lang,
+            "scope_count": scope_count, "state_count": state_count,
             "quanta": drafted,
             "quanta_text": _quanta.render_quanta_text(drafted),
-            "summary": f"drafted a {slide_count}-slide quanta from {source} — NOT persisted (replace=false)",
+            "summary": f"drafted a {scope_count}-scope quanta from {source} — NOT persisted (replace=false)",
         }
 
     result = project.apply_ops([{"op": "set_quanta", "quanta": drafted}], label="draft_quanta")
     stored = (project.load() or {}).get("quanta") or {}
+    stored_scopes, stored_states = _quanta._counts(stored)
     return {
         "drafted": True, "persisted": True, "source": source,
         "template": template, "language": lang,
         "seq": result.get("patch_seq_end"),
-        "slide_count": len(stored.get("slides") or []),
+        "scope_count": stored_scopes, "state_count": stored_states,
         "quanta_text": _quanta.render_quanta_text(stored),
         "summary": (
-            f"drafted a {slide_count}-slide quanta from {source} and set it as the quanta — "
-            "now refine wording/blocks/dwell per slide with update_quantum "
+            f"drafted a {scope_count}-scope quanta from {source} and set it as the quanta — "
+            "now refine wording/blocks/dwell per scope with update_quantum "
             "(get_quanta to re-read ids). A scaffold: revise before presenting."
         ),
     }

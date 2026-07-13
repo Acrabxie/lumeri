@@ -627,7 +627,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "draft_quanta",
-        "Draft a COMPLETE presentation quanta (slide plan) in one call — the START of any quanta task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into slides (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→build dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative build visibility. It REPLACES the current quanta (replace=false previews without persisting). A scaffold — refine per slide with update_quantum after.",
+        "Draft a COMPLETE quanta (a discrete video: an ordered tree of content scopes and render states) in one call — the START of any quanta task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into scopes (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→state dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative state visibility. It REPLACES the current quanta (replace=false previews without persisting). A scaffold — refine per node with update_quantum after.",
         {
             "theme": {"type": "string", "description": "One line describing the quanta, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
             "template": {"type": "string", "enum": ["pitch", "report", "teach"], "description": "Structure for theme mode. Default 'pitch'."},
@@ -639,13 +639,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "set_quanta",
-        "Set or replace the WHOLE quanta IR (presentation plan) when you already have the full structure — for a fresh scaffold prefer draft_quanta, and for single-slide edits prefer update_quantum. Slides hold semantic content blocks (text/stat/image/shape/group — content truth, never pixels), speaker notes, ordered builds, interaction links, and a transition. Each build is a FULL cumulative snapshot in visible_block_ids (leaf ids only): snapshots must be monotonic and the final build must exactly cover every leaf. STRICTLY validated: duplicate slide/block/build ids, invalid build visibility, dangling slide links, incomplete default_path, or dwell_sec <= 0 are rejected (E_BAD_ARG). Legacy builds without visible_block_ids backfill to all leaves. Persisted + undoable.",
+        "Set or replace the WHOLE quanta — a DISCRETE VIDEO: one ordered state tree. For a fresh scaffold prefer draft_quanta; for node edits prefer update_quantum. Two accepted shapes: (a) flat authoring sugar {slides:[…]} (below) — lifts deterministically into the tree, slide→content scope, builds→state children, default_path orders scopes then disappears (DFS leaf order IS the default path); (b) the full tree {root:{children:[…]}} with group nodes (title+children, may nest), content scopes (blocks+state children), and states ({visible_block_ids, dwell_sec, advance:'wait'|'auto', hidden}). Content truth lives in semantic blocks (text/stat/image/shape/group — never pixels). Each state is a FULL cumulative snapshot in visible_block_ids (leaf ids only): monotonic, final state exactly covers every leaf. Any node takes hidden:true — outside the default walk and mp4, reachable only via explicit links (appendix pattern). STRICTLY validated (E_BAD_ARG): duplicate quantum/block ids, nested content scopes, invalid visibility, links mounted on groups, hotspot blocks outside their scope, dangling link targets (every edge enumerated), dwell_sec <= 0. Persisted + undoable.",
         {
             "quanta": {
                 "type": "object",
                 "description": "The quanta plan.",
                 "properties": {
-                    "version": {"type": "integer", "description": "IR version. Currently 1 (optional; backfilled)."},
+                    "version": {"type": "integer", "description": "IR version (optional; backfilled — stored canonical form is the v2 tree)."},
                     "theme": {
                         "type": "object",
                         "description": "Quanta-level look: one mood for the WHOLE quanta (per-slide moods read as collage).",
@@ -657,11 +657,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                     "slides": {
                         "type": "array",
-                        "description": "Ordered slides.",
+                        "description": "Flat authoring sugar: ordered content scopes (each lifts to a tree node; builds lift to state children with document-unique prefixed ids like s1_b1).",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "id": {"type": "string", "description": "Stable slide id you will reference in update_quantum/links/default_path (optional; auto-filled)."},
+                                "id": {"type": "string", "description": "Stable quantum id you will reference in update_quantum/links (optional; auto-filled)."},
                                 "layout": {"type": "string", "description": "Layout template name, e.g. 'title', 'content', 'stat', 'full-bleed'."},
                                 "title": {"type": "string", "description": "Slide heading."},
                                 "blocks": {
@@ -690,17 +690,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                                 "notes": {"type": "string", "description": "Speaker notes (the shotlist narration's descendant)."},
                                 "builds": {
                                     "type": "array",
-                                    "description": "Ordered build states. visible_block_ids is the FULL cumulative leaf-id snapshot for that state (not a delta); it may start empty, must only grow, and the final state must exactly cover every renderable leaf. Missing/wrong-type visibility on legacy input backfills all leaves. dwell_sec (> 0) is the autoplay/mp4 hold; presentation mode holds until interaction.",
+                                    "description": "Ordered render states (the discrete video's frames-of-meaning). visible_block_ids is the FULL cumulative leaf-id snapshot for that state (not a delta); it may start empty, must only grow, and the final state must exactly cover every renderable leaf. Missing/wrong-type visibility on legacy input backfills all leaves. dwell_sec (> 0) is the autoplay/mp4 hold; advance 'wait' (default) holds at this state until interaction in presentation mode, 'auto' advances after dwell.",
                                     "items": {"type": "object", "properties": {
                                         "id": {"type": "string"},
                                         "dwell_sec": {"type": "number"},
+                                        "advance": {"type": "string", "enum": ["wait", "auto"], "description": "Presentation semantics: wait = hold until interaction (default), auto = advance after dwell."},
                                         "visible_block_ids": {"type": "array", "items": {"type": "string"}, "description": "Unique ids of every leaf visible at this state. Group ids are invalid."}}},
                                 },
                                 "links": {
                                     "type": "array",
-                                    "description": "Interaction out-edges; omit for the implicit advance. target: 'next', 'slide:<id>', or 'url:<https url>'.",
+                                    "description": "Interaction out-edges (跃迁); omit for the implicit advance. Mount on content scopes (applies to all its states; advance = the scope's EXIT edge) or on a state (overrides itself). target: 'next', 'quantum:<id>', or 'url:<https url>'. hotspot blocks must exist in this scope.",
                                     "items": {"type": "object", "properties": {
-                                        "trigger": {"type": "string", "description": "'advance' or 'hotspot:<block ref>'."},
+                                        "trigger": {"type": "string", "description": "'advance' or 'hotspot:<leaf block id>'."},
                                         "target": {"type": "string"}}},
                                 },
                                 "transition": {
@@ -711,7 +712,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                             },
                         },
                     },
-                    "default_path": {"type": "array", "items": {"type": "string"}, "description": "Slide-id order for autoplay/mp4 flattening. Must cover every slide exactly once (backfilled to slide order if omitted)."},
+                    "default_path": {"type": "array", "items": {"type": "string"}, "description": "Flat-sugar only: orders the lifted scopes, then disappears — in the tree, DFS leaf order IS the default path; reorder with update_quantum op='move'."},
+                    "root": {"type": "object", "description": "Tree shape (alternative to slides): {id:'root', children:[group|content nodes]}. group={id,title,hidden,children}; content={id,layout,title,blocks,notes,links,transition,hidden,children:[states]}; state={id,visible_block_ids,dwell_sec,advance,hidden}."},
                 },
             },
         },
@@ -719,40 +721,49 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "update_quantum",
-        "Revise ONE slide in the current quanta by id without resending the whole plan — reword blocks/title/notes, retune cumulative build visibility/dwell, change links, layout, or transition (any subset of fields). The slide 'id' itself cannot be changed. If block ids change, update visible_block_ids in the same call; each full snapshot must grow monotonically and end with every leaf visible. Persisted + undoable.",
+        "The EDIT TREE's single entry point: revise any node of the quanta state tree by document-unique id, one op or an atomic batch. op='patch' (default) merges 'fields' into one node — reword blocks/title/notes, retune state visibility/dwell/advance, change links/layout/transition/hidden; a content node's fields.builds replaces its states wholesale (v1 sugar); 'id'/'children' cannot be patched. op='insert' adds a whole subtree ('quantum') under 'parent_id' at 'index' (states under content scopes; groups/content under groups or root). op='remove' detaches a subtree — if other links point into it the batch is rejected with EVERY dangling edge enumerated; retarget them in the SAME call via 'ops'. op='move' reorders/reparents ('quantum_id' → 'parent_id' + 'index') — this is how you reorder the default path (DFS leaf order). 'ops' runs several edits as ONE atomic undoable patch, order-independent for reference integrity. Persisted + undoable.",
         {
-            "slide_id": {"type": "string", "description": "The slide's id (from set_quanta / get_quanta)."},
+            "op": {"type": "string", "enum": ["patch", "insert", "remove", "move"], "description": "Single-op mode. Default 'patch'."},
+            "quantum_id": {"type": "string", "description": "Target node id (patch/remove/move). From get_quanta."},
             "fields": {
                 "type": "object",
-                "description": "Fields to merge, e.g. {title, blocks, notes, builds, links, layout, transition, mood_override}.",
+                "description": "patch: fields to merge, e.g. {title, blocks, notes, builds, links, layout, transition, mood_override, hidden} on a content scope; {visible_block_ids, dwell_sec, advance, hidden} on a state; {title, hidden} on a group.",
                 "properties": {
                     "layout": {"type": "string"},
                     "title": {"type": "string"},
                     "blocks": {"type": "array", "items": {"type": "object"}},
                     "notes": {"type": "string"},
                     "mood_override": {"type": "string"},
-                    "builds": {"type": "array", "items": {"type": "object"}},
+                    "builds": {"type": "array", "items": {"type": "object"}, "description": "Content scopes: replace the state children wholesale (v1 sugar)."},
                     "links": {"type": "array", "items": {"type": "object"}},
                     "transition": {"type": "object"},
+                    "hidden": {"type": "boolean"},
+                    "visible_block_ids": {"type": "array", "items": {"type": "string"}},
+                    "dwell_sec": {"type": "number"},
+                    "advance": {"type": "string", "enum": ["wait", "auto"]},
                 },
             },
+            "parent_id": {"type": "string", "description": "insert/move: destination parent ('root' or a group id; a content scope id when inserting/moving states)."},
+            "index": {"type": "integer", "description": "insert/move: position among the parent's children (default: end)."},
+            "quantum": {"type": "object", "description": "insert: the new subtree — a state ({visible_block_ids,dwell_sec,advance}), a content scope ({blocks,…,children:[states]}), or a group ({title,children})."},
+            "ops": {"type": "array", "items": {"type": "object"}, "description": "Atomic batch: [{op, …}, …] applied as one undoable patch (e.g. remove a quantum AND retarget its in-edges together)."},
         },
-        ["slide_id", "fields"],
+        [],
     ),
     _tool(
         "get_quanta",
-        "Read the current quanta (presentation plan): each slide's id, layout, block kinds, build count/dwell, title, notes, and non-default links, plus the full IR. Call before revising slides so you use the right slide ids.",
+        "Read the current quanta state tree: groups as indented sections, each content scope's id, layout, block kinds, state count/dwell, title, notes, non-default links and hidden marks, plus the full tree IR. Call before revising so you use the right quantum ids.",
         {},
         [],
     ),
     _tool(
         "refine_quantum",
-        "Revise ONE slide in an assembled quanta and immediately refresh the presentation pager + dedicated Quanta timeline. With a current frame cache it rerenders only that slide and reuses every unchanged slide frame; if the quanta was not assembled or the cache is stale, it safely materializes the whole quanta. Use update_quantum instead while still planning. Unrelated timeline clips survive.",
+        "Revise ONE quantum (a content scope or one of its states) in an assembled quanta and immediately refresh the presentation pager + dedicated Quanta timeline. Rematerialization is subtree-granular: with a current frame cache it rerenders only the containing content scope and reuses every unchanged scope's frames; if the quanta was not assembled or the cache is stale, it safely materializes the whole quanta. Use update_quantum instead while still planning. Unrelated timeline clips survive.",
         {
-            "slide_id": {"type": "string", "description": "The slide id from get_quanta."},
+            "quantum_id": {"type": "string", "description": "The quantum id (content scope or state) from get_quanta."},
             "fields": {
                 "type": "object",
-                "description": "Fields to merge into this slide: layout, title, blocks, notes, mood_override, builds, links, or transition.",
+                "description": "Fields to merge into this quantum: layout, title, blocks, notes, mood_override, builds, links, transition (content scope) or visible_block_ids, dwell_sec, advance (state).",
                 "properties": {
                     "layout": {"type": "string"},
                     "title": {"type": "string"},
@@ -764,15 +775,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "transition": {"type": "object"},
                 },
             },
-            "fail_on_overflow": {"type": "boolean", "description": "When true, leave the valid IR edit in place but refuse timeline refresh if any slide still overflows."},
+            "fail_on_overflow": {"type": "boolean", "description": "When true, leave the valid IR edit in place but refuse timeline refresh if any scope still overflows."},
         },
-        ["slide_id", "fields"],
+        ["quantum_id", "fields"],
     ),
     _tool(
         "assemble_quanta",
-        "Materialize the current quanta into every build-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Quanta timeline tracks in default_path/build order using each build's dwell_sec. Re-running the same quanta reuses the frame cache and replaces only the dedicated Quanta tracks; unrelated timeline clips survive. Current MP4 flattening renders cut transitions; authored fade transitions are reported as explicit degradations.",
+        "Materialize the current quanta into every render-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Quanta timeline tracks in DFS leaf order using each state's dwell_sec. Hidden subtrees stay out of the flatten (they are interaction-only). Re-running the same quanta reuses the frame cache and replaces only the dedicated Quanta tracks; unrelated timeline clips survive. MP4 flattening never follows interaction edges: authored fades and discarded interaction links are reported as explicit degradations (fade_to_cut, interaction_flattened).",
         {
-            "fail_on_overflow": {"type": "boolean", "description": "When true, refuse to assemble if any text still overflows after the two allowed autofit steps. Default false returns overflow details for refine."},
+            "fail_on_overflow": {"type": "boolean", "description": "When true, refuse to assemble if any text still overflows after the two allowed autofit steps. Default false returns overflow details for refine_quantum."},
         },
         [],
     ),

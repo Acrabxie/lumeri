@@ -60,8 +60,8 @@ def _install_fakes(monkeypatch):
         calls["materialize"] += 1
         asset_ids = []
         frames = []
-        specs = [("s2", "b1", 3.0), ("s1", "b1", 1.0), ("s1", "b2", 2.0)]
-        for index, (slide_id, build_id, dwell) in enumerate(specs):
+        specs = [("s2", "s2_b1", 3.0), ("s1", "s1_b1", 1.0), ("s1", "s1_b2", 2.0)]
+        for index, (scope_id, state_id, dwell) in enumerate(specs):
             asset_id = ctx.registry.allocate_id("image")
             path = ctx.child_path(asset_id, ".png")
             path.write_bytes(_png_bytes())
@@ -70,17 +70,17 @@ def _install_fakes(monkeypatch):
             )
             asset_ids.append(asset_id)
             frames.append({
-                "slide_index": 0 if slide_id == "s2" else 1,
-                "build_index": 0 if build_id == "b1" else 1,
-                "slide_id": slide_id, "build_id": build_id,
+                "scope_index": 0 if scope_id == "s2" else 1,
+                "state_index": 0 if state_id.endswith("_b1") else 1,
+                "scope_id": scope_id, "state_id": state_id,
                 "dwell_sec": dwell, "asset_id": asset_id,
                 "source_asset_ids": [], "overflow": [],
             })
         return {
             "kind": "quanta", "asset_id": asset_ids[0], "frame_asset_ids": asset_ids,
             "frames": frames, "pager_url": "/v3/quanta.html?session_id=session_1",
-            "first_build_pager_url": "/v3/quanta.html?session_id=session_1",
-            "slide_count": 2, "frame_count": 3, "overflow": [],
+            "first_state_pager_url": "/v3/quanta.html?session_id=session_1",
+            "scope_count": 2, "frame_count": 3, "overflow": [],
             "summary": "rendered",
         }
 
@@ -126,7 +126,7 @@ def test_assemble_quanta_atomically_rebuilds_dedicated_tracks_and_reuses_cache(t
     assert [(clip["start"], clip["duration"]) for clip in frames] == [
         (0.0, 3.0), (3.0, 1.0), (4.0, 2.0),
     ]
-    assert [clip["provenance"]["slide_id"] for clip in frames] == ["s2", "s1", "s1"]
+    assert [clip["provenance"]["scope_id"] for clip in frames] == ["s2", "s1", "s1"]
     first_frame_ids = list(first["frame_asset_ids"])
     asset_count = len(state["assets"])
 

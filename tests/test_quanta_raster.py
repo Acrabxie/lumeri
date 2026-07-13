@@ -10,6 +10,7 @@ import pytest
 
 from gemia.quanta import QuantaRasterError, layout_slide, rasterize_slide
 from gemia.project_model import normalize_quanta
+from gemia.quanta.traverse import flat_view
 from gemia.text import TextLayoutError, measure_text
 from gemia.video.fonts import get_font_catalog
 
@@ -75,11 +76,11 @@ def _font(sample="Lumeri") -> tuple[dict[str, Any], int]:
         except TextLayoutError:
             continue
         # Resolve the exact TTC face through the public layout result.
-        slide = normalize_quanta({"slides": [{
+        slide = flat_view(normalize_quanta({"slides": [{
             "id": "font", "layout": "content", "blocks": [
                 {"id": "text", "kind": "text", "text": sample},
             ],
-        }]})["slides"][0]
+        }]}))["slides"][0]
         overrides = {
             "font.latin.display": config, "font.latin.body": config,
             "font.latin.strong": config, "font.cjk.display": config,
@@ -228,10 +229,10 @@ def test_layout_to_raster_cjk_gold_standard_when_hiragino_is_available() -> None
     hiragino = Path("/System/Library/Fonts/Hiragino Sans GB.ttc")
     if not hiragino.exists():
         pytest.skip("macOS Hiragino fixture unavailable")
-    slide = normalize_quanta({"slides": [{
+    slide = flat_view(normalize_quanta({"slides": [{
         "id": "cjk", "layout": "content", "title": "中文标题",
         "blocks": [{"id": "body", "kind": "text", "text": "中文首帧清晰可见"}],
-    }]})["slides"][0]
+    }]}))["slides"][0]
     placed = layout_slide(slide)
     body = next(item for item in placed["placed_blocks"] if item.get("block_ref") == "body")
     assert body["contains_cjk"] is True

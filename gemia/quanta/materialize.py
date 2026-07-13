@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from gemia.quanta.layout import QuantaLayoutError, layout_slide
 from gemia.quanta.raster import QuantaRasterError, rasterize_slide
+from gemia.quanta.traverse import flat_view, is_tree_doc
 
 
 class QuantaMaterializeError(ValueError):
@@ -20,10 +21,10 @@ _SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 @dataclass(frozen=True)
 class RenderedQuantaFrame:
-    slide_index: int
-    build_index: int
-    slide_id: str
-    build_id: str
+    scope_index: int
+    state_index: int
+    scope_id: str
+    state_id: str
     dwell_sec: float
     png_bytes: bytes
     placed_slide: dict[str, Any]
@@ -37,10 +38,10 @@ class RenderedQuantaFrame:
     def manifest_entry(self, asset_id: str) -> dict[str, Any]:
         asset = _asset_id(asset_id)
         return {
-            "slide_index": self.slide_index,
-            "build_index": self.build_index,
-            "slide_id": self.slide_id,
-            "build_id": self.build_id,
+            "scope_index": self.scope_index,
+            "state_index": self.state_index,
+            "scope_id": self.scope_id,
+            "state_id": self.state_id,
             "dwell_sec": self.dwell_sec,
             "asset_id": asset,
             "source_asset_ids": list(self.source_asset_ids),
@@ -107,9 +108,17 @@ def render_quanta_frames(
     scale: int = 1,
     fail_on_overflow: bool = False,
 ) -> tuple[RenderedQuantaFrame, ...]:
-    """Render every build in ``default_path`` order without filesystem access."""
+    """Render every state in walk order without filesystem access.
+
+    Consumes the canonical FLAT VIEW (``gemia.quanta.traverse.flat_view`` of
+    the state tree, or any canonical v1-shaped quanta): the tree stays the
+    source of truth one layer up; geometry solves once per content scope and
+    states only filter visibility.
+    """
     if not isinstance(quanta, Mapping):
         raise QuantaMaterializeError("quanta must be a mapping")
+    if is_tree_doc(quanta):
+        quanta = flat_view(quanta)
     theme = quanta.get("theme")
     theme = theme if isinstance(theme, Mapping) else {}
     tokens = theme.get("tokens")
@@ -139,10 +148,10 @@ def render_quanta_frames(
                 ))
                 png = rasterize_slide(placed, image_sources=sources, scale=scale)
                 frames.append(RenderedQuantaFrame(
-                    slide_index=slide_index,
-                    build_index=build_index,
-                    slide_id=slide_id,
-                    build_id=str(placed.get("build_id") or "b1"),
+                    scope_index=slide_index,
+                    state_index=build_index,
+                    scope_id=slide_id,
+                    state_id=str(placed.get("build_id") or "b1"),
                     dwell_sec=float(placed.get("dwell_sec") or 0.0),
                     png_bytes=png,
                     placed_slide=placed,
@@ -167,8 +176,8 @@ def build_quanta_pager_url(
         raise QuantaMaterializeError("frame_asset_ids must match rendered frames one-for-one")
     entries = [
         {
-            "slide_index": frame.slide_index,
-            "build_index": frame.build_index,
+            "scope_index": frame.scope_index,
+            "state_index": frame.state_index,
             "asset_id": asset_id,
         }
         for frame, asset_id in zip(frames, frame_asset_ids)
@@ -194,8 +203,8 @@ def build_quanta_pager_url_from_manifest(
     try:
         pairs = [
             (
-                int(frame.get("slide_index", -1)),
-                int(frame.get("build_index", -1)),
+                int(frame.get("scope_index", -1)),
+                int(frame.get("state_index", -1)),
                 _asset_id(frame.get("asset_id")),
             )
             for frame in frames

@@ -15,7 +15,7 @@ from gemia.text import TextLayoutError, measure_text
 from gemia.tools._context import AssetRegistry, ToolContext
 from gemia.tools.quanta_frames import (
     materialize_quanta_frame_assets,
-    rematerialize_quanta_slide_assets,
+    rematerialize_quanta_scope_assets,
 )
 from gemia.video.fonts import get_font_catalog
 
@@ -83,7 +83,7 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
     result = materialize_quanta_frame_assets(quanta, ctx)
 
     assert result["kind"] == "quanta" and result["frame_count"] == 2
-    assert result["slide_count"] == 1 and result["asset_id"] == result["frame_asset_ids"][0]
+    assert result["scope_count"] == 1 and result["asset_id"] == result["frame_asset_ids"][0]
     assert result["overflow"] == []
     for asset_id in result["frame_asset_ids"]:
         record = ctx.registry.get(asset_id)
@@ -100,7 +100,7 @@ def test_session_adapter_registers_every_frame_with_lineage_and_safe_pager(tmp_p
         f"0:0:{result['frame_asset_ids'][0]}",
         f"0:1:{result['frame_asset_ids'][1]}",
     ]
-    first = parse_qs(urlparse(result["first_build_pager_url"]).query)
+    first = parse_qs(urlparse(result["first_state_pager_url"]).query)
     assert first["frame"] == [f"0:0:{result['frame_asset_ids'][0]}"]
 
 
@@ -144,32 +144,34 @@ def test_single_slide_rematerialization_reuses_unchanged_registered_frames(tmp_p
     })
     first = materialize_quanta_frame_assets(quanta, ctx)
     first_by_slide = {
-        slide_id: [
+        scope_id: [
             frame["asset_id"] for frame in first["frames"]
-            if frame["slide_id"] == slide_id
+            if frame["scope_id"] == scope_id
         ]
-        for slide_id in ("s1", "s2")
+        for scope_id in ("s1", "s2")
     }
 
     revised = deepcopy(quanta)
-    revised["slides"][0]["title"] = "After"
-    second = rematerialize_quanta_slide_assets(
-        revised, ctx, slide_id="s1", previous=first
+    # tree order follows default_path (s2, s1) — s1 is the second scope
+    assert revised["root"]["children"][1]["id"] == "s1"
+    revised["root"]["children"][1]["title"] = "After"
+    second = rematerialize_quanta_scope_assets(
+        revised, ctx, scope_id="s1", previous=first
     )
 
     second_by_slide = {
-        slide_id: [
+        scope_id: [
             frame["asset_id"] for frame in second["frames"]
-            if frame["slide_id"] == slide_id
+            if frame["scope_id"] == scope_id
         ]
-        for slide_id in ("s1", "s2")
+        for scope_id in ("s1", "s2")
     }
-    assert second["rematerialization_scope"] == "slide"
-    assert second["rematerialized_slide_id"] == "s1"
+    assert second["rematerialization_scope"] == "scope"
+    assert second["rematerialized_scope_id"] == "s1"
     assert second_by_slide["s2"] == first_by_slide["s2"]
     assert second_by_slide["s1"] != first_by_slide["s1"]
     assert len(ctx.registry.list_records()) == 5  # 3 initial + 2 changed builds
-    assert [(frame["slide_index"], frame["build_index"]) for frame in second["frames"]] == [
+    assert [(frame["scope_index"], frame["state_index"]) for frame in second["frames"]] == [
         (0, 0), (1, 0), (1, 1),
     ]
     assert parse_qs(urlparse(second["pager_url"]).query)["frame"] == [

@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from gemia.quanta import QuantaMaterializeError
+from gemia.quanta.traverse import (
+    flat_view,
+    flattened_interactions,
+    leaf_walk,
+    lift_flat_quanta,
+)
 from gemia.tools._context import ToolContext
 from gemia.tools._ffmpeg import run_ffmpeg_with_progress
 from gemia.tools.quanta_frames import materialize_quanta_frame_assets
@@ -197,8 +203,8 @@ def _timeline_ops(
             duration=dwell,
             provenance={
                 "quanta_hash": quanta_hash,
-                "slide_id": str(frame.get("slide_id") or ""),
-                "build_id": str(frame.get("build_id") or ""),
+                "scope_id": str(frame.get("scope_id") or ""),
+                "state_id": str(frame.get("state_id") or ""),
             },
         ))
         clip_ids.append(clip_id)
@@ -209,8 +215,8 @@ def _timeline_ops(
 async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     project = _project(ctx)
     state = project.load()
-    quanta = state.get("quanta")
-    if not isinstance(quanta, Mapping) or not quanta.get("slides"):
+    quanta = lift_flat_quanta(state.get("quanta") if isinstance(state.get("quanta"), Mapping) else None)
+    if not leaf_walk(quanta):
         raise QuantaMaterializeError("quanta is empty — call draft_quanta or set_quanta first")
     timeline = state.get("timeline") if isinstance(state.get("timeline"), Mapping) else {}
     width = int(timeline.get("width") or 1920)
@@ -256,11 +262,21 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     )
     result = project.apply_ops(ops, label="assemble_quanta")
     transitions = [
-        str(slide.get("id") or "")
-        for slide in quanta.get("slides") or []
-        if isinstance(slide, Mapping)
-        and str((slide.get("transition") or {}).get("kind") or "cut") == "fade"
+        str(scope.get("id") or "")
+        for scope in flat_view(quanta).get("slides") or []
+        if str((scope.get("transition") or {}).get("kind") or "cut") == "fade"
     ]
+    discarded_edges = flattened_interactions(quanta)
+    degradations = []
+    if transitions:
+        degradations.append({"kind": "fade_to_cut", "scope_ids": transitions})
+    if discarded_edges:
+        # Flattening cannot wait for a click — a media fact, acknowledged
+        # explicitly rather than silently dropped (quanta-kernel-plan §3).
+        degradations.append({
+            "kind": "interaction_flattened",
+            "quantum_ids": list(discarded_edges),
+        })
     return {
         **rendered,
         "assembled": True,
@@ -270,13 +286,10 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "clip_ids": clip_ids,
         "total_duration_sec": total_duration,
         "timeline": project.compact_text(),
-        "degradations": (
-            [{"kind": "fade_to_cut", "slide_ids": transitions}]
-            if transitions else []
-        ),
+        "degradations": degradations,
         "summary": (
-            f"assembled {rendered.get('slide_count')} slide(s) / "
-            f"{rendered.get('frame_count')} build state(s) onto the timeline "
+            f"assembled {rendered.get('scope_count')} scope(s) / "
+            f"{rendered.get('frame_count')} state(s) onto the timeline "
             f"({total_duration:.1f}s)"
         ),
     }

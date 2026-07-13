@@ -68,8 +68,8 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
         calls["materialize"] += 1
         frames = []
         asset_ids = []
-        for index, (slide_id, build_id, dwell) in enumerate((
-            ("s1", "b1", 1.0), ("s1", "b2", 2.0), ("s2", "b1", 3.0),
+        for index, (scope_id, state_id, dwell) in enumerate((
+            ("s1", "s1_b1", 1.0), ("s1", "s1_b2", 2.0), ("s2", "s2_b1", 3.0),
         )):
             asset_id = call_ctx.registry.allocate_id("image")
             path = call_ctx.child_path(asset_id, ".png")
@@ -79,10 +79,10 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
             )
             asset_ids.append(asset_id)
             frames.append({
-                "slide_index": 0 if slide_id == "s1" else 1,
-                "build_index": index if slide_id == "s1" else 0,
-                "slide_id": slide_id,
-                "build_id": build_id,
+                "scope_index": 0 if scope_id == "s1" else 1,
+                "state_index": index if scope_id == "s1" else 0,
+                "scope_id": scope_id,
+                "state_id": state_id,
                 "dwell_sec": dwell,
                 "asset_id": asset_id,
                 "source_asset_ids": [],
@@ -92,8 +92,8 @@ def _install_assemble_fakes(monkeypatch, ctx: ToolContext):
             "kind": "quanta", "asset_id": asset_ids[0],
             "frame_asset_ids": asset_ids, "frames": frames,
             "pager_url": "/v3/quanta.html?session_id=session_1",
-            "first_build_pager_url": "/v3/quanta.html?session_id=session_1",
-            "slide_count": 2, "frame_count": 3, "overflow": [],
+            "first_state_pager_url": "/v3/quanta.html?session_id=session_1",
+            "scope_count": 2, "frame_count": 3, "overflow": [],
             "summary": "rendered", "rematerialization_scope": "quanta",
         }
 
@@ -128,23 +128,24 @@ def test_refine_quantum_uses_current_cache_and_reassembles(tmp_path, monkeypatch
 
     def fake_rematerialize(quanta, _ctx, **kwargs):
         selective_calls.append(kwargs)
-        assert quanta["slides"][0]["title"] == "After"
+        assert quanta["root"]["children"][0]["title"] == "After"
+        assert kwargs["scope_id"] == "s1"
         assert kwargs["previous"] is old_cache_result
         result = dict(old_cache_result)
-        result["rematerialization_scope"] = "slide"
-        result["rematerialized_slide_id"] = "s1"
-        result["summary"] = "rematerialized slide s1 and reused 1 unchanged slide"
+        result["rematerialization_scope"] = "scope"
+        result["rematerialized_scope_id"] = "s1"
+        result["summary"] = "rematerialized scope s1 and reused 1 unchanged scope(s)"
         return result
 
-    monkeypatch.setattr(refine_tool, "rematerialize_quanta_slide_assets", fake_rematerialize)
+    monkeypatch.setattr(refine_tool, "rematerialize_quanta_scope_assets", fake_rematerialize)
     result = _call(
-        "refine_quantum", {"slide_id": "s1", "fields": {"title": "After"}}, ctx
+        "refine_quantum", {"quantum_id": "s1", "fields": {"title": "After"}}, ctx
     )
 
-    assert result["refined"] is True and result["updated_slide"] == "s1"
-    assert result["rematerialization_scope"] == "slide"
+    assert result["refined"] is True and result["updated_quantum"] == "s1"
+    assert result["rematerialization_scope"] == "scope"
     assert result["frame_asset_ids"] == initial["frame_asset_ids"]
-    assert ctx.project.load()["quanta"]["slides"][0]["title"] == "After"
+    assert ctx.project.load()["quanta"]["root"]["children"][0]["title"] == "After"
     assert len(selective_calls) == 1
     assert calls == {"materialize": 1, "black": 1}
     assert len(ctx.project.load()["timeline"]["clips"]) == 4
@@ -158,14 +159,14 @@ def test_refine_quantum_invalid_id_keeps_current_frame_cache(tmp_path, monkeypat
     cache = ctx.extra["quanta_frame_cache"]
     monkeypatch.setattr(
         refine_tool,
-        "rematerialize_quanta_slide_assets",
+        "rematerialize_quanta_scope_assets",
         lambda *_args, **_kwargs: pytest.fail("must not render an invalid edit"),
     )
 
-    with pytest.raises(ValueError, match="no slide with id ghost"):
+    with pytest.raises(ValueError, match="no quantum with id 'ghost'"):
         _call(
             "refine_quantum",
-            {"slide_id": "ghost", "fields": {"title": "No"}},
+            {"quantum_id": "ghost", "fields": {"title": "No"}},
             ctx,
         )
     assert ctx.extra["quanta_frame_cache"] is cache
@@ -176,7 +177,7 @@ def test_refine_quantum_empty_quanta_is_actionable(tmp_path) -> None:
     with pytest.raises(ValueError, match="quanta is empty"):
         _call(
             "refine_quantum",
-            {"slide_id": "s1", "fields": {"title": "No"}},
+            {"quantum_id": "s1", "fields": {"title": "No"}},
             ctx,
         )
 
