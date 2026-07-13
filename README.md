@@ -1,10 +1,22 @@
 # Lumeri
 
-**AI creative workflow engine** — not an editor, not a plugin. A programmable layer where AI plans and executes video/image/audio operations through composable primitive functions.
+**Lumeri** is a family of AI creative tools that share one idea: give the model a small vocabulary of clean, composable primitives, and let it plan the work.
 
-Codex brought AI into the programmer's workflow. Lumeri does the same for creative work.
+**Lumeri Video** is the first product in the family — a programmable engine where an AI plans and executes video, image, and audio operations by calling primitive Python functions.
 
-The public product and GitHub repository name is **Lumeri**. The Python package and some internal paths still use the historical engineering name `gemia`.
+> The public product and GitHub repository name is **Lumeri**. The Python package and some internal paths still use the historical engineering name `gemia`.
+
+## The Lumeri family
+
+| Product | What it does | Status |
+|---|---|---|
+| **Lumeri Video** | AI plans a pipeline of primitive video/image/audio ops and executes it | in this repo |
+| **Lumeri Audio** | Music and sound-design workflows on the same primitive/plan/skill model | early |
+| **Lumeri Image** | Still-image workflows — grading, retouching, style transfer as a plan | early |
+| **Lumeri PPT** | Deck generation and edit as a plan of slide-level primitives | early |
+| **Lumeri CAD** | Parametric CAD workflows driven by natural-language plans | exploration |
+
+Each product ships as its own surface, but they share the same three ideas below.
 
 ---
 
@@ -12,7 +24,7 @@ The public product and GitHub repository name is **Lumeri**. The Python package 
 
 ### 1. Primitive API
 
-88+ pure Python functions across three domains — color grading, blur, keying, optical flow, audio repair, and more. Each function has a clear signature and docstring. The AI reads these docstrings to understand what's available.
+Around ninety pure Python functions across three domains — color grading, blur, keying, optical flow, audio repair, and more. Each function has a clear signature and docstring. The model reads those docstrings to know what's available.
 
 ```
 gemia.picture.color.color_grade(image, preset="cyberpunk")
@@ -20,13 +32,7 @@ gemia.video.timeline.cut(input_path, output_path, start_sec=0, end_sec=3)
 gemia.audio.frequency.eq(audio, bands={...})
 ```
 
-Picture functions automatically work on video — the engine extracts frames, applies the operation per-frame, and re-encodes with original audio. The AI doesn't need to know this; it just picks the right function.
-
-## Model Choice
-
-我们推荐使用Google的Gemini3.5 flash作为驱动ai，并且建议veo生成视频，nano banana生成图片，lyria生成音频。
-
----
+Picture functions automatically work on video — the engine extracts frames, applies the operation per-frame, and re-encodes with the original audio. The model doesn't need to know this; it just picks the right function.
 
 ### 2. Skills
 
@@ -38,14 +44,11 @@ run → save-skill → run-skill → done
 
 Skills are JSON templates with `$input` / `$output` variable binding. Concrete paths are stripped; the pipeline is portable.
 
-### Parameterized Skills
-
-Skills now record which models were used and expose adjustable parameters:
+Skills record which models were used and expose adjustable parameters:
 
 ```json
 {
   "name": "赛博朋克调色",
-  "models_used": ["opencv", "gpt_image2_flash"],
   "parameters": [
     {"step_id": "step_1", "arg": "preset", "type": "str", "current_value": "cyberpunk"}
   ]
@@ -54,9 +57,29 @@ Skills now record which models were used and expose adjustable parameters:
 
 ### 3. Orchestrator
 
-Describe what you want in natural language. Lumeri sends your prompt + the full function catalog to the planner. The AI returns a structured plan (not code, not ffmpeg commands). The engine executes it.
+Describe what you want in natural language. Lumeri sends your prompt plus the full function catalog to the planner. The planner returns a structured plan (not code, not ffmpeg commands). The engine executes it.
 
-If the prompt is vague, the AI asks clarifying questions first (Ask mechanism).
+If the prompt is vague, the model asks clarifying questions first (Ask mechanism).
+
+---
+
+## Models
+
+Lumeri Video runs on Google's models. Nothing else is wired into the default path.
+
+| Role | Model |
+|---|---|
+| Planner | Google Gemini |
+| Image generation / editing | Nano Banana (Gemini image) |
+| Video generation | Veo |
+| Music / sound generation | Lyria |
+
+You point Lumeri at Google via one of two auth paths:
+
+- **Gemini API key** — set `GEMINI_API_KEY` (from Google AI Studio).
+- **Vertex AI** — set `VERTEX_PROJECT` (uses your local `gcloud` ADC).
+
+That's the whole configuration surface. No third-party gateways, no key marketplaces.
 
 ---
 
@@ -68,12 +91,14 @@ git clone https://github.com/Acrabxie/lumeri.git && cd lumeri
 # Python 3.12+, ffmpeg required
 pip install -e .
 
+# Point at Google
+export GEMINI_API_KEY="..."
 ```
 
 Verify:
 
 ```bash
-python3 -m pytest tests/ -v    # 258 tests, no GPU needed
+python3 -m pytest tests/ -v    # ~258 tests, no GPU needed
 ```
 
 ---
@@ -96,7 +121,7 @@ python3 -m gemia run \
 ```
 
 ```
-Asking AI for a plan...
+Asking the planner for a plan...
 Plan: Apply cyberpunk color grading (1 step)
   step_1: gemia.picture.color.color_grade({"preset": "cyberpunk"})
 
@@ -104,7 +129,7 @@ Executing...
 Done!
 ```
 
-The engine sees `gemia.picture.*` applied to a video and auto-wraps with per-frame processing.
+The engine sees `gemia.picture.*` applied to a video and auto-wraps it with per-frame processing.
 
 ### Demo 2 — Multi-step pipeline
 
@@ -124,18 +149,11 @@ Executing...
 Done!
 ```
 
-5s input → 3s (trim) → 1.5s (2x speed) → vintage color graded.
-
 ### Demo 3 — Save & reuse as Skill
 
 ```bash
-# Save last run
 python3 -m gemia save-skill --name "裁切加速vintage"
-
-# List skills
 python3 -m gemia list-skills
-
-# Apply to another video — no AI call
 python3 -m gemia run-skill "裁切加速vintage" --video inputs/another.mp4
 ```
 
@@ -190,19 +208,19 @@ User prompt
     │
     ▼
 ┌──────────────────────┐
-│  Planner                            │  sees all 88+ function docstrings
+│  Planner (Gemini)     │  reads every primitive's docstring
 └──────────┬───────────┘
-           │ Plan v2 JSON
+           │ Plan JSON
            ▼
 ┌──────────────────────┐
-│  PlanEngine           │  auto-bridges picture↔video
+│  PlanEngine           │  auto-bridges picture ↔ video
 └──────────┬───────────┘
            │
            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  gemia.picture    gemia.audio    gemia.video              │
 │  (OpenCV/numpy)   (librosa)      (ffmpeg)                 │
-│  + Veo/Nano Banana/Lyria        + local media tools        │
+│  + Nano Banana    + Lyria        + Veo                    │
 └──────────────────────────────────────────────────────────┘
            │
            ▼
@@ -213,10 +231,11 @@ User prompt
 
 ## Roadmap
 
-- ✅ **AI generation primitives** — video, image, and audio generation integrated as tools
-- ✅ **Skills v2** — model tracking, parameterization, `parameters` field
-- **Skills UI** — visual skill browser in the web interface
-- **Desktop app** — standalone macOS / Windows app via Tauri
+- ✅ Generative primitives — image (Nano Banana), video (Veo), music (Lyria)
+- ✅ Skills v2 — model tracking, parameterization
+- Skills UI — visual skill browser in the web interface
+- Desktop app — standalone macOS / Windows app
+- Sibling products — Lumeri Audio / Image / PPT / CAD on the same core
 
 ---
 
@@ -224,14 +243,11 @@ User prompt
 
 - Python 3.12+
 - ffmpeg / ffprobe in PATH
+- One of: `GEMINI_API_KEY` (Google AI Studio) or `VERTEX_PROJECT` (Vertex AI)
 
 ## Contributors
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md).
-
-- Claude
-- ChatGPT
-- Acrabxie
 
 ## License
 

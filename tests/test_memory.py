@@ -173,3 +173,100 @@ def test_server_image_key_status_uses_openrouter_image_keys(tmp_path, monkeypatc
     monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-private-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
     assert server._has_valid_image_key()
+
+
+# ── /model priority catalog + active selection ──────────────────────────────
+
+
+def _clear_selection_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("LUMERI_V3_MODEL", "LUMERI_V3_EFFORT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_model_catalog_is_priority_ordered(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    catalog = memory.model_catalog("planner")
+    assert len(catalog) >= 2
+    assert catalog[0]["id"] == "google/gemini-3.1-pro-preview"
+    # index 0 is the default
+    assert memory.active_model_selection("planner")["default_model"] == catalog[0]["id"]
+
+
+def test_active_selection_defaults_when_no_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    active = memory.active_model_selection("planner")
+    assert active["is_default_model"] is True
+    assert active["is_default_effort"] is True
+    assert active["effort"] == "medium"
+
+
+def test_set_model_selection_by_index_and_effort(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    catalog = memory.model_catalog("planner")
+    result = memory.apply_model_selection({"model": "2", "effort": "high"})
+    assert result["model"] == catalog[1]["id"]
+    assert result["effort"] == "high"
+    assert result["is_default_model"] is False
+    # persisted to config.json (not memory), key preserved on disk
+    cfg = json.loads((tmp_path / ".gemia" / "config.json").read_text())
+    assert cfg["lumeri_v3_model"] == catalog[1]["id"]
+    assert cfg["lumeri_v3_effort"] == "high"
+
+
+def test_reset_model_keeps_effort(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    memory.apply_model_selection({"model": "3", "effort": "high"})
+    result = memory.apply_model_selection({"model": "default"})
+    assert result["is_default_model"] is True
+    assert result["effort"] == "high"  # effort untouched
+
+
+def test_set_model_selection_rejects_unknown(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    with pytest.raises(ValueError):
+        memory.apply_model_selection({"model": "no-such-model"})
+    with pytest.raises(ValueError):
+        memory.apply_model_selection({"effort": "ultra"})
+
+
+def test_config_override_reflected_in_active(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    cfg_dir = tmp_path / ".gemia"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.json").write_text(
+        json.dumps({"lumeri_v3_model": "google/gemini-3.5-flash"}), encoding="utf-8"
+    )
+    active = memory.active_model_selection("planner")
+    assert active["model"] == "google/gemini-3.5-flash"
+    assert active["label"] == "Gemini 3.5 Flash"
+    assert active["is_default_model"] is False

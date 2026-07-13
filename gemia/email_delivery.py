@@ -21,6 +21,8 @@ import json
 import os
 import smtplib
 import ssl
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
@@ -124,14 +126,99 @@ def smtp_config() -> dict[str, Any]:
     }
 
 
+CF_API_BASE = "https://api.cloudflare.com/client/v4"
+
+
+def cf_config() -> dict[str, Any]:
+    """Resolve Cloudflare Email Sending settings (env overrides local config)."""
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    block = data.get("cloudflare_email") if isinstance(data, dict) else {}
+    block = block if isinstance(block, dict) else {}
+    from_addr = _cfg("GEMIA_EMAIL_FROM", "from_addr", block) or "login@lumeri.io"
+    return {
+        "account_id": _clean(os.environ.get("GEMIA_CF_ACCOUNT_ID")) or _clean(block.get("account_id")),
+        "api_token": _clean(os.environ.get("GEMIA_CF_API_TOKEN")) or _clean(block.get("api_token")),
+        "from_addr": from_addr,
+        "from_name": _cfg("GEMIA_EMAIL_FROM_NAME", "from_name", block) or DEFAULT_FROM_NAME,
+        "reply_to": _cfg("GEMIA_EMAIL_REPLY_TO", "reply_to", block) or from_addr,
+        "timeout": DEFAULT_TIMEOUT,
+    }
+
+
+def cf_is_configured() -> bool:
+    """True when a Cloudflare account id, token and from address are all present."""
+    cfg = cf_config()
+    return bool(cfg["account_id"] and cfg["api_token"] and cfg["from_addr"])
+
+
+def _send_via_cloudflare(
+    recipient: str, subject: str, text_body: str, html_body: str | None, cfg: dict[str, Any]
+) -> None:
+    payload: dict[str, Any] = {
+        "to": recipient,
+        "from": {"address": cfg["from_addr"], "name": cfg["from_name"]},  # REST uses `address`, not `email`
+        "subject": subject,
+        "text": text_body,
+    }
+    if html_body:
+        payload["html"] = html_body
+    if cfg.get("reply_to"):
+        payload["reply_to"] = cfg["reply_to"]  # REST is snake_case
+
+    url = f"{CF_API_BASE}/accounts/{cfg['account_id']}/email/sending/send"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {cfg['api_token']}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=cfg["timeout"]) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else str(exc)
+        raise EmailDeliveryError(f"Cloudflare 发信失败（HTTP {exc.code}）", detail=detail) from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise EmailDeliveryError(f"Cloudflare 发信失败：{exc}", detail=str(exc)) from exc
+
+    if not body.get("success", False):
+        errs = body.get("errors") or []
+        msg = "; ".join(f"{e.get('code')}: {e.get('message')}" for e in errs) or "unknown error"
+        raise EmailDeliveryError(f"Cloudflare 拒绝发信：{msg}", detail=json.dumps(body, ensure_ascii=False))
+    bounced = (body.get("result") or {}).get("permanent_bounces") or []
+    if bounced:
+        raise EmailDeliveryError(
+            f"收件地址被退回：{', '.join(bounced)}",
+            detail=json.dumps(body.get("result"), ensure_ascii=False),
+        )
+
+
 def is_configured() -> bool:
-    """True when host, credentials and a from address are all present."""
+    """True when either Cloudflare or SMTP delivery is fully configured."""
+    if cf_is_configured():
+        return True
     cfg = smtp_config()
     return bool(cfg["host"] and cfg["username"] and cfg["password"] and cfg["from_addr"])
 
 
 def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | None = None) -> None:
     """Send a single email over the configured SMTP relay (STARTTLS)."""
+    recipient = _clean(to_addr)
+    if not recipient:
+        raise EmailDeliveryError("收件人邮箱为空")
+
+    # Prefer Cloudflare Email Sending (HTTPS, port 443) when configured — it
+    # sidesteps the blocked outbound SMTP entirely. Fall back to SMTP otherwise.
+    if cf_is_configured():
+        _send_via_cloudflare(recipient, subject, text_body, html_body, cf_config())
+        return
+
     cfg = smtp_config()
     missing = [name for name in ("host", "username", "password", "from_addr") if not cfg.get(name)]
     if missing:
@@ -139,9 +226,6 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
             "邮件发送未配置：缺少 " + ", ".join(missing),
             detail="Set the smtp block in ~/.gemia/config.json or GEMIA_SMTP_* env vars.",
         )
-    recipient = _clean(to_addr)
-    if not recipient:
-        raise EmailDeliveryError("收件人邮箱为空")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -189,7 +273,7 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
 
 def send_login_code(to_addr: str, code: str, *, ttl_minutes: int = 10, app_name: str = DEFAULT_APP_NAME) -> None:
     """Send a one-time login verification code email."""
-    subject = f"{app_name} 登录验证码 {code}"
+    subject = f"{app_name} 登录验证码"
     text_body = (
         f"您的 {app_name} 登录验证码是：{code}\n\n"
         f"验证码 {ttl_minutes} 分钟内有效，请勿向任何人泄露。\n"
@@ -247,6 +331,8 @@ def _login_code_html(code: str, *, ttl_minutes: int, app_name: str) -> str:
 
 __all__ = [
     "EmailDeliveryError",
+    "cf_config",
+    "cf_is_configured",
     "is_configured",
     "send_email",
     "send_login_code",

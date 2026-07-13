@@ -29,6 +29,7 @@ _GROUP_LABELS: dict[str, str] = {
     "animation": "Animation presets",
     "keyframes": "Keyframes",
     "template": "Scene templates",
+    "element": "Graphic elements",
 }
 
 #: Core op metadata. ``args`` lists the meaningful keys; ``*`` marks required.
@@ -236,10 +237,14 @@ CORE_OPS_CATALOG: list[dict[str, Any]] = [
      "summary": "Apply a named speed-ramp preset by emitting a time_remap curve (hero=slow middle, montage=fast middle); preserves output duration.",
      "example": {"op": "speed_ramp", "layer_id": "clip1", "preset": "hero"},
      "errors": ["E_ARG when layer_id or preset is missing or the preset is unknown", "E_NOT_FOUND when the layer id does not exist", "E_RANGE when the layer has no duration to ramp"]},
-    {"op": "apply_template", "group": "template", "args": ["template*(lower_third|intro)", "params{...}"],
-     "summary": "Expand a named scene template (lower_third/intro) into its layers and apply them via the normal op dispatch.",
-     "example": {"op": "apply_template", "template": "lower_third", "params": {"text": "Jane Doe"}},
+    {"op": "apply_template", "group": "template", "args": ["template*", "params{...}"],
+     "summary": "Stamp a named scene template (title_card / bullet_list / stat_card / …) into its layers via the normal op dispatch — see the 'Scene templates' block for the full catalogue and each one's params.",
+     "example": {"op": "apply_template", "template": "bullet_list", "params": {"heading": "Agenda", "items": ["Why now", "The plan", "Next steps"]}},
      "errors": ["E_ARG when template is missing, unknown, or params is not an object / has bad keys", "E_NOT_FOUND when a referenced layer does not exist"]},
+    {"op": "apply_element", "group": "element", "args": ["element*", "params{...}"],
+     "summary": "Stamp a named graphic element (arrow / …) as an OVERLAY into its layers via the normal op dispatch — see the 'Element library' block for the full catalogue and each one's params.",
+     "example": {"op": "apply_element", "element": "arrow", "params": {"x": 0, "y": 0, "length": 400, "angle_deg": 90}},
+     "errors": ["E_ARG when element is missing, unknown, or params is not an object / has bad keys", "E_NOT_FOUND when a referenced layer does not exist"]},
     # ── keyframes ──
     {"op": "set_keyframe", "group": "keyframes", "args": ["layer_id*", "property*", "t*", "value*", "interp"],
      "summary": "Add or replace a keyframe on a property (e.g. transform.x, opacity).",
@@ -300,6 +305,25 @@ def describe_ops() -> str:
             errors = entry.get("errors")
             if errors:
                 lines.append(f"    Errors: {'; '.join(errors)}")
+    # The scene-template component library — stamped via apply_template. Listed
+    # here (lazily imported to avoid an import cycle) so the agent sees the whole
+    # library of ready-made, styled scenes right beside the raw op vocabulary.
+    try:
+        from lumenframe.templates import describe_templates
+
+        lines.append("\n[Scene template library]")
+        lines.append(describe_templates())
+    except Exception:  # pragma: no cover - templates are optional at import time
+        pass
+    # The graphic-element overlay library — stamped via apply_element. Same lazy
+    # import + tolerant guard as the scene templates above.
+    try:
+        from lumenframe.elements import describe_elements
+
+        lines.append("\n[Element library]")
+        lines.append(describe_elements())
+    except Exception:  # pragma: no cover - elements are optional at import time
+        pass
     # Decode every error code once at the end so the agent can self-correct.
     lines.append("\n[Error codes]")
     for code, meaning in error_catalog().items():

@@ -151,7 +151,21 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
 
     # Resolve target track; auto-create OV1/A1 for the first overlay/audio clip.
     track_id = str(args.get("track_id") or "")
-    if media_kind in {"image", "text", "lottie"}:
+    if media_kind == "image":
+        # Images can go on video or overlay tracks (explicit track_id = V1 for main chain)
+        if track_id:
+            # Explicit track specified; ensure it exists
+            if not any(str(t.get("id")) == track_id for t in tracks):
+                # Find kind for track_id to know what kind of track to create
+                track_kind = "video" if track_id == "V1" else "overlay"
+                ops.append({"op": "add_track", "kind": track_kind, "track_id": track_id})
+        else:
+            # Default to overlay if no explicit track
+            overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
+            track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"
+            if not any(str(t.get("id")) == track_id for t in tracks):
+                ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id})
+    elif media_kind in {"text", "lottie"}:
         overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
         if not track_id:
             track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"

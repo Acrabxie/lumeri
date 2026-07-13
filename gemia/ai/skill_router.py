@@ -13,7 +13,9 @@ from . import skill_yaml as yaml
 SkillRouteSource = Literal["keyword", "llm", "fallback"]
 
 SKILLS_ROOT = Path(__file__).resolve().parent / "skills"
-CORE_FALLBACK_SKILLS = ["timeline-ops", "color-grade", "transition"]
+# 无关键词命中时的兜底 skill,按优先级排序;route() 只取前 max_skills 个(默认 3)。
+# design-system 领跑,让质量基准在"让它好看点/再处理一下"这类说不清的请求上也随行。
+CORE_FALLBACK_SKILLS = ["design-system", "timeline-ops", "color-grade", "transition"]
 PROMPT_ONLY_FALLBACK_SKILLS = ["generative", "ad-graphics", "stock-media"]
 
 

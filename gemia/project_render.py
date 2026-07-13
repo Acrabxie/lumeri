@@ -107,6 +107,7 @@ def render_project_preview(
         source_out = _positive_float(clip.get("source_out"), source_in + seg_duration)
         trim_duration = min(seg_duration, max(source_out - source_in, 0.1))
         segment_path = work_dir / f"{index:04d}-{_safe_slug(str(clip.get('id') or 'clip'))}.mp4"
+        media_kind = str(asset.get("media_kind") or "video")
         _render_video_segment(
             source,
             segment_path,
@@ -115,6 +116,7 @@ def render_project_preview(
             width=target_w,
             height=target_h,
             fps=fps,
+            media_kind=media_kind,
             timeout_sec=timeout_sec,
         )
         segment_paths.append(segment_path)
@@ -186,17 +188,39 @@ def ffprobe_media(path: str | Path) -> dict[str, Any]:
 
 def _renderable_video_clips(project: dict[str, Any], assets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
+    
+    # Collect video track ids
+    video_track_ids = set()
+    for track in timeline.get("tracks") or []:
+        if isinstance(track, dict) and str(track.get("kind")) == "video":
+            video_track_ids.add(str(track.get("id") or ""))
+    
     items: list[dict[str, Any]] = []
     for order, clip in enumerate(timeline.get("clips") or []):
         if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
             continue
-        if str(clip.get("media_kind") or "video") != "video":
+        # Only process clips on video tracks
+        clip_track_id = str(clip.get("track_id") or "")
+        if clip_track_id not in video_track_ids:
             continue
-        asset = assets.get(str(clip.get("asset_id") or ""))
-        if not isinstance(asset, dict):
+        # Accept video and image media kinds
+        clip_media_kind = str(clip.get("media_kind") or "video")
+        if clip_media_kind not in {"video", "image"}:
             continue
-        if str(asset.get("media_kind") or "video") != "video":
-            continue
+        asset_id = str(clip.get("asset_id") or "")
+        asset = assets.get(asset_id) if asset_id else None
+        # For media clips, we need an asset; verify media kind if present
+        if not asset_id and clip_media_kind in {"video", "image"}:
+            continue  # Media clip without asset_id can't be rendered
+        if asset and str(asset.get("media_kind") or "video") not in {"video", "image"}:
+            continue  # Asset type mismatch
+        # Use asset or construct minimal info from clip
+        asset = asset or {
+            "id": asset_id,
+            "asset_id": asset_id,
+            "media_kind": clip_media_kind,
+            "source_path": str(clip.get("source_path", "")),
+        }
         items.append({"clip": clip, "asset": asset, "order": order})
     items.sort(key=lambda item: (_positive_float(item["clip"].get("start"), 0.0), int(item.get("order") or 0)))
     return items
@@ -249,21 +273,43 @@ def _render_video_segment(
     width: int,
     height: int,
     fps: float,
+    media_kind: str = "video",
     timeout_sec: int,
 ) -> None:
     vf = _video_filter(width=width, height=height, fps=fps)
+    
+    # For image sources, use -loop 1 to hold the frame
     cmd = [
         "ffmpeg",
         "-y",
         "-hide_banner",
         "-loglevel",
         "error",
-        "-ss",
-        f"{source_in:.6f}",
-        "-t",
-        f"{max(duration, 0.1):.6f}",
-        "-i",
-        str(source),
+    ]
+    
+    if media_kind == "image":
+        cmd.extend([
+            "-loop",
+            "1",
+            "-framerate",
+            f"{fps:.6f}",
+            "-t",
+            f"{max(duration, 0.1):.6f}",
+            "-i",
+            str(source),
+        ])
+    else:
+        # video: use standard -ss, -t trimming
+        cmd.extend([
+            "-ss",
+            f"{source_in:.6f}",
+            "-t",
+            f"{max(duration, 0.1):.6f}",
+            "-i",
+            str(source),
+        ])
+    
+    cmd.extend([
         "-an",
         "-vf",
         vf,
@@ -276,7 +322,7 @@ def _render_video_segment(
         "-movflags",
         "+faststart",
         str(output),
-    ]
+    ])
     _run_ffmpeg(cmd, output, timeout_sec=timeout_sec)
 
 

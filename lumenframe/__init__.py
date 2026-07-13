@@ -40,6 +40,18 @@ from lumenframe.ops import (
     apply_layer_patch,
     validate_doc,
 )
+from lumenframe.templates import (
+    describe_templates,
+    expand_template,
+    template_catalog,
+    template_names,
+)
+from lumenframe.elements import (
+    describe_elements,
+    element_catalog,
+    element_names,
+    expand_element,
+)
 from lumenframe.registry import (
     layer_type_spec,
     list_layer_types,
@@ -57,6 +69,14 @@ __all__ = [
     "LayerPatchError",
     "apply_layer_patch",
     "describe_ops",
+    "describe_templates",
+    "expand_template",
+    "template_catalog",
+    "template_names",
+    "describe_elements",
+    "expand_element",
+    "element_catalog",
+    "element_names",
     "doc_duration",
     "empty_doc",
     "op_catalog",

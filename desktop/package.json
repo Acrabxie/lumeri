@@ -1,0 +1,83 @@
+{
+  "name": "lumeri-desktop",
+  "productName": "Lumeri",
+  "version": "0.1.0",
+  "description": "Lumeri desktop preview — AI creative workflow engine",
+  "main": "main.js",
+  "author": {
+    "name": "Lumeri",
+    "email": "hello@lumeri.ai"
+  },
+  "homepage": "https://github.com/Acrabxie/lumeri",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "scripts": {
+    "prebuild": "node scripts/copy-assets.js",
+    "start": "npm run prebuild && electron .",
+    "build:mac": "npm run prebuild && electron-builder --mac",
+    "build:win": "npm run prebuild && electron-builder --win",
+    "build:all": "npm run prebuild && electron-builder -mw"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ai.lumeri.desktop",
+    "productName": "Lumeri",
+    "artifactName": "Lumeri-${version}-${os}-${arch}.${ext}",
+    "copyright": "Copyright © 2026 Lumeri",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "stub-server.js",
+      "app-assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "Lumeri ${version}",
+      "backgroundColor": "#0c0d10",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        { "x": 140, "y": 200, "type": "file" },
+        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Lumeri"
+    }
+  }
+}

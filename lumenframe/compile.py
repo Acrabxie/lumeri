@@ -995,9 +995,23 @@ def _keyframe_tracks(layer: dict[str, Any], fps: float):
 
 
 def _easing_for(interp: str) -> str:
+    """Map a LayerPatch ``interp`` name to a ``KeyframeTrack`` easing name.
+
+    The only consumer is :meth:`gemia.video.keyframe.KeyframeTrack.add_keyframe`,
+    whose vocabulary is the *underscore* set ``{linear, ease_in, ease_out,
+    ease_in_out, bezier}`` (plus a ``bezier(x1,y1,x2,y2)`` literal). Earlier this
+    table emitted CSS-style hyphenated names (``ease-out``, ``ease-in-out``,
+    ``step``) which ``add_keyframe`` rejects — so every non-``linear`` keyframe
+    interp raised at render time. Aligning the output to the track's vocabulary
+    makes ``set_keyframe`` easing actually render:
+
+    * ``hold`` has no per-keyframe step in this engine → falls back to ``linear``;
+    * ``ease`` / ``bezier`` (no control points) → the smooth ``ease_in_out``.
+    """
     return {
-        "linear": "linear", "hold": "step", "ease": "ease-in-out",
-        "ease_in": "ease-in", "ease_out": "ease-out", "bezier": "ease-in-out",
+        "linear": "linear", "hold": "linear", "ease": "ease_in_out",
+        "ease_in": "ease_in", "ease_out": "ease_out",
+        "ease_in_out": "ease_in_out", "bezier": "ease_in_out",
     }.get(interp, "linear")
 
 

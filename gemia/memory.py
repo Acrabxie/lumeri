@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 
+# Sentinel for "argument not provided" in selection setters, so callers can
+# distinguish "leave unchanged" from "reset to default" (None / "" / "default").
+_UNSET = object()
+
+
 SECRET_FIELD_NAMES = {
     "api_key",
     "apikey",
@@ -38,6 +43,21 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
             "provider": "openrouter",
             "aliases": ["LumeriPlanner", "Gemini31Pro", "Gemini3.1pro"],
             "variants": {"fast": "google/gemini-3-flash-preview", "reviewer": "openai/gpt-5.4"},
+            # Ordered brain/orchestrator catalog. Index 0 is the backend default;
+            # `/model` lets any client switch to another entry (see
+            # `active_model_selection` / `apply_model_selection`). Reorder here to
+            # change the default and the pick order in one place.
+            "priority": [
+                {"id": "google/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "openrouter"},
+                {"id": "google/gemini-3.5-flash", "label": "Gemini 3.5 Flash", "provider": "openrouter"},
+                {"id": "google/gemini-3-flash-preview", "label": "Gemini 3 Flash", "provider": "openrouter"},
+                {"id": "anthropic/claude-sonnet-4.6", "label": "Claude Sonnet 4.6", "provider": "openrouter"},
+                {"id": "openai/gpt-5.4", "label": "GPT-5.4 (reviewer)", "provider": "openrouter"},
+            ],
+            # Reasoning/thinking-effort tiers offered by `/model`. Applied to
+            # reasoning-capable models via the OpenRouter `reasoning.effort` field.
+            "efforts": ["low", "medium", "high", "max"],
+            "default_effort": "medium",
             "env": ["OPENROUTER_MODEL", "GEMIA_OPENROUTER_MODEL", "GEMIA_PLANNER_MODEL", "GEMINI_MODEL"],
             "config": ["openrouter_model", "planner_model", "gemini_model"],
             "description": "Primary planning model through OpenRouter. Legacy Gemini model names are mapped where possible.",
@@ -138,6 +158,26 @@ def _read_json(path: Path, default: Any) -> Any:
 def read_user_config() -> dict[str, Any]:
     data = _read_json(config_path(), {})
     return data if isinstance(data, dict) else {}
+
+
+def write_user_config(patch: dict[str, Any]) -> dict[str, Any]:
+    """Merge ``patch`` into ``~/.gemia/config.json`` and return the new config.
+
+    This is the credentials/config file (NOT the memory store), so no
+    secret-scanning guard is applied. Keys whose patch value is ``None`` are
+    removed — this is how ``/model`` reverts a selection back to the backend
+    default. Writes are atomic-ish (whole-file rewrite, pretty-printed).
+    """
+    path = config_path()
+    config = read_user_config()
+    for key, value in patch.items():
+        if value is None:
+            config.pop(key, None)
+        else:
+            config[key] = value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return config
 
 
 def _clean_string(value: Any) -> str:
@@ -312,9 +352,14 @@ def _model_profile_digest() -> str:
 def format_memory_for_prompt(*, max_chars: int = MEMORY_PROMPT_MAX_CHARS) -> str:
     """Build a compact, size-capped memory block for the system prompt.
 
-    Combines durable memory (``MEMORY.md``) with a short model-profile digest
-    (if present). Never raises: missing files yield a short placeholder note so
-    the prompt always has something coherent in the ``{{memory}}`` slot. The
+    Emits durable memory (``MEMORY.md``) only. The model-profile digest is
+    deliberately NOT injected here: the orchestrator must not be told which
+    underlying model it is running on — that both leaks the engine identity to
+    end users (the model would recite "planner: <model-id>" when asked) and is
+    routinely stale, since the live model is pinned by env/config that this
+    static profile does not reflect. Model routing is a host concern; the model
+    never needs its own id. Never raises: a missing file yields a short
+    placeholder so the ``{{memory}}`` slot always has coherent content. The
     whole block is hard-capped at ``max_chars`` so accumulated memory cannot
     bloat every model call.
     """
@@ -323,10 +368,6 @@ def format_memory_for_prompt(*, max_chars: int = MEMORY_PROMPT_MAX_CHARS) -> str
     durable = _read_text_safe(durable_memory_path()).strip()
     if durable:
         sections.append(durable)
-
-    digest = _model_profile_digest().strip()
-    if digest:
-        sections.append("Model defaults:\n" + digest)
 
     if not sections:
         return "(no durable memory recorded yet)"
@@ -476,6 +517,13 @@ def _migrate_model_profile(profile: dict[str, Any]) -> None:
     planner = models.get("planner")
     if isinstance(planner, dict) and _clean_string(planner.get("default")) in {"google/gemini-2.5-pro", "gemini-2.5-pro"}:
         planner["default"] = defaults["models"]["planner"]["default"]
+    # Backfill the `/model` priority catalog + effort tiers onto profiles that
+    # predate them, so existing installs pick up the switcher without a reset.
+    if isinstance(planner, dict):
+        planner_defaults = defaults["models"]["planner"]
+        for key in ("priority", "efforts", "default_effort"):
+            if not planner.get(key):
+                planner[key] = copy.deepcopy(planner_defaults[key])
     image = models.get("image")
     if isinstance(image, dict):
         image_default = _clean_string(image.get("default")).lower()
@@ -561,6 +609,187 @@ def resolve_model(
     )["model"]
 
 
+# ── /model: priority catalog + active selection ─────────────────────────────
+#
+# The backend arranges an ordered priority list per slot (index 0 = default);
+# `/model` (web + CLI) lets any client switch to another entry and pick a
+# thinking-effort tier. The switch is stored in the runtime override channel the
+# orchestrator already reads — ``config.json:lumeri_v3_model`` /
+# ``lumeri_v3_effort`` (or the matching env vars) — so it persists across
+# sessions and restarts, mirroring Claude Code's "default model" behavior.
+
+_MODEL_OVERRIDE_ENV = "LUMERI_V3_MODEL"
+_MODEL_OVERRIDE_CONFIG = "lumeri_v3_model"
+_EFFORT_OVERRIDE_ENV = "LUMERI_V3_EFFORT"
+_EFFORT_OVERRIDE_CONFIG = "lumeri_v3_effort"
+
+
+def _slot_info(slot: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    profile = profile or load_model_profile()
+    info = (profile.get("models") or {}).get(slot, {})
+    return info if isinstance(info, dict) else {}
+
+
+def model_catalog(slot: str = "planner") -> list[dict[str, str]]:
+    """Ordered priority list for ``slot``: ``[{id,label,provider}, …]``.
+
+    Index 0 is the backend default. Falls back to the slot's ``default`` when no
+    explicit ``priority`` list is configured, so callers always get ≥1 entry
+    (unless the slot has no default at all).
+    """
+    profile = load_model_profile()
+    info = _slot_info(slot, profile)
+    items: list[dict[str, str]] = []
+    priority = info.get("priority")
+    if isinstance(priority, list):
+        for entry in priority:
+            if not isinstance(entry, dict):
+                continue
+            model_id = _clean_string(entry.get("id"))
+            if not model_id:
+                continue
+            items.append({
+                "id": model_id,
+                "label": _clean_string(entry.get("label")) or model_id,
+                "provider": _clean_string(entry.get("provider")),
+            })
+    if not items:
+        default = _slot_default(slot, profile)
+        if default:
+            items.append({"id": default, "label": default, "provider": _clean_string(info.get("provider"))})
+    return items
+
+
+def effort_options(slot: str = "planner") -> list[str]:
+    info = _slot_info(slot)
+    efforts = info.get("efforts")
+    if isinstance(efforts, list) and efforts:
+        return [str(e) for e in efforts]
+    return ["low", "medium", "high", "max"]
+
+
+def default_effort(slot: str = "planner") -> str:
+    return _clean_string(_slot_info(slot).get("default_effort")) or "medium"
+
+
+def active_model_selection(slot: str = "planner") -> dict[str, Any]:
+    """Resolve the currently-active model + effort for ``slot``.
+
+    Reflects the same override precedence the orchestrator uses (env → config →
+    backend default) so the UI shows exactly what a turn will run with.
+    """
+    catalog = model_catalog(slot)
+    default_model = catalog[0]["id"] if catalog else _slot_default(slot, load_model_profile())
+
+    model_override = (
+        _clean_string(os.environ.get(_MODEL_OVERRIDE_ENV))
+        or _clean_string(read_user_config().get(_MODEL_OVERRIDE_CONFIG))
+    )
+    effort_override = (
+        _clean_string(os.environ.get(_EFFORT_OVERRIDE_ENV)).lower()
+        or _clean_string(read_user_config().get(_EFFORT_OVERRIDE_CONFIG)).lower()
+    )
+
+    model = model_override or default_model
+    effort = effort_override or default_effort(slot)
+    label = next((item["label"] for item in catalog if item["id"] == model), model)
+    return {
+        "model": model,
+        "label": label,
+        "effort": effort,
+        "is_default_model": not model_override,
+        "is_default_effort": not effort_override,
+        "default_model": default_model,
+        "default_effort": default_effort(slot),
+    }
+
+
+def _resolve_model_choice(choice: str, catalog: list[dict[str, str]]) -> str | None:
+    """Map a user-supplied model token to a catalog id, or ``None`` if unknown.
+
+    Accepts an exact id, a 1-based index into the priority list, or a
+    case-insensitive substring of the id or label.
+    """
+    token = choice.strip()
+    if not token:
+        return None
+    for item in catalog:
+        if item["id"] == token:
+            return item["id"]
+    if token.isdigit():
+        idx = int(token) - 1
+        if 0 <= idx < len(catalog):
+            return catalog[idx]["id"]
+    low = token.lower()
+    for item in catalog:
+        if low in item["id"].lower() or low in item["label"].lower():
+            return item["id"]
+    return None
+
+
+def set_model_selection(
+    *,
+    model: Any = _UNSET,
+    effort: Any = _UNSET,
+    slot: str = "planner",
+) -> dict[str, Any]:
+    """Persist a ``/model`` selection and return the new active selection.
+
+    ``model`` / ``effort`` semantics: omitted (``_UNSET``) = leave unchanged;
+    ``None`` / ``""`` / ``"default"`` = reset to the backend default; any other
+    value = set it (model accepts id, index, or fuzzy match).
+    """
+    catalog = model_catalog(slot)
+    patch: dict[str, Any] = {}
+
+    if model is not _UNSET:
+        if model in (None, "", "default"):
+            patch[_MODEL_OVERRIDE_CONFIG] = None
+        else:
+            chosen = _resolve_model_choice(str(model), catalog)
+            if not chosen:
+                raise ValueError(f"unknown model: {model}")
+            patch[_MODEL_OVERRIDE_CONFIG] = chosen
+
+    if effort is not _UNSET:
+        if effort in (None, "", "default"):
+            patch[_EFFORT_OVERRIDE_CONFIG] = None
+        else:
+            eff = str(effort).strip().lower()
+            if eff not in effort_options(slot):
+                raise ValueError(f"unknown effort: {effort}")
+            patch[_EFFORT_OVERRIDE_CONFIG] = eff
+
+    if patch:
+        write_user_config(patch)
+    return active_model_selection(slot)
+
+
+def apply_model_selection(payload: dict[str, Any], slot: str = "planner") -> dict[str, Any]:
+    """HTTP-friendly wrapper: honor only the keys present in ``payload``.
+
+    A missing ``model`` / ``effort`` key leaves that dimension unchanged; a
+    present key (even with a null/empty value → reset) is applied.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("request body must be a JSON object")
+    return set_model_selection(
+        model=payload["model"] if "model" in payload else _UNSET,
+        effort=payload["effort"] if "effort" in payload else _UNSET,
+        slot=slot,
+    )
+
+
+def model_selection_payload(slot: str = "planner") -> dict[str, Any]:
+    """Full ``/model`` GET payload: catalog + effort options + active selection."""
+    return {
+        "slot": slot,
+        "priority": model_catalog(slot),
+        "efforts": effort_options(slot),
+        "active": active_model_selection(slot),
+    }
+
+
 def public_model_profile() -> dict[str, Any]:
     """Return model memory details safe for UI/API exposure."""
     profile = load_model_profile()
@@ -576,6 +805,7 @@ def public_model_profile() -> dict[str, Any]:
             "video": resolve_model_with_source("video"),
             "audio": resolve_model_with_source("audio"),
         },
+        "planner_selection": model_selection_payload("planner"),
         "safety": {
             "no_secrets": True,
             "secret_storage": str(config_path()),

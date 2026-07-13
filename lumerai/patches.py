@@ -248,7 +248,14 @@ def _ensure_media_matches_track(media_kind: str, track: dict[str, Any]) -> None:
             raise TimelinePatchError(
                 "E_TRACK_KIND", f"video clip requires a video track, got {kind} ({track.get('id')})"
             )
-    elif media_kind in {"image", "text", "lottie"}:
+    elif media_kind == "image":
+        # Images can be on video or overlay tracks (enabling image-based shotlist main chain)
+        if kind not in {"video", "overlay"}:
+            raise TimelinePatchError(
+                "E_TRACK_KIND",
+                f"image clip requires a video or overlay track, got {kind} ({track.get('id')})",
+            )
+    elif media_kind in {"text", "lottie"}:
         if kind != "overlay":
             raise TimelinePatchError(
                 "E_TRACK_KIND",

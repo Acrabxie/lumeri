@@ -325,11 +325,13 @@ def _render_base_video(
         trim_dur = min(seg_dur, max(source_out - source_in, 0.1))
 
         seg_path = work_dir / f"{index:04d}-{_slug(str(clip.get('id') or 'clip'))}.mp4"
+        media_kind = str(asset.get("media_kind") or "video")
         _render_video_segment(
             source, seg_path,
             source_in=source_in, duration=trim_dur,
             width=width, height=height, fps=fps,
             profile=profile,
+            media_kind=media_kind,
             timeout_sec=timeout_sec,
             vf_extra=str(seg.get("vf_extra") or ""),
         )
@@ -356,15 +358,31 @@ def _render_video_segment(
     height: int,
     fps: float,
     profile: dict[str, str],
+    media_kind: str = "video",
     timeout_sec: int,
     vf_extra: str = "",
 ) -> None:
     vf = _video_filter(width=width, height=height, fps=fps) + vf_extra
+    
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", f"{source_in:.6f}",
-        "-t", f"{max(duration, 0.1):.6f}",
-        "-i", str(source),
+    ]
+    
+    if media_kind == "image":
+        cmd.extend([
+            "-loop", "1",
+            "-framerate", f"{fps:.6f}",
+            "-t", f"{max(duration, 0.1):.6f}",
+            "-i", str(source),
+        ])
+    else:
+        cmd.extend([
+            "-ss", f"{source_in:.6f}",
+            "-t", f"{max(duration, 0.1):.6f}",
+            "-i", str(source),
+        ])
+    
+    cmd.extend([
         "-an",
         "-vf", vf,
         "-c:v", "libx264",
@@ -373,7 +391,7 @@ def _render_video_segment(
         "-preset", profile["preset"],
         "-movflags", "+faststart",
         str(output),
-    ]
+    ])
     _run_ffmpeg(cmd, output=output, timeout_sec=timeout_sec)
 
 
@@ -1051,14 +1069,31 @@ def _enabled_video_clips(
     project: dict[str, Any], assets: dict[str, dict[str, Any]]
 ) -> list[dict[str, Any]]:
     timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
+    
+    # Collect video track ids
+    video_track_ids = set()
+    for track in timeline.get("tracks") or []:
+        if isinstance(track, dict) and str(track.get("kind")) == "video":
+            video_track_ids.add(str(track.get("id") or ""))
+    
     items: list[dict[str, Any]] = []
     for order, clip in enumerate(timeline.get("clips") or []):
         if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
             continue
-        if str(clip.get("media_kind") or "video") != "video":
+        # Only process clips on video tracks
+        clip_track_id = str(clip.get("track_id") or "")
+        if clip_track_id not in video_track_ids:
+            continue
+        # Accept video and image media kinds
+        clip_media_kind = str(clip.get("media_kind") or "video")
+        if clip_media_kind not in {"video", "image"}:
             continue
         asset = assets.get(str(clip.get("asset_id") or ""))
         if not isinstance(asset, dict):
+            continue
+        # Asset must be video or image
+        asset_media_kind = str(asset.get("media_kind") or "video")
+        if asset_media_kind not in {"video", "image"}:
             continue
         items.append({"clip": clip, "asset": asset, "order": order})
     items.sort(key=lambda it: (_pos(it["clip"].get("start"), 0.0), int(it.get("order") or 0)))

@@ -183,23 +183,20 @@ def test_failure_disclosure_lists_failed_calls(tmp_path, monkeypatch):
     assert any(e.get("kind") == "turn_complete" for e in events)
 
 
-def test_gate_plain_when_nothing_to_review(tmp_path):
+def test_no_gate_for_pure_conversation(tmp_path):
+    """A conversational turn that does no work (no tools, no assets, no
+    failures) and is not in plan mode gets NO pre-delivery gate: the model's
+    single natural reply stands. Firing the gate here would only force a
+    redundant second reply — the robotic '已完成…' report we removed."""
     events: list[dict[str, Any]] = []
     client = _TextOnlyClient()
     loop = _make_loop(tmp_path, client, events)
     asyncio.run(loop.run_turn("你是谁"))
 
-    # text round + gate round (RC4-compatible: exactly one extra call)
-    assert client.calls == 2
-    checks = _completion_events(events)
-    assert len(checks) == 1
-    assert checks[0]["sections"] == ["goal_check"]
-
-    content = _gate_message(client)
-    assert isinstance(content, str)
-    assert "目标核对" in content
-    assert "视觉自检" not in content
-    assert "失败披露" not in content
+    # Exactly one model call — no gate round.
+    assert client.calls == 1
+    assert _completion_events(events) == []
+    assert any(e.get("kind") == "turn_complete" for e in events)
 
 
 def test_gate_degrades_when_thumbnails_fail(tmp_path, monkeypatch):

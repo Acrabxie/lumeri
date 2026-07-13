@@ -73,7 +73,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
 
         duration = max(0.1, float(shot.get("duration_sec") or 3.0))
         record = ctx.registry.get(asset_id)
-        insert_args: dict[str, Any] = {"asset_id": asset_id}
+        insert_args: dict[str, Any] = {"asset_id": asset_id, "track_id": "V1"}
         if record.kind == "video":
             insert_args["source_in"] = 0.0
             insert_args["source_out"] = duration  # trim to the shot's planned length

@@ -34,34 +34,11 @@ class _ModelStopsImmediately:
         yield {"kind": "finish", "reason": "stop"}
 
 
-class _ModelStopsAfterNudge:
-    """Model that emits no tool_calls on first call, but after nudge (second call),
-    it checks messages and sees the completion nudge, emits text confirmation."""
-
-    model = "fake"
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def stream_turn(
-        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
-    ) -> AsyncIterator[dict[str, Any]]:
-        del messages, tools, temperature
-        self.calls += 1
-        if self.calls == 1:
-            # First response: no tools
-            yield {"kind": "text_delta", "text": "Processing..."}
-            yield {"kind": "finish", "reason": "stop"}
-            return
-        # Second call after nudge: confirm completion
-        yield {"kind": "text_delta", "text": "Confirmed: work is complete."}
-        yield {"kind": "finish", "reason": "stop"}
-
-
-class _ModelCallsToolAfterNudge:
-    """Model that emits no tool_calls on first call, but after nudge (second call),
-    it realizes more work is needed and calls a tool. On third call (after tool result),
-    it stops."""
+class _WorksThenActsAfterGate:
+    """Does real work first (a tool call), stops → the gate fires because work
+    was done → then course-corrects with a SECOND tool call after seeing the
+    gate → stops. Exercises both 'gate fires after work' and 'post-gate tool
+    dispatch still works'."""
 
     model = "fake"
 
@@ -74,68 +51,67 @@ class _ModelCallsToolAfterNudge:
         del tools, temperature
         self.calls += 1
         if self.calls == 1:
-            # First response: no tools
-            yield {"kind": "text_delta", "text": "Checking..."}
-            yield {"kind": "finish", "reason": "stop"}
+            # Real work — a tool call marks the turn as having done something.
+            yield {"kind": "tool_call_start", "index": 0, "id": "c1", "name": "fake_ok"}
+            yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{}"}
+            yield {"kind": "finish", "reason": "tool_calls"}
             return
         if self.calls == 2:
-            # Second call after nudge: decide to call a tool
-            # Check if nudge is in messages (to verify it was injected)
+            # Stop after work → the gate should fire (work was done).
+            yield {"kind": "text_delta", "text": "第一步做完了。"}
+            yield {"kind": "finish", "reason": "stop"}
+            return
+        if self.calls == 3:
+            # Post-gate: only act if the goal-check nudge was actually injected.
             has_nudge = any(
-                "目标核对" in msg.get("content", "") and msg.get("role") == "user"
+                msg.get("role") == "user"
+                and isinstance(msg.get("content"), str)
+                and "目标核对" in msg["content"]
                 for msg in messages
             )
             if has_nudge:
-                yield {
-                    "kind": "tool_call_start",
-                    "index": 0,
-                    "id": "call_after_nudge",
-                    "name": "search_library",
-                }
-                # Include a proper query arg so the tool doesn't fail
-                yield {
-                    "kind": "tool_call_args_delta",
-                    "index": 0,
-                    "delta": '{"query":"test search","kind":"any"}',
-                }
+                yield {"kind": "tool_call_start", "index": 0, "id": "c2", "name": "fake_ok"}
+                yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{}"}
                 yield {"kind": "finish", "reason": "tool_calls"}
                 return
-            # Fallback (should not happen in this test)
             yield {"kind": "text_delta", "text": "No nudge found; error."}
             yield {"kind": "finish", "reason": "stop"}
             return
-        # Third+ calls (after tool execution): just stop
-        yield {"kind": "text_delta", "text": "Done after tool."}
+        # After the post-gate tool result: stop for good (gate is one-shot).
+        yield {"kind": "text_delta", "text": "都做完了。"}
         yield {"kind": "finish", "reason": "stop"}
 
 
-def test_completion_gate_enabled_injects_one_nudge(tmp_path: Path) -> None:
-    """When gate is enabled and model stops initially,
-    exactly one nudge should be injected before the second model call.
-    On second no-tool-call, turn ends."""
-    # Skip if gate is disabled globally
+def test_no_gate_for_pure_conversation(tmp_path: Path) -> None:
+    """A pure conversational turn — the model answers in plain text and does no
+    work (no tool calls, no assets, no failures) — must NOT trigger the
+    pre-delivery gate. The gate reviews work; with nothing done, firing it only
+    forces a redundant second reply (the "已完成…" report / rule meta-commentary
+    we want gone). So a hello/identity/thanks turn is a single natural reply."""
     if not COMPLETION_CHECK_ENABLED:
         return
 
-    client = _ModelStopsAfterNudge()
+    client = _ModelStopsImmediately()
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
-        session_id="completion_gate_enabled",
+        session_id="pure_conversation_no_gate",
         output_dir=tmp_path,
         gemini_client=client,  # type: ignore[arg-type]
         emit_event=events.append,
     )
 
-    asyncio.run(loop.run_turn("Do something"))
+    asyncio.run(loop.run_turn("你是谁"))
 
-    # Should be called twice: first (no tools) → nudge injected → second (no tools).
-    assert client.calls == 2, f"Expected 2 calls, got {client.calls}"
+    # Exactly ONE model call — no gate round, no forced second reply.
+    assert client.calls == 1, f"Expected 1 call, got {client.calls}"
 
-    # There should be exactly one completion_check event.
+    # No completion_check event: the gate never fired.
     completion_checks = [e for e in events if e.get("kind") == "completion_check"]
-    assert len(completion_checks) == 1, f"Expected 1 completion_check, got {len(completion_checks)}"
+    assert (
+        len(completion_checks) == 0
+    ), f"Expected 0 completion_check, got {len(completion_checks)}"
 
-    # Should end with turn_complete (not loop forever).
+    # Turn completes cleanly on the first stop.
     turn_completes = [e for e in events if e.get("kind") == "turn_complete"]
     assert len(turn_completes) == 1, f"Expected 1 turn_complete, got {len(turn_completes)}"
 
@@ -174,41 +150,44 @@ def test_completion_gate_disabled_ends_immediately(tmp_path: Path) -> None:
         loop_mod.COMPLETION_CHECK_ENABLED = original_enabled
 
 
-def test_completion_gate_nudge_allows_tool_call(tmp_path: Path) -> None:
-    """After nudge, model can call a tool. The tool should be dispatched normally."""
+def test_gate_fires_after_work_and_allows_post_gate_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When the turn actually did work (a tool ran), the gate DOES fire once —
+    and the model may course-correct with another tool call after it, which is
+    dispatched normally. Proves the gate still guards real work turns and that
+    post-gate tool dispatch survives the new conversational carve-out."""
     if not COMPLETION_CHECK_ENABLED:
         return
 
-    client = _ModelCallsToolAfterNudge()
+    async def fake_ok(args: dict[str, Any], ctx) -> dict[str, Any]:
+        del args, ctx
+        return {"status": "ok"}
+
+    monkeypatch.setitem(loop_mod.DISPATCHER, "fake_ok", fake_ok)
+
+    client = _WorksThenActsAfterGate()
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
-        session_id="completion_gate_tool_after_nudge",
+        session_id="gate_after_work",
         output_dir=tmp_path,
         gemini_client=client,  # type: ignore[arg-type]
         emit_event=events.append,
     )
 
-    asyncio.run(loop.run_turn("Do something"))
+    asyncio.run(loop.run_turn("做点活儿"))
 
-    # Should be called at least twice: first (no tools) → nudge → second (tool call).
-    # After the tool, the model is called again and stops, so 3+ calls.
-    assert client.calls >= 2, f"Expected at least 2 calls, got {client.calls}"
+    # call1 tool → call2 stop → gate → call3 tool → call4 stop.
+    assert client.calls == 4, f"Expected 4 calls, got {client.calls}"
 
-    # Exactly one completion_check event.
+    # Exactly one completion_check event (one-shot, even with post-gate work).
     completion_checks = [e for e in events if e.get("kind") == "completion_check"]
     assert len(completion_checks) == 1, f"Expected 1 completion_check, got {len(completion_checks)}"
 
-    # The tool call from the second model response should be dispatched.
-    model_tool_call_readys = [
-        e for e in events if e.get("kind") == "model_tool_call_ready"
-    ]
-    assert len(model_tool_call_readys) >= 1, "Tool call should be ready after nudge"
-
-    # Tool name should be search_library (what the model calls after nudge).
-    if model_tool_call_readys:
-        assert (
-            model_tool_call_readys[0].get("tool_name") == "search_library"
-        ), f"Expected search_library, got {model_tool_call_readys[0].get('tool_name')}"
+    # Both the pre-gate and post-gate tool calls dispatched.
+    readys = [e for e in events if e.get("kind") == "model_tool_call_ready"]
+    assert len(readys) == 2, f"Expected 2 dispatched tool calls, got {len(readys)}"
+    assert all(e.get("tool_name") == "fake_ok" for e in readys)
 
 
 def test_completion_gate_no_infinite_loop_without_tools(tmp_path: Path) -> None:
@@ -230,15 +209,13 @@ def test_completion_gate_no_infinite_loop_without_tools(tmp_path: Path) -> None:
     # This should not hang or loop forever.
     asyncio.run(loop.run_turn("Stop immediately"))
 
-    # Exactly 1 call (gate is enabled, but model never stops on no-tools before...)
-    # Actually, _ModelStopsImmediately always stops, so:
-    # First call: no tools → nudge injected → continue
-    # Second call: no tools again → emit turn_complete → return
-    assert client.calls == 2, f"Expected 2 calls, got {client.calls}"
+    # _ModelStopsImmediately does no work, so the conversational carve-out
+    # applies: no gate round, exactly ONE model call, then honest stop.
+    assert client.calls == 1, f"Expected 1 call, got {client.calls}"
 
-    # Verify we only have one completion_check.
+    # No completion_check (gate skipped for a zero-work turn).
     completion_checks = [e for e in events if e.get("kind") == "completion_check"]
-    assert len(completion_checks) == 1, f"Expected 1 completion_check, got {len(completion_checks)}"
+    assert len(completion_checks) == 0, f"Expected 0 completion_check, got {len(completion_checks)}"
 
     # Verify we end with turn_complete (no error or infinite loop).
     turn_errors = [e for e in events if e.get("kind") == "turn_error"]

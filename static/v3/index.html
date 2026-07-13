@@ -3,73 +3,132 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lumeri v3</title>
+<title>Lumeri</title>
 <link rel="icon" type="image/svg+xml" href="/v3/lumeri-favicon.svg" />
 <link rel="stylesheet" href="/v3/v3.css" />
 </head>
 <body>
 <header class="app-header">
-  <div class="title-block">
-    <span class="brand">
-      <img class="brand-logo" src="/v3/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
-      <h1>Lumeri v3</h1>
-    </span>
-    <span class="session-id" id="session-id-label">—</span>
-  </div>
-  <div class="header-actions">
-    <button type="button" id="sandbox-toggle-btn" class="sandbox-toggle" title="沙盒已开启（点击关闭）">沙盒</button>
-    <span class="status-pill" id="connection-pill">offline</span>
-    <button type="button" id="new-session-btn">new session</button>
-    <button type="button" id="account-btn" class="account-btn" title="登录 / 账户">登录</button>
-  </div>
+  <span class="brand">
+    <img class="brand-logo" src="/v3/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
+    <h1>Lumeri</h1>
+  </span>
 </header>
 
 <main class="app-main">
-  <section class="left-pane" id="timeline-pane">
+  <!-- LEFT · preview stage: brand canvas → live preview, with a timeline drawer -->
+  <section class="preview-stage" id="preview-stage">
     <div class="empty-state" id="empty-state">
-      <p>Upload a clip and describe what you want.</p>
-      <p>The agent will pick the actions and stream progress back here.</p>
+      <img class="empty-mark" src="/v3/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
+      <h2 class="empty-title">开始创作</h2>
+      <p>在右侧描述你想要的视频，或从 <span class="kbd-plus">+</span> 拖入素材，<br />Lumeri 会挑选动作、生成画面，并在这里预览。</p>
     </div>
-    <div class="timeline" id="timeline" hidden></div>
+
+    <div class="stage-scroll" id="stage-scroll">
+      <div class="asset-grid" id="asset-grid">
+        <p class="placeholder">No assets yet.</p>
+      </div>
+    </div>
+
+    <!-- CapCut-style project timeline: collapsible drawer, auto-opens when a timeline exists -->
+    <div class="timeline-drawer" id="timeline-drawer">
+      <section id="project-timeline-panel" class="ptl"></section>
+    </div>
   </section>
 
-  <section class="right-pane">
-    <h2 class="pane-heading">Session assets</h2>
-    <div class="asset-grid" id="asset-grid">
-      <p class="placeholder">No assets yet.</p>
+  <!-- RIGHT · chat rail: session head, history, cohesive input -->
+  <aside class="chat-rail" id="chat-rail">
+    <div class="rail-head">
+      <span class="status-pill" id="connection-pill">offline</span>
+      <span class="session-id" id="session-id-label">—</span>
+      <span class="rail-head-spacer"></span>
+      <button type="button" id="new-session-btn" class="rail-btn" title="新会话">新会话</button>
+      <button type="button" id="account-btn" class="account-btn rail-btn" title="登录 / 账户">登录</button>
     </div>
-    <div class="media-library-panel">
-      <div class="media-library-head">
-        <h2 class="pane-heading">Media library annotations</h2>
-        <button type="button" id="library-refresh-btn" class="library-small-btn">refresh</button>
-      </div>
-      <div class="library-actions">
-        <button type="button" id="library-annotate-btn" class="library-small-btn">annotate videos</button>
-      </div>
-      <div class="media-library-grid" id="media-library-grid">
-        <p class="placeholder">Sign in to load media library.</p>
-      </div>
+
+    <div class="rail-history" id="rail-history">
+      <div class="timeline" id="timeline" hidden></div>
     </div>
-  </section>
+
+    <!-- plan approval bar: filled by v3.js while plan mode is on -->
+    <div id="plan-bar" class="plan-bar" hidden></div>
+
+    <!-- cohesive input shell: one piece, two states (collapsed pill ↔ grown card) -->
+    <footer class="composer input-shell" id="input-shell">
+      <!-- slash-command palette (unchanged behavior), anchored to the shell -->
+      <div id="slash-menu" class="slash-menu" hidden></div>
+
+      <!-- "+" popover: the single entry point for everything -->
+      <div id="plus-menu" class="plus-menu" hidden role="menu" aria-label="添加">
+        <div class="plus-group">添加</div>
+        <button type="button" id="upload-btn" class="plus-item" role="menuitem">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8.5l-9.4 9.4a4 4 0 0 1-5.7-5.7l9-9a2.6 2.6 0 0 1 3.7 3.7l-9 9a1.3 1.3 0 0 1-1.8-1.8l8.3-8.3"/></svg>
+          <span class="plus-label">上传文件或照片</span>
+          <span class="plus-tail">⌘U</span>
+        </button>
+        <button type="button" class="plus-item" data-plus="slash" role="menuitem">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M13 17h6"/></svg>
+          <span class="plus-label">快捷指令</span>
+          <span class="plus-tail">/</span>
+        </button>
+
+        <div class="plus-group">会话</div>
+        <div class="plus-item plus-switch" data-plus="plan" role="menuitemcheckbox" aria-checked="false" tabindex="0">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 5.6l1 1 2-2M4 11.6l1 1 2-2M4 17.6l1 1 2-2"/></svg>
+          <span class="plus-label">计划模式<em class="plus-sub">只规划不执行，批准后再动手</em></span>
+          <button type="button" id="plan-toggle-btn" class="plan-toggle switch" title="计划模式：只查看和规划，批准后才执行改动">计划</button>
+        </div>
+        <div class="plus-item plus-switch" data-plus="sandbox" role="menuitemcheckbox" aria-checked="true" tabindex="0">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8 7 9 4-1 7-4.5 7-9V6l-7-3z"/></svg>
+          <span class="plus-label">沙盒权限<em class="plus-sub">保护真实工程，改动隔离在沙盒</em></span>
+          <button type="button" id="sandbox-toggle-btn" class="sandbox-toggle switch" title="沙盒已开启（点击关闭）">沙盒</button>
+        </div>
+
+        <div class="plus-group">工作区</div>
+        <button type="button" class="plus-item plus-switch" data-plus="timeline" role="menuitemcheckbox" aria-checked="false">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/></svg>
+          <span class="plus-label">时间线<em class="plus-sub">显示剪辑轨道</em></span>
+          <span class="switch" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="plus-item" data-plus="assets" role="menuitem">
+          <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+          <span class="plus-label">素材库</span>
+          <span class="plus-tail">›</span>
+        </button>
+      </div>
+
+      <input type="file" id="upload-input" hidden />
+      <button type="button" id="plus-btn" class="plus-btn" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <textarea
+        id="prompt-input"
+        rows="1"
+        placeholder="描述你想要的视频，或输入 / 唤起命令…"
+      ></textarea>
+      <button type="button" id="send-btn" class="send-btn" disabled aria-label="发送">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+      </button>
+    </footer>
+  </aside>
 </main>
 
-<!-- Project timeline: CapCut-style editor, built dynamically by v3.js -->
-<section id="project-timeline-panel" class="ptl"></section>
-
-<!-- Plan-mode hint / approval bar: filled by v3.js while plan mode is on -->
-<div id="plan-bar" class="plan-bar" hidden></div>
-
-<footer class="composer">
-  <input type="file" id="upload-input" hidden />
-  <button type="button" id="upload-btn" class="composer-btn">＋ upload clip</button>
-  <button type="button" id="plan-toggle-btn" class="composer-btn plan-toggle" title="计划模式：只查看和规划，批准后才执行改动">计划</button>
-  <textarea
-    id="prompt-input"
-    rows="2"
-    placeholder="比如：把这段视频前 5 秒慢动作处理,加暖色调和标题,导出 1080p"
-  ></textarea>
-  <button type="button" id="send-btn" class="composer-btn primary" disabled>send</button>
-</footer>
+<!-- Assets tray: summoned media library (moved here, ids kept) -->
+<div id="assets-tray" class="assets-tray" hidden>
+  <div class="assets-tray-panel">
+    <div class="assets-tray-head">
+      <h2 class="pane-heading">媒体库标注</h2>
+      <div class="assets-tray-actions">
+        <button type="button" id="library-refresh-btn" class="library-small-btn">刷新</button>
+        <button type="button" id="library-annotate-btn" class="library-small-btn">标注视频</button>
+        <button type="button" id="assets-tray-close" class="library-small-btn" aria-label="关闭">关闭</button>
+      </div>
+    </div>
+    <div class="media-library-grid" id="media-library-grid">
+      <p class="placeholder">登录后加载媒体库。</p>
+    </div>
+  </div>
+</div>
 
 <!-- Login dialog: Google + email one-time-code, built/handled in v3.js -->
 <div id="auth-modal" class="auth-modal" hidden>

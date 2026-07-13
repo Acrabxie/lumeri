@@ -282,8 +282,10 @@ class TestApplyTemplate:
             ))
         assert exc.value.code == "E_ARG"
 
-    def test_registry_lists_both_templates(self):
-        assert set(template_names()) == {"lower_third", "intro"}
+    def test_registry_lists_the_legacy_templates(self):
+        # The library has grown (see test_lumenframe_component_library); the two
+        # original templates must still be registered and expand to pure ops.
+        assert {"lower_third", "intro"} <= set(template_names())
         assert "lower_third" in TEMPLATES and "intro" in TEMPLATES
         # The pure expansion is op dicts only.
         ops = expand_template("intro", {"title": "X"})

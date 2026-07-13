@@ -39,6 +39,7 @@
     sandboxBtn: $("#sandbox-toggle-btn"),
     planBtn: $("#plan-toggle-btn"),
     planBar: $("#plan-bar"),
+    slashMenu: $("#slash-menu"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -87,6 +88,162 @@
     }[c]));
   }
 
+  // ── Markdown renderer ───────────────────────────────────────────────
+
+  function renderMarkdown(src) {
+    if (!src) return "";
+    const text = String(src);
+
+    // Extract fenced code blocks before any other processing
+    const codeBlocks = [];
+    const withPlaceholders = text.replace(/^```(\w*)\n([\s\S]*?)^```/gm, (_, lang, code) => {
+      const idx = codeBlocks.length;
+      codeBlocks.push(`<pre class="md-code-block"><code class="lang-${escapeHTML(lang || "text")}">${escapeHTML(code.replace(/\n$/, ""))}</code></pre>`);
+      return `\x00CB${idx}\x00`;
+    });
+
+    // Split into block-level chunks by double newline
+    const blocks = withPlaceholders.split(/\n{2,}/);
+    const out = [];
+
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+
+      // Code block placeholder
+      if (/^\x00CB\d+\x00$/.test(block.trim())) {
+        out.push(codeBlocks[+block.trim().slice(3, -1)]);
+        continue;
+      }
+
+      // Heading
+      const hm = block.match(/^(#{1,6})\s+(.+)$/m);
+      if (hm && block.trim().startsWith("#")) {
+        const lvl = hm[1].length;
+        out.push(`<h${lvl} class="md-h">${mdInline(hm[2])}</h${lvl}>`);
+        continue;
+      }
+
+      // Horizontal rule
+      if (/^(\s*[-*_]){3,}\s*$/.test(block.trim())) {
+        out.push(`<hr class="md-hr">`);
+        continue;
+      }
+
+      // Blockquote
+      if (block.trim().startsWith(">")) {
+        const inner = block.replace(/^>\s?/gm, "");
+        out.push(`<blockquote class="md-blockquote">${renderMarkdown(inner)}</blockquote>`);
+        continue;
+      }
+
+      // Table
+      const tableLines = block.trim().split("\n");
+      if (tableLines.length >= 2 && tableLines[0].includes("|") && /^[\s|:-]+$/.test(tableLines[1])) {
+        out.push(mdTable(tableLines));
+        continue;
+      }
+
+      // Unordered list
+      if (/^[\t ]*[-*+]\s/.test(block.trim())) {
+        out.push(mdList(block, "ul"));
+        continue;
+      }
+
+      // Ordered list
+      if (/^[\t ]*\d+[.)]\s/.test(block.trim())) {
+        out.push(mdList(block, "ol"));
+        continue;
+      }
+
+      // Paragraph (may contain inline code block placeholders on their own line)
+      const lines = block.split("\n");
+      const paraLines = [];
+      for (const ln of lines) {
+        if (/^\x00CB\d+\x00$/.test(ln.trim())) {
+          if (paraLines.length) {
+            out.push(`<p>${mdInline(paraLines.join("\n"))}</p>`);
+            paraLines.length = 0;
+          }
+          out.push(codeBlocks[+ln.trim().slice(3, -1)]);
+        } else {
+          paraLines.push(ln);
+        }
+      }
+      if (paraLines.length) {
+        out.push(`<p>${mdInline(paraLines.join("\n"))}</p>`);
+      }
+    }
+    return out.join("\n");
+  }
+
+  function mdInline(s) {
+    let r = escapeHTML(s);
+    // Inline code (must come before bold/italic to avoid conflicts)
+    r = r.replace(/`([^`\n]+?)`/g, '<code class="md-inline-code">$1</code>');
+    // Images
+    r = r.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="md-img" alt="$1" src="$2">');
+    // Links
+    r = r.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="md-link" href="$2" target="_blank" rel="noopener">$1</a>');
+    // Bold + italic
+    r = r.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    // Bold
+    r = r.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    r = r.replace(/__(.+?)__/g, "<strong>$1</strong>");
+    // Italic
+    r = r.replace(/\*(.+?)\*/g, "<em>$1</em>");
+    r = r.replace(/_(.+?)_/g, "<em>$1</em>");
+    // Strikethrough
+    r = r.replace(/~~(.+?)~~/g, "<del>$1</del>");
+    // Line break (trailing double space or backslash)
+    r = r.replace(/  \n/g, "<br>");
+    r = r.replace(/\\\n/g, "<br>");
+    // Single newlines within a paragraph → <br>
+    r = r.replace(/\n/g, "<br>");
+    return r;
+  }
+
+  function mdList(block, tag) {
+    const lines = block.split("\n");
+    const items = [];
+    for (const ln of lines) {
+      const m = tag === "ul"
+        ? ln.match(/^[\t ]*[-*+]\s+(.*)/)
+        : ln.match(/^[\t ]*\d+[.)]\s+(.*)/);
+      if (m) items.push(`<li>${mdInline(m[1])}</li>`);
+      else if (items.length) {
+        items[items.length - 1] = items[items.length - 1].replace("</li>", `<br>${mdInline(ln.trim())}</li>`);
+      }
+    }
+    return `<${tag} class="md-list">${items.join("")}</${tag}>`;
+  }
+
+  function mdTable(lines) {
+    const parseRow = (ln) => ln.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const headers = parseRow(lines[0]);
+    const alignRow = parseRow(lines[1]);
+    const aligns = alignRow.map((c) => {
+      if (c.startsWith(":") && c.endsWith(":")) return "center";
+      if (c.endsWith(":")) return "right";
+      return "left";
+    });
+    let html = '<table class="md-table"><thead><tr>';
+    for (let i = 0; i < headers.length; i++) {
+      html += `<th style="text-align:${aligns[i] || "left"}">${mdInline(headers[i])}</th>`;
+    }
+    html += "</tr></thead><tbody>";
+    for (let r = 2; r < lines.length; r++) {
+      if (!lines[r].trim()) continue;
+      const cells = parseRow(lines[r]);
+      html += "<tr>";
+      for (let i = 0; i < headers.length; i++) {
+        html += `<td style="text-align:${aligns[i] || "left"}">${mdInline(cells[i] || "")}</td>`;
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    return html;
+  }
+
   function lastEventStorageKey(sessionId) {
     return `lumeri:v3:last-event:${sessionId}`;
   }
@@ -129,6 +286,13 @@
       els.emptyState.hidden = true;
       els.timeline.hidden = false;
       els.timeline.innerHTML = state.turns.map((turn, idx) => renderTurn(turn, idx)).join("");
+    }
+
+    // 有素材就自动展开左侧时间轴抽屉（一次性，之后尊重用户手动开合）。
+    if (!state._drawerAutoShown && state.assets && state.assets.length > 0) {
+      state._drawerAutoShown = true;
+      document.getElementById("preview-stage")?.classList.add("drawer-open");
+      document.querySelector('#plus-menu [data-plus="timeline"] .switch')?.classList.add("on");
     }
 
     renderAssets();
@@ -176,11 +340,11 @@
     const callsHtml = buildCallGroups(turn).map(renderCallGroup).join("");
     const bannersHtml = turn.banners.map(renderBanner).join("");
     const assistantHtml = (turn.assistantText || turn.streaming)
-      ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${escapeHTML(turn.assistantText)}</div>`
+      ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${renderMarkdown(turn.assistantText)}</div>`
       : "";
     return `
       <div class="turn-divider">turn ${idx + 1}</div>
-      <div class="user-bubble">${escapeHTML(turn.userMessage)}</div>
+      <div class="user-bubble">${renderMarkdown(turn.userMessage)}</div>
       ${callsHtml}
       ${bannersHtml}
       ${assistantHtml}
@@ -671,7 +835,16 @@
       if (!state.planMode) state.planReady = false;
     },
     completion_check: () => {
-      // Host-side one-shot goal check before an honest stop; nothing to render.
+      // Host-side one-shot goal check re-prompts the model for a FINAL reply
+      // (goal-check / visual self-check / failure disclosure). The text the
+      // model streamed before this gate was only a draft — discard it so the
+      // post-gate round becomes the single user-facing message. Left as-is,
+      // model_text_delta would APPEND the gate round onto the draft and the
+      // user sees the same answer twice (natural reply + report-style restate).
+      const t = state.currentTurn;
+      if (!t) return;
+      t.assistantText = "";
+      t.streaming = false;
     },
     turn_wrapup: (ev) => {
       // Informational "stopped because X; here's what was / wasn't done".
@@ -1702,7 +1875,9 @@
     if (!label) {
       label = document.createElement("span");
       label.className = "upload-status";
-      els.uploadBtn.parentNode.insertBefore(label, els.uploadBtn);
+      // Upload button now lives in the closed "+" menu — anchor the status as a
+      // toast on the input shell instead so it stays visible.
+      (document.getElementById("input-shell") || document.body).appendChild(label);
     }
     label.textContent = text || "";
   }
@@ -1782,10 +1957,215 @@
     }
   });
 
+  // ── /model picker ───────────────────────────────────────────────────
+  // Lists the backend's priority-ordered model catalog + thinking-effort
+  // tiers, marks the active pick, and lets the user switch. The selection is
+  // global + persisted (config.json:lumeri_v3_model / lumeri_v3_effort) — the
+  // same store the CLI /model uses — so it sticks across sessions/restarts.
+  async function fetchModelInfo() {
+    const r = await fetch("/model");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+
+  async function postModelSelection(body) {
+    const r = await fetch("/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  }
+
+  function openModelPicker() {
+    let overlay = $("#model-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "model-modal";
+      overlay.className = "auth-modal";
+      overlay.hidden = true;
+      overlay.innerHTML = `
+        <div class="model-backdrop" data-model-close></div>
+        <div class="auth-dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-title">
+          <button type="button" class="auth-x" data-model-close aria-label="关闭">×</button>
+          <h2 id="model-title">模型与思考强度</h2>
+          <p class="auth-sub">按后台优先级排序 · 选中即对所有会话生效</p>
+          <div class="model-list" id="model-list"></div>
+          <div class="model-effort-label">思考强度</div>
+          <div class="model-efforts" id="model-efforts"></div>
+          <p class="auth-error" id="model-error" hidden></p>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelectorAll("[data-model-close]").forEach((el) =>
+        el.addEventListener("click", () => { overlay.hidden = true; }));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !overlay.hidden) overlay.hidden = true;
+      });
+    }
+    const errEl = $("#model-error", overlay);
+    const setErr = (msg) => {
+      if (!errEl) return;
+      if (msg) { errEl.textContent = msg; errEl.hidden = false; }
+      else { errEl.hidden = true; }
+    };
+
+    function renderInfo(info) {
+      const active = info.active || {};
+      const list = $("#model-list", overlay);
+      list.innerHTML = (info.priority || []).map((it, i) => {
+        const on = it.id === active.model;
+        return `
+          <button type="button" class="model-row${on ? " active" : ""}" data-model-id="${escapeHTML(it.id)}">
+            <span class="model-dot">${on ? "●" : "○"}</span>
+            <span class="model-name">${escapeHTML(it.label)}${i === 0 ? ' <span class="model-tag">默认</span>' : ""}</span>
+            <span class="model-id">${escapeHTML(it.id)}</span>
+          </button>`;
+      }).join("");
+      const efforts = $("#model-efforts", overlay);
+      efforts.innerHTML = (info.efforts || []).map((e) => {
+        const on = e === active.effort;
+        return `<button type="button" class="model-chip${on ? " active" : ""}" data-effort="${escapeHTML(e)}">${escapeHTML(e)}</button>`;
+      }).join("");
+
+      list.querySelectorAll("[data-model-id]").forEach((btn) =>
+        btn.addEventListener("click", () => apply({ model: btn.dataset.modelId })));
+      efforts.querySelectorAll("[data-effort]").forEach((btn) =>
+        btn.addEventListener("click", () => apply({ effort: btn.dataset.effort })));
+    }
+
+    async function apply(body) {
+      setErr("");
+      try {
+        const data = await postModelSelection(body);
+        renderInfo(data);
+      } catch (e) {
+        setErr(`切换失败：${e.message}`);
+      }
+    }
+
+    setErr("");
+    $("#model-list", overlay).innerHTML = '<div class="model-loading">加载中…</div>';
+    $("#model-efforts", overlay).innerHTML = "";
+    overlay.hidden = false;
+    fetchModelInfo().then(renderInfo).catch((e) => setErr(`加载失败：${e.message}`));
+  }
+
+  // ── slash-command palette ───────────────────────────────────────────
+  // A "/" at the start of an empty-ish line opens a floating command menu
+  // above the composer. Mirrors the CLI slash set (src/slash.js), mapping
+  // each command to an existing web action so the two clients stay in sync.
+  const SLASH_COMMANDS = [
+    { name: "help",    desc: "显示可用命令" },
+    { name: "new",     desc: "开启新会话（清空当前对话）" },
+    { name: "clear",   desc: "清空当前对话（保留会话与素材）" },
+    { name: "upload",  desc: "上传素材文件" },
+    { name: "plan",    desc: "计划模式：只规划不执行，批准后再动手" },
+    { name: "model",   desc: "切换模型与思考强度（按后台优先级）" },
+    { name: "sandbox", desc: "切换沙盒开关（关闭后改动落到真实工程）" },
+    { name: "library", desc: "刷新媒体库标注" },
+    { name: "login",   desc: "登录 / 账户" },
+  ];
+  const slash = { open: false, items: [], sel: 0 };
+
+  function knownSlash(name) { return SLASH_COMMANDS.some((c) => c.name === name); }
+
+  // Command name iff the line is `/name` (any trailing arg ignored) and known.
+  function parseSlashName(line) {
+    if (!line.startsWith("/")) return null;
+    const sp = line.indexOf(" ");
+    const name = (sp === -1 ? line.slice(1) : line.slice(1, sp)).toLowerCase();
+    return knownSlash(name) ? name : null;
+  }
+
+  // Autocomplete state: active only while the line is a single `/token` (no space).
+  function slashMatch(line) {
+    if (!line.startsWith("/") || line.includes(" ")) return null;
+    const frag = line.slice(1).toLowerCase();
+    const matches = SLASH_COMMANDS.filter((c) => c.name.startsWith(frag));
+    return matches.length ? matches : null;
+  }
+
+  function slashRender() {
+    const m = els.slashMenu;
+    if (!m) return;
+    if (!slash.open) { m.hidden = true; m.innerHTML = ""; return; }
+    const rows = slash.items.map((c, i) => `
+      <div class="slash-item${i === slash.sel ? " active" : ""}" data-slash="${c.name}">
+        <span class="slash-name">/${c.name}</span>
+        <span class="slash-desc">${escapeHTML(c.desc)}</span>
+      </div>`).join("");
+    m.innerHTML = `<div class="slash-menu-title">命令</div>${rows}`;
+    m.hidden = false;
+    m.querySelector(".slash-item.active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function slashSync() {
+    const matches = slashMatch(els.promptInput.value);
+    if (!matches) { slash.open = false; slashRender(); return; }
+    slash.open = true;
+    slash.items = matches;
+    slash.sel = 0;
+    slashRender();
+  }
+
+  function slashClose() { slash.open = false; slashRender(); }
+
+  function execSlash(name) {
+    // /help lists everything by re-opening the menu on a bare slash.
+    if (name === "help") { els.promptInput.value = "/"; slashSync(); els.promptInput.focus(); return; }
+    switch (name) {
+      case "new":     els.newSessionBtn.click(); break;
+      case "clear":   state.turns = []; state.currentTurn = null; render(); break;
+      case "upload":  els.uploadBtn.click(); break;
+      case "plan":    els.planBtn?.click(); break;
+      case "model":   openModelPicker(); break;
+      case "sandbox": els.sandboxBtn?.click(); break;
+      case "library": els.libraryRefreshBtn?.click(); break;
+      case "login":   $("#account-btn")?.click(); break;
+    }
+    els.promptInput.value = "";
+    slashClose();
+    syncShell();
+  }
+
+  // Menu navigation. Returns true when it consumed the key.
+  function slashKeydown(e) {
+    if (!slash.open || !slash.items.length) return false;
+    const n = slash.items.length;
+    if (e.key === "ArrowDown") { e.preventDefault(); slash.sel = (slash.sel + 1) % n; slashRender(); return true; }
+    if (e.key === "ArrowUp")   { e.preventDefault(); slash.sel = (slash.sel - 1 + n) % n; slashRender(); return true; }
+    if (e.key === "Escape")    { e.preventDefault(); slashClose(); return true; }
+    if (e.key === "Tab")       { e.preventDefault(); els.promptInput.value = "/" + slash.items[slash.sel].name; slashClose(); return true; }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+      e.preventDefault();
+      execSlash(slash.items[slash.sel].name);
+      return true;
+    }
+    return false;
+  }
+
+  els.promptInput.addEventListener("input", slashSync);
+  // Clicking a menu row runs it; clicking elsewhere dismisses the menu.
+  els.slashMenu?.addEventListener("mousedown", (e) => {
+    const row = e.target.closest(".slash-item[data-slash]");
+    if (!row) return;
+    e.preventDefault();               // keep focus in the textarea
+    execSlash(row.dataset.slash);
+  });
+  document.addEventListener("click", (e) => {
+    if (!slash.open) return;
+    if (e.target.closest(".composer")) return;
+    slashClose();
+  });
+
   els.sendBtn.addEventListener("click", () => {
     const msg = els.promptInput.value.trim();
     if (!msg) return;
-    submitTurn(msg).then(() => { els.promptInput.value = ""; })
+    const name = parseSlashName(msg);
+    if (name) { execSlash(name); return; }
+    submitTurn(msg).then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
                    .catch((err) => {
                      state.errors.push(`submit turn failed: ${err.message}`);
                      render();
@@ -1793,12 +2173,114 @@
   });
 
   els.promptInput.addEventListener("keydown", (e) => {
+    // Slash menu gets first crack at arrows/enter/tab/esc.
+    if (slashKeydown(e)) return;
     // Enter sends; Shift+Enter = newline. Never send mid-IME-composition (中文输入法候选).
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
+      // A bare `/command` runs directly — works even when send is disabled (no session).
+      const raw = els.promptInput.value.trim();
+      const name = raw && parseSlashName(raw);
+      if (name) { execSlash(name); return; }
       els.sendBtn.click();
     }
   });
+
+  // ── input shell: "+" popover · auto-grow · send-appears-on-text ──────
+  const shell = $("#input-shell");
+  const plusBtn = $("#plus-btn");
+  const plusMenu = $("#plus-menu");
+  const previewStage = $("#preview-stage");
+  const assetsTray = $("#assets-tray");
+
+  // Grow the pill past one line; reveal the ice send-disc once there is text.
+  // The grow decision is measured at the NON-grown (buttons-inline) width so it
+  // can't feed back on itself: measuring while grown widens the field, un-wraps
+  // the text, and would flip the decision back — the boundary jitter bug. We
+  // drop .is-grown, read scrollHeight synchronously (no paint between), then
+  // restore the real state and size the field to the actual layout.
+  function syncShell() {
+    const ta = els.promptInput;
+    shell.classList.remove("is-grown");
+    ta.style.height = "auto";
+    const grown = ta.scrollHeight > 48 || ta.value.includes("\n");  // measured at pill width
+    shell.classList.toggle("is-grown", grown);
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+    shell.classList.toggle("has-text", ta.value.trim().length > 0);
+  }
+  els.promptInput.addEventListener("input", syncShell);
+
+  // "+" is the single entry point. Popover opens upward from the shell.
+  function openPlus()  { plusMenu.hidden = false; plusBtn.setAttribute("aria-expanded", "true"); }
+  function closePlus() { plusMenu.hidden = true;  plusBtn.setAttribute("aria-expanded", "false"); }
+  plusBtn.addEventListener("click", (e) => { e.stopPropagation(); plusMenu.hidden ? openPlus() : closePlus(); });
+  plusMenu.addEventListener("click", (e) => {
+    const item = e.target.closest(".plus-item");
+    if (!item) return;
+    // plan / sandbox rows: forward to the MOVED real button (keeps its listener);
+    // the switch is pointer-events:none so a real click always targets the row.
+    // Guard: the programmatic .click() re-enters here with target===inner → skip.
+    const inner = item.querySelector("#plan-toggle-btn, #sandbox-toggle-btn");
+    if (inner) { if (!inner.contains(e.target)) inner.click(); return; }   // stay open — flip is visible
+    const kind = item.dataset.plus;
+    if (kind === "slash")    { closePlus(); els.promptInput.value = "/"; slashSync(); els.promptInput.focus(); return; }
+    if (kind === "timeline") { toggleDrawer(); return; }                    // stay open, reflect state
+    if (kind === "assets")   { closePlus(); toggleTray(true); return; }
+    closePlus();   // upload row already fired its own listener (→ file picker)
+  });
+  document.addEventListener("click", (e) => {
+    if (plusMenu.hidden) return;
+    if (e.target.closest("#plus-menu") || e.target.closest("#plus-btn")) return;
+    closePlus();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !plusMenu.hidden) { closePlus(); plusBtn.focus(); }
+  });
+  // Switch rows are divs (a real <button> sits inside — nesting buttons is invalid
+  // HTML), so give them the keyboard side of the switch contract: Space/Enter flips.
+  plusMenu.addEventListener("keydown", (e) => {
+    const row = e.target.closest('.plus-item[role="menuitemcheckbox"]');
+    if (!row) return;
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); row.click(); }
+  });
+  // Keep row aria-checked in sync with the moved real buttons' state classes
+  // (renderPlanUi toggles .on, renderSandbox toggles .off) without touching render().
+  const syncAria = () => {
+    plusMenu.querySelector('[data-plus="plan"]')
+      ?.setAttribute("aria-checked", els.planBtn?.classList.contains("on") ? "true" : "false");
+    plusMenu.querySelector('[data-plus="sandbox"]')
+      ?.setAttribute("aria-checked", els.sandboxBtn?.classList.contains("off") ? "false" : "true");
+  };
+  if (els.planBtn && els.sandboxBtn) {
+    const mo = new MutationObserver(syncAria);
+    mo.observe(els.planBtn, { attributes: true, attributeFilter: ["class"] });
+    mo.observe(els.sandboxBtn, { attributes: true, attributeFilter: ["class"] });
+    syncAria();
+  }
+
+  // Left-stage timeline drawer (also mirrored on the "+" timeline switch).
+  function toggleDrawer(force) {
+    const open = force === undefined ? !previewStage.classList.contains("drawer-open") : force;
+    previewStage.classList.toggle("drawer-open", open);
+    plusMenu.querySelector('[data-plus="timeline"] .switch')?.classList.toggle("on", open);
+    plusMenu.querySelector('[data-plus="timeline"]')?.setAttribute("aria-checked", open ? "true" : "false");
+  }
+  // Summoned media-library tray.
+  function toggleTray(open) {
+    assetsTray.hidden = !open;
+    if (open) fetchMediaLibrary().catch(() => {});
+  }
+  $("#assets-tray-close")?.addEventListener("click", () => toggleTray(false));
+  assetsTray?.addEventListener("click", (e) => { if (e.target === assetsTray) toggleTray(false); });
+
+  // First-run discovery pulse on "+" (controls are hidden behind it now).
+  try {
+    if (!window.localStorage.getItem("lumeri:v3:plus-seen")) {
+      plusBtn.classList.add("pulse");
+      window.localStorage.setItem("lumeri:v3:plus-seen", "1");
+    }
+  } catch {}
 
   // ── timeline quick-action buttons ──────────────────────────────────
   // Any .pt-action-btn with a data-cmd attribute pre-fills the prompt and sends.

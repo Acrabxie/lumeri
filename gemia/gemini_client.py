@@ -45,7 +45,7 @@ _DEFAULT_VERTEX_MODEL    = "google/gemini-3.5-flash"  # available on the Vertex 
 _DEFAULT_GEMINI_MODEL    = "gemini-2.0-flash"
 _DEFAULT_CLAUDE_MODEL    = "claude-sonnet-4-6"
 _DEFAULT_OPENROUTER_MODEL = _DEFAULT_MODEL
-_DEFAULT_OPENAI_MODEL    = "gpt-4o"
+_DEFAULT_OPENAI_MODEL    = "gpt-5.5"
 
 # Auto-probe priority: first provider with credentials wins
 _PROVIDER_PRIORITY = ("vertex", "gemini", "claude", "openrouter", "openai")
@@ -427,7 +427,17 @@ class GeminiClientV3:
             ).strip()
             if not self.api_key:
                 raise RuntimeError("OPENAI_API_KEY required for openai provider (env or config.json:openai_api_key).")
-            self.api_url = "https://api.openai.com/v1/chat/completions"
+            # Base URL is config-readable (not env-only) so the openai path can
+            # be pinned to a local bridge — e.g. the codex-shim that fronts a
+            # ChatGPT subscription — from ~/.gemia/config.json alone, without
+            # needing the daemon's env. The shim authenticates with its own
+            # managed token and ignores this api_key, but a non-empty value is
+            # still required above.
+            self.api_url = (
+                os.environ.get("LUMERI_OPENAI_BASE_URL")
+                or _read_config_key("lumeri_openai_base_url")
+                or "https://api.openai.com/v1/chat/completions"
+            )
             self.model = model_override or _DEFAULT_OPENAI_MODEL
 
         else:  # openrouter (default)
@@ -449,6 +459,13 @@ class GeminiClientV3:
         # Orchestration/tool-path temperature (RC5): low by default. The agent
         # loop passes no temperature, so this becomes the effective default.
         self.orchestration_temperature = _resolve_orchestration_temperature()
+
+        # Thinking/reasoning effort, switchable via `/model` (persisted to
+        # config.json:lumeri_v3_effort or env LUMERI_V3_EFFORT). Empty = leave the
+        # provider on its own default. Applied to reasoning-capable models below.
+        self.reasoning_effort = (
+            os.environ.get("LUMERI_V3_EFFORT") or _read_config_key("lumeri_v3_effort") or ""
+        ).strip().lower()
 
         # Startup visibility (RC5). Logs the RESOLVED provider/model/temperature
         # ONLY — never the api_key, api_url credentials, or any config.json
@@ -492,6 +509,17 @@ class GeminiClientV3:
         }
         if tools:
             body["tools"] = tools
+
+        # Reasoning effort for thinking-capable models. OpenRouter (and the
+        # OpenAI-compatible providers routed through the same body) accept
+        # `reasoning.effort` ∈ {low, medium, high}; we map our extra "max" tier
+        # onto "high" for the wire while keeping "max" as a UI label. The Claude
+        # provider builds its own body (`_stream_blocking_claude`) and ignores
+        # this field.
+        if self.reasoning_effort and self.provider != "claude":
+            api_effort = "high" if self.reasoning_effort == "max" else self.reasoning_effort
+            if api_effort in ("low", "medium", "high"):
+                body["reasoning"] = {"effort": api_effort}
 
         loop = asyncio.get_running_loop()
         q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()

@@ -722,6 +722,12 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, payload)
             return
 
+        if path == "/model":
+            from gemia.memory import model_selection_payload
+
+            _json_response(self, 200, model_selection_payload("planner"))
+            return
+
         if path == "/auth/session":
             _json_response(self, 200, accounts.auth_session_payload())
             return
@@ -1099,6 +1105,19 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 200, {"ok": True, "account": profile, **accounts.auth_session_payload()})
             except Exception as exc:
                 _json_response(self, 400, _error_payload(exc))
+            return
+
+        if route == "/model":
+            try:
+                from gemia.memory import apply_model_selection, model_selection_payload
+
+                payload = _read_json_body(self) or {}
+                apply_model_selection(payload, "planner")
+                _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
+            except ValueError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, _error_payload(exc))
             return
 
         if route == "/auth/logout":

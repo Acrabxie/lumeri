@@ -2073,6 +2073,38 @@ def _op_apply_template(doc: dict[str, Any], op: dict[str, Any]) -> None:
         _dispatch(doc, sub)
 
 
+@register_op("apply_element", source="core")
+def _op_apply_element(doc: dict[str, Any], op: dict[str, Any]) -> None:
+    """Stamp a named graphic element (arrow / …) into the document as an overlay.
+
+    Mirrors :func:`_op_apply_template` exactly, but for the element library: the
+    element is a pure ``params -> [op dicts]`` overlay macro; this op looks it up
+    in :data:`lumenframe.elements.ELEMENTS`, expands it with ``params``, and
+    applies each resulting op through the *same* dispatch path used for every
+    other op. Elements introduce no new vocabulary — they are a macro over
+    ``add_shape`` / ``set_keyframe`` / … that draws one graphic and composes onto
+    whatever is beneath.
+    """
+    from lumenframe.elements import ELEMENTS, element_names
+
+    name = str(_require_arg(op, "element"))
+    element = ELEMENTS.get(name)
+    if element is None:
+        raise LayerPatchError(
+            "E_ARG",
+            f"apply_element: unknown element {name!r} (use {', '.join(element_names())})",
+        )
+    params = op.get("params") or {}
+    if not isinstance(params, dict):
+        raise LayerPatchError("E_ARG", "apply_element: params must be an object")
+    try:
+        sub_ops = element(**params)
+    except TypeError as err:
+        raise LayerPatchError("E_ARG", f"apply_element: bad params for {name!r}: {err}") from err
+    for sub in sub_ops:
+        _dispatch(doc, sub)
+
+
 # ── multi-layer compositing sugar ─────────────────────────────────────────
 #
 # These ops are *convenience macros* over the existing primitives (transform /

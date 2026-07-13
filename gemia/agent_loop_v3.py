@@ -2,9 +2,10 @@
 
 Contract — what this loop is and what it is NOT:
 
-  - It streams from Gemini through the v3 OpenRouter client and forwards
-    every real chunk to the SSE transport. ``model_text_delta`` events
-    ONLY come from real Gemini text chunks. The host never fabricates
+  - It streams from the model through the v3 client (any of the supported
+    providers — Gemini, Claude, GPT, …) and forwards every real chunk to the
+    SSE transport. ``model_text_delta`` events ONLY come from real model
+    text chunks. The host never fabricates
     status narration of its own. If the model is silent, the user-facing
     stream stays silent.
 
@@ -19,7 +20,7 @@ Contract — what this loop is and what it is NOT:
   - It does NOT cap the total number of tool steps per turn. A research
     or see→modify→rerun build loop legitimately needs many steps. If the
     SAME tool fails repeatedly with the SAME error class, the host feeds
-    Gemini an explicit "change approach" nudge; it does not hard-stop the
+    the model an explicit "change approach" nudge; it does not hard-stop the
     turn. A successful dispatch of that tool resets its streak. Real
     cost/time stay bounded by ``BudgetGuard`` ($ + execution seconds).
       * ``visual_inspections_this_turn``   — capped at
@@ -119,7 +120,12 @@ _GATE_VOICE_TEXT = (
     "最终回复要像一个同事交活那样自然地说话，按这一回合实际发生的事"
     "来组织内容：做了什么、结果怎么样、有什么值得注意的地方；有失败就如实说明。"
     "不要按固定的标题或清单结构逐项汇报，不要把内部检查清单本身复述给用户，"
-    "也不要用「项目已圆满完成」这类礼节性套话收尾。用用户最新消息的语言回复。"
+    "也不要用「项目已圆满完成」这类礼节性套话收尾。"
+    "尤其避免这几种机械腔：别用「已完成：…」这种状态汇报式开头；"
+    "别用第三人称回述自己刚才做了什么（如「我刚才已经回答了…」）；"
+    "别报告「当前没有需要继续执行的工具操作」这类内部机制状态。"
+    "如果这一回合本来就只是对话，那就只说这段对话该说的话，别硬凑成一份交付报告。"
+    "用用户最新消息的语言回复。"
 )
 
 
@@ -143,9 +149,16 @@ def _goal_check_text(pinned_intent: str | None, plan_mode: bool) -> str:
         )
     return (
         f"目标核对：{pinned_summary}。"
-        "若已完全完成，简短确认做了什么然后停下。"
-        "若未完成，立刻继续调用下一个工具——不要等用户、不要重复已完成的工作。"
-        "若确实被卡住需要用户输入，明确说明。"
+        "先分清这一回合的性质，再决定怎么收尾：\n"
+        "· 若用户只是打招呼、问你是谁/能做什么、道谢或随口聊——这不是一个「任务」，"
+        "别当成任务来收尾。用 Lumeri 自己的口吻、自然温暖地把话答好就行，"
+        "像同事随口回一句那样；不要加完成汇报，不要用「已完成」开头，"
+        "不要把自己刚说过的话再复述一遍，也不要报告「有没有工具要执行」这类内部状态。\n"
+        "· 若用户要的是真正的创作/编辑，并且已经做完——用一句自然的话讲清你做了什么、"
+        "结果怎样，然后停下。\n"
+        "· 若还没做完——别把「该怎么做」讲给用户听，立刻调用下一个工具接着做，"
+        "不要等用户、不要重复已完成的工作。\n"
+        "· 若确实被卡住需要用户拿主意——说清楚卡在哪、需要什么。"
         "\n\n" + _GATE_VOICE_TEXT
     )
 
@@ -170,8 +183,8 @@ def _strip_gate_images(msg: dict[str, Any]) -> None:
 
 # Repeated-failure nudge: there is no cap on the TOTAL number of tool steps in a
 # turn. If the SAME (tool, error-class) repeats this many times in a row, append
-# a model-facing "change approach" prompt. This threshold is guidance for Gemini,
-# not a host-side stop condition. A model that reads a typed error and ADAPTS —
+# a model-facing "change approach" prompt. This threshold is guidance for the
+# model, not a host-side stop condition. A model that reads a typed error and ADAPTS —
 # a different error_code, or switching tools — is treated as progress, not
 # runaway: its streak soft-resets. A successful dispatch clears the streak
 # entirely. Genuine cost/time stays bounded by BudgetGuard.
@@ -302,9 +315,9 @@ def _tool_call_message(tc: _ToolCallAccumulator) -> dict[str, Any]:
         "function": {"name": tc.name, "arguments": tc.args},
     }
     if tc.extra_content is not None:
-        # Gemini/OpenRouter tool calls can carry provider metadata such as
-        # thought_signature. The follow-up request must echo it on the
-        # assistant tool_call part, or Gemini rejects the next model call.
+        # Some providers' tool calls carry metadata such as thought_signature
+        # (e.g. Gemini via OpenRouter). The follow-up request must echo it on
+        # the assistant tool_call part, or the provider rejects the next call.
         message["extra_content"] = tc.extra_content
     return message
 
@@ -535,14 +548,35 @@ class AgentLoopV3:
         """Compact, size-capped durable-memory block for the ``{{memory}}`` slot.
 
         Delegates to ``gemia.memory.format_memory_for_prompt`` (which reads
-        MEMORY.md + the model-profile digest, capped at a few KB) and never
-        raises: any failure degrades to a short placeholder so prompt assembly
-        cannot break on a missing or unreadable memory store.
+        MEMORY.md, capped at a few KB) and never raises: any failure degrades
+        to a short placeholder so prompt assembly cannot break on a missing or
+        unreadable memory store. Deliberately excludes model/provider defaults
+        — see ``_runtime_engine_text`` for the one place that fact belongs.
         """
         try:
             return _memory.format_memory_for_prompt()
         except Exception:  # noqa: BLE001 — memory must never break prompt build
             return "(durable memory unavailable this session)"
+
+    def _runtime_engine_text(self) -> str:
+        """The ACTUAL provider/model this turn is running on, read live off
+        ``self.client`` — for the ``{{runtime_engine}}`` slot.
+
+        This is the one place the model is told what it is: a ground-truth
+        fact resolved by the host from live config each turn (see
+        ``GeminiClientV3.__init__``), not a static or stale value baked into
+        the prompt or memory. The point isn't to hide this — it's that a
+        model has no reliable way to know it from the inside, so if asked, it
+        should read the real answer here instead of guessing from its own
+        training-time self-belief (which is routinely wrong once routed
+        through this host) or reciting an unrelated cached value.
+        """
+        try:
+            provider = getattr(self.client, "provider", "") or "(unknown)"
+            model = getattr(self.client, "model", "") or "(unknown)"
+            return f"provider = `{provider}`, model = `{model}`"
+        except Exception:  # noqa: BLE001 — must never break prompt build
+            return "(runtime engine info unavailable this session)"
 
     def _auto_log_turn(
         self,
@@ -586,7 +620,10 @@ class AgentLoopV3:
         ``{{environment}}`` from a live probe of the running interpreter and
         installed dependencies (gemia.env_probe.format_environment_summary),
         ``{{memory}}`` from the durable Gemia memory store
-        (gemia.memory.format_memory_for_prompt — MEMORY.md + model defaults),
+        (gemia.memory.format_memory_for_prompt — MEMORY.md only),
+        ``{{runtime_engine}}`` from the live client's resolved provider/model
+        (self._runtime_engine_text — the ground truth if the model is asked
+        what it's running on; recomputed fresh every call, never cached),
         ``{{asset_registry}}`` from the live AssetRegistry compact text,
         ``{{pending_jobs}}`` from the live JobRegistry compact text,
         ``{{lumenframe_ops}}`` from lumenframe.describe_ops() operation catalog,
@@ -603,6 +640,7 @@ class AgentLoopV3:
             .replace("{{plan_mode}}", PLAN_MODE_PROMPT if self.plan_mode else "")
             .replace("{{environment}}", format_environment_summary())
             .replace("{{memory}}", self._memory_for_prompt())
+            .replace("{{runtime_engine}}", self._runtime_engine_text())
             .replace("{{asset_registry}}", self.registry.compact_text())
             .replace("{{pending_jobs}}", self._tool_ctx.jobs.compact_text_for_prompt())
             .replace("{{lumenframe_ops}}", lumenframe_ops)
@@ -786,7 +824,7 @@ class AgentLoopV3:
         the streak resets to 1 rather than climbing toward the nudge threshold.
         Returns ``(should_nudge, streak)`` where ``should_nudge`` is True once
         ``streak`` reaches ``limit``. This never means "stop the turn"; it means
-        "tell Gemini to change approach."
+        "tell the model to change approach."
         """
         last_code, streak = fail_state.get(name, ("", 0))
         streak = streak + 1 if code == last_code else 1
@@ -1221,9 +1259,27 @@ class AgentLoopV3:
                 ]
             self._messages.append(assistant_msg)
 
-            # ---- model called no tools → pre-delivery gate (RC4+) ----
+            # ---- model called no tools → maybe pre-delivery gate (RC4+) ----
             if not accum.tool_calls:
-                if COMPLETION_CHECK_ENABLED and not completion_check_done:
+                # The pre-delivery gate reviews WORK: a visual self-check of
+                # produced assets, disclosure of failed calls, and a goal
+                # re-check after doing. A pure conversational turn (a greeting,
+                # "你是谁", a thank-you) does none of that — the model just
+                # answered in plain text. Firing the gate there does not review
+                # anything; it only forces a redundant SECOND reply that comes
+                # out as a "已完成…" status report or meta-commentary on the
+                # rules — exactly the robotic output we want gone. So gate only
+                # when the turn actually did something, or in plan mode (where
+                # presenting the plan IS the reviewable deliverable).
+                turn_did_work = bool(
+                    tools_succeeded or tools_failed or _assets_produced()
+                )
+                gate_applies = turn_did_work or self.plan_mode
+                if (
+                    COMPLETION_CHECK_ENABLED
+                    and not completion_check_done
+                    and gate_applies
+                ):
                     # One-shot gate before honest stop. Extends the RC4
                     # completion check with (a) a visual self-check with
                     # thumbnails when this turn produced visual assets and
