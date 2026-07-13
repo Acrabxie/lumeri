@@ -10,9 +10,10 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from gemia.media_library import MediaLibraryError, get_asset, library_path, media_root
+from gemia.media_search import fts_normalize
 
 _VALID_SCOPE = {"asset", "time_range", "frame"}
-_VALID_SOURCE = {"gemini", "user", "import", "system"}
+_VALID_SOURCE = {"gemini", "user", "import", "system", "gemini_vision", "heuristic"}
 
 
 class MediaAnnotationError(ValueError):
@@ -83,11 +84,11 @@ def create_annotation(account_id: str, asset_id: str, payload: dict[str, Any]) -
             INSERT INTO media_annotations (
               annotation_id, asset_id, account_id, scope, start_sec, end_sec,
               frame, label, note, tags_json, category, confidence, source,
-              language, metadata_json, created_at, updated_at
+              language, metadata_json, search_text, created_at, updated_at
             ) VALUES (
               :annotation_id, :asset_id, :account_id, :scope, :start_sec, :end_sec,
               :frame, :label, :note, :tags_json, :category, :confidence, :source,
-              :language, :metadata_json, :created_at, :updated_at
+              :language, :metadata_json, :search_text, :created_at, :updated_at
             )
             """,
             row,
@@ -149,6 +150,7 @@ def update_annotation(
               source = :source,
               language = :language,
               metadata_json = :metadata_json,
+              search_text = :search_text,
               updated_at = :updated_at
             WHERE asset_id = :asset_id AND annotation_id = :annotation_id
             """,
@@ -204,7 +206,7 @@ def annotate_asset_heuristic(
             "tags": base_tags,
             "category": "summary",
             "confidence": 0.55,
-            "source": "gemini",
+            "source": "heuristic",
             "language": language,
             "metadata": {"mode": mode, "strategy": "local_heuristic"},
         }
@@ -226,7 +228,7 @@ def annotate_asset_heuristic(
                     "tags": _dedupe_tags([*base_tags, "review", f"segment-{index}"]),
                     "category": "segment",
                     "confidence": 0.45,
-                    "source": "gemini",
+                    "source": "heuristic",
                     "language": language,
                     "metadata": {"mode": mode, "strategy": "local_heuristic"},
                 }
@@ -235,7 +237,7 @@ def annotate_asset_heuristic(
         account_id,
         asset_id,
         annotations,
-        replace_source="gemini" if replace_existing else None,
+        replace_source="heuristic" if replace_existing else None,
     )
     return {
         "asset_id": asset_id,
@@ -306,7 +308,98 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_media_annotations_asset ON media_annotations(asset_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_media_annotations_updated ON media_annotations(updated_at)")
+    _ensure_search_index(conn)
     conn.commit()
+
+
+def _ensure_search_index(conn: sqlite3.Connection) -> None:
+    """FTS5 external-content index over media_annotations + the index-state table.
+
+    Idempotent and cheap: the column migration is guarded by table_info, the FTS
+    table and triggers use IF NOT EXISTS, and the one-time backfill only runs while
+    unnormalized rows remain. Triggers are created AFTER the backfill so the
+    external-content index is never fed 'delete' commands for rows it never held.
+    See docs/semantic-search-media-plan.md §4.2/§7.1.
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(media_annotations)")}
+    if "search_text" not in cols:
+        conn.execute("ALTER TABLE media_annotations ADD COLUMN search_text TEXT NOT NULL DEFAULT ''")
+
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS media_annotations_fts USING fts5(
+            search_text,
+            content='media_annotations',
+            tokenize='unicode61'
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS media_index_state (
+            asset_id       TEXT PRIMARY KEY,
+            fingerprint    TEXT NOT NULL,
+            strategy       TEXT NOT NULL,
+            prompt_version INTEGER NOT NULL DEFAULT 0,
+            model          TEXT NOT NULL DEFAULT '',
+            frames_used    INTEGER NOT NULL DEFAULT 0,
+            annotated_at   TEXT NOT NULL,
+            status         TEXT NOT NULL,
+            error          TEXT
+        )
+        """
+    )
+
+    stale = conn.execute(
+        "SELECT count(*) FROM media_annotations WHERE search_text = '' AND label != ''"
+    ).fetchone()
+    if stale and int(stale[0]) > 0:
+        rows = conn.execute(
+            "SELECT annotation_id, label, note, category, tags_json FROM media_annotations "
+            "WHERE search_text = '' AND label != ''"
+        ).fetchall()
+        for row in rows:
+            tags = _json_list(row["tags_json"])
+            text = fts_normalize(
+                " ".join(
+                    [
+                        str(row["label"] or ""),
+                        str(row["note"] or ""),
+                        str(row["category"] or ""),
+                        *[str(t) for t in tags],
+                    ]
+                )
+            )
+            conn.execute(
+                "UPDATE media_annotations SET search_text = ? WHERE annotation_id = ?",
+                (text, str(row["annotation_id"])),
+            )
+        conn.execute("INSERT INTO media_annotations_fts(media_annotations_fts) VALUES('rebuild')")
+
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS media_annotations_ai AFTER INSERT ON media_annotations BEGIN
+          INSERT INTO media_annotations_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS media_annotations_ad AFTER DELETE ON media_annotations BEGIN
+          INSERT INTO media_annotations_fts(media_annotations_fts, rowid, search_text)
+          VALUES('delete', old.rowid, old.search_text);
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS media_annotations_au AFTER UPDATE ON media_annotations BEGIN
+          INSERT INTO media_annotations_fts(media_annotations_fts, rowid, search_text)
+          VALUES('delete', old.rowid, old.search_text);
+          INSERT INTO media_annotations_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+        END
+        """
+    )
 
 
 def _require_asset(account_id: str, asset_id: str) -> dict[str, Any]:
@@ -353,6 +446,10 @@ def _normalize_payload(
     confidence = _optional_float(payload.get("confidence"))
     if confidence is not None:
         confidence = max(0.0, min(1.0, confidence))
+    tags = _dedupe_tags(payload.get("tags"))
+    note = str(payload.get("note") or "")[:5000]
+    category = str(payload.get("category") or "")[:80]
+    label = label[:200]
     return {
         "asset_id": asset_id,
         "account_id": account_id,
@@ -360,14 +457,15 @@ def _normalize_payload(
         "start_sec": start,
         "end_sec": end,
         "frame": frame_value,
-        "label": label[:200],
-        "note": str(payload.get("note") or "")[:5000],
-        "tags_json": json.dumps(_dedupe_tags(payload.get("tags")), ensure_ascii=False),
-        "category": str(payload.get("category") or "")[:80],
+        "label": label,
+        "note": note,
+        "tags_json": json.dumps(tags, ensure_ascii=False),
+        "category": category,
         "confidence": confidence,
         "source": _source(str(payload.get("source") or "user")),
         "language": str(payload.get("language") or "auto")[:32],
         "metadata_json": json.dumps(_json_dict(payload.get("metadata")), ensure_ascii=False, sort_keys=True),
+        "search_text": fts_normalize(" ".join([label, note, category, *tags])),
     }
 
 

@@ -22,6 +22,9 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "generate_video":     {"usd": 2.80,  "eta_sec": 120.0},  # Veo 3.1 fast, 8s
     "generate_audio":     {"usd": 0.00,  "eta_sec": 45.0},   # Lyria 3 clip — preview, currently free
     "analyze_media":      {"usd": 0.01,  "eta_sec": 4.0},    # rough Gemini text estimate
+    # Audio analysis (zero money, time only).
+    "align_audio":        {"usd": 0.00, "eta_sec": 2.0},    # cross-correlation
+    "detect_beats":       {"usd": 0.00, "eta_sec": 2.0},    # librosa beat detection
     # Local ffmpeg (zero money, time only).
     "edit_image":         {"usd": 0.00, "eta_sec": 4.0},
     "edit_video":         {"usd": 0.00, "eta_sec": 10.0},
@@ -40,6 +43,17 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "probe_media":        {"usd": 0.00, "eta_sec": 0.2},
     "inspect_lottie":     {"usd": 0.00, "eta_sec": 1.0},
     "search_library":     {"usd": 0.00, "eta_sec": 0.5},
+    "search_media":       {"usd": 0.00, "eta_sec": 0.5},
+    "search_frames":      {"usd": 0.00, "eta_sec": 3.0},
+    "draft_shotlist":     {"usd": 0.00, "eta_sec": 0.3},
+    "set_shotlist":       {"usd": 0.00, "eta_sec": 0.2},
+    "update_shot":        {"usd": 0.00, "eta_sec": 0.2},
+    "get_shotlist":       {"usd": 0.00, "eta_sec": 0.1},
+    "refine_shot":        {"usd": 0.00, "eta_sec": 3.0},
+    "assemble_shotlist":  {"usd": 0.00, "eta_sec": 8.0},
+    "narrate":            {"usd": 0.00, "eta_sec": 4.0},
+    "subtitle":           {"usd": 0.00, "eta_sec": 4.0},
+    "animate_captions":   {"usd": 0.00, "eta_sec": 5.0},
     "annotate_media":     {"usd": 0.00, "eta_sec": 8.0},
     "get_media_annotations": {"usd": 0.00, "eta_sec": 0.2},
     "write_media_annotation": {"usd": 0.00, "eta_sec": 0.2},

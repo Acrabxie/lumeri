@@ -31,8 +31,10 @@ from __future__ import annotations
 
 # Pure reads / state queries / user interaction. Safe while planning.
 PLAN_ALLOWED_TOOLS = frozenset({
+    "align_audio",          # audio analysis; detects sync offsets
     "analyze_media",        # ffprobe + unregistered thumbnail only
     "check_job",            # polls an already-submitted job
+    "detect_beats",         # audio analysis; detects beats/onsets
     "elicit",               # ask the user; no state written
     "file_list",
     "file_read",
@@ -45,7 +47,10 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "probe_media",
     "read_file",
     "recall_skills",
+    "search_frames",       # probes existing footage; surfaces (no new derived media)
     "search_library",
+    "search_media",
+    "get_shotlist",         # read the storyboard plan
     "wait_for_job",         # waits on an already-submitted job
     "web_open",
     "web_search",
@@ -55,8 +60,8 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
     "add_overlay", "adjust_media", "animate_captions", "annotate_media",
-    "arrange_timeline",
-    "assemble_shotlist", "build", "color_grade", "composite", "copy_in",
+    "arrange_timeline", "assemble_shotlist",
+    "build", "color_grade", "composite", "copy_in", "draft_shotlist",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
     "file_write", "generate_audio", "generate_image", "generate_video",
@@ -71,8 +76,8 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
-    "narrate", "remember", "render_preview", "run_shell", "save_skill",
-    "search_media", "set_shotlist", "smart_reframe", "spawn_subtasks",
+    "narrate", "refine_shot", "remember", "render_preview", "run_shell",
+    "save_skill", "set_shotlist", "smart_reframe", "spawn_subtasks",
     "subtitle",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",

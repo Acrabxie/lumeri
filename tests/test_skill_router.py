@@ -56,7 +56,7 @@ SAMPLES = [
 def test_skill_metadata_loads_planner_skills() -> None:
     skills = load_skill_metadata(refresh=True)
 
-    assert len(skills) == 23
+    assert len(skills) == 24
     assert "transition" in skills
     assert "lumeri-execution" in skills
     assert "stock-media" in skills

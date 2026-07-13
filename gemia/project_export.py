@@ -28,6 +28,10 @@ from pathlib import Path
 from typing import Any
 
 from gemia.project_model import IMAGE_DURATION, normalize_project
+try:
+    from gemia.video.fonts import resolve_font_path as _resolve_font_path
+except Exception:  # pragma: no cover - fonts module optional
+    _resolve_font_path = None
 from gemia.project_store import ProjectStore
 from gemia.video.lottie_renderer import save_lottie_frame_png, select_lottie_renderer
 from lumerai.export_support import clip_dropped_fields
@@ -732,8 +736,18 @@ def _apply_overlays(
 
             enable_expr = f"between(t,{start:.6f},{end:.6f})"
             out_label = f"[vt{j}]"
+            font_opt = ""
+            if _resolve_font_path is not None:
+                try:
+                    _ff = _resolve_font_path(config)
+                except Exception:
+                    _ff = None
+                if _ff:
+                    _ff = str(_ff).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+                    font_opt = f"fontfile='{_ff}':"
             dt_filter = (
                 f"{last_label}drawtext="
+                f"{font_opt}"
                 f"text='{text}':"
                 f"fontsize={font_size}:"
                 f"fontcolor={ffcolor}:"

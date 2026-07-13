@@ -406,3 +406,119 @@ def audio_visualizer(
     if proc.returncode != 0:
         raise RuntimeError(f"audio_visualizer failed:\n{proc.stderr}")
     return output_path
+
+
+# ---------------------------------------------------------------------------
+# align_offset / detect_onsets / beat_info / suggest_cut_points  (DAY3 av-sync)
+# ---------------------------------------------------------------------------
+
+def _load_mono(audio_path: str, *, sr: int, max_seconds: float | None = None):
+    """Load audio as a mono float array at ``sr`` (librosa), capped in length."""
+    import librosa  # noqa: PLC0415
+    y, _sr = librosa.load(audio_path, sr=sr, mono=True,
+                          duration=max_seconds if max_seconds else None)
+    return y
+
+
+def align_offset(
+    ref_path: str,
+    other_path: str,
+    *,
+    sr: int = 22050,
+    max_offset_sec: float | None = None,
+    max_analyze_sec: float = 60.0,
+) -> dict:
+    """Estimate the time offset between two recordings by waveform cross-correlation.
+
+    Loads both clips mono at ``sr`` (capped to ``max_analyze_sec`` seconds),
+    removes the DC mean, and cross-correlates the raw waveforms (sample-accurate,
+    FFT-based). This is genuine *waveform* alignment, well suited to syncing the
+    same event captured on two mics / cameras.
+
+    Sign convention for ``offset_sec`` (the lag of ``other`` relative to ``ref``):
+
+      offset_sec > 0  -> ``other`` LAGS ``ref`` by that many seconds
+                         (trim offset_sec from other's head, or prepend that much
+                          silence to ref, to line them up).
+      offset_sec < 0  -> ``other`` LEADS ``ref``.
+
+    ``max_offset_sec`` restricts the search to lags within +/- that many seconds.
+    Returns ``{"offset_sec", "confidence", "method", "sr"}`` where confidence is
+    the normalized correlation at the winning lag (0..1).
+    """
+    try:
+        import numpy as np  # noqa: PLC0415
+        from scipy import signal as _sig  # noqa: PLC0415
+    except ImportError:
+        return {"offset_sec": 0.0, "confidence": 0.0, "method": "unavailable", "sr": sr}
+
+    y_ref = _load_mono(ref_path, sr=sr, max_seconds=max_analyze_sec)
+    y_oth = _load_mono(other_path, sr=sr, max_seconds=max_analyze_sec)
+    if y_ref.size == 0 or y_oth.size == 0:
+        return {"offset_sec": 0.0, "confidence": 0.0, "method": "empty", "sr": sr}
+
+    a = y_oth.astype("float64"); a = a - a.mean()
+    b = y_ref.astype("float64"); b = b - b.mean()
+    corr = _sig.correlate(a, b, mode="full", method="fft")
+    lags = _sig.correlation_lags(a.size, b.size, mode="full")
+
+    if max_offset_sec is not None:
+        max_lag = int(round(max_offset_sec * sr))
+        mask = np.abs(lags) <= max_lag
+        if mask.any():
+            corr = corr[mask]
+            lags = lags[mask]
+
+    peak = int(np.argmax(corr))
+    lag = int(lags[peak])
+    denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b)))
+    confidence = float(corr[peak] / denom) if denom > 0 else 0.0
+    confidence = max(0.0, min(1.0, confidence))
+    return {
+        "offset_sec": lag / float(sr),
+        "confidence": round(confidence, 4),
+        "method": "waveform-xcorr",
+        "sr": sr,
+    }
+
+
+def detect_onsets(audio_path: str, *, sr: int = 22050,
+                  max_analyze_sec: float = 120.0) -> list[float]:
+    """Return onset times (seconds) via librosa onset detection."""
+    try:
+        import librosa  # noqa: PLC0415
+    except ImportError:
+        return []
+    y = _load_mono(audio_path, sr=sr, max_seconds=max_analyze_sec)
+    if y.size == 0:
+        return []
+    onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=False)
+    return sorted(float(t) for t in onsets)
+
+
+def beat_info(audio_path: str) -> dict:
+    """Return ``{"tempo_bpm": float, "beats": [sec, ...]}`` via librosa beat tracking."""
+    try:
+        import librosa  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
+    except ImportError:
+        return {"tempo_bpm": 0.0, "beats": sorted(_beat_detect_ffmpeg(audio_path))}
+
+    y, sr = librosa.load(audio_path)
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    beats = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+    tempo_val = float(np.atleast_1d(tempo).ravel()[0]) if tempo is not None else 0.0
+    return {"tempo_bpm": round(tempo_val, 2), "beats": sorted(float(x) for x in beats)}
+
+
+def suggest_cut_points(audio_path: str, *, source: str = "beat",
+                       every: int = 1, max_points: int = 128) -> list[float]:
+    """Suggest cut times from beats (default) or onsets, taking every Nth point."""
+    if source == "onset":
+        pts = detect_onsets(audio_path)
+    elif source == "beat":
+        pts = beat_info(audio_path).get("beats", [])
+    else:
+        return []
+    every = max(1, int(every))
+    return pts[::every][:max_points]

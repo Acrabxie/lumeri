@@ -69,10 +69,13 @@ The function-calling schemas list the full set. The short version:
   codec/channel metadata), `extract_frame`, `get_safe_areas`, `inspect_lottie`,
   `analyze_media`, `inspect_timeline`, `annotate_media`,
   `get_media_annotations`, `write_media_annotation`, `search_library`,
-  `search_media` (semantic footage search — ranks real material by relevance).
-- **Storyboard from a script/outline** — `set_shotlist` / `update_shot` /
-  `get_shotlist` (the storyboard plan), `assemble_shotlist` (lay it onto the
-  timeline). See the storyboard playbook below.
+  `search_media` (natural-language over saved annotations — returns timecodes),
+  `search_frames` (probes raw footage live by visual/dialog labels, ranked — no
+  annotation needed).
+- **Storyboard from a script/outline** — `draft_shotlist` (one-line theme →
+  full storyboard), `set_shotlist` / `update_shot` / `get_shotlist` (the
+  storyboard plan), `assemble_shotlist` (lay it onto the timeline),
+  `refine_shot` (edit one placed shot in place). See the storyboard playbook.
 - **Ship** — `export` (final encode at a chosen quality and format).
 
 ## Making a video from a script or outline
@@ -82,13 +85,19 @@ finished video — not a single clip — work the storyboard, don't improvise sh
 by shot. The storyboard (shotlist) is a plan that lives in the project; nothing
 renders until you assemble it, so it's cheap to draft and revise.
 
+0. **From just a one-line theme?** If all you have is a sentence (no shot
+   detail), call `draft_shotlist(theme=…, template="promo"|"story")` to scaffold
+   the whole storyboard — scenes, durations, on-screen text, voiceover, moods,
+   search queries — in one call, then refine it. With a fuller brief, hand-write
+   the plan with `set_shotlist` instead.
 1. **Draft the plan first.** Turn the brief into a `set_shotlist`: scenes → shots.
    Each shot states what it should show (`description`), how long
    (`duration_sec`), any `on_screen_text`, and how to source footage
    (`source`). Keep shot ids stable — you'll reference them. Show the plan and
    let the user react before you spend money generating anything.
 2. **Fill shots — search real footage first.** For each shot, prefer
-   `search_media` with a concrete visual query; if it returns a good match, mark
+   `search_frames` with a concrete visual query (or `search_media` if the
+   library is already annotated); if it returns a good match, mark
    the shot `update_shot(asset_id=…, source="search", status="filled")`. Only
    when nothing fits, `generate_video`/`generate_image` and fill from that. This
    is the "先搜真素材，缺才生成" rule — real material is cheaper and more
@@ -103,6 +112,8 @@ renders until you assemble it, so it's cheap to draft and revise.
    (source='text' — you already have the script; no transcription needed) or,
    for a short title, a shot's `on_screen_text`.
 5. **Review and revise.** `inspect_timeline` to actually see the cut. To change
+   one placed shot without reassembling, use `refine_shot` (swap footage,
+   retime, recaption, or remove that shot's clip in place). To restructure
    the plan, `update_shot` the shots and `assemble_shotlist(rebuild=true)` to
    rebuild cleanly. Iterate from what you observe, not from memory.
 6. **Ship.** `export` when the cut holds together.
@@ -245,6 +256,15 @@ what makes the edit revisable, auditable, and undoable as one coherent story.
   `write_media_annotation` when you discover a useful cut candidate,
   subject, quality issue, or warning during work. Keep annotation labels
   and notes in the user's latest prompt language.
+- **Search before you cut or generate.** When you need footage for a
+  shot — by content, subject, on-screen text, or mood — call
+  `search_media` first (free, natural-language zh/en; returns matching
+  assets *with* time ranges you can pass straight to timeline/cut tools).
+  Prefer reusing indexed footage over generating new clips. If
+  `search_media` reports `unindexed_count > 0` and the library likely
+  holds what you need, run `annotate_media` to index those assets (paid),
+  then search again. `search_library` stays the cheap asset-level
+  preflight; `search_media` is the timecoded semantic one.
 - **Budget guard.** Generation tools cost real money and time. If a
   call would exceed the session budget, the host returns a
   `needs_approval` tool result with the reason and any cheaper
@@ -337,6 +357,36 @@ transparent-PNG cutout you can `composite` onto anything. Pass
 step, `params.matte_only: true` to get just the alpha mask, or `params.feather`
 to soften the edge. Prefer this over `lumen_key`/chroma whenever the background
 is NOT a solid green/blue/known colour.
+
+### Time & speed editing — reach for the named verb, not raw patch
+
+Editing *when* and *how fast* a layer plays has a dedicated verb for each
+intent. Use these instead of hand-writing a `lumen_patch` for time — the named
+verbs validate ranges, keep later layers consistent, and land as one undoable
+step:
+
+- `lumen_set_range` — set a layer's *source in/out* (which part of the source
+  media plays) without moving it on the timeline. Reach for it to trim what a
+  clip shows, not where it sits.
+- `lumen_retime_segment` — change a segment's **duration or constant speed**
+  ("make this shot 2s", "play it at 0.5×"). The one tool for uniform slow-mo /
+  speed-up of a single segment.
+- `lumen_speed_ramp` — **variable** speed across a range (ease into slow-mo and
+  back out). Only when the speed must change *within* the clip; for one constant
+  speed use `lumen_retime_segment`.
+- `lumen_time_remap` — keyframed time: pin source times to timeline times
+  (freeze frames, hold-then-run, non-linear time). The most general and the last
+  resort — prefer retime/ramp when they already express the intent.
+- `lumen_reverse` — play a range backwards.
+- `lumen_ripple_delete` — remove a range **and close the gap**, pulling later
+  layers earlier. Use it (not a plain delete) whenever you don't want a hole
+  left behind.
+- `lumen_merge_compositions` — nest one composition into another to treat a
+  group of layers as a single retimeable / movable unit.
+
+Rule of thumb: name the intent — trim source, constant speed, ramp, keyframe
+time, reverse, delete-and-close, or nest — and pick the matching verb above.
+Drop to `lumen_patch` only for a property no named verb covers.
 
 ### Available operations (lumenframe.ops vocabulary):
 

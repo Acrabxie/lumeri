@@ -1,11 +1,8 @@
-"""search_media: semantic footage search wired end-to-end through ToolContext.
+"""search_media: FTS semantic search wired end-to-end through ToolContext.
 
-intellisearch derives labels from filename + probed visual/dialog signal. For
-synthetic testsrc clips the filename is the reliable signal, so these name the
-fixtures semantically (``city_sunrise.mp4``) and query against them. We assert
-the tool indexes candidate footage, returns the right ranked asset_id, registers
-matches into the session registry, and degrades to an empty (non-throwing)
-result when there is nothing to search.
+The FTS search_media works over media_annotations — assets must be annotated
+before they appear in search results.  This file tests the tool dispatcher
+wiring; exhaustive FTS/tokenization/annotation tests live in test_media_search.py.
 """
 from __future__ import annotations
 
@@ -51,42 +48,23 @@ def test_search_media_is_real_not_stub():
     assert "stub" not in DISPATCHER["search_media"].__qualname__.lower()
 
 
-def test_finds_and_registers_named_footage(tmp_path):
-    media = tmp_path / "media"
-    media.mkdir()
-    city = _make_clip(media / "city_sunrise_timelapse.mp4")
-    office = _make_clip(media / "office_meeting_indoor.mp4")
-    ctx = _ctx(tmp_path)
-    # register both into the session registry so they are candidates
-    for p in (city, office):
-        ctx.registry.add_external(p, summary=p.stem)
-
-    out = _call("search_media", {"query": "city sunrise", "kind": "video"}, ctx)
-    assert out["result_count"] >= 1, out
-    top = out["results"][0]
-    # the winning asset resolves to the city clip in the registry
-    assert ctx.registry.get(top["asset_id"]).path.name == "city_sunrise_timelapse.mp4"
-    # re-searching reuses the same session asset_id (no double-register)
-    out2 = _call("search_media", {"query": "city sunrise", "kind": "video"}, ctx)
-    assert out2["results"][0]["asset_id"] == top["asset_id"]
-
-
-def test_extra_paths_are_searchable(tmp_path):
-    clip = _make_clip(tmp_path / "mountain_river_drone.mp4")
-    ctx = _ctx(tmp_path)  # nothing pre-registered
-    out = _call("search_media", {"query": "mountain river", "paths": [str(clip)]}, ctx)
-    assert out["result_count"] >= 1
-    assert ctx.registry.get(out["results"][0]["asset_id"]).path.name == "mountain_river_drone.mp4"
-
-
-def test_empty_when_no_candidates(tmp_path):
-    ctx = _ctx(tmp_path)
-    out = _call("search_media", {"query": "anything"}, ctx)
-    assert out["result_count"] == 0
-    assert "generate" in out["summary"].lower()  # steers the model to generate instead
-
-
 def test_requires_query(tmp_path):
     ctx = _ctx(tmp_path)
     with pytest.raises(ValueError):
         _call("search_media", {"query": "  "}, ctx)
+
+
+def test_empty_when_no_annotations(tmp_path):
+    ctx = _ctx(tmp_path)
+    out = _call("search_media", {"query": "anything"}, ctx)
+    assert out["result_count"] == 0
+
+
+def test_returns_zero_with_registered_but_unannotated_assets(tmp_path):
+    media = tmp_path / "media"
+    media.mkdir()
+    clip = _make_clip(media / "city_sunrise.mp4")
+    ctx = _ctx(tmp_path)
+    ctx.registry.add_external(clip, summary="city sunrise timelapse")
+    out = _call("search_media", {"query": "city sunrise"}, ctx)
+    assert out["result_count"] == 0
