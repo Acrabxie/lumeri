@@ -115,6 +115,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "lumen_render":             {"usd": 0.00, "eta_sec": 20.0},
     "lumen_seek":               {"usd": 0.00, "eta_sec": 1.0},
     "lumen_render_range":       {"usd": 0.00, "eta_sec": 5.0},
+    "lumen_comp_to_timeline":   {"usd": 0.00, "eta_sec": 10.0},
     # Multi-agent fan-out: the verb itself is near-free orchestration; the real
     # cost of children flows through per-child budget reservations (see
     # gemia/subtasks.py + docs/multi-agent-plan.md §5). The loop special-cases

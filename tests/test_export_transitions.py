@@ -302,17 +302,22 @@ def test_av_sync_dissolve_leaves_audio_positioning_unchanged(tmp_path: Path) -> 
 
 
 def test_stale_transition_after_gap_degrades_not_adjacent(tmp_path: Path) -> None:
-    """move/delete don't clear transition_after today (plan §5.2 step 4): a
-    dissolve whose B moved away degrades to a hard cut with "not_adjacent"
-    and the export still reaches the timeline end."""
+    """The export-side re-check is defense in depth: move/delete now clear
+    stale transitions at write time (plan §5.2 step 4, Phase 2), but a gap
+    opened via set_clip_time (or multi-track interposition) still reaches the
+    renderer, which degrades to a hard cut with "not_adjacent" and keeps T1."""
     red = _gen_color_video(tmp_path, "red.mp4", "red", 2.0)
     blue = _gen_color_video(tmp_path, "blue.mp4", "blue", 3.0)
     handle = _project(tmp_path, "stale")
     _seed_two_clips(handle, red, blue, b_source_in=1.0, transition="dissolve")
-    # Open a 1 s gap after the transition was stored.
+    # Open a 1 s gap after the transition was stored. set_clip_time is outside
+    # the write-time cleanup (only move/delete re-validate), so the stored
+    # transition stays stale on cA — exactly the state the runtime guard owns.
     handle.apply_ops(
-        [{"op": "move_clip", "clip_id": "cB", "start": 3.0}], label="open-gap",
+        [{"op": "set_clip_time", "clip_id": "cB", "start": 3.0}], label="open-gap",
     )
+    (clip_a,) = [c for c in handle.load()["timeline"]["clips"] if c["id"] == "cA"]
+    assert isinstance(clip_a.get("transition_after"), dict), "premise: still stale"
 
     manifest = _export(handle, tmp_path, "stale")
 

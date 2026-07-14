@@ -1412,6 +1412,37 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["t_in", "t_out"],
     ),
+    _tool(
+        "lumen_comp_to_timeline",
+        "Place the current lumenframe composition ON THE TIMELINE as a normal video clip. Renders the window [t_in, t_out) once to a cached file and inserts it in ONE undoable step. The clip is a LIVE reference: editing the composition later marks it stale, and project_export automatically re-renders it (pass 0). Use this to bring keyframed/masked/blended lumenframe work into the final cut alongside ordinary clips. NOTE the undo asymmetry: undoing timeline steps never restores composition content — if you undo past a refresh, the clip points at the older rendered file (stale but playable) while the composition document stays at its latest state.",
+        {
+            "t_in": {
+                "type": "number",
+                "description": "Inclusive start time of the composition window, in seconds.",
+            },
+            "t_out": {
+                "type": "number",
+                "description": "Exclusive end time of the window, in seconds. Must be > t_in; clamped to the composition's duration.",
+            },
+            "track_id": {
+                "type": "string",
+                "description": "Target video track id. Default V1 (auto-created if missing).",
+            },
+            "at_time": {
+                "type": "number",
+                "description": "Place the clip at this timeline time (seconds). Mutually exclusive with at_index; default append after the last clip.",
+            },
+            "at_index": {
+                "type": "integer",
+                "description": "Place the clip at this position among the track's clips. Mutually exclusive with at_time.",
+            },
+            "ripple": {
+                "type": "boolean",
+                "description": "When placing by at_time, shift later clips to make room instead of failing on overlap. Default false.",
+            },
+        },
+        ["t_in", "t_out"],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.
