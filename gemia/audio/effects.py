@@ -3988,7 +3988,8 @@ def audio_vinyl_hiss(input_path: "str", output_path: "str", *, hiss_level: "floa
     """Add continuous vinyl surface hiss: high-frequency white noise under the signal."""
     import subprocess
     import tempfile, os
-    tmp = tempfile.mktemp(suffix=".wav")
+    tmp_fd, tmp = tempfile.mkstemp(suffix=".wav")
+    os.close(tmp_fd)
     try:
         # Get duration
         probe = subprocess.run(

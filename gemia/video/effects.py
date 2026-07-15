@@ -7482,13 +7482,15 @@ def video_vignette_focus(input_path: "str", output_path: "str", *, strength: "fl
 def video_mirror_time(input_path: "str", output_path: "str") -> "None":
     """Boomerang-style time mirror: play forward then backward seamlessly."""
     import subprocess, tempfile, os
-    tmp_rev = tempfile.mktemp(suffix=".mp4")
+    tmp_rev_fd, tmp_rev = tempfile.mkstemp(suffix=".mp4")
+    os.close(tmp_rev_fd)
+    list_fd, list_file = tempfile.mkstemp(suffix=".txt")
+    os.close(list_fd)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-i", input_path, "-vf", "reverse", "-af", "areverse", tmp_rev],
             check=True, capture_output=True
         )
-        list_file = tempfile.mktemp(suffix=".txt")
         with open(list_file, "w") as f:
             f.write(f"file '{os.path.abspath(input_path)}'\n")
             f.write(f"file '{os.path.abspath(tmp_rev)}'\n")
@@ -7497,8 +7499,9 @@ def video_mirror_time(input_path: "str", output_path: "str") -> "None":
              "-c", "copy", output_path],
             check=True, capture_output=True
         )
-        os.unlink(list_file)
     finally:
+        if os.path.exists(list_file):
+            os.unlink(list_file)
         if os.path.exists(tmp_rev):
             os.unlink(tmp_rev)
 

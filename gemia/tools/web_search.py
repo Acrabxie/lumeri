@@ -152,7 +152,9 @@ def _normalize_result_url(href: str | None) -> str | None:
         candidate = urllib.parse.urljoin("https://duckduckgo.com", candidate)
 
     parsed = urllib.parse.urlparse(candidate)
-    if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+    host = (parsed.hostname or "").lower()
+    is_duckduckgo = host == "duckduckgo.com" or host.endswith(".duckduckgo.com")
+    if is_duckduckgo and parsed.path.startswith("/l/"):
         uddg = urllib.parse.parse_qs(parsed.query).get("uddg")
         if uddg:
             candidate = uddg[0]

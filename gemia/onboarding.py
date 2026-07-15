@@ -137,13 +137,11 @@ def needs_onboarding() -> bool:
 
 # ── Secret masking ────────────────────────────────────────────────────
 def mask_secret(value: str) -> str:
-    """Mask a secret for echoing: keep a short tail, never the full value."""
+    """Return a presence marker without echoing any part of a secret."""
     value = (value or "").strip()
     if not value:
         return ""
-    if len(value) <= 4:
-        return "*" * len(value)
-    return "*" * (len(value) - 4) + value[-4:]
+    return "<configured>"
 
 
 # ── Headless instructions ─────────────────────────────────────────────
