@@ -372,8 +372,10 @@ def _print_summary(output_fn: Callable[[str], Any], cfg: dict[str, Any]) -> None
         value = str(cfg.get(key) or "").strip()
         if not value:
             continue
-        shown = mask_secret(value) if key in secret_keys else value
-        output_fn(f"    {key} = {shown}")
+        if key in secret_keys:
+            output_fn(f"    {key} = <configured>")
+        else:
+            output_fn(f"    {key} = {value}")
     provider = str(cfg.get("search_provider") or "").strip()
     if provider:
         output_fn(f"  Search engine: {provider}")
@@ -381,8 +383,10 @@ def _print_summary(output_fn: Callable[[str], Any], cfg: dict[str, Any]) -> None
             value = str(cfg.get(key) or "").strip()
             if not value:
                 continue
-            shown = mask_secret(value) if key in secret_keys else value
-            output_fn(f"    {key} = {shown}")
+            if key in secret_keys:
+                output_fn(f"    {key} = <configured>")
+            else:
+                output_fn(f"    {key} = {value}")
     else:
         output_fn("  Search engine: DuckDuckGo (no key)")
     if str(cfg.get("proxy") or "").strip():
