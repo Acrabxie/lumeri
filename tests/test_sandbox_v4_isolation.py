@@ -65,15 +65,17 @@ def _matrix(stdout: str) -> dict[str, str]:
 # --------------------------------------------------------------------------- #
 
 def test_profile_resolves_symlinked_paths(tmp_path: Path) -> None:
-    # /tmp is a symlink to /private/tmp; the profile must contain the resolved
-    # form, never the bare /tmp (the silent-failure pitfall §1.4).
+    # macOS resolves /tmp to /private/tmp, while Linux keeps /tmp. The profile
+    # must contain whichever canonical path the current host resolves.
     profile = build_two_tier_profile(
         tmp_path,
         outside_create_roots=["/tmp"],
         credential_deny=[],
     )
-    assert '(subpath "/private/tmp")' in profile
-    assert '(subpath "/tmp")' not in profile
+    resolved_tmp = Path("/tmp").resolve()
+    assert f'(subpath "{resolved_tmp}")' in profile
+    if resolved_tmp != Path("/tmp"):
+        assert '(subpath "/tmp")' not in profile
 
 
 def test_profile_deny_after_allow_and_workspace_last(tmp_path: Path) -> None:

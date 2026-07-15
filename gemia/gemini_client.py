@@ -659,6 +659,8 @@ class GeminiClientV3:
                     f"local proxy {self.proxy} refused connection — is the proxy "
                     f"(mihomo/clash) running? ({exc})"
                 )
+            elif self.proxy:
+                error_msg = f"proxy {self.proxy} transport error: {exc}"
             else:
                 error_msg = str(exc)
             yield {
@@ -764,6 +766,8 @@ class GeminiClientV3:
             )
             if self.proxy and refused:
                 error_msg = f"local proxy {self.proxy} refused connection — is the proxy running? ({exc})"
+            elif self.proxy:
+                error_msg = f"proxy {self.proxy} transport error: {exc}"
             else:
                 error_msg = str(exc)
             yield {"kind": "error", "error": f"{type(exc).__name__}: {error_msg} (after {_OPEN_ATTEMPTS} transport attempts)"}

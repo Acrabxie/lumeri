@@ -388,8 +388,8 @@ def test_budget_guard_time_gate_uses_spent_seconds_not_wall_clock() -> None:
     assert "11s > 10s" in decision.reason
 
 
-def test_gemini_client_proxy_econnrefused_error_provides_diagnostic() -> None:
-    """Regression: ECONNREFUSED to localhost proxy (e.g., mihomo/clash down)
+def test_gemini_client_proxy_transport_error_provides_diagnostic() -> None:
+    """Regression: failures through a configured localhost proxy
     produced bare 'URLError: <urlopen error [Errno 61] Connection refused>'
     without telling the user which proxy failed or suggesting it might be down.
 
@@ -426,8 +426,9 @@ def test_gemini_client_proxy_econnrefused_error_provides_diagnostic() -> None:
 
     try:
         error_msg = asyncio.run(run_stream())
-        # Verify the diagnostic message is actually informative.
-        assert "Connection refused" in error_msg or "refused connection" in error_msg
+        # The diagnostic must identify the configured hop even when the host's
+        # urllib build reports an unsupported SOCKS scheme before connecting.
+        assert "127.0.0.1:59999" in error_msg
     except asyncio.TimeoutError:
         pytest.skip("Proxy connection attempt timed out (expected in test environment)")
 

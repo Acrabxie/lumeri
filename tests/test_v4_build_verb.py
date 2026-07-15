@@ -19,6 +19,15 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _require_native_sandbox(tmp_path: Path) -> None:
+    """Skip execution tests when the host lacks macOS sandbox-exec."""
+    from gemia.sandbox_v4 import build_v4_sandbox_command
+
+    _, enforced = build_v4_sandbox_command(["/usr/bin/true"], workspace_dir=tmp_path)
+    if not enforced:
+        pytest.skip("sandbox-exec unavailable on this host")
+
+
 class TestToolContextDefaults:
     """Test that ToolContext defaults include JobRegistry."""
 
@@ -60,6 +69,7 @@ class TestBuildDispatcher:
 
     def test_build_happy_path(self, tmp_path: Path) -> None:
         """Test successful build submission and execution."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
@@ -142,6 +152,7 @@ class TestBuildDispatcher:
 
     def test_build_pending_limit(self, tmp_path: Path) -> None:
         """Test that >3 pending builds are rejected."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
@@ -197,6 +208,7 @@ class TestCheckJobDispatcher:
 
     def test_check_job_returns_structure(self, tmp_path: Path) -> None:
         """Test check_job result shape."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
@@ -222,6 +234,7 @@ class TestCheckJobDispatcher:
 
     def test_check_job_timeout(self, tmp_path: Path) -> None:
         """Test that check_job kills process after timeout."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
@@ -265,6 +278,7 @@ class TestWaitForJobDispatcher:
 
     def test_wait_for_job_quick_return(self, tmp_path: Path) -> None:
         """Test wait_for_job on a fast-finishing build."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
@@ -293,6 +307,7 @@ class TestWaitForJobDispatcher:
 
     def test_wait_for_job_max_wait_timeout(self, tmp_path: Path) -> None:
         """Test wait_for_job respects max_wait_sec."""
+        _require_native_sandbox(tmp_path)
         ctx = ToolContext(
             session_id="test_session",
             output_dir=tmp_path,
