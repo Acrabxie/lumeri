@@ -73,6 +73,7 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "lumen_set_lane", "lumen_set_mask", "lumen_set_opacity",
     "lumen_set_range", "lumen_set_transform", "lumen_set_visibility",
     "lumen_set_work_area", "lumen_speed_ramp", "lumen_time_remap",
+    "vector_motion",  # create/adjust write the lumenframe doc (catalog rides along)
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",

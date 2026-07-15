@@ -46,7 +46,9 @@ from gemia.errors import (
 )
 from gemia.plan_mode import is_plan_safe, plan_gate_message
 from gemia.tools import DISPATCHER, TOOL_SCHEMAS
+from gemia.tool_outcome import classify_tool_exception, classify_tool_result
 from gemia.tools._context import ProgressUpdate, ToolContext
+from gemia.turn_ledger import MUTATION_TOOLS, tool_target_key
 
 if TYPE_CHECKING:  # avoid an import cycle: agent_loop_v3 imports tools which... etc.
     from gemia.agent_loop_v3 import AgentLoopV3
@@ -174,6 +176,7 @@ class SubtaskLoop:
         self._final_text_parts: list[str] = []
         self._new_asset_ids: list[str] = []
         self._tool_fail_counts: dict[str, tuple[str, int]] = {}
+        self._unresolved_failures: dict[str, str] = {}
         self._recent_calls: list[tuple[str, str]] = []
         self._last_progress_ts: dict[str, float] = {}
         self.steps = 0
@@ -286,6 +289,39 @@ class SubtaskLoop:
         })
 
     @staticmethod
+    def _operation_class(name: str) -> str:
+        """Coarse semantic class used when correlating repaired failures.
+
+        A successful read of an asset proves that the asset is readable; it
+        does not prove that an earlier annotation/write against that same
+        asset succeeded.  Keeping reads and mutations in separate classes
+        still permits legitimate same-target alternatives inside each class
+        (for example, ``probe_media`` followed by ``analyze_media``).
+        """
+        return "mutation" if name in MUTATION_TOOLS else "read"
+
+    @staticmethod
+    def _failure_key(name: str, args: dict[str, Any] | None = None) -> str:
+        target = tool_target_key(args)
+        if target:
+            operation_class = SubtaskLoop._operation_class(name)
+            return f"target:{operation_class}:{target}"
+        return f"tool:{name}"
+
+    def _record_unresolved(
+        self, name: str, code: str, args: dict[str, Any] | None = None
+    ) -> None:
+        self._unresolved_failures[self._failure_key(name, args)] = code
+
+    def _resolve_unresolved(
+        self, name: str, args: dict[str, Any] | None = None
+    ) -> None:
+        self._unresolved_failures.pop(self._failure_key(name, args), None)
+        # A successful corrected call also resolves a prior parse failure for
+        # that tool, while target-scoped failures on other assets remain.
+        self._unresolved_failures.pop(f"tool:{name}", None)
+
+    @staticmethod
     def _is_doom_loop(recent: list[tuple[str, str]]) -> bool:
         if len(recent) < _DOOM_LOOP_THRESHOLD:
             return False
@@ -376,7 +412,11 @@ class SubtaskLoop:
             self._messages.append(assistant_msg)
 
             if not tool_calls:
-                # No tools → the child is done (honest stop). status stays "ok".
+                # A returned/raised tool failure is not repaired by merely
+                # stopping in prose. Only a later successful call of that same
+                # tool clears its unresolved entry.
+                if self._unresolved_failures:
+                    status = "error"
                 break
 
             for tc in tool_calls:
@@ -448,6 +488,7 @@ class SubtaskLoop:
                 "parse_error": parse_error,
             })
             self._maybe_nudge(name, "E_BAD_ARG")
+            self._record_unresolved(name, "E_BAD_ARG")
             return
 
         # Fail-closed profile enforcement: the schema subset is NOT a boundary
@@ -463,6 +504,7 @@ class SubtaskLoop:
                 "recovery": RECOVERY_SWITCH_TOOL,
             })
             self._maybe_nudge(name, "E_SUBTASK_PROFILE")
+            self._record_unresolved(name, "E_SUBTASK_PROFILE", parsed_args)
             return
 
         # Plan-mode inheritance (§7.2): re-read the PARENT's LIVE flag per
@@ -477,6 +519,7 @@ class SubtaskLoop:
                 "message": gate_msg,
             })
             self._maybe_nudge(name, "E_PLAN_MODE")
+            self._record_unresolved(name, "E_PLAN_MODE", parsed_args)
             return
 
         # Budget gate against the CHILD's own capped guard — a child structurally
@@ -484,13 +527,15 @@ class SubtaskLoop:
         decision = self.guard.check(name)
         if not decision.ok:
             self._append_tool_result(tool_call_id, {
-                "needs_approval": True,
+                "blocked_by_budget": True,
+                "approval_cannot_override": True,
                 "error_code": "E_BUDGET",
                 "reason": decision.reason,
                 "estimated_cost_usd": decision.estimated_cost_usd,
                 "estimated_eta_sec": decision.estimated_eta_sec,
             })
             self._maybe_nudge(name, "E_BUDGET")
+            self._record_unresolved(name, "E_BUDGET", parsed_args)
             return
 
         # Real dispatch. Child tool activity rides the EXISTING tool_exec_*
@@ -513,17 +558,10 @@ class SubtaskLoop:
         except Exception as exc:  # noqa: BLE001 — surface, never swallow
             elapsed = time.monotonic() - start_ts
             self.guard.commit(name, actual_seconds=elapsed)
-            if isinstance(exc, GemiaError):
-                err_payload = exc.to_payload()
-                err_code = exc.code
-                recovery = getattr(exc, "recovery", None)
-            else:
-                err_payload = {
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "error_code": "E_UNCAUGHT",
-                }
-                err_code = "E_UNCAUGHT"
-                recovery = None
+            outcome = classify_tool_exception(exc)
+            err_payload = outcome.error_payload(tool_name=name)
+            err_code = str(outcome.error_code or "E_TOOL_FAILED")
+            recovery = outcome.recovery
             self._emit({
                 "kind": "tool_exec_error",
                 "tool_name": name,
@@ -540,11 +578,48 @@ class SubtaskLoop:
             should_nudge, streak = self._note_failure(name, err_code, limit=limit)
             if should_nudge:
                 self._append_nudge(name, err_code, streak)
+            self._record_unresolved(name, err_code, parsed_args)
             return
 
         elapsed = time.monotonic() - start_ts
         self.guard.commit(name, actual_seconds=elapsed)
-        self._tool_fail_counts.pop(name, None)
+        outcome = classify_tool_result(result)
+        if outcome.is_failure:
+            err_payload = outcome.error_payload(tool_name=name)
+            err_code = str(outcome.error_code or "E_TOOL_FAILED")
+            self._emit({
+                "kind": "tool_exec_error",
+                "tool_name": name,
+                "tool_call_id": tool_call_id,
+                "elapsed_seconds": elapsed,
+                **err_payload,
+            })
+            self._append_tool_result(tool_call_id, {**err_payload, "tool_name": name})
+            limit = (
+                _TRANSIENT_RETRY_NUDGE_THRESHOLD
+                if outcome.recovery == RECOVERY_TRANSIENT_RETRY
+                else _REPEATED_FAILURE_NUDGE_THRESHOLD
+            )
+            should_nudge, streak = self._note_failure(name, err_code, limit=limit)
+            if should_nudge:
+                self._append_nudge(name, err_code, streak)
+            self._record_unresolved(name, err_code, parsed_args)
+            return
+
+        # Only a terminal success proves that this child action completed.
+        # ``pending``/``noop``/``partial`` are honest non-failures, but treating
+        # them like success would let the child clear an earlier failure and
+        # stop in prose with ``status=ok``.  Keep an unresolved marker instead;
+        # a later real success on the same target will clear it through the
+        # normal retry path below.
+        if outcome.state == "success":
+            self._tool_fail_counts.pop(name, None)
+            self._resolve_unresolved(name, parsed_args)
+        else:
+            key = self._failure_key(name, parsed_args)
+            self._unresolved_failures.setdefault(
+                key, f"E_TOOL_{outcome.state.upper()}"
+            )
 
         # New assets this child registered (shared registry; loop-confined ids).
         for r in self.parent.registry.list_records():
@@ -776,11 +851,21 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         if f"sub_{i + 1}" in results_by_agent
     ]
     ordered = _cap_results(ordered)
-    return {
+    payload = {
         "summary": _batch_summary(ordered),
         "subtasks": ordered,
         "count": len(ordered),
     }
+    failed = [r for r in ordered if r.get("status") != "ok"]
+    if failed:
+        payload.update(
+            {
+                "status": "failed",
+                "error": f"{len(failed)} subtask(s) did not complete successfully",
+                "error_code": "E_SUBTASK_FAILED",
+            }
+        )
+    return payload
 
 
 async def _run_child(

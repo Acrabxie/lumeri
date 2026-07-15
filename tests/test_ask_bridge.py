@@ -54,6 +54,21 @@ def test_explicit_timeout_overrides_default():
     assert asyncio.run(main()) is None
 
 
+def test_explicit_timeout_is_clamped_to_host_maximum():
+    bridge = AskBridge(
+        lambda ev: None, default_timeout=99.0, max_timeout=0.1
+    )
+
+    async def main():
+        t0 = time.monotonic()
+        answer = await bridge.emit_and_wait(_question("ask_clamp"), timeout=60.0)
+        return answer, time.monotonic() - t0
+
+    answer, elapsed = asyncio.run(main())
+    assert answer is None
+    assert elapsed < 1.0
+
+
 def test_deliver_unknown_question_returns_false():
     bridge = AskBridge(lambda ev: None, default_timeout=0.1)
 

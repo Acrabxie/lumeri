@@ -790,6 +790,49 @@ def model_selection_payload(slot: str = "planner") -> dict[str, Any]:
     }
 
 
+def _save_priority_list(slot: str, items: list[dict[str, str]]) -> None:
+    """Persist the priority catalog back to MODEL_PROFILE.json."""
+    profile = load_model_profile(bootstrap=False)
+    models = profile.setdefault("models", {})
+    slot_data = models.setdefault(slot, {})
+    slot_data["priority"] = items
+    if items:
+        slot_data["default"] = items[0]["id"]
+    write_memory_json(model_profile_path(), profile)
+
+
+def add_model_to_catalog(
+    model_id: str,
+    label: str = "",
+    provider: str = "",
+    slot: str = "planner",
+) -> list[dict[str, str]]:
+    """Append a model to the priority catalog if not already present."""
+    catalog = model_catalog(slot)
+    if any(item["id"] == model_id for item in catalog):
+        return catalog
+    catalog.append({
+        "id": model_id,
+        "label": label or model_id,
+        "provider": provider,
+    })
+    _save_priority_list(slot, catalog)
+    return catalog
+
+
+def remove_model_from_catalog(model_id: str, slot: str = "planner") -> list[dict[str, str]]:
+    """Remove a model from the priority catalog by id."""
+    catalog = model_catalog(slot)
+    catalog = [item for item in catalog if item["id"] != model_id]
+    if not catalog:
+        raise ValueError("cannot remove the last model")
+    _save_priority_list(slot, catalog)
+    active = active_model_selection(slot)
+    if active.get("model") == model_id:
+        set_model_selection(model=None, slot=slot)
+    return catalog
+
+
 def public_model_profile() -> dict[str, Any]:
     """Return model memory details safe for UI/API exposure."""
     profile = load_model_profile()

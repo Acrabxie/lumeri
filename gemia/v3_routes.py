@@ -96,7 +96,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response|plan_mode)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response|plan_mode|auto_title)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -115,10 +115,15 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _ask_response(handler, runner)
     if action == "plan_mode":
         return _set_plan_mode(handler, runner)
+    if action == "auto_title":
+        return _auto_title(handler, runner)
     return False
 
 
 def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
+    if path == "/sessions":
+        return _list_sessions(handler)
+
     m = re.match(r"^/sessions/([^/]+)/stream$", path)
     if m:
         return _sse_stream(handler, m.group(1), query, body=body)
@@ -191,7 +196,11 @@ def _submit_turn(handler, runner: SessionRunner) -> bool:
 
 
 def _ask_response(handler, runner: SessionRunner) -> bool:
-    """Deliver a user's answer to a pending ``elicit`` question."""
+    """Deliver a user's answer to a pending ``elicit`` question.
+
+    Validates the answer against the question schema BEFORE resolving the
+    bridge future. On failure the future stays pending and the user can retry.
+    """
     body = _read_json_body(handler)
     if body is None:
         return True
@@ -203,6 +212,31 @@ def _ask_response(handler, runner: SessionRunner) -> bool:
     if not isinstance(answers, dict):
         _json_error(handler, 400, "request body must include 'answers' object")
         return True
+
+    question_dict = runner.get_pending_question(question_id)
+    if question_dict is None:
+        _json_error(handler, 404, f"no pending question: {question_id}")
+        return True
+
+    from gemia.tools.ask import AskAnswer, AskQuestion, validate_ask_answer_all
+
+    try:
+        question_obj = AskQuestion.from_dict(question_dict)
+    except Exception:
+        # Schema changed between emit and answer — accept as-is to avoid wedge.
+        pass
+    else:
+        answer_obj = AskAnswer(question_id=question_id, answers=answers)
+        field_errors = validate_ask_answer_all(question_obj, answer_obj)
+        if field_errors:
+            _json_response(handler, 422, {
+                "error": "answer validation failed",
+                "code": "E_ASK_INVALID_ANSWER",
+                "question_id": question_id,
+                "field_errors": field_errors,
+            })
+            return True
+
     delivered = runner.deliver_ask_answer(question_id, answers)
     if not delivered:
         _json_error(handler, 404, f"no pending question: {question_id}")
@@ -290,6 +324,115 @@ def _close_session(handler, runner: SessionRunner) -> bool:
     return True
 
 
+def _auto_title(handler, runner: SessionRunner) -> bool:
+    """Generate a one-line session title from conversation messages via a
+    lightweight model call. The frontend calls this after user message 1
+    and 5 to auto-name sessions."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        _json_error(handler, 400, "request body must include non-empty 'messages' list")
+        return True
+
+    import threading
+
+    def _generate():
+        try:
+            from gemia.gemini_client import GeminiClientV3
+
+            client = GeminiClientV3()
+            digest = []
+            for msg in messages[-10:]:
+                role = msg.get("role", "")
+                content = str(msg.get("content") or "")[:200]
+                if role in ("user", "status", "assistant") and content.strip():
+                    digest.append(f"{role}: {content}")
+            conversation = "\n".join(digest)
+
+            import json as _json
+            import ssl
+            import urllib.request
+
+            import certifi
+
+            api_body = {
+                "model": client.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是一个会话标题生成器。根据对话内容生成一个简短的中文标题（8-15字），"
+                            "概括会话的主要主题。只输出标题本身，不要引号、标点、解释。"
+                        ),
+                    },
+                    {"role": "user", "content": conversation},
+                ],
+                "stream": False,
+                "temperature": 0.3,
+                "max_tokens": 40,
+            }
+
+            bearer = client.api_key
+            if client.provider == "vertex":
+                from gemia.gemini_client import _vertex_access_token
+
+                bearer = _vertex_access_token(client.proxy)
+
+            headers = {
+                "Authorization": f"Bearer {bearer}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://local-lumeri-desktop",
+                "X-Title": "lumeri-v3-title",
+            }
+            req = urllib.request.Request(
+                client.api_url,
+                data=_json.dumps(api_body).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            https_handler = urllib.request.HTTPSHandler(context=ssl_context)
+            if client.proxy:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({"https": client.proxy, "http": client.proxy}),
+                    https_handler,
+                )
+            else:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}),
+                    https_handler,
+                )
+            resp = opener.open(req, timeout=15)
+            raw = resp.read().decode("utf-8")
+            data = _json.loads(raw)
+            choices = data.get("choices") or []
+            if choices:
+                title = (choices[0].get("message") or {}).get("content", "").strip()
+                title = title.strip("\"'""''「」")[:60]
+                if title:
+                    return title
+            return None
+        except Exception:
+            return None
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_generate)
+        try:
+            title = future.result(timeout=20)
+        except Exception:
+            title = None
+
+    if title:
+        _json_response(handler, 200, {"title": title})
+    else:
+        _json_response(handler, 200, {"title": None})
+    return True
+
+
 # ── GET handlers ──────────────────────────────────────────────────────
 
 
@@ -355,6 +498,42 @@ def _session_info(handler, session_id: str) -> bool:
         "plan_mode": runner.plan_mode,
         "protocol_version": PROTOCOL_VERSION,
     })
+    return True
+
+
+def _list_sessions(handler) -> bool:
+    """Read-only snapshot of live runners + pending async jobs (background panel).
+
+    Avoids manager.get() on purpose — get() touches last_used_at, and a
+    monitoring read must not keep sessions alive. Runner internals are read
+    defensively (the agent loop is being refactored in a parallel worktree),
+    so a missing attribute degrades to an empty jobs list, never a 500.
+    """
+    manager = get_manager()
+    try:
+        with manager._lock:
+            runners = list(manager._runners.values())
+    except AttributeError:
+        runners = [r for r in (manager.get(sid) for sid in manager.list_sessions()) if r]
+    sessions = []
+    for runner in runners:
+        jobs: list[dict[str, Any]] = []
+        try:
+            registry = runner.agent._tool_ctx.jobs
+            jobs = [rec.to_dict() for rec in registry.list_pending()]
+        except Exception:
+            jobs = []
+        sessions.append({
+            "session_id": getattr(runner, "session_id", ""),
+            "account_id": getattr(runner, "account_id", "") or "",
+            "created_at": getattr(runner, "created_at", None),
+            "last_used_at": getattr(runner, "last_used_at", None),
+            "turn_in_progress": bool(getattr(runner, "turn_in_progress", False)),
+            "plan_mode": bool(getattr(runner, "plan_mode", False)),
+            "pending_jobs": jobs,
+        })
+    sessions.sort(key=lambda s: s.get("last_used_at") or 0, reverse=True)
+    _json_response(handler, 200, {"sessions": sessions})
     return True
 
 
@@ -444,6 +623,10 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
         "width": int(timeline.get("width") or 1920),
         "height": int(timeline.get("height") or 1080),
         "tracks": tracks,
+        # The storyboard IR rides the timeline payload so the web outline
+        # panel refreshes through the existing poll + timeline_op force-fetch
+        # (set_shotlist/update_shot land in the same patch log as clip ops).
+        "shotlist": project.get("shotlist") if isinstance(project.get("shotlist"), dict) else None,
     }
 
 

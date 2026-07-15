@@ -62,6 +62,45 @@ def _read_config_key(field: str) -> str:
     return ""
 
 
+def _read_config_value(field: str) -> Any:
+    """Read one non-secret config value without erasing ``False``/``0``."""
+    try:
+        path = Path.home() / ".gemia" / "config.json"
+        if path.exists():
+            data = json.loads(path.read_text())
+            return data.get(field)
+    except Exception:
+        return None
+    return None
+
+
+def _parse_optional_bool(raw: Any, *, source: str) -> bool | None:
+    """Parse a tri-state boolean; invalid values degrade to provider default."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        return raw
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Ignoring invalid %s=%r; leaving parallel tool calls unset", source, raw)
+    return None
+
+
+def _resolve_parallel_tool_calls() -> bool | None:
+    if "LUMERI_V3_PARALLEL_TOOL_CALLS" in os.environ:
+        return _parse_optional_bool(
+            os.environ.get("LUMERI_V3_PARALLEL_TOOL_CALLS"),
+            source="LUMERI_V3_PARALLEL_TOOL_CALLS",
+        )
+    return _parse_optional_bool(
+        _read_config_value("lumeri_v3_parallel_tool_calls"),
+        source="config:lumeri_v3_parallel_tool_calls",
+    )
+
+
 def _resolve_orchestration_temperature() -> float:
     """Temperature for the agent/orchestration (tool-calling) path.
 
@@ -466,6 +505,11 @@ class GeminiClientV3:
         self.reasoning_effort = (
             os.environ.get("LUMERI_V3_EFFORT") or _read_config_key("lumeri_v3_effort") or ""
         ).strip().lower()
+        # Tri-state: None preserves each provider's compatibility default;
+        # explicit true/false is sent only when tools are present. This flag
+        # allows a model to PROPOSE multiple independent calls in one response;
+        # AgentLoopV3 still dispatches them deterministically by index.
+        self.parallel_tool_calls = _resolve_parallel_tool_calls()
 
         # Startup visibility (RC5). Logs the RESOLVED provider/model/temperature
         # ONLY — never the api_key, api_url credentials, or any config.json
@@ -473,10 +517,12 @@ class GeminiClientV3:
         # longer map to capability — e.g. gemini-3.5-flash outperforms
         # 3.1-pro — so model choice is config, not a downgrade to warn about.)
         logger.info(
-            "Lumeri v3 orchestrator resolved: provider=%s model=%s temperature=%s",
+            "Lumeri v3 orchestrator resolved: provider=%s model=%s temperature=%s effort=%s parallel_tool_calls=%s",
             self.provider,
             self.model,
             self.orchestration_temperature,
+            self.reasoning_effort or "provider-default",
+            self.parallel_tool_calls,
         )
 
     async def stream_turn(
@@ -509,6 +555,8 @@ class GeminiClientV3:
         }
         if tools:
             body["tools"] = tools
+            if self.provider != "claude" and self.parallel_tool_calls is not None:
+                body["parallel_tool_calls"] = self.parallel_tool_calls
 
         # Reasoning effort for thinking-capable models. OpenRouter (and the
         # OpenAI-compatible providers routed through the same body) accept
@@ -530,6 +578,8 @@ class GeminiClientV3:
             try:
                 for ev in _blocker(body):
                     loop.call_soon_threadsafe(q.put_nowait, ev)
+                    if ev.get("kind") == "error":
+                        break
             except Exception as exc:
                 loop.call_soon_threadsafe(
                     q.put_nowait,
@@ -641,6 +691,8 @@ class GeminiClientV3:
                     continue
                 for event in _parse_chunk(chunk):
                     yield event
+                    if event.get("kind") == "error":
+                        return
 
 
     def _stream_blocking_claude(self, body_openai: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -723,6 +775,22 @@ class GeminiClientV3:
 
 def _parse_chunk(chunk: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Parse one OpenAI-compatible streaming chunk into delta events."""
+    # Error is a terminal top-level protocol frame. Check it before choices so
+    # an old bridge shape containing both error + fake stop cannot turn an
+    # upstream failure into a successful completion.
+    if "error" in chunk:
+        raw_error = chunk.get("error")
+        if isinstance(raw_error, dict):
+            message = raw_error.get("message") or raw_error.get("error")
+            code = raw_error.get("code")
+            if not message:
+                message = json.dumps(raw_error, ensure_ascii=False, sort_keys=True)
+            if code and str(code) not in str(message):
+                message = f"{message} ({code})"
+        else:
+            message = str(raw_error or "upstream stream error")
+        yield {"kind": "error", "error": str(message)}
+        return
     choices = chunk.get("choices") or []
     if not choices:
         return

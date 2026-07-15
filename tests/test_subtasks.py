@@ -101,18 +101,36 @@ class _ScriptedClient:
         self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
     ) -> AsyncIterator[dict[str, Any]]:
         del temperature
-        # Distinguish parent vs child by whether spawn_subtasks is in the tools.
-        tool_names = {t["function"]["name"] for t in (tools or [])}
-        if "spawn_subtasks" in tool_names:
-            async for ev in self._parent_stream():
+        # Dynamic routing may intentionally hide spawn_subtasks on the first
+        # parent round. Distinguish by the child's explicit bounded-agent system
+        # prompt instead of assuming the parent always receives all schemas.
+        is_child = any(
+            m.get("role") == "system"
+            and "bounded Lumeri sub-agent" in str(m.get("content"))
+            for m in messages
+        )
+        if not is_child:
+            async for ev in self._parent_stream(messages):
                 yield ev
             return
         async for ev in self._child_stream(messages):
             yield ev
 
-    async def _parent_stream(self) -> AsyncIterator[dict[str, Any]]:
+    async def _parent_stream(
+        self, messages: list[dict[str, Any]]
+    ) -> AsyncIterator[dict[str, Any]]:
         self.parent_calls += 1
-        if self.parent_calls == 1:
+        # The first attempt may be the deterministic router's
+        # E_TOOL_NOT_ACTIVE handshake.  Retry that one, but consider any actual
+        # dispatcher settlement (success or failure) complete so refusal tests
+        # do not model an agent that ignores the returned error forever.
+        spawn_completed = any(
+            m.get("role") == "tool"
+            and m.get("tool_call_id") == "spawn_call"
+            and '"E_TOOL_NOT_ACTIVE"' not in str(m.get("content"))
+            for m in messages
+        )
+        if not spawn_completed:
             yield {"kind": "tool_call_start", "index": 0, "id": "spawn_call",
                    "name": "spawn_subtasks"}
             yield {"kind": "tool_call_args_delta", "index": 0,
@@ -274,7 +292,7 @@ def test_spawn_over_four_children_refused(tmp_path: Path) -> None:
     # The dispatcher raised E_SUBTASK → surfaced as a tool_exec_error, no children.
     errs = [e for e in events if e.get("kind") == "tool_exec_error"
             and e.get("tool_name") == "spawn_subtasks"]
-    assert errs and errs[0]["error_code"] == "E_SUBTASK"
+    assert any(e.get("error_code") == "E_SUBTASK" for e in errs)
     assert not [e for e in events if e.get("kind") == "subagent_start"]
 
 
@@ -285,7 +303,7 @@ def test_spawn_unknown_profile_refused(tmp_path: Path) -> None:
     asyncio.run(loop.run_turn("go"))
     errs = [e for e in events if e.get("kind") == "tool_exec_error"
             and e.get("tool_name") == "spawn_subtasks"]
-    assert errs and errs[0]["error_code"] == "E_SUBTASK_PROFILE"
+    assert any(e.get("error_code") == "E_SUBTASK_PROFILE" for e in errs)
 
 
 def test_spawn_refused_when_budget_pool_exhausted(tmp_path: Path) -> None:
@@ -296,7 +314,7 @@ def test_spawn_refused_when_budget_pool_exhausted(tmp_path: Path) -> None:
     asyncio.run(loop.run_turn("go"))
     errs = [e for e in events if e.get("kind") == "tool_exec_error"
             and e.get("tool_name") == "spawn_subtasks"]
-    assert errs and errs[0]["error_code"] == "E_BUDGET"
+    assert any(e.get("error_code") == "E_BUDGET" for e in errs)
 
 
 # ── fail-closed profile enforcement ──────────────────────────────────────────
@@ -364,6 +382,32 @@ def test_child_plan_block_when_parent_toggles_mid_batch(tmp_path: Path) -> None:
     assert payload["blocked_by_plan_mode"] is True
 
 
+def test_child_budget_gate_cannot_be_overridden_by_approval(tmp_path: Path) -> None:
+    """A fixed child slice is a hard cap, not an approval workflow."""
+    class _Noop:
+        model = "fake"
+        async def stream_turn(self, messages, *, tools=None, temperature=0.7):
+            if False:
+                yield {}
+            return
+
+    loop, _ = _make_loop(tmp_path, _Noop())
+    child = sub.SubtaskLoop(
+        agent_id="sub_1", parent=loop, call_id="spawn_call",
+        goal="inspect timeline", profile_name="probe",
+        guard=BudgetGuard(max_usd=0.0, max_seconds=0.0),
+    )
+    tc = {"id": "x", "name": "get_timeline", "args_buf": ["{}"]}
+    asyncio.run(child._dispatch_child_call(tc))
+    payload = json.loads(
+        [m for m in child._messages if m.get("role") == "tool"][-1]["content"]
+    )
+    assert payload["error_code"] == "E_BUDGET"
+    assert payload["blocked_by_budget"] is True
+    assert payload["approval_cannot_override"] is True
+    assert "needs_approval" not in payload
+
+
 # ── child doom-loop ends the CHILD, not the parent ───────────────────────────
 
 
@@ -387,9 +431,256 @@ def test_child_doom_loop_ends_child_not_parent(
     results = [e for e in events if e.get("kind") == "subagent_result"]
     assert results and results[0]["status"] == "error"
     assert "same call" in results[0]["summary"] or "no progress" in results[0]["summary"]
-    # The PARENT turn still completes normally (child's doom loop is isolated).
-    assert [e for e in events if e.get("kind") == "turn_complete"]
-    assert not [e for e in events if e.get("kind") == "turn_error"]
+    # The child remains isolated, but its returned failure now bubbles through
+    # the parent ToolOutcome/ledger instead of being mislabeled complete.
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
+    assert any(
+        e.get("kind") == "turn_error" and e.get("reason") == "incomplete_goal"
+        for e in events
+    )
+
+
+def test_returned_child_failure_bubbles_to_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def returned_failure(args, ctx):
+        return {"status": "failed", "error_code": "E_PROBE", "error": "bad media"}
+
+    monkeypatch.setitem(sub.DISPATCHER, "probe_media", returned_failure)
+    client = _ScriptedClient(
+        {"subtasks": [{"goal": "probe broken media", "tool_profile": "probe"}]}
+    )
+    loop, events = _make_loop(tmp_path, client)
+
+    asyncio.run(loop.run_turn("让多个代理并行分析素材"))
+
+    child_results = [e for e in events if e.get("kind") == "subagent_result"]
+    assert child_results and child_results[0]["status"] == "error"
+    assert any(
+        e.get("kind") == "tool_exec_error"
+        and e.get("tool_name") == "spawn_subtasks"
+        and e.get("error_code") == "E_SUBTASK_FAILED"
+        for e in events
+    )
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"applied": False, "asset_id": "v_001"},
+        {"status": "pending", "job_id": "job-1", "asset_id": "v_001"},
+        {"status": "partial", "asset_id": "v_001", "summary": "partial result"},
+    ],
+    ids=["noop", "pending", "partial"],
+)
+def test_child_nonterminal_outcome_bubbles_incomplete_to_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, Any],
+) -> None:
+    async def nonterminal(args, ctx):
+        del args, ctx
+        return dict(payload)
+
+    monkeypatch.setitem(sub.DISPATCHER, "probe_media", nonterminal)
+    client = _ScriptedClient(
+        {"subtasks": [{"goal": "probe media", "tool_profile": "probe"}]}
+    )
+    loop, events = _make_loop(tmp_path, client)
+
+    asyncio.run(loop.run_turn("让多个代理并行分析素材"))
+
+    child_results = [e for e in events if e.get("kind") == "subagent_result"]
+    assert child_results and child_results[0]["status"] == "error"
+    assert any(
+        e.get("kind") == "tool_exec_error"
+        and e.get("tool_name") == "spawn_subtasks"
+        and e.get("error_code") == "E_SUBTASK_FAILED"
+        for e in events
+    )
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"applied": False, "asset_id": "A"},
+        {"status": "pending", "asset_id": "A", "job_id": "job-A"},
+        {"status": "partial", "asset_id": "A"},
+    ],
+    ids=["noop", "pending", "partial"],
+)
+def test_child_nonterminal_outcome_does_not_resolve_prior_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, Any],
+) -> None:
+    calls = 0
+
+    async def fail_then_nonterminal(args, ctx):
+        nonlocal calls
+        del ctx
+        calls += 1
+        if calls == 1:
+            return {
+                "status": "failed",
+                "asset_id": args["asset_id"],
+                "error_code": "E_ORIGINAL",
+                "error": "original failure",
+            }
+        return dict(payload)
+
+    monkeypatch.setitem(sub.DISPATCHER, "probe_media", fail_then_nonterminal)
+
+    class _Noop:
+        model = "fake"
+
+        async def stream_turn(self, messages, *, tools=None, temperature=0.7):
+            del messages, tools, temperature
+            if False:
+                yield {}
+
+    loop, _ = _make_loop(tmp_path, _Noop())
+    child = sub.SubtaskLoop(
+        agent_id="sub_1",
+        parent=loop,
+        call_id="spawn_call",
+        goal="probe A",
+        profile_name="probe",
+        guard=BudgetGuard(max_usd=1.0, max_seconds=100.0),
+    )
+    call = {
+        "id": "probe-a",
+        "name": "probe_media",
+        "args_buf": ['{"asset_id":"A"}'],
+    }
+    asyncio.run(child._dispatch_child_call(call))
+    asyncio.run(child._dispatch_child_call({**call, "id": "probe-a-retry"}))
+
+    assert child._unresolved_failures["target:read:asset_id=A"] == "E_ORIGINAL"
+
+
+def test_child_success_on_other_asset_does_not_clear_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def target_sensitive(args, ctx):
+        if args.get("asset_id") == "A":
+            return {"status": "failed", "error_code": "E_MISSING", "error": "missing A"}
+        return {"status": "success", "asset_id": args.get("asset_id")}
+
+    monkeypatch.setitem(sub.DISPATCHER, "probe_media", target_sensitive)
+
+    class _Noop:
+        model = "fake"
+        async def stream_turn(self, messages, *, tools=None, temperature=0.7):
+            if False:
+                yield {}
+
+    loop, _ = _make_loop(tmp_path, _Noop())
+    child = sub.SubtaskLoop(
+        agent_id="sub_1",
+        parent=loop,
+        call_id="spawn_call",
+        goal="probe A and B",
+        profile_name="probe",
+        guard=BudgetGuard(max_usd=1.0, max_seconds=100.0),
+    )
+    asyncio.run(child._dispatch_child_call({
+        "id": "a", "name": "probe_media", "args_buf": ['{"asset_id":"A"}']
+    }))
+    asyncio.run(child._dispatch_child_call({
+        "id": "b", "name": "probe_media", "args_buf": ['{"asset_id":"B"}']
+    }))
+
+    assert child._unresolved_failures == {
+        "target:read:asset_id=A": "E_MISSING"
+    }
+
+
+class _AnnotateFailsThenAnalyzeSucceedsClient(_ScriptedClient):
+    """A read on A must not repair a failed mutation on the same asset."""
+
+    async def _child_stream(self, messages):
+        goal = self._goal_of(messages)
+        served = self._child_streams.get(goal, 0)
+        self._child_streams[goal] = served + 1
+        if served == 0:
+            yield {
+                "kind": "tool_call_start",
+                "index": 0,
+                "id": "annotate-a",
+                "name": "annotate_media",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": 0,
+                "delta": json.dumps({"asset_id": "A", "annotations": {"tag": "hero"}}),
+            }
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        if served == 1:
+            yield {
+                "kind": "tool_call_start",
+                "index": 0,
+                "id": "analyze-a",
+                "name": "analyze_media",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": 0,
+                "delta": json.dumps({"asset_id": "A"}),
+            }
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        yield {"kind": "text_delta", "text": "analysis succeeded"}
+        yield {"kind": "finish", "reason": "stop"}
+
+
+def test_child_read_on_same_asset_cannot_clear_failed_annotation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def failed_annotation(args, ctx):
+        del ctx
+        return {
+            "status": "failed",
+            "asset_id": args["asset_id"],
+            "error_code": "E_ANNOTATE",
+            "error": "annotation write failed",
+        }
+
+    async def successful_analysis(args, ctx):
+        del ctx
+        return {
+            "status": "success",
+            "asset_id": args["asset_id"],
+            "summary": "asset is readable",
+        }
+
+    monkeypatch.setitem(sub.DISPATCHER, "annotate_media", failed_annotation)
+    monkeypatch.setitem(sub.DISPATCHER, "analyze_media", successful_analysis)
+    spawn_args = {
+        "subtasks": [
+            {
+                "goal": "annotate and inspect asset A",
+                "tool_profile": "annotate",
+            }
+        ]
+    }
+    client = _AnnotateFailsThenAnalyzeSucceedsClient(spawn_args)
+    loop, events = _make_loop(tmp_path, client)
+
+    asyncio.run(loop.run_turn("让多个代理并行标注素材 A"))
+
+    child_results = [e for e in events if e.get("kind") == "subagent_result"]
+    assert child_results and child_results[0]["status"] == "error"
+    assert any(
+        e.get("kind") == "tool_exec_error"
+        and e.get("tool_name") == "spawn_subtasks"
+        and e.get("error_code") == "E_SUBTASK_FAILED"
+        for e in events
+    )
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
 
 
 # ── deadline → timeout ───────────────────────────────────────────────────────

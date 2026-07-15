@@ -93,7 +93,7 @@
   }
   .activity.on { display: flex; }
   .activity .spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--brand-dim); border-top-color: var(--brand); animation: spin .8s linear infinite; flex: 0 0 auto; }
-  .activity .verb { color: var(--brand); font-weight: 600; }
+  .activity .verb { color: var(--muted); font-weight: 500; }
   .activity .msg { color: var(--muted); }
   .activity .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; min-width: 60px; }
   .activity .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--brand-dim), var(--brand)); transition: width .2s ease; }
@@ -124,6 +124,42 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse { 50% { opacity: .35; } }
   @keyframes rise { from { opacity: 0; transform: translateY(-6px); } }
+
+  .ask-dock {
+    margin: 0 18px 4px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .ask-dock-title { font-weight: 600; margin-bottom: 2px; }
+  .ask-dock-desc { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .ask-dock-desc:empty { display: none; }
+  .ask-field { margin-bottom: 10px; }
+  .ask-field-label { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); margin-bottom: 4px; }
+  .ask-field-error { color: var(--err); font-size: 11px; margin-top: 2px; }
+  .ask-field-error:empty { display: none; }
+  .ask-radio-group, .ask-check-group { display: flex; flex-direction: column; gap: 4px; }
+  .ask-radio-group label, .ask-check-group label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+  .ask-text-input {
+    width: 100%; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--text); font: inherit; font-size: 12.5px; resize: vertical;
+  }
+  .ask-text-input:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+  .ask-slider-wrap { display: flex; align-items: center; gap: 8px; }
+  .ask-slider-wrap input[type="range"] { flex: 1; accent-color: var(--brand); }
+  .ask-slider-val { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 3em; text-align: right; }
+  .ask-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .ask-submit {
+    background: var(--brand); color: #000; padding: 7px 16px; font-size: 12px;
+    border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
+  }
+  .ask-submit:hover { filter: brightness(1.1); }
+  .ask-submit:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -151,6 +187,7 @@
       </div>
     </div>
     <div class="filmstrip" id="filmstrip"></div>
+    <div class="ask-dock" id="ask-dock" hidden></div>
   </main>
 
   <div class="toasts" id="toasts"></div>
@@ -170,6 +207,7 @@
     es: null,
     reconnectTimer: null,
     running: new Map(),  // call_id -> verb
+    pendingAsk: null,    // {question_id, question} while elicit awaits
   };
 
   const assetUrl = (id) => `/sessions/${encodeURIComponent(sessionId)}/assets/${encodeURIComponent(id)}`;
@@ -270,6 +308,34 @@
   }
 
   // ── activity overlay ───────────────────────────────────────────────
+  function activityKind(toolName) {
+    const name = String(toolName || "").toLowerCase();
+    if (name === "spawn_subtasks" || name.includes("subtask")) return "parallel";
+    if (name === "ask" || name === "elicit") return "ask";
+    if (/^(project_)?export|^export_|^render_|^lumen_render|^assemble/.test(name)) return "export";
+    if (/(delete|remove|discard|clear)/.test(name)) return "remove";
+    if (/^(get_|search_|inspect_|probe_|analyze_|read_|list_|file_list|web_search|web_open|recall_|lumen_seek)/.test(name)) return "inspect";
+    if (/^(generate_|create_|draft_|set_shotlist|paint_overlay|add_overlay|lumen_add_layer|timeline_insert_clip|timeline_add_track|vector_motion|copy_in|upload)/.test(name)) return "create";
+    if (/^(edit_|update_|adjust_|patch_|arrange_|move_|set_|transform_|trim_|cut_|lumen_|timeline_)/.test(name)) return "edit";
+    return "task";
+  }
+  function activityLabel(toolName, status) {
+    const kind = activityKind(toolName);
+    const copy = {
+      create: ["准备创建内容", "正在创建内容"], edit: ["准备编辑项目", "正在编辑项目"],
+      remove: ["准备删除内容", "正在删除内容"], inspect: ["准备查看信息", "正在查看信息"],
+      export: ["准备导出成片", "正在导出成片"], ask: ["准备向你确认", "正在整理需要确认的内容"],
+      parallel: ["准备并行处理任务", "正在并行处理任务"], task: ["准备处理任务", "正在处理任务"],
+    }[kind];
+    if (status === "done" || status === "ok") return "已完成这一步";
+    if (status === "failed" || status === "error" || status === "timeout") return "这一步暂未完成";
+    if (status === "gated" || status === "needs_user") return kind === "ask" ? "等待你的选择" : "等待你的批准";
+    return status === "pending" ? copy[0] : copy[1];
+  }
+  function runningActivity() {
+    const toolName = state.running.values().next().value;
+    return toolName ? activityLabel(toolName, "running") : "正在处理任务";
+  }
   function setActivity(on, verb, msg, percent) {
     const a = $("activity");
     a.classList.toggle("on", !!on);
@@ -294,36 +360,43 @@
 
   // ── SSE handlers (mirror static/v3/v3.js) ──────────────────────────
   const handlers = {
-    turn_start: () => { setActivity(true, "thinking", "", null); },
+    turn_start: () => { setActivity(true, "正在理解你的请求", "", null); },
     model_text_delta: () => {},
     model_tool_call_start: (ev) => {
       state.running.set(ev.call_id, ev.tool_name || "tool");
-      setActivity(true, ev.tool_name || "working", "", null);
+      setActivity(true, activityLabel(ev.tool_name, "pending"), "", null);
     },
     model_tool_call_ready: () => {},
     tool_exec_start: (ev) => {
-      setActivity(true, state.running.get(ev.call_id) || "working", "running…", null);
+      setActivity(true, activityLabel(state.running.get(ev.call_id), "running"), "", null);
     },
     tool_exec_progress: (ev) => {
-      setActivity(true, state.running.get(ev.call_id) || "working", ev.message || "", typeof ev.percent === "number" ? ev.percent : null);
+      setActivity(true, activityLabel(state.running.get(ev.call_id), "running"), "", typeof ev.percent === "number" ? ev.percent : null);
     },
     tool_exec_result: (ev) => {
       const r = ev.result || {};
       if (r.asset_id) addAsset(r.asset_id, r.kind, r.summary);
       state.running.delete(ev.call_id);
-      setActivity(state.running.size > 0, "working", "", null);
+      setActivity(state.running.size > 0, runningActivity(), "", null);
     },
     tool_exec_error: (ev) => {
       state.running.delete(ev.call_id);
-      toast((ev.tool_name ? ev.tool_name + ": " : "") + (ev.error || "tool failed"), "err");
-      setActivity(state.running.size > 0, "working", "", null);
+      toast("有一步暂未完成", "err");
+      setActivity(state.running.size > 0, runningActivity(), "", null);
     },
     budget_gate: (ev) => {
-      toast("budget gate: " + (ev.reason || "blocked"), "warn");
+      toast("当前步骤暂时无法继续", "warn");
+    },
+    ask_question: (ev) => {
+      const q = ev.question || {};
+      state.pendingAsk = { question_id: q.question_id, question: q };
+      setActivity(true, "等待你的选择", "", null);
+      _renderPreviewAsk();
     },
     timeline_op: () => {},
     replay_gap: () => { resync(); },
     turn_complete: (ev) => {
+      _dismissPreviewAsk();
       const finals = ev.final_asset_ids || ev.deliverable_asset_ids || [];
       for (const id of finals) {
         const a = state.assets.get(id) || { id, kind: kindOf(id), summary: "", final: false };
@@ -336,11 +409,116 @@
       idleEmptyIfBlank();
     },
     turn_error: (ev) => {
-      toast("turn error: " + (ev.error || "unknown"), "err");
+      _dismissPreviewAsk();
+      toast("本轮任务暂时暂停", "err");
       setActivity(false);
       idleEmptyIfBlank();
     },
   };
+
+  // ── ask dock (declarative answering) ──────────────────────────────
+  function _dismissPreviewAsk() {
+    state.pendingAsk = null;
+    const dock = $("ask-dock");
+    if (dock) { dock.hidden = true; dock.innerHTML = ""; }
+  }
+
+  function _askCtrl(key, ctrl) {
+    const wrap = document.createElement("div");
+    wrap.className = "ask-field";
+    wrap.dataset.controlKey = key;
+    const lbl = document.createElement("span");
+    lbl.className = "ask-field-label";
+    lbl.textContent = key;
+    wrap.appendChild(lbl);
+    const errEl = document.createElement("div");
+    errEl.className = "ask-field-error";
+    const type = ctrl.type;
+    if (type === "select") {
+      const g = document.createElement("div"); g.className = "ask-radio-group";
+      for (const o of (ctrl.options || [])) {
+        const l = document.createElement("label");
+        const r = document.createElement("input"); r.type = "radio"; r.name = "ask-" + key; r.value = o.value;
+        if (ctrl.default != null && o.value === ctrl.default) r.checked = true;
+        l.appendChild(r); l.appendChild(document.createTextNode(o.label)); g.appendChild(l);
+      }
+      wrap.appendChild(g);
+    } else if (type === "multi_select") {
+      const g = document.createElement("div"); g.className = "ask-check-group";
+      for (const o of (ctrl.options || [])) {
+        const l = document.createElement("label");
+        const c = document.createElement("input"); c.type = "checkbox"; c.name = "ask-" + key; c.value = o.value;
+        l.appendChild(c); l.appendChild(document.createTextNode(o.label)); g.appendChild(l);
+      }
+      wrap.appendChild(g);
+    } else if (type === "text") {
+      const inp = ctrl.multiline ? document.createElement("textarea") : document.createElement("input");
+      inp.className = "ask-text-input"; inp.name = "ask-" + key;
+      if (ctrl.placeholder) inp.placeholder = ctrl.placeholder;
+      if (ctrl.max_length) inp.maxLength = ctrl.max_length;
+      if (ctrl.multiline) inp.rows = 3;
+      wrap.appendChild(inp);
+    } else if (type === "slider") {
+      const sw = document.createElement("div"); sw.className = "ask-slider-wrap";
+      const r = document.createElement("input"); r.type = "range"; r.name = "ask-" + key;
+      r.min = ctrl.min ?? 0; r.max = ctrl.max ?? 100; r.step = ctrl.step ?? 1;
+      r.value = ctrl.default ?? ctrl.min ?? 0;
+      const v = document.createElement("span"); v.className = "ask-slider-val"; v.textContent = r.value;
+      r.addEventListener("input", () => { v.textContent = r.value; });
+      sw.appendChild(r); sw.appendChild(v); wrap.appendChild(sw);
+    } else if (type === "panel") {
+      const pg = document.createElement("div"); pg.className = "ask-panel-group";
+      for (const [fk, fv] of Object.entries(ctrl.fields || {})) pg.appendChild(_askCtrl(key + "." + fk, fv));
+      wrap.appendChild(pg);
+    }
+    wrap.appendChild(errEl);
+    return wrap;
+  }
+
+  function _collectVal(key, ctrl, dock) {
+    if (ctrl.type === "select") { const c = dock.querySelector('input[name="ask-' + key + '"]:checked'); return c ? c.value : null; }
+    if (ctrl.type === "multi_select") return [...dock.querySelectorAll('input[name="ask-' + key + '"]:checked')].map(c => c.value);
+    if (ctrl.type === "text") { const i = dock.querySelector('[name="ask-' + key + '"]'); return i ? i.value : ""; }
+    if (ctrl.type === "slider") { const i = dock.querySelector('input[name="ask-' + key + '"]'); return i ? parseFloat(i.value) : null; }
+    if (ctrl.type === "panel") { const r = {}; for (const [fk, fv] of Object.entries(ctrl.fields || {})) r[fk] = _collectVal(key + "." + fk, fv, dock); return r; }
+    return null;
+  }
+
+  function _renderPreviewAsk() {
+    const dock = $("ask-dock");
+    if (!dock || !state.pendingAsk) return;
+    const q = state.pendingAsk.question;
+    dock.innerHTML = "";
+    const t = document.createElement("div"); t.className = "ask-dock-title"; t.textContent = q.title || "需要你的输入"; dock.appendChild(t);
+    const d = document.createElement("div"); d.className = "ask-dock-desc"; d.textContent = q.description || ""; dock.appendChild(d);
+    for (const [key, ctrl] of Object.entries(q.controls || {})) dock.appendChild(_askCtrl(key, ctrl));
+    const acts = document.createElement("div"); acts.className = "ask-actions";
+    const btn = document.createElement("button"); btn.className = "ask-submit"; btn.textContent = "提交";
+    btn.addEventListener("click", async () => {
+      if (!state.pendingAsk) return;
+      const answers = {};
+      for (const [k, c] of Object.entries(q.controls || {})) answers[k] = _collectVal(k, c, dock);
+      btn.disabled = true;
+      dock.querySelectorAll(".ask-field-error").forEach(e => { e.textContent = ""; });
+      try {
+        const res = await fetch("/sessions/" + encodeURIComponent(sessionId) + "/ask_response", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question_id: state.pendingAsk.question_id, answers }),
+        });
+        if (res.ok) { _dismissPreviewAsk(); return; }
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 422 && body.field_errors) {
+          for (const [f, msg] of Object.entries(body.field_errors)) {
+            const el = dock.querySelector('[data-control-key="' + f + '"] .ask-field-error');
+            if (el) el.textContent = msg;
+          }
+        } else { toast("提交失败: " + (body.error || res.statusText), "err"); }
+      } catch (err) { toast("提交失败: " + err.message, "err"); }
+      finally { btn.disabled = false; }
+    });
+    acts.appendChild(btn); dock.appendChild(acts);
+    dock.hidden = false;
+  }
 
   function dispatch(ev) {
     const h = handlers[ev.kind];

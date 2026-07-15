@@ -681,6 +681,26 @@ class _Handler(BaseHTTPRequestHandler):
             from gemia.v3_routes import try_handle as _v3_try
             if _v3_try(self, method=("GET" if body else "HEAD")):
                 return
+        # Read-only file browsing for the web UI (whitelisted roots only).
+        if path.startswith("/files/"):
+            from gemia.file_browse_routes import try_handle as _files_try
+            if _files_try(
+                self,
+                method=("GET" if body else "HEAD"),
+                serve_file=lambda p: _file_response(self, p, body=body),
+            ):
+                return
+        # Quanta (discrete video) interactive demo.
+        if path == "/quanta" or path.startswith("/quanta/"):
+            rel = "index.html" if path in ("/quanta", "/quanta/") else path[len("/quanta/"):]
+            quanta_root = (Path(__file__).resolve().parent / "static" / "v3" / "quanta").resolve()
+            target = _safe_child_path(quanta_root, rel)
+            if target is None:
+                _json_response(self, 404, {"error": "quanta asset not found"})
+                return
+            _file_response(self, target, body=body)
+            return
+
         # Lumeri v3 frontend (vanilla HTML/JS at static/v3/).
         if path == "/v3" or path == "/v3/" or path.startswith("/v3/"):
             rel = "index.html" if path in ("/v3", "/v3/") else path[len("/v3/"):]
@@ -719,6 +739,34 @@ class _Handler(BaseHTTPRequestHandler):
                         "server_urls": _server_urls(bind_host, bind_port),
                     }
                 )
+                # 搜索引擎配置状态（密钥脱敏，供 Setup 面板渲染）。
+                try:
+                    _cfg_search = {}
+                    if _CONFIG_PATH.exists():
+                        _cfg_search = json.loads(_CONFIG_PATH.read_text())
+                    payload["search"] = {
+                        "provider": _cfg_search.get("search_provider", "auto"),
+                        "has_key": {
+                            "tavily": bool(_cfg_search.get("tavily_api_key")),
+                            "brave": bool(_cfg_search.get("brave_api_key")),
+                            "serper": bool(_cfg_search.get("serper_api_key")),
+                            "exa": bool(_cfg_search.get("exa_api_key")),
+                            "bing": bool(_cfg_search.get("bing_api_key")),
+                            "google_cse": bool(_cfg_search.get("google_cse_key") and _cfg_search.get("google_cse_id")),
+                            "searxng": bool(_cfg_search.get("searxng_url")),
+                        },
+                    }
+                except Exception:
+                    pass
+                # 大脑 provider 现状（密钥脱敏，供 Setup 面板渲染）。
+                try:
+                    from gemia import brain_config
+                    _cfg = {}
+                    if _CONFIG_PATH.exists():
+                        _cfg = json.loads(_CONFIG_PATH.read_text())
+                    payload["brain"] = brain_config.read_status(_cfg)
+                except Exception:
+                    pass
             _json_response(self, 200, payload)
             return
 
@@ -862,20 +910,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/session-history":
             from gemia.session_history import load_current_session
 
-            account_id = identity.resolve_account_id(self)
-            if not account_id:
-                _json_response(self, 401, {"error": "not signed in"})
-                return
+            try:
+                account_id = identity.resolve_account_id(self)
+            except Exception:
+                account_id = None
             _json_response(self, 200, load_current_session(account_id=account_id))
             return
 
         if path == "/session-history/list":
             from gemia.session_history import list_session_snapshots
 
-            account_id = identity.resolve_account_id(self)
-            if not account_id:
-                _json_response(self, 401, {"error": "not signed in"})
-                return
+            try:
+                account_id = identity.resolve_account_id(self)
+            except Exception:
+                account_id = None
             query = parse_qs(parsed_url.query)
             try:
                 limit = int(query.get("limit", ["30"])[0] or 30)
@@ -887,10 +935,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/session-history/"):
             from gemia.session_history import load_session_snapshot
 
-            account_id = identity.resolve_account_id(self)
-            if not account_id:
-                _json_response(self, 401, {"error": "not signed in"})
-                return
+            try:
+                account_id = identity.resolve_account_id(self)
+            except Exception:
+                account_id = None
             snapshot_id = unquote(path.removeprefix("/session-history/")).strip()
             try:
                 _json_response(self, 200, load_session_snapshot(snapshot_id, account_id=account_id, activate=True))
@@ -1113,6 +1161,45 @@ class _Handler(BaseHTTPRequestHandler):
 
                 payload = _read_json_body(self) or {}
                 apply_model_selection(payload, "planner")
+                _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
+            except ValueError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, _error_payload(exc))
+            return
+
+        if route == "/model/add":
+            try:
+                from gemia.memory import add_model_to_catalog, model_selection_payload
+
+                payload = _read_json_body(self) or {}
+                model_id = payload.get("id", "").strip()
+                if not model_id:
+                    _json_response(self, 400, {"error": "missing model id"})
+                    return
+                add_model_to_catalog(
+                    model_id,
+                    label=payload.get("label", ""),
+                    provider=payload.get("provider", ""),
+                    slot="planner",
+                )
+                _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
+            except ValueError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, _error_payload(exc))
+            return
+
+        if route == "/model/remove":
+            try:
+                from gemia.memory import remove_model_from_catalog, model_selection_payload
+
+                payload = _read_json_body(self) or {}
+                model_id = payload.get("id", "").strip()
+                if not model_id:
+                    _json_response(self, 400, {"error": "missing model id"})
+                    return
+                remove_model_from_catalog(model_id, slot="planner")
                 _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
             except ValueError as exc:
                 _json_response(self, 400, {"error": str(exc)})
@@ -1391,10 +1478,78 @@ class _Handler(BaseHTTPRequestHandler):
                     else:
                         existing["image_model"] = value
                         os.environ["GEMIA_IMAGE_MODEL"] = value
+                # 搜索引擎字段（白名单合并）。
+                _SEARCH_CONFIG_KEYS = (
+                    "search_provider", "tavily_api_key", "brave_api_key",
+                    "serper_api_key", "exa_api_key", "bing_api_key",
+                    "google_cse_key", "google_cse_id",
+                    "searxng_url", "searxng_api_key",
+                )
+                for sk in _SEARCH_CONFIG_KEYS:
+                    if sk in body:
+                        v = str(body[sk]).strip() if body[sk] else ""
+                        if v:
+                            existing[sk] = v
+                        else:
+                            existing.pop(sk, None)
+                # 大脑 provider 字段（白名单合并 + 即时设 env）。
+                try:
+                    from gemia import brain_config
+                    brain_config.apply_update(existing, body)
+                except Exception:
+                    pass
                 _CONFIG_PATH.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
                 _json_response(self, 200, {"ok": True})
             except Exception as exc:
                 _json_response(self, 500, {"error": str(exc)})
+            return
+
+        if route == "/config/list-models":
+            if accounts.list_accounts() and _require_account(self) is None:
+                return
+            try:
+                from gemia import brain_config
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                cfg = {}
+                if _CONFIG_PATH.exists():
+                    cfg = json.loads(_CONFIG_PATH.read_text())
+                if body:
+                    brain_config.apply_update(cfg, body)
+                proxy = os.environ.get("HTTPS_PROXY") or ""
+                if not proxy:
+                    try:
+                        proxy = json.loads(_CONFIG_PATH.read_text()).get("proxy") or ""
+                    except Exception:
+                        proxy = ""
+                pv = body.get("provider") or os.environ.get("LUMERI_V3_PROVIDER") or "openai"
+                result = brain_config.list_models(pv, cfg, proxy=proxy or None)
+                _json_response(self, 200, result)
+            except Exception as exc:
+                _json_response(self, 500, {"ok": False, "error": str(exc), "models": []})
+            return
+
+        if route == "/config/test-brain":
+            # 用当前配置发极小探针，验证 provider 连通与鉴权（Setup 面板的"测试连接"）。
+            if accounts.list_accounts() and _require_account(self) is None:
+                return
+            try:
+                from gemia import brain_config
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length) if length else b"{}"
+                body = json.loads(raw) if raw.strip() else {}
+                # 允许先带上未存盘的字段临时应用（仅设 env，不写盘），测完即真实反映当前 env。
+                if body:
+                    brain_config.apply_update({}, body)
+                proxy = os.environ.get("HTTPS_PROXY") or ""
+                if not proxy and _CONFIG_PATH.exists():
+                    try:
+                        proxy = json.loads(_CONFIG_PATH.read_text()).get("proxy") or ""
+                    except Exception:
+                        proxy = ""
+                result = brain_config.test_provider(proxy=proxy or None)
+                _json_response(self, 200, result)
+            except Exception as exc:
+                _json_response(self, 500, {"ok": False, "error": str(exc)})
             return
 
         if route == "/dev-feedback":
@@ -1422,10 +1577,10 @@ class _Handler(BaseHTTPRequestHandler):
                 from gemia.session_history import save_current_session
 
                 payload = _read_json_body(self)
-                account_id = identity.resolve_account_id(self)
-                if not account_id:
-                    _json_response(self, 401, {"error": "not signed in"})
-                    return
+                try:
+                    account_id = identity.resolve_account_id(self)
+                except Exception:
+                    account_id = None
                 _json_response(self, 200, save_current_session(payload, account_id=account_id))
             except Exception as exc:
                 _json_response(self, 500, {"error": str(exc)})

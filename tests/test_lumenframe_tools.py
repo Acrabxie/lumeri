@@ -89,6 +89,43 @@ def test_lumen_patch_multiple_ops(tmp_session: ToolContext) -> None:
     assert "title" in tree
 
 
+def test_compact_tree_summary_shows_full_layer_id() -> None:
+    """The layer tree must show full ids — the model deletes/patches by this
+    exact string. A 12-char truncation once turned "shape_1571eb06a035" into
+    "shape_1571eb", so every edit copied from the tree failed E_NOT_FOUND."""
+    root = {
+        "id": "root",
+        "type": "composition",
+        "name": "Root",
+        "visible": True,
+        "children": [
+            {"id": "shape_1571eb06a035", "type": "shape", "name": "Orb", "visible": True},
+            {"id": "text_f384694679cf", "type": "text", "name": "Title", "visible": True},
+        ],
+    }
+    tree = layer_module._compact_tree_summary(root)
+    assert "shape_1571eb06a035" in tree
+    assert "text_f384694679cf" in tree
+
+
+def test_get_tree_ids_are_addressable(tmp_session: ToolContext) -> None:
+    """The id shown in root_layers must be the real, deletable id: adding a
+    layer then deleting it by the id read back from the tree must succeed."""
+    asyncio.run(
+        layer_module.dispatch_add_layer(
+            {"type": "shape", "name": "Vector Motion Demo"}, tmp_session
+        )
+    )
+    get_result = asyncio.run(layer_module.dispatch_get({}, tmp_session))
+    layer_id = get_result["selection_ids"][0]
+    # The full id (not a truncated prefix) is present verbatim in the tree.
+    assert layer_id in get_result["root_layers"]
+    delete_result = asyncio.run(
+        layer_module.dispatch_delete_layer({"layer_id": layer_id}, tmp_session)
+    )
+    assert delete_result["applied"] is True
+
+
 def test_lumen_set_opacity(tmp_session: ToolContext) -> None:
     """Test setting layer opacity."""
     # First add a layer

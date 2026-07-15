@@ -73,6 +73,7 @@ from gemia.tools import run_shell as _run_shell
 from gemia.tools import safe_areas as _safe_areas
 from gemia.tools import save_skill as _save_skill
 from gemia.tools import search_library as _search_library
+from gemia.tools import vector_motion as _vector_motion
 from gemia.tools import search_media as _search_media
 from gemia.tools import draft_shotlist as _draft_shotlist
 from gemia.tools import refine_shot as _refine_shot
@@ -171,6 +172,7 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_set_work_area":       _layer.dispatch_lumen_set_work_area,
     "lumen_speed_ramp":          _layer.dispatch_lumen_speed_ramp,
     "lumen_time_remap":          _layer.dispatch_lumen_time_remap,
+    "vector_motion":             _vector_motion.dispatch,
     "mix_audio":                 _mix_audio.dispatch,
     "move_file":                 _files.dispatch_move_file,
     "narrate":                   _narrate.dispatch,

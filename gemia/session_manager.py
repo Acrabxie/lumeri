@@ -266,9 +266,8 @@ class SessionRunner:
              checked before the budget gate): a blocked verb is blocked no
              matter how affordable.
           4. Budget gate — against the SAME ``BudgetGuard`` instance as the
-             loop (MCP spend and model spend share the one $5/600s pot). MCP
-             has no approval channel, so ``needs_approval`` is terminal here:
-             raised as ``E_BUDGET``.
+             loop (MCP spend and model spend share the one $5/600s pot). The
+             fixed cap has no approval override; it is raised as ``E_BUDGET``.
           5. Dispatch on the session loop with a SHALLOW-COPIED tool context
              (only ``emit_progress`` differs) so an interleaved read verb can't
              cross progress streams with the agent loop's shared ctx.
@@ -283,6 +282,7 @@ class SessionRunner:
         """
         from gemia.mcp.toolset import MCP_READ_ONLY, MCP_TOOLSET
         from gemia.plan_mode import is_plan_safe, plan_gate_message
+        from gemia.tool_outcome import classify_tool_result
         from gemia.tools import DISPATCHER
 
         self.touch()
@@ -359,7 +359,8 @@ class SessionRunner:
                 "E_BUDGET",
                 decision.reason,
                 {
-                    "needs_approval": True,
+                    "blocked_by_budget": True,
+                    "approval_cannot_override": True,
                     "error_code": "E_BUDGET",
                     "reason": decision.reason,
                     "alternatives": decision.alternatives,
@@ -474,6 +475,26 @@ class SessionRunner:
         elapsed = time.monotonic() - start_ts
         self.agent.budget.commit(tool_name, actual_seconds=elapsed)
 
+        outcome = classify_tool_result(result)
+        if outcome.is_failure:
+            err_payload = outcome.error_payload(tool_name=tool_name)
+            err_code = str(outcome.error_code or "E_TOOL_FAILED")
+            self._emit_event(
+                {
+                    "kind": "tool_exec_error",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "elapsed_seconds": elapsed,
+                    "origin": "mcp",
+                    **err_payload,
+                }
+            )
+            raise VerbGateError(
+                err_code,
+                str(err_payload.get("error") or f"{tool_name} execution failed"),
+                {**err_payload, "tool_name": tool_name},
+            )
+
         # 7. SSE mirror of the result (strip file paths like the loop does).
         event_result = {
             k: v
@@ -506,6 +527,10 @@ class SessionRunner:
         """
         self.touch()
         return self.agent.deliver_ask_answer(question_id, answers)
+
+    def get_pending_question(self, question_id: str) -> dict[str, Any] | None:
+        """Return the question dict for a pending elicit, or None."""
+        return self.agent.get_pending_question(question_id)
 
     def set_plan_mode(self, enabled: bool) -> bool:
         """Toggle the agent's plan mode. Safe from the HTTP handler thread
@@ -574,7 +599,6 @@ class SessionManager:
         max_sessions: int | None = None,
         idle_timeout_sec: int | None = None,
         sweep_interval_sec: int | None = None,
-        cleanup_workdirs: bool | None = None,
     ) -> None:
         self._output_root = Path(output_root).expanduser().resolve()
         self._output_root.mkdir(parents=True, exist_ok=True)
@@ -607,11 +631,6 @@ class SessionManager:
                 if sweep_interval_sec is not None
                 else _env_int("LUMERI_V3_SWEEP_INTERVAL_SEC", _DEFAULT_SWEEP_INTERVAL_SEC, minimum=0)
             ),
-        )
-        self._cleanup_workdirs = (
-            cleanup_workdirs
-            if cleanup_workdirs is not None
-            else os.environ.get("LUMERI_V3_KEEP_CLOSED_WORKDIRS") not in {"1", "true", "TRUE"}
         )
         self._stop_sweeper = threading.Event()
         self._sweeper: threading.Thread | None = None
@@ -698,8 +717,11 @@ class SessionManager:
                     continue
                 if now - runner.last_used_at >= self._idle_timeout_sec:
                     expired.append(sid)
+        # Idle sweep only frees the runner; workdir files are user data and
+        # must survive — deletion happens only via an explicit close_session
+        # / close_all call that opts in with remove_workdir(s)=True.
         for sid in expired:
-            self.close_session(sid, remove_workdir=self._cleanup_workdirs)
+            self.close_session(sid)
         return expired
 
     def close_all(self, *, remove_workdirs: bool = False) -> None:

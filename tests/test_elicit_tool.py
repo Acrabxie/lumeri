@@ -12,6 +12,7 @@ import pytest
 
 from gemia.tools.elicit import dispatch, _build_controls
 from gemia.tools.ask import AskControlType
+from gemia.turn_control import ClarificationGuard
 
 
 class StubBridge:
@@ -26,8 +27,10 @@ class StubBridge:
         return self.answer
 
 
-def _ctx(bridge=None):
+def _ctx(bridge=None, guard=None):
     extra = {"ask_bridge": bridge} if bridge is not None else {}
+    if guard is not None:
+        extra["clarification_guard"] = guard
     return SimpleNamespace(session_id="test_session_123", extra=extra)
 
 
@@ -115,6 +118,56 @@ def test_elicit_without_bridge_returns_question():
     result = run(dispatch(args, _ctx(bridge=None)))
     assert result["status"] == "question_emitted"
     assert "question" in result and "c" in result["question"]["controls"]
+
+
+def test_creative_preference_uses_explicit_defaults_without_ask_event():
+    bridge = StubBridge(answer={"style": "warm"})
+    args = {
+        "reason": "creative_preference",
+        "title": "Choose a style",
+        "controls": {
+            "style": {
+                "type": "select",
+                "options": ["clean", "warm"],
+                "default": "clean",
+            }
+        },
+    }
+
+    result = run(dispatch(args, _ctx(bridge, ClarificationGuard())))
+
+    assert result["status"] == "default_applied"
+    assert result["answers"] == {"style": "clean"}
+    assert bridge.emitted == []
+
+
+def test_clarification_guard_allows_only_one_real_question():
+    guard = ClarificationGuard()
+    bridge = StubBridge(answer={"choice": "a"})
+    args = {
+        "reason": "missing_source",
+        "title": "Choose source",
+        "controls": {"choice": {"type": "select", "options": ["a", "b"]}},
+    }
+
+    first = run(dispatch(args, _ctx(bridge, guard)))
+    second = run(dispatch(args, _ctx(bridge, guard)))
+
+    assert first["status"] == "answer_received"
+    assert second["error_code"] == "E_CLARIFICATION_LIMIT"
+    assert len(bridge.emitted) == 1
+
+
+def test_creative_preference_without_complete_defaults_is_not_fabricated():
+    args = {
+        "reason": "creative_preference",
+        "title": "Name it",
+        "controls": {"name": {"type": "text"}},
+    }
+
+    result = run(dispatch(args, _ctx(StubBridge(), ClarificationGuard())))
+
+    assert result["error_code"] == "E_CLARIFICATION_POLICY"
 
 
 def test_elicit_all_control_types():

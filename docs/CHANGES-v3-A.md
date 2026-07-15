@@ -237,8 +237,7 @@ whole pipeline is healthy.
 | `LUMERI_V3_UPLOAD_TIMEOUT_SEC` | `60` | Socket read timeout while receiving an upload. |
 | `LUMERI_V3_MAX_SESSIONS` | `20` | Process-wide active or creating v3 session cap. |
 | `LUMERI_V3_IDLE_TIMEOUT_SEC` | `7200` | Idle session TTL; `0` disables idle cleanup. |
-| `LUMERI_V3_SWEEP_INTERVAL_SEC` | `60` | Background idle sweeper interval; `0` disables the sweeper thread. |
-| `LUMERI_V3_KEEP_CLOSED_WORKDIRS` | unset | Set to `1` to keep idle-closed workdirs for debugging. |
+| `LUMERI_V3_SWEEP_INTERVAL_SEC` | `60` | Background idle sweeper interval; `0` disables the sweeper thread. Idle sweep only closes the runner — workdir files are always kept. |
 | `LUMERI_PORT` / `GEMIA_PORT` | `7788` | Server port. |
 
 ---

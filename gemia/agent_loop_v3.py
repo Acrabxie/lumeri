@@ -59,16 +59,17 @@ import asyncio
 import base64
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from gemia import memory as _memory
 from gemia.budget_guard import BudgetGuard
 from gemia.env_probe import format_environment_summary
-from gemia.errors import GemiaError, RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
+from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
 from gemia.plan_mode import (
     PLAN_GATE_TURN_LIMIT,
@@ -77,10 +78,21 @@ from gemia.plan_mode import (
     plan_gate_message,
 )
 from gemia.project_store import ProjectHandle
-from gemia.tools import DISPATCHER, TOOL_SCHEMAS, AssetRegistry, ToolContext
+from gemia.tools import DISPATCHER, AssetRegistry, ToolContext
 from gemia.tools._ask_bridge import AskBridge
 from gemia.tools._context import ProgressUpdate
+from gemia.tool_outcome import classify_tool_exception, classify_tool_result
+from gemia.tool_router import MASTER_TOOL_SET, ToolRouter
 from gemia.transport.sse import REGISTRY as SSE_REGISTRY
+from gemia.turn_control import (
+    E_CLARIFICATION_LIMIT,
+    E_CLARIFICATION_POLICY,
+    ClarificationGuard,
+    TurnIntent,
+    classify_turn_intent,
+)
+from gemia.turn_compaction import compact_settled_tool_blocks
+from gemia.turn_ledger import TurnLedger, tool_target_key
 
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_v3.md"
@@ -163,12 +175,35 @@ def _goal_check_text(pinned_intent: str | None, plan_mode: bool) -> str:
     )
 
 
+def _relevant_existing_jobs(
+    request: str, pending_jobs: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """Return only session jobs explicitly continued or named this turn."""
+    if not isinstance(pending_jobs, Mapping):
+        return {}
+    text = str(request or "").strip().lower()
+    continue_all = bool(
+        re.search(
+            r"(?:继续(?:处理|生成|等待)?|等待(?:完成|结果)?|查看(?:任务|作业|进度)|"
+            r"任务(?:状态|进度)|作业(?:状态|进度)|continue\b|wait\b|"
+            r"job\s+status|task\s+status|check\s+(?:the\s+)?(?:job|task))",
+            text,
+            re.I,
+        )
+    )
+    return {
+        str(job_id): status
+        for job_id, status in pending_jobs.items()
+        if continue_all or str(job_id).lower() in text
+    }
+
+
 def _strip_gate_images(msg: dict[str, Any]) -> None:
-    """Replace the image parts of an already-consumed gate message with a
+    """Replace image parts of any already-consumed one-shot message with a
     compact text placeholder, IN PLACE.
 
-    The model must see the self-check thumbnails exactly once (the gate
-    round). Left as-is, the base64 payload would ride the rolling window
+    The model must see each thumbnail exactly once. Left as-is, the base64
+    payload would ride the rolling window
     into every subsequent model call — bandwidth and tokens spent re-sending
     stale pixels. Text sections are preserved verbatim."""
     content = msg.get("content")
@@ -178,7 +213,7 @@ def _strip_gate_images(msg: dict[str, Any]) -> None:
     if n_images == 0:
         return
     texts = [p.get("text", "") for p in content if p.get("type") == "text"]
-    texts.append(f"[{n_images} 张自检预览图已发送并从上下文回收]")
+    texts.append(f"[{n_images} 张预览图已发送一次并从上下文回收]")
     msg["content"] = "\n\n".join(t for t in texts if t)
 
 # Repeated-failure nudge: there is no cap on the TOTAL number of tool steps in a
@@ -376,6 +411,11 @@ class AgentLoopV3:
         self._pinned_intent: str | None = None
         self._pending_thumbnails: list[Path] = []
         self._turn_count = 0
+        self._turn_ledger: TurnLedger | None = None
+        # Settled tool blocks may be compacted across several turns. Keep their
+        # summaries session-scoped so creating the next TurnLedger cannot erase
+        # the only remaining representation of those results.
+        self._compacted_history: list[str] = []
         # Plan mode: while True, only plan_mode.PLAN_ALLOWED_TOOLS dispatch;
         # everything else is gated (see the plan-mode block in _drive_turn).
         self.plan_mode: bool = False
@@ -452,6 +492,10 @@ class AgentLoopV3:
         """
         return self._ask_bridge.deliver(question_id, answers)
 
+    def get_pending_question(self, question_id: str) -> dict[str, Any] | None:
+        """Return the question dict for a pending elicit, or None."""
+        return self._ask_bridge.get_pending_question(question_id)
+
     def set_plan_mode(self, enabled: bool) -> bool:
         """Toggle plan mode and broadcast the change. Returns the new state.
 
@@ -503,7 +547,8 @@ class AgentLoopV3:
                 tree_summary = _layer._compact_tree_summary(root)
                 lines.append(tree_summary)
             if selection:
-                lines.append(f"Selection: {', '.join(str(id)[:12] for id in selection)}")
+                # Full ids — the model targets layers by this exact string.
+                lines.append(f"Selection: {', '.join(str(id) for id in selection)}")
             text = "\n".join(lines) if lines else "(empty document)"
             if len(text) > self._LUMENFRAME_PROMPT_CAP:
                 text = (
@@ -638,6 +683,12 @@ class AgentLoopV3:
         system_filled = (
             self._system_template
             .replace("{{plan_mode}}", PLAN_MODE_PROMPT if self.plan_mode else "")
+            .replace(
+                "{{turn_ledger}}",
+                self._turn_ledger.to_prompt_text()
+                if self._turn_ledger is not None
+                else "(no active execution ledger)",
+            )
             .replace("{{environment}}", format_environment_summary())
             .replace("{{memory}}", self._memory_for_prompt())
             .replace("{{runtime_engine}}", self._runtime_engine_text())
@@ -775,7 +826,8 @@ class AgentLoopV3:
         ]
         if selection:
             lines.append(
-                "Selection: " + ", ".join(str(s)[:12] for s in selection)
+                # Full ids — the model targets layers by this exact string.
+                "Selection: " + ", ".join(str(s) for s in selection)
             )
         lines.append(f"Validate: {warnings}")
         return "\n".join(lines)
@@ -903,11 +955,12 @@ class AgentLoopV3:
         *,
         pre_asset_ids: set[str],
         failed_call_log: list[tuple[str, str]],
-    ) -> tuple[Any, list[str]]:
+        turn_request: str,
+    ) -> tuple[Any, list[str], list[str]]:
         """Compose the one-shot pre-delivery gate message (extended RC4).
 
-        Returns ``(content, sections)``: ``content`` is a plain string, or a
-        multimodal parts list when self-check thumbnails are attached;
+        Returns ``(content, sections, shown_asset_ids)``: ``content`` is a
+        plain string, or a multimodal parts list when self-check thumbnails are attached;
         ``sections`` names the blocks included (surfaced on the
         ``completion_check`` event for observability and tests).
         """
@@ -959,12 +1012,22 @@ class AgentLoopV3:
                 "禁止把失败包装成成功。若失败已被后续的成功修复，简要说明即可。"
             )
 
+        if self._turn_ledger is not None:
+            decision = self._turn_ledger.completion_decision()
+            if not decision.complete:
+                sections.append("turn_ledger")
+                blocks.append(
+                    "主机验收账本尚未结项："
+                    + "、".join(decision.blockers)
+                    + "。文字声明不能关闭这些项目；继续调用工具取得客观证据。"
+                )
+
         sections.append("goal_check")
-        blocks.append(_goal_check_text(self._pinned_intent, self.plan_mode))
+        blocks.append(_goal_check_text(turn_request, self.plan_mode))
 
         text = "\n\n".join(blocks)
         if not shown:
-            return text, sections
+            return text, sections, []
 
         parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
         for record, p in shown:
@@ -984,7 +1047,7 @@ class AgentLoopV3:
                     "image_url": {"url": f"data:image/png;base64,{b64}"},
                 }
             )
-        return parts, sections
+        return parts, sections, [str(record.asset_id) for record, _path in shown]
 
     def _emit_doom_loop(self, name: str, count: int) -> None:
         """Success-blind doom-loop signal: the last ``count`` tool calls were the
@@ -1036,6 +1099,10 @@ class AgentLoopV3:
             "plan_gate_limit": (
                 "plan mode kept blocking mutating tool calls; the plan should "
                 "be presented as text and approved before execution"
+            ),
+            "incomplete_goal": (
+                "the host acceptance ledger still had open requirements after "
+                "the routed tool surface was fully expanded"
             ),
         }.get(reason, f"the turn stopped ({reason})")
 
@@ -1126,6 +1193,112 @@ class AgentLoopV3:
         cutoff = user_idx[-_ROLLING_USER_TURNS]
         self._messages = self._messages[cutoff:]
 
+    def _routing_state(self) -> dict[str, Any]:
+        pending = {
+            record.job_id: record.last_polled_status
+            for record in self._tool_ctx.jobs.list_pending()
+        }
+        try:
+            lumen_text = self._get_lumenframe_prompt_text()
+            has_lumenframe = bool(lumen_text and not lumen_text.startswith("("))
+        except Exception:  # noqa: BLE001 — routing hints are best effort
+            has_lumenframe = False
+        try:
+            project_state = self.project.load()
+            timeline = (project_state or {}).get("timeline") or {}
+            has_timeline = bool(
+                timeline.get("clips")
+                or float(timeline.get("duration") or 0) > 0
+            )
+        except Exception:  # noqa: BLE001
+            has_timeline = False
+        return {
+            "has_assets": bool(self.registry.list_records()),
+            "has_timeline": has_timeline,
+            "has_lumenframe": has_lumenframe,
+            "pending_jobs": pending,
+        }
+
+    def _compact_turn_history(self) -> None:
+        """Compact only complete protocol blocks; any error is fail-open."""
+        ledger = self._turn_ledger
+        if ledger is None:
+            return
+        protected = set(ledger.unresolved_failures)
+        protected.update(
+            record.call_id
+            for record in ledger.outcomes
+            if record.seq in {ledger.last_mutation_seq, ledger.last_verification_seq}
+            or (
+                record.facts.get("job_id")
+                and str(record.facts.get("job_id")) in ledger.pending_jobs
+            )
+        )
+        try:
+            result = compact_settled_tool_blocks(
+                self._messages, protected_call_ids=protected
+            )
+        except Exception:  # noqa: BLE001 — compression never breaks a turn
+            return
+        if result.removed_blocks:
+            self._messages = result.messages
+            ledger.add_compact_history(result.summaries)
+            self._compacted_history.extend(str(item)[:500] for item in result.summaries)
+            self._compacted_history = self._compacted_history[-80:]
+
+    async def _host_verify_objective_criteria(
+        self, ledger: TurnLedger, already_probed: set[str]
+    ) -> None:
+        """Free ffprobe-backed acceptance facts for the ledger completion gate."""
+        if (
+            ledger.workflow == "timeline"
+            and ledger.last_mutation_seq
+            and ledger.last_verification_seq <= ledger.last_mutation_seq
+        ):
+            try:
+                project_state = self.project.load()
+                timeline = (project_state or {}).get("timeline") or {}
+                ledger.record_outcome(
+                    "host_timeline",
+                    classify_tool_result(
+                        {
+                            "status": "success",
+                            "summary": "host inspected post-mutation project state",
+                            "clip_count": len(timeline.get("clips") or []),
+                            "track_count": len(timeline.get("tracks") or []),
+                            "duration_sec": timeline.get("duration"),
+                        }
+                    ),
+                    call_id=f"host_timeline:{ledger.sequence + 1}",
+                    mutation=False,
+                    verification=True,
+                )
+            except Exception:  # noqa: BLE001 — open verify step remains a blocker
+                pass
+        if not ledger.criteria:
+            return
+        from gemia.tools import probe_media
+
+        for asset_id in list(ledger.final_asset_ids):
+            if asset_id in already_probed or not self.registry.contains(asset_id):
+                continue
+            try:
+                facts = await probe_media.dispatch(
+                    {"asset_id": asset_id}, self._tool_ctx
+                )
+                facts = dict(facts)
+                facts["path"] = str(self.registry.get(asset_id).path)
+                ledger.record_outcome(
+                    "host_ffprobe",
+                    classify_tool_result(facts),
+                    call_id=f"host_ffprobe:{asset_id}",
+                    mutation=False,
+                    verification=True,
+                )
+                already_probed.add(asset_id)
+            except Exception:  # noqa: BLE001 — open criteria remain blockers
+                continue
+
     # ── public entrypoint ────────────────────────────────────────────
 
     async def run_turn(self, user_message: str) -> None:
@@ -1134,8 +1307,13 @@ class AgentLoopV3:
             self._pinned_intent = user_message
         self._messages.append({"role": "user", "content": user_message})
         self._trim_rolling_window()
+        intent = classify_turn_intent(user_message)
+        # Host-owned, per-turn clarification budget. The dispatcher reads it
+        # from the shared context, so every elicit call in this turn sees the
+        # same single-ask guard.
+        self._tool_ctx.extra["clarification_guard"] = ClarificationGuard()
         try:
-            await self._drive_turn()
+            await self._drive_turn(user_message, intent)
         finally:
             self._turn_count += 1
             if self.sessions_root is not None:
@@ -1143,7 +1321,7 @@ class AgentLoopV3:
 
     # ── the loop ─────────────────────────────────────────────────────
 
-    async def _drive_turn(self) -> None:
+    async def _drive_turn(self, turn_request: str, turn_intent: TurnIntent) -> None:
         """One turn: stream → dispatch any tool_calls → repeat → emit turn_complete.
 
         There is no fixed cap on the total number of tool steps in a turn.
@@ -1152,6 +1330,34 @@ class AgentLoopV3:
         cost/time stay bounded by BudgetGuard.
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
+        routing_state = self._routing_state()
+        router = ToolRouter(turn_request, state=routing_state)
+        ledger_enforced = (
+            turn_intent is TurnIntent.ACTIONABLE
+            and not self.plan_mode
+        )
+        workflow = (
+            router.decision.primary_workflow if ledger_enforced else "conversation"
+        )
+        ledger = TurnLedger(
+            turn_request,
+            workflow=workflow,
+            session_origin=self.session_id,
+            workflows=(
+                router.decision.workflows
+                if ledger_enforced
+                else ("conversation",)
+            ),
+        )
+        ledger.add_compact_history(self._compacted_history)
+        ledger.pending_jobs.update(
+            _relevant_existing_jobs(
+                turn_request, routing_state.get("pending_jobs")
+            )
+        )
+        self._turn_ledger = ledger
+        host_probed_assets: set[str] = set()
+        host_probe_mutation_seq = 0
         visual_inspections_this_turn = 0
         # Blocked-by-plan-mode calls this turn. Gated calls never reach the
         # doom-loop history (they don't dispatch), so this counter is the
@@ -1176,6 +1382,11 @@ class AgentLoopV3:
         # not "the model's approach failed". Drives the failure-disclosure
         # section of the pre-delivery gate.
         failed_call_log: list[tuple[str, str]] = []
+        # Once the full tool surface is active, allow one no-progress
+        # result batch to be consumed by the model. This is essential for
+        # enabling reads/elicit answers whose value only appears in the next
+        # model round. A second consecutive full-surface batch may stop.
+        full_surface_no_progress_batches = 0
 
         def _assets_produced() -> int:
             return sum(
@@ -1188,64 +1399,107 @@ class AgentLoopV3:
 
         # RC4: per-turn one-shot completion check guard (not per-loop iteration).
         completion_check_done = False
-        # Gate message whose thumbnails still need reclaiming after the model
-        # has seen them once (see _strip_gate_images).
-        gate_msg_pending_strip: dict[str, Any] | None = None
+        # Every multimodal thumbnail message is one-shot. The exact messages
+        # included in a model call are reclaimed immediately after that call,
+        # including the ordinary analyze_media path (not only completion gate).
+        one_shot_image_messages: list[dict[str, Any]] = []
+        gate_visual_message: dict[str, Any] | None = None
+        gate_visual_asset_ids: list[str] = []
         # Async jobs whose failure has already been logged for disclosure —
         # a failed job polled repeatedly must be disclosed once, not N times.
         failed_job_ids: set[str] = set()
 
         while True:
             accum = _StreamAccumulator()
+            self._compact_turn_history()
             messages = self.render_messages()
+            consumed_images = list(one_shot_image_messages)
+            stream_error: str | None = None
 
             # ---- stream from model ---------------------------------
-            async for delta in self.client.stream_turn(messages, tools=TOOL_SCHEMAS):
-                kind = delta["kind"]
-                if kind == "text_delta":
-                    accum.text_buf.append(delta["text"])
-                    self._emit({"kind": "model_text_delta", "delta": delta["text"]})
-                elif kind == "tool_call_start":
-                    tc = _ToolCallAccumulator(
-                        index=int(delta["index"]),
-                        id=str(delta["id"] or f"call_{delta['index']}"),
-                        name=str(delta["name"]),
-                        extra_content=delta.get("extra_content"),
-                    )
-                    accum.tool_calls_by_index[tc.index] = tc
-                    self._emit(
-                        {
-                            "kind": "model_tool_call_start",
-                            "call_id": tc.id,
-                            "tool_name": tc.name,
-                        }
-                    )
-                elif kind == "tool_call_args_delta":
-                    tc = accum.tool_calls_by_index.get(int(delta["index"]))
-                    if tc is not None:
-                        tc.args_buf.append(str(delta["delta"]))
-                elif kind == "tool_call_extra":
-                    tc = accum.tool_calls_by_index.get(int(delta["index"]))
-                    if tc is not None:
-                        tc.extra_content = delta.get("extra_content")
-                elif kind == "finish":
-                    accum.finish_reason = str(delta["reason"])
-                elif kind == "error":
-                    self._emit({"kind": "turn_error", "error": str(delta["error"])})
-                    self._emit_turn_wrapup(
-                        "stream_error",
-                        tools_succeeded=tools_succeeded,
-                        tools_failed=tools_failed,
-                        assets_produced=_assets_produced(),
-                    )
-                    return
+            if turn_intent in {TurnIntent.CONVERSATION, TurnIntent.INFORMATION}:
+                active_schemas: list[dict[str, Any]] = []
+            else:
+                active_schemas = router.active_schemas
+                if self.plan_mode:
+                    active_schemas = [
+                        schema
+                        for schema in active_schemas
+                        if is_plan_safe(str(schema["function"]["name"]))
+                    ]
+            try:
+                async for delta in self.client.stream_turn(messages, tools=active_schemas):
+                    kind = delta["kind"]
+                    if kind == "text_delta":
+                        accum.text_buf.append(delta["text"])
+                        # Actionable prose is provisional until the host ledger
+                        # accepts the goal. Buffer it so a model that repeatedly
+                        # asks for creative preferences cannot expose three
+                        # user-visible questions while bypassing ClarificationGuard.
+                        if not ledger_enforced:
+                            self._emit({"kind": "model_text_delta", "delta": delta["text"]})
+                    elif kind == "tool_call_start":
+                        tc = _ToolCallAccumulator(
+                            index=int(delta["index"]),
+                            id=str(delta["id"] or f"call_{delta['index']}"),
+                            name=str(delta["name"]),
+                            extra_content=delta.get("extra_content"),
+                        )
+                        accum.tool_calls_by_index[tc.index] = tc
+                        self._emit(
+                            {
+                                "kind": "model_tool_call_start",
+                                "call_id": tc.id,
+                                "tool_name": tc.name,
+                            }
+                        )
+                    elif kind == "tool_call_args_delta":
+                        tc = accum.tool_calls_by_index.get(int(delta["index"]))
+                        if tc is not None:
+                            tc.args_buf.append(str(delta["delta"]))
+                    elif kind == "tool_call_extra":
+                        tc = accum.tool_calls_by_index.get(int(delta["index"]))
+                        if tc is not None:
+                            tc.extra_content = delta.get("extra_content")
+                    elif kind == "finish":
+                        accum.finish_reason = str(delta["reason"])
+                    elif kind == "error":
+                        stream_error = str(delta["error"])
+                        break
+            finally:
+                # Iterator-level exceptions/cancellation must reclaim one-shot
+                # base64 just like normal completion and explicit error deltas.
+                for image_message in consumed_images:
+                    _strip_gate_images(image_message)
+                    if image_message in one_shot_image_messages:
+                        one_shot_image_messages.remove(image_message)
 
-            # Reclaim gate thumbnails now that the model has seen them once —
-            # the base64 payload must not ride the rolling window into every
-            # subsequent model call (bandwidth + tokens on stale pixels).
-            if gate_msg_pending_strip is not None:
-                _strip_gate_images(gate_msg_pending_strip)
-                gate_msg_pending_strip = None
+            if stream_error is not None:
+                self._emit({"kind": "turn_error", "error": stream_error})
+                self._emit_turn_wrapup(
+                    "stream_error",
+                    tools_succeeded=tools_succeeded,
+                    tools_failed=tools_failed,
+                    assets_produced=_assets_produced(),
+                )
+                return
+
+            if gate_visual_message is not None and gate_visual_message in consumed_images:
+                ledger.record_outcome(
+                    "host_visual_review",
+                    classify_tool_result(
+                        {
+                            "status": "success",
+                            "asset_ids": list(gate_visual_asset_ids),
+                            "summary": "model consumed final post-mutation previews",
+                        }
+                    ),
+                    call_id=f"host_visual_review:{ledger.sequence + 1}",
+                    mutation=False,
+                    verification=True,
+                )
+                gate_visual_message = None
+                gate_visual_asset_ids = []
 
             # ---- persist the assistant message ---------------------
             assistant_msg: dict[str, Any] = {
@@ -1261,20 +1515,32 @@ class AgentLoopV3:
 
             # ---- model called no tools → maybe pre-delivery gate (RC4+) ----
             if not accum.tool_calls:
-                # The pre-delivery gate reviews WORK: a visual self-check of
-                # produced assets, disclosure of failed calls, and a goal
-                # re-check after doing. A pure conversational turn (a greeting,
-                # "你是谁", a thank-you) does none of that — the model just
-                # answered in plain text. Firing the gate there does not review
-                # anything; it only forces a redundant SECOND reply that comes
-                # out as a "已完成…" status report or meta-commentary on the
-                # rules — exactly the robotic output we want gone. So gate only
-                # when the turn actually did something, or in plan mode (where
-                # presenting the plan IS the reviewable deliverable).
+                if ledger_enforced:
+                    if ledger.last_mutation_seq != host_probe_mutation_seq:
+                        host_probed_assets.clear()
+                        host_probe_mutation_seq = ledger.last_mutation_seq
+                    await self._host_verify_objective_criteria(
+                        ledger, host_probed_assets
+                    )
+                ledger_decision = ledger.completion_decision()
                 turn_did_work = bool(
                     tools_succeeded or tools_failed or _assets_produced()
                 )
-                gate_applies = turn_did_work or self.plan_mode
+                gate_applies = (
+                    turn_did_work
+                    or self.plan_mode
+                    or turn_intent in {TurnIntent.ACTIONABLE, TurnIntent.PLAN}
+                )
+
+                # An actionable request cannot be completed by prose while the
+                # host ledger still has open evidence. Widen the deterministic
+                # route once, then fall back to the full catalog. If the model
+                # still makes no progress, stop as incomplete — never emit a
+                # false turn_complete.
+                route_expansion = None
+                if ledger_enforced and not ledger_decision.complete:
+                    route_expansion = router.note_no_progress()
+
                 if (
                     COMPLETION_CHECK_ENABLED
                     and not completion_check_done
@@ -1287,49 +1553,109 @@ class AgentLoopV3:
                     # Gate composition is best-effort: any failure degrades to
                     # the plain RC4 wording — it must never kill the turn.
                     try:
-                        gate_content, gate_sections = (
+                        gate_content, gate_sections, shown_asset_ids = (
                             await self._build_predelivery_gate(
                                 pre_asset_ids=pre_asset_ids,
                                 failed_call_log=failed_call_log,
+                                turn_request=turn_request,
                             )
                         )
                     except Exception:  # noqa: BLE001 — never break the turn
                         gate_content = _goal_check_text(
-                            self._pinned_intent, self.plan_mode
+                            turn_request, self.plan_mode
                         )
                         gate_sections = ["goal_check"]
+                        shown_asset_ids = []
                     gate_msg = {"role": "user", "content": gate_content}
                     self._messages.append(gate_msg)
                     if isinstance(gate_content, list):
-                        gate_msg_pending_strip = gate_msg
+                        one_shot_image_messages.append(gate_msg)
+                        gate_visual_message = gate_msg
+                        gate_visual_asset_ids = list(shown_asset_ids)
                     completion_check_done = True
                     self._emit(
                         {"kind": "completion_check", "sections": gate_sections}
                     )
                     continue
-                else:
-                    # Already did one-shot check or gate is disabled → honest stop.
-                    final_ids = [
-                        r.asset_id
-                        for r in self.registry.list_records()
-                        if r.asset_id not in pre_asset_ids
-                    ]
-                    # Auto daily-log ONE concise line for this turn (the user's
-                    # ask + what was done). Best-effort: a logging failure must
-                    # NOT break the turn, so it is fully wrapped.
-                    self._auto_log_turn(
+
+                if ledger_enforced and not ledger_decision.complete:
+                    if route_expansion is not None and route_expansion.stage in {
+                        "adjacent",
+                        "full",
+                    }:
+                        self._messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Host completion ledger is still open. Continue now with "
+                                    "tools; do not ask the user or answer with a how-to. "
+                                    f"Route expansion={route_expansion.stage}; "
+                                    f"active packs={list(router.active_packs)}; "
+                                    f"blockers={list(ledger_decision.blockers)}."
+                                ),
+                            }
+                        )
+                        continue
+                    # Trust a capable model's honest account: when this turn
+                    # actually did work, the model's closing prose is a real
+                    # progress / blocker explanation, not the bare no-work re-ask
+                    # the ClarificationGuard suppresses. Deliver it (it is buffered
+                    # on actionable turns) so the user always gets the model's own
+                    # words instead of an opaque stop. Pure no-work prose evasion
+                    # (turn_did_work is False) is still withheld. The incomplete
+                    # note below is rendered softly by the clients — never a red
+                    # interrupt banner.
+                    if accum.text and turn_did_work:
+                        self._emit({"kind": "model_text_delta", "delta": accum.text})
+                    self._emit(
+                        {
+                            "kind": "turn_error",
+                            "reason": "incomplete_goal",
+                            "error": "host acceptance ledger remains incomplete",
+                            "blockers": list(ledger_decision.blockers),
+                        }
+                    )
+                    self._emit_turn_wrapup(
+                        "incomplete_goal",
                         tools_succeeded=tools_succeeded,
                         tools_failed=tools_failed,
-                        assets_produced=len(final_ids),
-                    )
-                    self._emit(
-                        {"kind": "turn_complete", "final_asset_ids": final_ids}
+                        assets_produced=_assets_produced(),
                     )
                     return
 
+                # Ledger satisfied (or a conversation/plan turn): honest stop.
+                if ledger_enforced and accum.text:
+                    self._emit({"kind": "model_text_delta", "delta": accum.text})
+                produced_ids = [
+                    r.asset_id
+                    for r in self.registry.list_records()
+                    if r.asset_id not in pre_asset_ids
+                ]
+                final_ids = (
+                    [
+                        asset_id
+                        for asset_id in ledger.final_asset_ids
+                        if self.registry.contains(asset_id)
+                    ]
+                    if ledger_enforced
+                    else produced_ids
+                )
+                self._auto_log_turn(
+                    tools_succeeded=tools_succeeded,
+                    tools_failed=tools_failed,
+                    assets_produced=len(produced_ids),
+                )
+                self._emit(
+                    {"kind": "turn_complete", "final_asset_ids": final_ids}
+                )
+                return
+
             # ---- dispatch each tool call sequentially --------------
-            for tc in accum.tool_calls:
+            batch_progress_before = ledger.progress_signature()
+            batch_failures_before = tools_failed
+            for tc_position, tc in enumerate(accum.tool_calls):
                 parsed_args, parse_error = _parse_args(tc.args)
+                call_target = tool_target_key(parsed_args) if parse_error is None else None
 
                 self._emit(
                     {
@@ -1345,6 +1671,13 @@ class AgentLoopV3:
                 )
 
                 if parse_error is not None:
+                    parse_payload = {
+                        "error": "arguments were not a valid JSON object",
+                        "error_code": "E_BAD_ARG",
+                        "recovery": RECOVERY_FIX_ARGS,
+                        "parse_error": parse_error,
+                        "raw_arguments": tc.args,
+                    }
                     self._emit(
                         {
                             "kind": "tool_exec_error",
@@ -1357,13 +1690,13 @@ class AgentLoopV3:
                     )
                     self._append_tool_result(
                         tc.id,
-                        {
-                            "error": "arguments were not a valid JSON object",
-                            "error_code": "E_BAD_ARG",
-                            "recovery": RECOVERY_FIX_ARGS,
-                            "parse_error": parse_error,
-                            "raw_arguments": tc.args,
-                        },
+                        parse_payload,
+                    )
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(parse_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
                     )
                     tools_failed += 1
                     failed_call_log.append((tc.name, "E_BAD_ARG"))
@@ -1373,6 +1706,69 @@ class AgentLoopV3:
                     )
                     if should_nudge:
                         self._append_repeated_failure_nudge(tc.name, "E_BAD_ARG", streak)
+                    continue
+
+                # The schema subset is not the dispatcher boundary. A known
+                # but currently hidden master tool expands its owning pack and
+                # must be retried next round; an actually unknown dispatcher
+                # name fails closed. Dynamically registered extension tools
+                # (used by local integrations/tests) retain the legacy path.
+                if (
+                    tc.name in MASTER_TOOL_SET
+                    and tc.name not in router.active_tool_names
+                    and not (self.plan_mode and not is_plan_safe(tc.name))
+                ):
+                    added_pack = router.activate_for_tool(tc.name)
+                    route_payload = {
+                        "error": (
+                            f"tool '{tc.name}' was not active for this turn; "
+                            "its pack is now active, retry the call"
+                        ),
+                        "error_code": "E_TOOL_NOT_ACTIVE",
+                        "recovery": RECOVERY_FIX_ARGS,
+                        "activated_pack": added_pack,
+                    }
+                    self._emit(
+                        {
+                            "kind": "tool_exec_error",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            **route_payload,
+                        }
+                    )
+                    self._append_tool_result(tc.id, route_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(route_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                        blocking_failure=False,
+                    )
+                    tools_failed += 1
+                    continue
+                if tc.name not in DISPATCHER:
+                    unknown_payload = {
+                        "error": f"unknown tool: {tc.name}",
+                        "error_code": "E_TOOL",
+                        "recovery": RECOVERY_FIX_ARGS,
+                    }
+                    self._emit(
+                        {
+                            "kind": "tool_exec_error",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            **unknown_payload,
+                        }
+                    )
+                    self._append_tool_result(tc.id, unknown_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(unknown_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                    )
+                    tools_failed += 1
+                    failed_call_log.append((tc.name, "E_TOOL"))
                     continue
 
                 # Plan-mode gate: while ON, only read-only inspection tools
@@ -1391,16 +1787,48 @@ class AgentLoopV3:
                             "message": gate_msg,
                         }
                     )
-                    self._append_tool_result(
-                        tc.id,
-                        {
-                            "blocked_by_plan_mode": True,
-                            "error_code": "E_PLAN_MODE",
-                            "message": gate_msg,
-                        },
+                    plan_payload = {
+                        "blocked_by_plan_mode": True,
+                        "error": gate_msg,
+                        "error_code": "E_PLAN_MODE",
+                        "message": gate_msg,
+                    }
+                    self._append_tool_result(tc.id, plan_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(plan_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                        blocking_failure=False,
                     )
                     tools_failed += 1
                     if plan_gates_this_turn >= PLAN_GATE_TURN_LIMIT:
+                        # The current call is settled above. Pair every later
+                        # call from this same assistant batch with a structured
+                        # cancellation before returning, so no provider sees an
+                        # orphan assistant tool call on replay/compaction.
+                        for skipped in accum.tool_calls[tc_position + 1:]:
+                            cancel_payload = {
+                                "error": "not executed because plan mode reached its per-turn gate limit",
+                                "error_code": "E_PLAN_GATE_CANCELLED",
+                                "recovery": RECOVERY_FIX_ARGS,
+                            }
+                            self._emit(
+                                {
+                                    "kind": "tool_exec_error",
+                                    "call_id": skipped.id,
+                                    "tool_name": skipped.name,
+                                    **cancel_payload,
+                                }
+                            )
+                            self._append_tool_result(skipped.id, cancel_payload)
+                            ledger.record_outcome(
+                                skipped.name,
+                                classify_tool_result(cancel_payload),
+                                call_id=skipped.id,
+                                blocking_failure=False,
+                            )
+                            tools_failed += 1
                         # Hard stop: gated calls cost nothing, so neither
                         # BudgetGuard nor the doom-loop guard would ever end
                         # a turn that spins on blocked tools.
@@ -1434,7 +1862,9 @@ class AgentLoopV3:
                         )
                     continue
 
-                # Budget gate (cost + time). Model decides what to do.
+                # Budget gate (cost + time). A fixed per-turn cap cannot be
+                # lifted by asking the user; switch to a listed in-budget
+                # alternative or disclose the blocker honestly.
                 decision = self.budget.check(tc.name)
                 if not decision.ok:
                     self._emit(
@@ -1448,15 +1878,23 @@ class AgentLoopV3:
                             "estimated_eta_sec": decision.estimated_eta_sec,
                         }
                     )
-                    self._append_tool_result(
-                        tc.id,
-                        {
-                            "needs_approval": True,
-                            "reason": decision.reason,
-                            "alternatives": decision.alternatives,
-                            "estimated_cost_usd": decision.estimated_cost_usd,
-                            "estimated_eta_sec": decision.estimated_eta_sec,
-                        },
+                    budget_payload = {
+                        "blocked_by_budget": True,
+                        "approval_cannot_override": True,
+                        "error": decision.reason,
+                        "error_code": "E_BUDGET",
+                        "reason": decision.reason,
+                        "alternatives": decision.alternatives,
+                        "estimated_cost_usd": decision.estimated_cost_usd,
+                        "estimated_eta_sec": decision.estimated_eta_sec,
+                    }
+                    self._append_tool_result(tc.id, budget_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(budget_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                        blocking_failure=False,
                     )
                     # A gate is a non-dispatch: count it so the model cannot
                     # spin forever re-requesting an over-budget tool.
@@ -1489,8 +1927,20 @@ class AgentLoopV3:
                             "alternatives": [],
                         }
                     )
-                    self._append_tool_result(
-                        tc.id, {"needs_approval": True, "reason": cap_reason}
+                    cap_payload = {
+                        "blocked_by_visual_limit": True,
+                        "approval_cannot_override": True,
+                        "error": cap_reason,
+                        "error_code": "E_VISUAL_CAP",
+                        "reason": cap_reason,
+                    }
+                    self._append_tool_result(tc.id, cap_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(cap_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                        blocking_failure=False,
                     )
                     tools_failed += 1
                     should_nudge, streak = self._note_tool_failure(
@@ -1515,6 +1965,9 @@ class AgentLoopV3:
                 # The spawn_subtasks dispatcher anchors its children's SSE events
                 # (subagent_start/result + child tool_exec_*) to THIS call's id.
                 self._tool_ctx.extra["call_id"] = tc.id
+                pre_dispatch_asset_ids = {
+                    record.asset_id for record in self.registry.list_records()
+                }
 
                 start_ts = time.monotonic()
                 try:
@@ -1524,22 +1977,10 @@ class AgentLoopV3:
                     self.budget.commit(
                         tc.name, actual_seconds=_commit_seconds(tc.name, elapsed)
                     )
-                    # Surface the failure with its structure intact. A GemiaError
-                    # (incl. ToolError) carries error_code / recovery / valid_options
-                    # / hint — exactly the material that lets the model self-correct
-                    # precisely. Anything else falls back to a flat
-                    # "TypeName: message" under error_code E_UNCAUGHT.
-                    if isinstance(exc, GemiaError):
-                        err_payload = exc.to_payload()
-                        err_code = exc.code
-                        recovery = getattr(exc, "recovery", None)
-                    else:
-                        err_payload = {
-                            "error": f"{type(exc).__name__}: {exc}",
-                            "error_code": "E_UNCAUGHT",
-                        }
-                        err_code = "E_UNCAUGHT"
-                        recovery = None
+                    outcome = classify_tool_exception(exc)
+                    err_payload = outcome.error_payload(tool_name=tc.name)
+                    err_code = str(outcome.error_code or "E_TOOL_FAILED")
+                    recovery = outcome.recovery
                     self._emit(
                         {
                             "kind": "tool_exec_error",
@@ -1551,6 +1992,13 @@ class AgentLoopV3:
                     )
                     self._append_tool_result(
                         tc.id, {**err_payload, "tool_name": tc.name}
+                    )
+                    ledger.record_outcome(
+                        tc.name,
+                        outcome,
+                        call_id=tc.id,
+                        target_key=call_target,
+                        call_args=parsed_args,
                     )
                     tools_failed += 1
                     failed_call_log.append((tc.name, err_code))
@@ -1570,25 +2018,83 @@ class AgentLoopV3:
                 self.budget.commit(
                     tc.name, actual_seconds=_commit_seconds(tc.name, elapsed)
                 )
-                # Successful dispatch — clear this tool's failure streak entirely.
-                tool_fail_counts.pop(tc.name, None)
-                tools_succeeded += 1
+                outcome = classify_tool_result(result)
+                new_dispatch_asset_ids = [
+                    record.asset_id
+                    for record in self.registry.list_records()
+                    if record.asset_id not in pre_dispatch_asset_ids
+                ]
+                artifact_kinds = {
+                    asset_id: self.registry.get(asset_id).kind
+                    for asset_id in new_dispatch_asset_ids
+                    if self.registry.contains(asset_id)
+                }
+                ledger.record_outcome(
+                    tc.name,
+                    outcome,
+                    call_id=tc.id,
+                    mutation=(
+                        True
+                        if new_dispatch_asset_ids and tc.name not in MASTER_TOOL_SET
+                        else None
+                    ),
+                    target_key=call_target,
+                    artifact_kinds=artifact_kinds,
+                    call_args=parsed_args,
+                    blocking_failure=not (
+                        tc.name == "elicit"
+                        and str(outcome.error_code or "")
+                        in {E_CLARIFICATION_POLICY, E_CLARIFICATION_LIMIT}
+                    ),
+                )
+                if outcome.is_failure:
+                    err_payload = outcome.error_payload(tool_name=tc.name)
+                    err_code = str(outcome.error_code or "E_TOOL_FAILED")
+                    self._emit(
+                        {
+                            "kind": "tool_exec_error",
+                            "call_id": tc.id,
+                            "tool_name": tc.name,
+                            "elapsed_seconds": elapsed,
+                            **err_payload,
+                        }
+                    )
+                    self._append_tool_result(
+                        tc.id, {**err_payload, "tool_name": tc.name}
+                    )
+                    tools_failed += 1
+                    job_id = (
+                        str(result.get("job_id") or "unknown")
+                        if isinstance(result, dict) and err_code == "E_JOB_FAILED"
+                        else ""
+                    )
+                    if job_id:
+                        if job_id not in failed_job_ids:
+                            failed_job_ids.add(job_id)
+                            failed_call_log.append((f"job:{job_id}", err_code))
+                    else:
+                        failed_call_log.append((tc.name, err_code))
+                    limit = (
+                        _TRANSIENT_RETRY_NUDGE_THRESHOLD
+                        if outcome.recovery == RECOVERY_TRANSIENT_RETRY
+                        else _REPEATED_FAILURE_NUDGE_THRESHOLD
+                    )
+                    should_nudge, streak = self._note_tool_failure(
+                        tool_fail_counts, tc.name, err_code, limit=limit
+                    )
+                    if should_nudge:
+                        self._append_repeated_failure_nudge(tc.name, err_code, streak)
+                    continue
 
-                # Async-job failures never raise: generate_video/build submit a
-                # job and the FAILURE surfaces later as a perfectly normal
-                # check_job/wait_for_job result with status="failed". That is
-                # the single most likely thing a model quietly papers over with
-                # a fallback — log it for the disclosure gate (once per job,
-                # however many times it gets polled).
-                if (
-                    tc.name in {"check_job", "wait_for_job"}
-                    and isinstance(result, dict)
-                    and result.get("status") == "failed"
-                ):
-                    job_id = str(result.get("job_id") or "unknown")
-                    if job_id not in failed_job_ids:
-                        failed_job_ids.add(job_id)
-                        failed_call_log.append((f"job:{job_id}", "E_JOB_FAILED"))
+                # Only terminal success repairs this tool's failure streak.
+                # pending/noop/partial are honest non-failures, but treating
+                # them as recovery would hide a still-unresolved failure.
+                if outcome.state == "success":
+                    tool_fail_counts.pop(tc.name, None)
+                    tools_succeeded += 1
+                # Progress is assessed once for the complete assistant tool
+                # batch below. Per-call resets can otherwise hide a later
+                # irrelevant/noop call and prevent deterministic expansion.
 
                 # ---- success-blind doom-loop guard -------------------
                 # Ported from opencode processor.ts (DOOM_LOOP_THRESHOLD=3): the
@@ -1604,16 +2110,7 @@ class AgentLoopV3:
                 # that did not actually dispatch (raised / gated / bad-JSON args)
                 # is not recorded here — those stay owned by repeated-failure nudges.
                 recent_tool_calls.append((tc.name, tc.args))
-                if self._is_doom_loop(recent_tool_calls):
-                    self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
-                    self._emit_turn_wrapup(
-                        "doom_loop",
-                        tools_succeeded=tools_succeeded,
-                        tools_failed=tools_failed,
-                        assets_produced=_assets_produced(),
-                        tool_name=tc.name,
-                    )
-                    return
+                doom_loop_detected = self._is_doom_loop(recent_tool_calls)
 
                 # Model-facing tool_result: strip thumbnail_path (file
                 # path leakage), keep thumbnail_for_next_message=False
@@ -1671,15 +2168,109 @@ class AgentLoopV3:
                     visual_inspections_this_turn += 1
                     self._pending_thumbnails.append(Path(result["thumbnail_path"]))
 
+                if doom_loop_detected:
+                    # The current call is fully settled above. Settle every
+                    # remaining call from the same assistant message as a
+                    # structured cancellation before stopping; otherwise the
+                    # next provider request contains orphan tool calls.
+                    for skipped in accum.tool_calls[tc_position + 1:]:
+                        cancel_payload = {
+                            "error": "not executed because the host stopped a repeated-call loop",
+                            "error_code": "E_DOOM_LOOP_CANCELLED",
+                            "recovery": RECOVERY_FIX_ARGS,
+                        }
+                        self._emit(
+                            {
+                                "kind": "tool_exec_error",
+                                "call_id": skipped.id,
+                                "tool_name": skipped.name,
+                                **cancel_payload,
+                            }
+                        )
+                        self._append_tool_result(skipped.id, cancel_payload)
+                        ledger.record_outcome(
+                            skipped.name,
+                            classify_tool_result(cancel_payload),
+                            call_id=skipped.id,
+                        )
+                        tools_failed += 1
+                    self._emit_doom_loop(tc.name, _DOOM_LOOP_THRESHOLD)
+                    self._emit_turn_wrapup(
+                        "doom_loop",
+                        tools_succeeded=tools_succeeded,
+                        tools_failed=tools_failed,
+                        assets_produced=_assets_produced(),
+                        tool_name=tc.name,
+                    )
+                    return
+
+            if ledger_enforced:
+                if ledger.progress_signature() != batch_progress_before:
+                    router.note_progress()
+                    full_surface_no_progress_batches = 0
+                elif tools_failed > batch_failures_before:
+                    # Failures already carry structured recovery and their own
+                    # consecutive-streak guidance. Do not spend the route's
+                    # no-progress budget before the model can consume those
+                    # errors and correct its arguments/approach.
+                    full_surface_no_progress_batches = 0
+                else:
+                    was_full = router.is_full_fallback
+                    expansion = router.note_no_progress()
+                    if expansion.stage in {"adjacent", "full"}:
+                        self._messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "The settled tool batch made no objective ledger progress. "
+                                    "Continue with a different tool or approach; do not repeat the "
+                                    "same read/noop. "
+                                    f"Route expansion={expansion.stage}; "
+                                    f"active packs={list(router.active_packs)}."
+                                ),
+                            }
+                        )
+                    if was_full:
+                        full_surface_no_progress_batches += 1
+                        if full_surface_no_progress_batches == 1:
+                            self._messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "The full tool surface is active. Consume the settled "
+                                        "tool result above, then perform a concrete goal mutation "
+                                        "or verification now. Do not repeat discovery without "
+                                        "objective progress."
+                                    ),
+                                }
+                            )
+                        else:
+                            decision = ledger.completion_decision()
+                            self._emit(
+                                {
+                                    "kind": "turn_error",
+                                    "reason": "incomplete_goal",
+                                    "error": "full tool surface made no objective progress",
+                                    "blockers": list(decision.blockers),
+                                }
+                            )
+                            self._emit_turn_wrapup(
+                                "incomplete_goal",
+                                tools_succeeded=tools_succeeded,
+                                tools_failed=tools_failed,
+                                assets_produced=_assets_produced(),
+                            )
+                            return
+
             # After the dispatch sub-loop, inject queued thumbnails as
             # a multimodal user message before the next model call.
             if self._pending_thumbnails:
-                self._messages.append(
-                    {
-                        "role": "user",
-                        "content": _thumbnail_user_content(self._pending_thumbnails),
-                    }
-                )
+                thumbnail_msg = {
+                    "role": "user",
+                    "content": _thumbnail_user_content(self._pending_thumbnails),
+                }
+                self._messages.append(thumbnail_msg)
+                one_shot_image_messages.append(thumbnail_msg)
                 self._pending_thumbnails = []
 
             # Loop: call the model again with updated messages.

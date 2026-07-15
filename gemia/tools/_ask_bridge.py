@@ -30,13 +30,23 @@ def _default_timeout_from_env() -> float:
 class AskBridge:
     """Per-session registry of pending questions awaiting a user answer."""
 
-    def __init__(self, emit: EmitFn, *, default_timeout: Optional[float] = None) -> None:
+    def __init__(
+        self,
+        emit: EmitFn,
+        *,
+        default_timeout: Optional[float] = None,
+        max_timeout: Optional[float] = None,
+    ) -> None:
         self._emit = emit
         self.default_timeout = (
             float(default_timeout) if default_timeout is not None
             else _default_timeout_from_env()
         )
+        self.max_timeout = (
+            float(max_timeout) if max_timeout is not None else self.default_timeout
+        )
         self._pending: dict[str, asyncio.Future] = {}
+        self._questions: dict[str, dict[str, Any]] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def emit_and_wait(
@@ -52,27 +62,28 @@ class AskBridge:
         qid = str(question.get("question_id"))
         fut: asyncio.Future = loop.create_future()
         self._pending[qid] = fut
+        self._questions[qid] = question
 
         self._emit({"kind": "ask_question", "question": question})
 
-        # A timer resolves the future with ``None`` (the no-answer sentinel) if the
-        # user doesn't respond in time. We avoid ``asyncio.wait_for`` because its
-        # timeout surfaces as CancelledError under nested awaits (3.11+), which we
-        # must not confuse with a genuine task cancellation.
-        wait = self.default_timeout if timeout is None else float(timeout)
+        requested = self.default_timeout if timeout is None else float(timeout)
+        wait = min(requested, self.max_timeout) if self.max_timeout > 0 else requested
         timer = None
-        if wait and wait > 0:
+        if wait > 0:
             def _on_timeout() -> None:
                 if not fut.done():
                     fut.set_result(None)
             timer = loop.call_later(wait, _on_timeout)
+        elif not fut.done():
+            fut.set_result(None)
 
         try:
-            return await fut  # dict from deliver(), or None from the timeout timer
+            return await fut
         finally:
             if timer is not None:
                 timer.cancel()
             self._pending.pop(qid, None)
+            self._questions.pop(qid, None)
 
     def deliver(self, question_id: str, answers: dict[str, Any]) -> bool:
         """Resolve a pending question's future from any thread.
@@ -91,6 +102,10 @@ class AskBridge:
 
         loop.call_soon_threadsafe(_resolve)
         return True
+
+    def get_pending_question(self, question_id: str) -> Optional[dict[str, Any]]:
+        """Return the question dict for a currently pending question, or None."""
+        return self._questions.get(str(question_id))
 
     def pending_ids(self) -> list[str]:
         return list(self._pending)

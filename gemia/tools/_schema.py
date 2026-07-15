@@ -1412,6 +1412,46 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["t_in", "t_out"],
     ),
+    _tool(
+        "vector_motion",
+        "Professional vector motion design (logo reveals, brand stings, MG animation, "
+        "animated backgrounds) as ONE creative verb. op:'create' takes a creative BRIEF "
+        "— {subject:{kind: logo_text|title|mark|abstract, text?, mark?: ring|hex|star|blob|wave|orbit, "
+        "preset?, subtitle?}, intent: reveal|intro|loop|transition|outro, style (playful/minimal/"
+        "luxury/tech/lumeri or aliases like 'google-like'), feeling:[adjectives], duration (s), "
+        "palette, seed, params:{energy|smoothness|playfulness|elegance|complexity|density|"
+        "organicness: 0..1}} — plans the choreography (phase arc, staggering, focal order) and adds "
+        "the result as an animated html layer in the lumenframe doc. Speak creative language, not "
+        "coordinates: say energy 0.8, never x+=20. op:'adjust' re-choreographs an existing vector "
+        "layer from human feedback phrases ('more playful', 'less chaotic', '更高级'). op:'catalog' "
+        "lists the full vocabulary. Verify with lumen_seek / lumen_render_range. Deterministic per "
+        "seed; same brief renders once (content-hash cache).",
+        {
+            "op": {
+                "type": "string",
+                "enum": ["create", "adjust", "catalog"],
+                "description": "create = brief → new vector layer; adjust = feedback → rebuild an existing layer; catalog = vocabulary.",
+            },
+            "brief": {
+                "type": "object",
+                "description": "create only: the creative brief (subject required; everything else optional).",
+            },
+            "place": {
+                "type": "object",
+                "description": "create only: layer placement {start (s), lane, name}.",
+            },
+            "layer_id": {
+                "type": "string",
+                "description": "adjust only: the vector layer to re-choreograph.",
+            },
+            "feedback": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "adjust only: feedback phrases, e.g. ['more playful', 'less dense'].",
+            },
+        },
+        ["op"],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.
@@ -1792,8 +1832,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "elicit",
         "Ask the user a structured question and wait for their answer before "
         "continuing. Use this when a creative/destructive choice is genuinely the "
-        "user's to make and you cannot infer it (which of N options, a value to "
-        "tune, free-text naming). Renders rich controls in the UI and returns the "
+        "user's to make and you cannot infer it. Creative preferences with explicit "
+        "defaults are resolved by the host without asking. Renders rich controls in "
+        "the UI and returns the "
         "validated answer as this tool's result; do NOT proceed on assumptions when "
         "an elicit is warranted. Each control is keyed; 'controls' maps control_key "
         "-> spec. Control types: select {options} single-choice; multi_select "
@@ -1803,6 +1844,19 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "custom_panel {schema} an extensible schema-driven form. 'options' may be a "
         "list of strings or of {label, value} objects.",
         {
+            "reason": {
+                "type": "string",
+                "enum": [
+                    "missing_source",
+                    "irreversible_action",
+                    "external_paid_unrequested",
+                    "sensitive_identity_privacy_copyright",
+                    "multi_target_ambiguity",
+                    "user_requested_choice",
+                    "creative_preference",
+                ],
+                "description": "Required policy reason for interrupting the user.",
+            },
             "title": {"type": "string", "description": "Short question title shown to the user."},
             "description": {"type": "string", "description": "Optional longer explanation."},
             "controls": {
@@ -1818,7 +1872,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "description": "Optional seconds to wait before falling back to control defaults.",
             },
         },
-        ["title", "controls"],
+        ["reason", "title", "controls"],
     ),
     _tool(
         "spawn_subtasks",

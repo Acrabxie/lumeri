@@ -92,7 +92,6 @@ def test_session_manager_caps_sessions_and_sweeps_idle(monkeypatch, tmp_path: Pa
         max_sessions=1,
         idle_timeout_sec=1,
         sweep_interval_sec=0,
-        cleanup_workdirs=True,
     )
     first = manager.create_session()
     first.output_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +104,8 @@ def test_session_manager_caps_sessions_and_sweeps_idle(monkeypatch, tmp_path: Pa
         first.last_used_at = time.time() - 10
     assert manager.cleanup_idle() == [first.session_id]
     assert manager.get(first.session_id) is None
-    assert not marker.exists()
+    # Idle sweep must never delete workdir files — they are user data.
+    assert marker.exists()
     manager.close_all(remove_workdirs=True)
 
 

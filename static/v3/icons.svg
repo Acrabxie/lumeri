@@ -35,6 +35,8 @@
   <symbol id="i-user" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></g></symbol>
   <symbol id="i-logout" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 20.5H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h3.5"/><path d="M15.5 16l4-4-4-4M19.5 12H9.5"/></g></symbol>
   <symbol id="i-keyboard" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="11" rx="2.5"/><path d="M6.6 10.7h6.6M16.8 10.7h.01M8 14.6h8"/></g></symbol>
+  <symbol id="i-new-chat" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 10.2V7a2.6 2.6 0 0 0-2.6-2.6H6.1A2.6 2.6 0 0 0 3.5 7v13.3l3.9-3.3h4.8"/><path d="M18.3 13.9v6.2M15.2 17h6.2"/></g></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h6L18 7.5V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19z"/><path d="M13.5 3v4.5H18"/></g></symbol>
 
   <!-- ═ 编辑 edit ═ -->
   <symbol id="i-split" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6.2" r="2.6"/><circle cx="6" cy="17.8" r="2.6"/><path d="M8.2 7.7L20 19.2M8.2 16.3L20 4.8M13.5 13.5l1.6 1.5"/></g></symbol>
@@ -84,7 +86,7 @@
   <symbol id="i-collapse" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5V7A1.5 1.5 0 0 1 7.5 8.5H4M15 3.5V7a1.5 1.5 0 0 0 1.5 1.5H20M9 20.5V17a1.5 1.5 0 0 0-1.5-1.5H4M15 20.5V17a1.5 1.5 0 0 1 1.5-1.5H20"/></g></symbol>
 
   <!-- ═ 品牌 brand(显式冰蓝,不随 currentColor)═ -->
-  <symbol id="b-mark" viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="5" rx="2.5" fill="#8BD8EA"/><circle cx="18.8" cy="8.5" r="2.6" fill="#ABE5F1"/><rect x="6.5" y="13" width="14.5" height="5" rx="2.5" fill="#5FC6DE"/></symbol>
+  <symbol id="i-list-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11M4 5.6l1 1 2-2M4 11.6l1 1 2-2M4 17.6l1 1 2-2"/></g></symbol><symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8 7 9 4-1 7-4.5 7-9V6l-7-3z"/></g></symbol><symbol id="b-mark" viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="5" rx="2.5" fill="#8BD8EA"/><circle cx="18.8" cy="8.5" r="2.6" fill="#ABE5F1"/><rect x="6.5" y="13" width="14.5" height="5" rx="2.5" fill="#5FC6DE"/></symbol>
   <symbol id="b-loading" viewBox="0 0 24 24"><g fill="currentColor"><rect x="3" y="9" width="5" height="6" rx="2.5" opacity=".35"/><rect x="9.5" y="9" width="5" height="6" rx="2.5" opacity=".65"/><rect x="16" y="9" width="5" height="6" rx="2.5"/></g></symbol>
   <symbol id="b-toggle-on" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5" fill="#5FC6DE"/><circle cx="17" cy="12" r="3.4" fill="#05171d"/></symbol>
   <symbol id="b-toggle-off" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5" fill="#262e39"/><circle cx="7" cy="12" r="3.4" fill="#8b96a4"/></symbol>

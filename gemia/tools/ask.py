@@ -467,6 +467,7 @@ def validate_ask_answer(question: AskQuestion, answer: AskAnswer) -> tuple[dict[
     """Validate all controls in the answer against the question schema.
 
     Returns (validated_dict, None) on success or (None, error_message) on failure.
+    First-fail: stops at the first invalid control.
     """
     if question.question_id != answer.question_id:
         return None, f"question_id mismatch: expected {question.question_id}, got {answer.question_id}"
@@ -480,3 +481,21 @@ def validate_ask_answer(question: AskQuestion, answer: AskAnswer) -> tuple[dict[
         validated[key] = value
 
     return validated, None
+
+
+def validate_ask_answer_all(
+    question: AskQuestion, answer: AskAnswer
+) -> dict[str, str]:
+    """Validate all controls, collecting every field error.
+
+    Returns an empty dict on success, or ``{control_key: error_message}`` for
+    each invalid field. Used by the HTTP layer to return 422 with aggregated
+    errors so the user can fix everything in one round-trip.
+    """
+    errors: dict[str, str] = {}
+    for key, control in question.controls.items():
+        user_answer = answer.answers.get(key)
+        _, error = control.validate(user_answer)
+        if error:
+            errors[key] = error
+    return errors

@@ -87,6 +87,73 @@ class _CallsDifferentArgs:
         yield {"kind": "finish", "reason": "stop"}
 
 
+class _CallsSameArgsInOneBatch:
+    model = "fake"
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del messages, tools, temperature
+        for index in range(4):
+            yield {
+                "kind": "tool_call_start",
+                "index": index,
+                "id": f"batch-{index}",
+                "name": "echo_tool",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": index,
+                "delta": '{"q": "same"}',
+            }
+        yield {"kind": "finish", "reason": "tool_calls"}
+
+
+class _DiscoveryThenMutationAfterFullFallback:
+    """The third discovery happens after full fallback and must be consumed."""
+
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del messages, tools, temperature
+        self.calls += 1
+        if self.calls <= 3:
+            yield {
+                "kind": "tool_call_start",
+                "index": 0,
+                "id": f"search-{self.calls}",
+                "name": "search_library",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": 0,
+                "delta": f'{{"query":"candidate-{self.calls}"}}',
+            }
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        if self.calls == 4:
+            yield {
+                "kind": "tool_call_start",
+                "index": 0,
+                "id": "write-final",
+                "name": "file_write",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": 0,
+                "delta": '{"path":"result.txt","content":"done"}',
+            }
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        yield {"kind": "text_delta", "text": "done"}
+        yield {"kind": "finish", "reason": "stop"}
+
+
 def test_doom_loop_trips_after_threshold_identical_calls(tmp_path: Path, monkeypatch) -> None:
     """Identical (tool, byte-identical args) calls trip the doom-loop guard at
     exactly _DOOM_LOOP_THRESHOLD calls — even though every call SUCCEEDS, so the
@@ -124,10 +191,11 @@ def test_doom_loop_trips_after_threshold_identical_calls(tmp_path: Path, monkeyp
     assert not [e for e in events if e.get("kind") == "turn_complete"]
 
 
-def test_doom_loop_does_not_trip_when_args_differ(tmp_path: Path, monkeypatch) -> None:
-    """Control: different args each call is real progress, so the doom-loop guard
-    must NOT trip even across many more calls than the threshold. The turn runs to
-    natural completion."""
+def test_distinct_args_do_not_bypass_objective_no_progress_guard(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Different args avoid the byte-identical doom guard, but successful echo
+    calls still cannot masquerade as objective ledger progress forever."""
     disp = _AlwaysSucceeds()
     monkeypatch.setitem(loop_mod.DISPATCHER, "echo_tool", disp)
 
@@ -144,13 +212,83 @@ def test_doom_loop_does_not_trip_when_args_differ(tmp_path: Path, monkeypatch) -
 
     asyncio.run(loop.run_turn("do distinct steps"))
 
-    # n_calls tool turns + 1 closing text turn + 1 RC4 completion-gate nudge.
-    assert client.calls == n_calls + 2
-    assert disp.n == n_calls
-    # No doom-loop signal of any kind; the turn completed honestly.
-    assert not [e for e in events if e.get("kind") == "turn_error"]
+    assert client.calls == 5
+    assert disp.n == 5 < n_calls
+    # No byte-identical doom signal; the host instead stops after adjacent,
+    # full-surface, then still-no-progress execution.
     assert not [e for e in events if e.get("reason") == "doom_loop"]
-    assert [e for e in events if e.get("kind") == "turn_complete"]
+    assert any(e.get("reason") == "incomplete_goal" for e in events)
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
+
+
+def test_full_fallback_result_is_consumed_before_incomplete_stop(
+    tmp_path: Path, monkeypatch
+) -> None:
+    async def search(args: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        del ctx
+        return {"status": "success", "results": [args["query"]]}
+
+    async def write(args: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        del ctx
+        path = tmp_path / args["path"]
+        path.write_text(args["content"], encoding="utf-8")
+        return {"status": "success", "output_path": str(path)}
+
+    monkeypatch.setitem(loop_mod.DISPATCHER, "search_library", search)
+    monkeypatch.setitem(loop_mod.DISPATCHER, "file_write", write)
+    client = _DiscoveryThenMutationAfterFullFallback()
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="consume_full_result",
+        output_dir=tmp_path,
+        gemini_client=client,  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("写一个 result.txt 文件"))
+
+    # Three discovery rounds, the mutation, a stop, then the one-shot
+    # completion-check confirmation round.
+    assert client.calls == 6
+    assert (tmp_path / "result.txt").read_text(encoding="utf-8") == "done"
+    assert any(event.get("kind") == "turn_complete" for event in events)
+    assert not any(event.get("reason") == "incomplete_goal" for event in events)
+
+
+def test_doom_loop_settles_every_call_in_multi_call_batch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    disp = _AlwaysSucceeds()
+    monkeypatch.setitem(loop_mod.DISPATCHER, "echo_tool", disp)
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="doom_batch",
+        output_dir=tmp_path,
+        gemini_client=_CallsSameArgsInOneBatch(),  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("repeat in one batch"))
+
+    assistant_ids = {
+        call["id"]
+        for message in loop._messages
+        if message.get("role") == "assistant"
+        for call in message.get("tool_calls", [])
+    }
+    result_ids = {
+        message["tool_call_id"]
+        for message in loop._messages
+        if message.get("role") == "tool"
+    }
+    assert assistant_ids == result_ids == {f"batch-{index}" for index in range(4)}
+    assert disp.n == _DOOM_LOOP_THRESHOLD
+    assert any(
+        event.get("kind") == "tool_exec_error"
+        and event.get("call_id") == "batch-3"
+        and event.get("error_code") == "E_DOOM_LOOP_CANCELLED"
+        for event in events
+    )
 
 
 def test_is_doom_loop_pure_helper() -> None:

@@ -88,12 +88,15 @@ class _TextOnlyClient:
 
 
 def _gate_message(client) -> Any:
-    """The synthetic user message injected by the gate = the last user message
-    the model saw on its final call."""
-    last_call = client.seen_messages[-1]
-    users = [m for m in last_call if m.get("role") == "user"]
-    assert users, "no user message found in final model call"
-    return users[-1]["content"]
+    """Find the one-shot synthetic gate even if later route retries occurred."""
+    for call in reversed(client.seen_messages):
+        for message in reversed(call):
+            if message.get("role") != "user":
+                continue
+            content = message.get("content")
+            if "目标核对" in _gate_text(content):
+                return content
+    raise AssertionError("no completion gate message found")
 
 
 def _gate_text(content: Any) -> str:
@@ -134,7 +137,7 @@ def test_visual_selfcheck_attaches_thumbnails(tmp_path, monkeypatch):
     events: list[dict[str, Any]] = []
     client = _ScriptedClient("fake_gen_image")
     loop = _make_loop(tmp_path, client, events)
-    asyncio.run(loop.run_turn("用blender做个房子"))
+    asyncio.run(loop.run_turn("生成一张房子图片"))
 
     # tool round + gate round + confirmation round
     assert client.calls == 3
@@ -168,7 +171,10 @@ def test_failure_disclosure_lists_failed_calls(tmp_path, monkeypatch):
     loop = _make_loop(tmp_path, client, events)
     asyncio.run(loop.run_turn("做个特效"))
 
-    assert client.calls == 3
+    # Tool failure + first prose stop + one-shot disclosure gate + full-route
+    # retry. Failure batches do not consume route no-progress budget before the
+    # model can read their structured recovery payload.
+    assert client.calls == 4
     checks = _completion_events(events)
     assert len(checks) == 1
     assert "failure_disclosure" in checks[0]["sections"]
@@ -179,8 +185,9 @@ def test_failure_disclosure_lists_failed_calls(tmp_path, monkeypatch):
     assert "失败披露" in content
     assert "`fake_flaky`(E_UNCAUGHT)×1" in content
     assert "禁止把失败包装成成功" in content
-    # Turn still completes honestly — disclosure is a nudge, not a stop.
-    assert any(e.get("kind") == "turn_complete" for e in events)
+    # An unresolved execution failure cannot be converted to completion by prose.
+    assert not any(e.get("kind") == "turn_complete" for e in events)
+    assert any(e.get("reason") == "incomplete_goal" for e in events)
 
 
 def test_no_gate_for_pure_conversation(tmp_path):
@@ -226,8 +233,8 @@ def test_gate_degrades_when_thumbnails_fail(tmp_path, monkeypatch):
 
     asyncio.run(loop.run_turn("做张图"))
 
-    # Gate must survive: text-only visual section, turn completes.
-    assert client.calls == 3
+    # Gate survives, but without a real preview the visual ledger stays open.
+    assert client.calls == 4
     checks = _completion_events(events)
     assert len(checks) == 1
     assert "visual_selfcheck" in checks[0]["sections"]
@@ -235,7 +242,57 @@ def test_gate_degrades_when_thumbnails_fail(tmp_path, monkeypatch):
     assert isinstance(content, str), "thumbnail failure → text-only gate"
     assert "视觉自检" in content
     assert "analyze_media" in content, "no previews → tell model to self-inspect"
-    assert any(e.get("kind") == "turn_complete" for e in events)
+    assert not any(e.get("kind") == "turn_complete" for e in events)
+    assert any(e.get("reason") == "incomplete_goal" for e in events)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg required")
+def test_partial_thumbnail_coverage_cannot_verify_unshown_final_asset(
+    tmp_path, monkeypatch
+):
+    reference = tmp_path / "reference.png"
+    final = tmp_path / "final.png"
+    reference.write_bytes(_PNG_1X1)
+    final.write_bytes(_PNG_1X1)
+
+    async def fake_gen(args: dict[str, Any], ctx) -> dict[str, Any]:
+        del args
+        ctx.registry.register_output(
+            "img_ref", kind="image", path=reference, summary="reference"
+        )
+        ctx.registry.register_output(
+            "img_final", kind="image", path=final, summary="final"
+        )
+        return {"status": "ok", "asset_id": "img_final", "kind": "image"}
+
+    monkeypatch.setitem(loop_mod.DISPATCHER, "fake_gen_image", fake_gen)
+    import gemia.tools.analyze_media as am
+
+    original = am._make_thumbnail
+
+    def _fail_final(kind, src, dst, duration):
+        if Path(src).name == "final.png":
+            raise RuntimeError("final thumbnail failed")
+        return original(kind, src, dst, duration)
+
+    monkeypatch.setattr(am, "_make_thumbnail", _fail_final)
+    events: list[dict[str, Any]] = []
+    client = _ScriptedClient("fake_gen_image")
+    loop = _make_loop(tmp_path, client, events)
+
+    asyncio.run(loop.run_turn("生成一张最终图片"))
+
+    contents = [
+        message.get("content")
+        for call in client.seen_messages
+        for message in call
+        if message.get("role") == "user"
+        and "目标核对" in _gate_text(message.get("content"))
+    ]
+    multimodal = next(content for content in contents if isinstance(content, list))
+    assert "img_ref" in _gate_text(multimodal)
+    assert not any(e.get("kind") == "turn_complete" for e in events)
+    assert any(e.get("reason") == "incomplete_goal" for e in events)
 
 
 def test_job_failure_recorded_for_disclosure(tmp_path, monkeypatch):

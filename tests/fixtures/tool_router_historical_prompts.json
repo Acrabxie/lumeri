@@ -1,0 +1,223 @@
+{
+  "corpus_kind": "repository_history_test_prompts",
+  "is_production_conversation_data": false,
+  "description": "Prompts copied verbatim from repository tests at baseline revision 487c298; this is not a production conversation transcript.",
+  "samples": [
+    {
+      "prompt": "加转场并做冷色调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_capture_lumeri_plan_input_once.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "暖色调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_clarification_policy.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "给这个口播视频加字幕并做轻微优化",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_gemini_video_context.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "帮我把这段视频暖色调色并加速2倍",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_gemini_video_context.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "把片头做一个转场",
+      "required_pack": "motion_graphics",
+      "source_path": "tests/test_plan_mode.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "加一条视频轨",
+      "required_pack": "timeline",
+      "source_path": "tests/test_plan_mode.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "执行剪辑",
+      "required_pack": "timeline",
+      "source_path": "tests/test_plan_mode.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "给口播加中文字幕",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "两段素材之间加溶解转场",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "合并所有保留片段",
+      "required_pack": "timeline",
+      "source_path": "tests/test_prompt_slimming.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "帮我把所有素材统一调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "帮我做得更好看一点",
+      "required_pack": "general",
+      "source_path": "tests/test_prompt_slimming.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "暖色调色，稍微提亮",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做赛博朋克调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "加中文字幕",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "两个片段加淡入淡出转场",
+      "required_pack": "timeline",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "对选中的多个素材逐个调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "加一个 Lottie 下三分之一动画",
+      "required_pack": "motion_graphics",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "帮我弄得高级一点",
+      "required_pack": "general",
+      "source_path": "tests/test_prompt_slimming_regression.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做一个视频",
+      "required_pack": "video_generation",
+      "source_path": "tests/test_session_history.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "参考达芬奇剪辑软件做抠像和 power window",
+      "required_pack": "lumen_mask",
+      "source_path": "tests/test_skill_router.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "油画风格再做暖色调色",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_skill_router.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做一个六片相机快门光圈转场",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_skill_router.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "找一个孩子在抓娃娃机的视频插入二段素材中间",
+      "required_pack": "timeline",
+      "source_path": "tests/test_skill_router.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "自己插入图层并编辑文字，不要只做剪辑转场",
+      "required_pack": "timeline",
+      "source_path": "tests/test_skill_router.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "annotate these clips",
+      "required_pack": "annotations",
+      "source_path": "tests/test_subtasks.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "insert the clip into the timeline",
+      "required_pack": "timeline",
+      "source_path": "tests/test_timeline_m4_e2e.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "add a title overlay",
+      "required_pack": "timeline",
+      "source_path": "tests/test_timeline_m4_e2e.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "add a title layer",
+      "required_pack": "lumen_core",
+      "source_path": "tests/test_v3_autovalidate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "make it black and white",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_v3_failure_breaker.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "用blender做个房子",
+      "required_pack": "motion_graphics",
+      "source_path": "tests/test_v3_predelivery_gate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做个特效",
+      "required_pack": "video_edit",
+      "source_path": "tests/test_v3_predelivery_gate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做张图",
+      "required_pack": "image",
+      "source_path": "tests/test_v3_predelivery_gate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "生成一段视频",
+      "required_pack": "video_generation",
+      "source_path": "tests/test_v3_predelivery_gate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "帮我规划一支宣传片",
+      "required_pack": "storyboard",
+      "source_path": "tests/test_v3_predelivery_gate.py",
+      "source_revision": "487c298"
+    },
+    {
+      "prompt": "做个mg动画",
+      "required_pack": "motion_graphics",
+      "source_path": "tests/test_v3_tool_protocol.py",
+      "source_revision": "487c298"
+    }
+  ]
+}

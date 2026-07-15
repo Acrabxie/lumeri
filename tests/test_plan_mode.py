@@ -109,6 +109,35 @@ class _AlwaysCallsBlockedTool:
         yield {"kind": "finish", "reason": "tool_calls"}
 
 
+class _BlockedBatchAtLimit:
+    """Reach the gate limit, then include one later call in the same batch."""
+
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del messages, tools, temperature
+        self.calls += 1
+        count = 2 if self.calls == PLAN_GATE_TURN_LIMIT else 1
+        for index in range(count):
+            yield {
+                "kind": "tool_call_start",
+                "index": index,
+                "id": f"call_{self.calls}_{index}",
+                "name": "timeline_add_track",
+            }
+            yield {
+                "kind": "tool_call_args_delta",
+                "index": index,
+                "delta": json.dumps({"kind": "video", "index": index}),
+            }
+        yield {"kind": "finish", "reason": "tool_calls"}
+
+
 def _make_loop(tmp_path: Path, client, sid: str) -> tuple[AgentLoopV3, list[dict[str, Any]]]:
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
@@ -187,6 +216,32 @@ def test_plan_gate_limit_hard_stops_a_hammering_turn(tmp_path: Path) -> None:
     # The model was never streamed more times than the limit allows.
     assert client.calls == PLAN_GATE_TURN_LIMIT
     assert not [e for e in events if e.get("kind") == "tool_exec_start"]
+
+
+def test_plan_gate_limit_settles_later_calls_in_same_batch(tmp_path: Path) -> None:
+    client = _BlockedBatchAtLimit()
+    loop, events = _make_loop(tmp_path, client, "plan_gate_batch")
+    loop.set_plan_mode(True)
+
+    asyncio.run(loop.run_turn("执行剪辑"))
+
+    assistant_ids = {
+        call["id"]
+        for message in loop._messages
+        if message.get("role") == "assistant"
+        for call in message.get("tool_calls") or []
+    }
+    result_ids = {
+        message.get("tool_call_id")
+        for message in loop._messages
+        if message.get("role") == "tool"
+    }
+    assert assistant_ids == result_ids
+    assert any(
+        event.get("kind") == "tool_exec_error"
+        and event.get("error_code") == "E_PLAN_GATE_CANCELLED"
+        for event in events
+    )
 
 
 # ── prompt + state surfaces ──────────────────────────────────────────────────

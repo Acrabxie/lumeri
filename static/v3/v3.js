@@ -11,8 +11,8 @@
  * Invariants (mirror the agent loop's promises):
  *   - Every event kind has a handler. Unknown kinds raise a visible
  *     banner — never silent drop.
- *   - tool_exec_progress shows real percent when present, indeterminate
- *     spinner when omitted. We never fabricate progress.
+ *   - Tool execution is presented as a high-level activity state; raw tool
+ *     payloads and model work logs never enter the user-facing stream.
  *   - All asset previews load from /sessions/{id}/assets/{aid}. Tool
  *     results expose asset_id/kind/asset_url, never local filesystem paths.
  */
@@ -21,6 +21,19 @@
   "use strict";
 
   const $ = (sel) => document.querySelector(sel);
+
+  // Inline the icon sprite once so every <use href="#i-*"> resolves, including
+  // ones rendered before the fetch lands (SVG <use> re-resolves on DOM insert).
+  fetch("/v3/icons.svg")
+    .then((r) => (r.ok ? r.text() : ""))
+    .then((t) => {
+      if (!t) return;
+      const holder = document.createElement("div");
+      holder.innerHTML = t;
+      const sprite = holder.querySelector("svg");
+      if (sprite) document.body.prepend(sprite);
+    })
+    .catch(() => {});
 
   const els = {
     sessionLabel: $("#session-id-label"),
@@ -39,6 +52,7 @@
     sandboxBtn: $("#sandbox-toggle-btn"),
     planBtn: $("#plan-toggle-btn"),
     planBar: $("#plan-bar"),
+    askDock: $("#ask-dock"),
     slashMenu: $("#slash-menu"),
   };
 
@@ -66,16 +80,20 @@
     mediaLibraryStatus: "idle",
     planMode: false,            // mirrors the backend per-session flag
     planReady: false,           // a turn completed while planning → offer approval
+    pendingAsk: null,           // {question_id, question} while elicit awaits
+    sessionTitle: null,         // auto-generated title
+    userMessageCount: 0,        // user message counter for auto-title triggers
   };
 
   function newTurn(userMessage) {
     return {
       userMessage,
       assistantText: "",
+      pendingAssistantText: "", // held until the host knows it is a final reply
       streaming: false,
       toolCalls: new Map(),     // call_id -> ToolCallState
       orderedCallIds: [],
-      banners: [],              // { kind: "budget"|"turn_error"|"unknown", text, sub? }
+      banners: [],              // { kind: "budget"|"turn_error"|"unknown", text }
       complete: false,
     };
   }
@@ -86,6 +104,48 @@
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[c]));
+  }
+
+  // The activity stream is an orientation aid, not a developer console. Only
+  // project-level verbs are rendered; tool names and every dynamic payload stay
+  // inside the protocol layer so paths, code, arguments, and model scratch work
+  // never become user-facing copy.
+  const ACTIVITY_COPY = Object.freeze({
+    create: { pending: "准备创建内容", running: "正在创建内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    edit: { pending: "准备编辑项目", running: "正在编辑项目", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    remove: { pending: "准备删除内容", running: "正在删除内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    inspect: { pending: "准备查看信息", running: "正在查看信息", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    export: { pending: "准备导出成片", running: "正在导出成片", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    ask: { pending: "准备向你确认", running: "正在整理需要确认的内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的选择", cancelled: "已取消此步骤" },
+    parallel: { pending: "准备并行处理任务", running: "正在并行处理任务", done: "已完成这一步", failed: "部分步骤暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+    task: { pending: "准备处理任务", running: "正在处理任务", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
+  });
+
+  function activityKind(toolName) {
+    const name = String(toolName || "").toLowerCase();
+    if (name === "spawn_subtasks" || name.includes("subtask")) return "parallel";
+    if (name === "ask" || name === "elicit") return "ask";
+    if (/^(project_)?export|^export_|^render_|^lumen_render|^assemble/.test(name)) return "export";
+    if (/(delete|remove|discard|clear)/.test(name)) return "remove";
+    if (/^(get_|search_|inspect_|probe_|analyze_|read_|list_|file_list|web_search|web_open|recall_|lumen_seek)/.test(name)) return "inspect";
+    if (/^(generate_|create_|draft_|set_shotlist|paint_overlay|add_overlay|lumen_add_layer|timeline_insert_clip|timeline_add_track|vector_motion|copy_in|upload)/.test(name)) return "create";
+    if (/^(edit_|update_|adjust_|patch_|arrange_|move_|set_|transform_|trim_|cut_|lumen_|timeline_)/.test(name)) return "edit";
+    return "task";
+  }
+
+  function activityLabel(toolName, status) {
+    const copy = ACTIVITY_COPY[activityKind(toolName)];
+    if (status === "ok") return copy.done;
+    if (status === "error" || status === "timeout") return copy.failed;
+    if (status === "needs_user") return "等待你的选择";
+    return copy[status] || copy.running;
+  }
+
+  function activityPhase(status) {
+    if (status === "done" || status === "ok") return "complete";
+    if (status === "failed" || status === "error" || status === "timeout") return "attention";
+    if (status === "gated" || status === "needs_user" || status === "cancelled") return "waiting";
+    return "active";
   }
 
   // ── Markdown renderer ───────────────────────────────────────────────
@@ -272,18 +332,21 @@
   }
 
   function render() {
-    els.sessionLabel.textContent = state.sessionId || "—";
+    els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
     const busy = !state.sessionId || state.turnInProgress;
     els.sendBtn.disabled = busy;
     els.uploadBtn.disabled = busy;
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
     updateEditHint();   // selection-aware split/delete rule wins over the blanket disable above
 
+    const railEmpty = document.getElementById("rail-empty");
     if (!state.turns.length) {
       els.timeline.hidden = true;
       els.emptyState.hidden = false;
+      if (railEmpty) railEmpty.hidden = false;
     } else {
       els.emptyState.hidden = true;
+      if (railEmpty) railEmpty.hidden = true;
       els.timeline.hidden = false;
       els.timeline.innerHTML = state.turns.map((turn, idx) => renderTurn(turn, idx)).join("");
     }
@@ -292,7 +355,7 @@
     if (!state._drawerAutoShown && state.assets && state.assets.length > 0) {
       state._drawerAutoShown = true;
       document.getElementById("preview-stage")?.classList.add("drawer-open");
-      document.querySelector('#plus-menu [data-plus="timeline"] .switch')?.classList.add("on");
+      renderStageTabs();
     }
 
     renderAssets();
@@ -323,15 +386,15 @@
     els.planBar.hidden = false;
     if (state.planReady && !state.turnInProgress) {
       els.planBar.innerHTML = `
-        <span class="plan-bar-text">计划已就绪 — 批准后 Lumeri 将开始执行改动。</span>
+        <span class="plan-bar-text">计划已就绪</span>
         <span class="plan-bar-actions">
-          <button type="button" class="plan-approve" data-plan-approve>批准并执行</button>
+          <button type="button" class="plan-approve" data-plan-approve>批准</button>
           <button type="button" class="plan-refine" data-plan-dismiss>继续规划</button>
         </span>
       `;
     } else {
       els.planBar.innerHTML = `
-        <span class="plan-bar-text">计划模式已开启 — Lumeri 只查看和规划，等你批准后才会改动项目。</span>
+        <span class="plan-bar-text" title="Lumeri 只查看和规划，等你批准后才会改动项目">计划模式已开启</span>
       `;
     }
   }
@@ -343,7 +406,7 @@
       ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${renderMarkdown(turn.assistantText)}</div>`
       : "";
     return `
-      <div class="turn-divider">turn ${idx + 1}</div>
+      ${idx ? '<div class="turn-divider" role="separator"></div>' : ""}
       <div class="user-bubble">${renderMarkdown(turn.userMessage)}</div>
       ${callsHtml}
       ${bannersHtml}
@@ -351,160 +414,27 @@
     `;
   }
 
-  // A failed call whose recovery is one of these can be "fixed" by a later
-  // call — so a success that follows it closes a self-correction arc.
-  const RECOVERABLE_RECOVERY = new Set(["fix_args", "switch_tool", "transient_retry"]);
-
-  /** Group a turn's tool calls so a run of recoverable failures followed by a
-   *  success renders as one "self-corrected" arc, not scattered cards. */
+  // Keep each activity at the same calm, high-level granularity. The backend
+  // still tracks recoveries; exposing that diagnostic arc is not useful here.
   function buildCallGroups(turn) {
-    const groups = [];
-    let openFailures = [];
-    const flushSingles = () => {
-      for (const f of openFailures) groups.push({ type: "single", tc: f });
-      openFailures = [];
-    };
-    for (const cid of turn.orderedCallIds) {
-      const tc = turn.toolCalls.get(cid);
-      if (!tc) continue;
-      if (tc.status === "failed" && RECOVERABLE_RECOVERY.has(tc.recovery)) {
-        openFailures.push(tc);
-      } else if (tc.status === "done" && openFailures.length) {
-        groups.push({ type: "arc", calls: [...openFailures, tc] });
-        openFailures = [];
-      } else {
-        flushSingles();
-        groups.push({ type: "single", tc });
-      }
-    }
-    flushSingles();  // trailing unresolved failures render on their own
-    return groups;
+    return turn.orderedCallIds
+      .map((cid) => turn.toolCalls.get(cid))
+      .filter(Boolean)
+      .map((tc) => ({ type: "single", tc }));
   }
 
   function renderCallGroup(group) {
     if (group.type === "single") return renderToolCall(group.tc);
-    return `
-      <div class="self-correct-arc">
-        <div class="self-correct-badge">⟳ self-corrected</div>
-        ${group.calls.map(renderToolCall).join("")}
-      </div>
-    `;
-  }
-
-  function renderTypedError(tc) {
-    if (!tc.error) return "";
-    const codeChip = tc.errorCode
-      ? `<span class="err-chip err-code">${escapeHTML(tc.errorCode)}</span>` : "";
-    const recoveryChip = tc.recovery
-      ? `<span class="err-chip err-recovery">${escapeHTML(tc.recovery)}</span>` : "";
-    const optsHtml = (tc.validOptions && tc.validOptions.length)
-      ? `<div class="err-options">options: ${tc.validOptions.map((o) => `<code>${escapeHTML(o)}</code>`).join(" ")}</div>`
-      : "";
-    const hintHtml = tc.hint
-      ? `<div class="err-hint">${escapeHTML(tc.hint)}</div>` : "";
-    return `
-      <div class="tool-error">
-        <div class="err-head">${codeChip}${recoveryChip}<span class="err-msg">${escapeHTML(tc.error)}</span></div>
-        ${optsHtml}
-        ${hintHtml}
-      </div>
-    `;
+    return `<div class="activity-group">${group.calls.map(renderToolCall).join("")}</div>`;
   }
 
   function renderToolCall(tc) {
-    const reasoningHtml = tc.reasoning
-      ? `<div class="tool-reasoning">${escapeHTML(tc.reasoning)}</div>`
-      : "";
-    const argsHtml = tc.args
-      ? `<div class="tool-args">${escapeHTML(JSON.stringify(tc.args, null, 2))}</div>`
-      : "";
-    const summaryHtml = tc.summary
-      ? `<div class="tool-summary">${escapeHTML(tc.summary)}</div>`
-      : "";
-    const errorHtml = renderTypedError(tc);
-    const progressHtml = renderProgress(tc);
-    const previewHtml = tc.previewAssetId && state.sessionId
-      ? `<a class="tool-preview-link" href="/sessions/${state.sessionId}/assets/${tc.previewAssetId}" target="_blank" rel="noopener">open ${tc.previewAssetId} ↗</a>`
-      : "";
-    const childrenHtml = renderSubagents(tc);
+    const label = activityLabel(tc.tool_name, tc.status);
+    const phase = activityPhase(tc.status);
     return `
-      ${reasoningHtml}
-      <div class="tool-card${tc.status === "failed" ? " failed" : ""}">
-        <div class="tool-card-head">
-          <span class="tool-name">${escapeHTML(tc.tool_name)}</span>
-          <span class="tool-status ${tc.status}">${tc.status}</span>
-        </div>
-        ${argsHtml}
-        ${progressHtml}
-        ${summaryHtml}
-        ${previewHtml}
-        ${errorHtml}
-        ${childrenHtml}
-      </div>
-    `;
-  }
-
-  // Render a spawn_subtasks call's children indented beneath it. Each child is a
-  // group with a status chip + summary; the child's own tool calls render as
-  // compact indented lines within the group.
-  function renderSubagents(tc) {
-    if (!tc.children || !tc.childOrder || !tc.childOrder.length) return "";
-    const groups = tc.childOrder.map((agentId) => {
-      const child = tc.children.get(agentId);
-      if (!child) return "";
-      const callsHtml = (child.callOrder || []).map((k) => {
-        const c = child.calls.get(k);
-        if (!c) return "";
-        const detail = c.status === "done"
-          ? escapeHTML(c.summary || "done")
-          : c.status === "failed"
-            ? escapeHTML(c.error || "failed")
-            : escapeHTML(c.progress?.message || c.status);
-        return `<div class="subagent-call"><span class="subagent-branch">├─</span> <span class="tool-name">${escapeHTML(c.tool_name)}</span> <span class="tool-status ${c.status}">${c.status}</span> <span class="subagent-call-detail">${detail}</span></div>`;
-      }).join("");
-      const metaBits = [];
-      if (typeof child.steps === "number") metaBits.push(`${child.steps} steps`);
-      if (typeof child.spentUsd === "number") metaBits.push(`$${child.spentUsd}`);
-      if (typeof child.spentSeconds === "number") metaBits.push(`${child.spentSeconds}s`);
-      const metaHtml = metaBits.length ? `<span class="subagent-meta">${escapeHTML(metaBits.join(" · "))}</span>` : "";
-      const summaryHtml = child.summary ? `<div class="subagent-summary">${escapeHTML(child.summary)}</div>` : "";
-      const assetsHtml = (child.assetIds && child.assetIds.length)
-        ? `<div class="subagent-assets">${child.assetIds.map((a) => `<code>${escapeHTML(a)}</code>`).join(" ")}</div>`
-        : "";
-      return `
-        <div class="subagent-group">
-          <div class="subagent-head">
-            <span class="subagent-id">${escapeHTML(child.agent_id)}</span>
-            <span class="subagent-profile">${escapeHTML(child.profile)}</span>
-            <span class="tool-status ${child.status}">${escapeHTML(child.status)}</span>
-            ${metaHtml}
-          </div>
-          ${child.goal ? `<div class="subagent-goal">${escapeHTML(child.goal)}</div>` : ""}
-          ${callsHtml}
-          ${summaryHtml}
-          ${assetsHtml}
-        </div>
-      `;
-    }).join("");
-    return `<div class="subagents">${groups}</div>`;
-  }
-
-  function renderProgress(tc) {
-    if (tc.status !== "running") return "";
-    const hasPercent = typeof tc.progress?.percent === "number";
-    if (hasPercent) {
-      const pct = Math.max(0, Math.min(100, tc.progress.percent));
-      return `
-        <div class="progress-block">
-          <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
-          <div class="progress-text">${pct.toFixed(1)}% ${escapeHTML(tc.progress?.message || "")}</div>
-        </div>
-      `;
-    }
-    return `
-      <div class="progress-block">
-        <div class="progress-bar"><div class="progress-bar-fill indeterminate"></div></div>
-        <div class="progress-text">working…</div>
+      <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(label)}">
+        <span class="activity-indicator" aria-hidden="true"></span>
+        <span>${escapeHTML(label)}</span>
       </div>
     `;
   }
@@ -515,8 +445,7 @@
               : banner.kind === "plan" ? "banner-plan"
               : banner.kind === "info" ? "banner-info"
               : "banner-unknown";
-    const sub = banner.sub ? `<small>${escapeHTML(banner.sub)}</small>` : "";
-    return `<div class="banner ${cls}">${escapeHTML(banner.text)}${sub}</div>`;
+    return `<div class="banner ${cls}">${escapeHTML(banner.text)}</div>`;
   }
 
   function renderAssets() {
@@ -535,7 +464,7 @@
     state._assetsSig = sig;
 
     if (!state.assets.length) {
-      els.assetGrid.innerHTML = `<p class="placeholder">No assets yet.</p>`;
+      els.assetGrid.innerHTML = "";
       return;
     }
     els.assetGrid.innerHTML = state.assets.map((a) => {
@@ -549,8 +478,8 @@
         <div class="asset-card${a.final ? " final" : ""}">
           ${playerHtml}
           <div class="asset-meta">
+            ${a.final ? `<svg class="asset-final" viewBox="0 0 24 24" role="img" aria-label="最终成片"><use href="#i-check-circle"/></svg>` : ""}
             <span class="asset-id">${a.asset_id}</span> · ${escapeHTML(a.source)} · ${escapeHTML(a.summary || "")}
-            ${a.final ? `<br><strong style="color:var(--ok)">FINAL</strong>` : ""}
           </div>
         </div>
       `;
@@ -560,49 +489,86 @@
   function renderMediaLibrary() {
     if (!els.mediaLibraryGrid) return;
     if (state.mediaLibraryStatus === "loading") {
-      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">Loading media library…</p>`;
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">加载中…</p>`;
       return;
     }
     if (state.mediaLibraryStatus === "signed-out") {
-      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">Sign in to load media library.</p>`;
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">登录后可用</p>`;
       return;
     }
     if (!state.mediaLibrary.length) {
-      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">No media-library assets yet.</p>`;
+      els.mediaLibraryGrid.innerHTML = `<p class="placeholder">暂无素材</p>`;
       return;
     }
     els.mediaLibraryGrid.innerHTML = state.mediaLibrary.map((asset) => {
       const assetId = asset.asset_id || asset.id || "";
       const summary = asset.annotation_summary || {};
-      const tags = (summary.tags || []).slice(0, 5);
-      const labels = (summary.labels || []).slice(0, 3);
+      const kind = asset.media_kind || "media";
+      // 机器话不示人：hash 文件名/内部 ID 退到 title 悬停，卡面只留人话
+      const kindLabel = LIBRARY_KIND_LABEL[kind] || "素材";
+      const title = libraryDisplayName(asset, kindLabel);
+      const allTags = [...(summary.tags || []), ...(summary.labels || [])];
+      const shownTags = allTags.slice(0, 2);
+      const moreTags = allTags.length - shownTags.length;
+      const markerCount = Number(summary.count || 0);
       const anns = state.mediaAnnotations.get(assetId) || [];
       const annHtml = anns.length
         ? `<div class="annotation-list">${anns.map(renderAnnotation).join("")}</div>`
         : "";
+      // 缩略图缺失 → 类型图标占位，不给黑块
       const thumb = asset.thumbnail_src
         ? `<img class="library-thumb" src="${escapeHTML(asset.thumbnail_src)}" alt="" loading="lazy" />`
-        : `<div class="library-thumb blank">${escapeHTML(asset.media_kind || "media")}</div>`;
+        : `<div class="library-thumb blank" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#${LIBRARY_KIND_ICON[kind] || "i-file"}"/></svg></div>`;
+      const tagsHtml = (markerCount || shownTags.length)
+        ? `<div class="library-tags">
+            ${markerCount ? `<span title="标记数"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg>${markerCount}</span>` : ""}
+            ${shownTags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}
+            ${moreTags > 0 ? `<span>+${moreTags}</span>` : ""}
+          </div>`
+        : "";
       return `
-        <div class="library-card" data-library-asset="${escapeHTML(assetId)}">
+        <div class="library-card" data-library-asset="${escapeHTML(assetId)}" title="${escapeHTML(asset.name || assetId)}">
           ${thumb}
           <div class="library-card-body">
-            <div class="library-title">${escapeHTML(asset.name || assetId)}</div>
-            <div class="library-meta">${escapeHTML(assetId)} · ${escapeHTML(asset.media_kind || "media")} · ${formatSeconds(asset.duration)}</div>
-            <div class="library-tags">
-              <span>${Number(summary.count || 0)} mark(s)</span>
-              ${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}
-              ${labels.map((label) => `<span>${escapeHTML(label)}</span>`).join("")}
-            </div>
+            <div class="library-title">${escapeHTML(title)}</div>
+            <div class="library-meta">${escapeHTML(kindLabel)}${kind === "image" ? "" : (formatMediaDuration(asset.duration) ? " · " + escapeHTML(formatMediaDuration(asset.duration)) : "")}</div>
+            ${tagsHtml}
             <div class="library-card-actions">
-              <button type="button" class="library-small-btn" data-library-annotate="${escapeHTML(assetId)}">annotate</button>
-              <button type="button" class="library-small-btn" data-library-load="${escapeHTML(assetId)}">markers</button>
+              <button type="button" class="library-small-btn icon-btn" title="标注" aria-label="标注" data-library-annotate="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
+              <button type="button" class="library-small-btn icon-btn" title="标记" aria-label="标记" data-library-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
             </div>
             ${annHtml}
           </div>
         </div>
       `;
     }).join("");
+  }
+
+  const LIBRARY_KIND_LABEL = { video: "视频", image: "图片", audio: "音频" };
+  const LIBRARY_KIND_ICON = { video: "i-film", image: "i-image", audio: "i-music" };
+
+  // Human title for a media card: strip the extension; if what's left still
+  // reads as a machine id, fall back to "未命名<类型>". A hash must be
+  // hex-only AND contain a digit AND be long — so a readable name that merely
+  // happens to use a–f letters (e.g. "faceded-beef") is NOT mistaken for one.
+  function libraryDisplayName(asset, kindLabel) {
+    const base = String(asset.name || "").replace(/\.[a-z0-9]{2,5}$/i, "");
+    const compact = base.replace(/[-_]/g, "");
+    const looksHashed = compact.length >= 16 && /^[0-9a-f]+$/i.test(compact) && /[0-9]/.test(compact);
+    const machine = !base || looksHashed || /^asset[_-]/i.test(base);
+    return machine ? `未命名${kindLabel}` : base;
+  }
+
+  // Media duration for a card: "14.7 秒" under a minute, "2:05" beyond.
+  // Distinct from formatSeconds (used for annotation timecodes) — returns ""
+  // for missing/zero so images and durationless assets show no "0.0s".
+  function formatMediaDuration(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    if (n < 60) return `${n < 10 ? n.toFixed(1) : Math.round(n)} 秒`;
+    const m = Math.floor(n / 60);
+    const s = Math.round(n % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
   }
 
   function renderAnnotation(annotation) {
@@ -625,36 +591,6 @@
     return `${n.toFixed(1)}s`;
   }
 
-  // Resolve the child tool-call state a tool_exec_* event with an agent_id
-  // belongs to. Child tool activity rides the EXISTING tool_exec_* kinds
-  // (gemia/subtasks.py) carrying { call_id: <spawn call>, agent_id, tool_call_id }.
-  // Returns null (→ caller ignores) if the spawn call or child isn't tracked yet.
-  function childCallState(ev) {
-    const t = state.currentTurn;
-    if (!t) return null;
-    const spawn = t.toolCalls.get(ev.call_id);
-    if (!spawn || !spawn.children) return null;
-    const child = spawn.children.get(ev.agent_id);
-    if (!child) return null;
-    const key = ev.tool_call_id || ev.call_id;
-    let tc = child.calls.get(key);
-    if (!tc) {
-      tc = {
-        tool_call_id: key,
-        tool_name: ev.tool_name || "tool",
-        status: "running",
-        progress: null,
-        summary: null,
-        previewAssetId: null,
-        error: null,
-        errorCode: null,
-      };
-      child.calls.set(key, tc);
-      child.callOrder.push(key);
-    }
-    return tc;
-  }
-
   // ── event handlers (one per kind, no silent drop) ──────────────────
 
   const handlers = {
@@ -667,88 +603,46 @@
     model_text_delta: (ev) => {
       const t = state.currentTurn;
       if (!t) return;
-      t.assistantText += ev.delta;
-      t.streaming = true;
+      // A provider can emit private-looking lead-in text immediately before a
+      // tool call. Hold all deltas until the turn completes; a following tool
+      // proposal discards the buffer, while a text-only turn releases it as the
+      // final user-facing reply.
+      t.pendingAssistantText += ev.delta;
     },
     model_tool_call_start: (ev) => {
       const t = state.currentTurn;
       if (!t) return;
-      // Text the model streamed right before this call is its lead-in
-      // reasoning — for a corrective retry, this is the "diagnosis" line.
-      // Move it off the trailing bubble and onto the card so a self-correction
-      // reads as one arc (reason → fix) instead of a detached paragraph.
-      const reasoning = (t.assistantText || "").trim();
+      // Text streamed before a tool proposal can be internal deliberation.
+      // Discard it rather than turning it into a user-facing work log.
       t.assistantText = "";
+      t.pendingAssistantText = "";
       t.streaming = false;
       t.toolCalls.set(ev.call_id, {
         call_id: ev.call_id,
         tool_name: ev.tool_name,
         status: "pending",
-        args: null,
-        progress: null,
-        summary: null,
-        error: null,
-        errorCode: null,
-        recovery: null,
-        validOptions: null,
-        hint: null,
-        reasoning: reasoning || null,
-        previewAssetId: null,
-        // Multi-agent fan-out: subagent_start populates this Map (agent_id ->
-        // child group) under a spawn_subtasks call. Child tool_exec_* events
-        // (carrying agent_id) route into the child's own tool list.
-        children: new Map(),
-        childOrder: [],
       });
       t.orderedCallIds.push(ev.call_id);
     },
-    model_tool_call_ready: (ev) => {
-      const t = state.currentTurn;
-      const tc = t?.toolCalls.get(ev.call_id);
-      if (tc) tc.args = ev.args;
-    },
+    // Raw arguments are deliberately never retained by the display layer.
+    model_tool_call_ready: () => {},
     tool_exec_start: (ev) => {
-      // agent_id present → child tool activity, route into the child group.
-      if (ev.agent_id) { const c = childCallState(ev); if (c) c.status = "running"; return; }
+      if (ev.agent_id) return;
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
       if (tc) tc.status = "running";
     },
-    tool_exec_progress: (ev) => {
-      if (ev.agent_id) {
-        const c = childCallState(ev);
-        if (c) c.progress = {
-          percent: typeof ev.percent === "number" ? ev.percent : null,
-          message: ev.message || null,
-        };
-        return;
-      }
-      const tc = state.currentTurn?.toolCalls.get(ev.call_id);
-      if (!tc) return;
-      tc.progress = {
-        percent: typeof ev.percent === "number" ? ev.percent : null,
-        message: ev.message || null,
-      };
-    },
+    tool_exec_progress: () => {},
     tool_exec_result: (ev) => {
-      if (ev.agent_id) {
-        const c = childCallState(ev);
-        if (c) {
-          c.status = "done";
-          c.summary = ev.result?.summary || null;
-          c.previewAssetId = ev.result?.asset_id || null;
-        }
-        return;
-      }
+      if (ev.agent_id) return;
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
       if (!tc) return;
       tc.status = "done";
-      tc.summary = ev.result?.summary || null;
-      tc.previewAssetId = ev.result?.asset_id || null;
-      if (tc.previewAssetId) {
+      const assetId = ev.result?.asset_id;
+      if (assetId) {
         state.assets.push({
-          asset_id: tc.previewAssetId,
-          kind: ev.result?.kind || inferKindFromAssetId(tc.previewAssetId),
+          asset_id: assetId,
+          kind: ev.result?.kind || inferKindFromAssetId(assetId),
           summary: ev.result?.summary || "",
           source: "tool",
           final: false,
@@ -756,67 +650,24 @@
       }
     },
     tool_exec_error: (ev) => {
-      if (ev.agent_id) {
-        const c = childCallState(ev);
-        if (c) { c.status = "failed"; c.error = ev.error || "unknown error"; c.errorCode = ev.error_code || null; }
-        return;
-      }
+      if (ev.agent_id) return;
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
       if (tc) {
         tc.status = "failed";
-        tc.error = ev.error || "unknown error";
-        // Typed-error fields (present when the host raised a GemiaError/ToolError).
-        // These are what turn a dead-end into a fixable, visible diagnosis.
-        tc.errorCode = ev.error_code || null;
-        tc.recovery = ev.recovery || null;
-        tc.validOptions = Array.isArray(ev.valid_options) ? ev.valid_options : null;
-        tc.hint = ev.hint || null;
       }
     },
-    subagent_start: (ev) => {
-      // A child of a spawn_subtasks call is starting. Create its group under the
-      // spawn call so its tool activity + result render indented beneath it.
-      const t = state.currentTurn;
-      const spawn = t?.toolCalls.get(ev.call_id);
-      if (!spawn || !spawn.children) return;
-      if (!spawn.children.has(ev.agent_id)) {
-        spawn.children.set(ev.agent_id, {
-          agent_id: ev.agent_id,
-          goal: ev.goal || "",
-          profile: ev.tool_profile || "",
-          status: "running",
-          summary: null,
-          assetIds: [],
-          spentUsd: null,
-          spentSeconds: null,
-          steps: null,
-          calls: new Map(),
-          callOrder: [],
-        });
-        spawn.childOrder.push(ev.agent_id);
-      }
-    },
-    subagent_result: (ev) => {
-      // A child finished (any status). Close its group with the terminal record.
-      const spawn = state.currentTurn?.toolCalls.get(ev.call_id);
-      const child = spawn?.children?.get(ev.agent_id);
-      if (!child) return;
-      child.status = ev.status || "ok";
-      child.summary = ev.summary || null;
-      child.assetIds = Array.isArray(ev.asset_ids) ? ev.asset_ids : [];
-      child.spentUsd = typeof ev.spent_usd === "number" ? ev.spent_usd : null;
-      child.spentSeconds = typeof ev.spent_seconds === "number" ? ev.spent_seconds : null;
-      child.steps = typeof ev.steps === "number" ? ev.steps : null;
-    },
+    // The parent spawn_subtasks row already says that work is happening in
+    // parallel. Child goals, summaries, paths, and internal tool calls stay out
+    // of the user-facing activity stream.
+    subagent_start: () => {},
+    subagent_result: () => {},
     budget_gate: (ev) => {
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
       if (tc) tc.status = "gated";
-      const alt = (ev.alternatives || []).join(", ");
       t?.banners.push({
         kind: "budget",
-        text: `budget gate on ${ev.tool_name}: ${ev.reason}`,
-        sub: alt ? `alternatives: ${alt}` : "",
+        text: "当前任务已暂停",
       });
     },
     plan_gate: (ev) => {
@@ -827,7 +678,7 @@
       if (tc) tc.status = "gated";
       t?.banners.push({
         kind: "plan",
-        text: `计划模式拦截了 ${ev.tool_name}（规划期间不执行改动）`,
+        text: "计划模式下等待你的批准",
       });
     },
     plan_mode_changed: (ev) => {
@@ -844,26 +695,24 @@
       const t = state.currentTurn;
       if (!t) return;
       t.assistantText = "";
+      t.pendingAssistantText = "";
       t.streaming = false;
     },
     turn_wrapup: (ev) => {
       // Informational "stopped because X; here's what was / wasn't done".
+      if (state.currentTurn) state.currentTurn.pendingAssistantText = "";
       state.currentTurn?.banners.push({
         kind: "info",
-        text: ev.message || `turn stopped (${ev.reason || "unknown"})`,
+        text: "本轮已暂停，等待下一步",
       });
     },
     ask_question: (ev) => {
-      // Minimal surfacing so a pending elicit is visible instead of an
-      // "unknown event" error. Full web answer controls are tracked separately;
-      // today the question can be answered from the CLI or it falls back to
-      // defaults on timeout.
       const q = ev.question || {};
-      state.currentTurn?.banners.push({
-        kind: "info",
-        text: `Lumeri 提问：${q.title || "需要你的输入"}`,
-        sub: q.description || "",
-      });
+      state.pendingAsk = {
+        question_id: q.question_id,
+        question: q,
+      };
+      renderAskDock();
     },
     timeline_op: () => {
       // Timeline patch landed: refresh the project timeline panel immediately
@@ -877,11 +726,10 @@
       state.protocolVersion = ev.protocol_version;
     },
     replay_gap: (ev) => {
-      const text = `SSE replay gap: missed ${ev.missed_event_count || "some"} event(s); refreshing session state.`;
+      const text = "连接已恢复，正在同步最新状态";
       const banner = {
-        kind: "unknown",
+        kind: "info",
         text,
-        sub: `requested=${ev.requested_last_event_id}, oldest=${ev.oldest_available_event_id}, latest=${ev.latest_event_id}`,
       };
       if (state.currentTurn) state.currentTurn.banners.push(banner);
       state.errors.push(text);
@@ -899,9 +747,12 @@
       }).finally(render);
     },
     turn_complete: (ev) => {
+      dismissAskDock();
       const t = state.currentTurn;
       state.turnInProgress = false;
       if (!t) return;
+      t.assistantText = t.pendingAssistantText;
+      t.pendingAssistantText = "";
       t.streaming = false;
       t.complete = true;
       // Backend now sends only user-facing deliverables in final_asset_ids
@@ -917,14 +768,27 @@
       // While planning, a completed turn means the plan text is on screen —
       // surface the approval bar.
       if (state.planMode) state.planReady = true;
+      // Auto-save after every completed turn; auto-title at turn 1 and 5.
+      autoSaveSession();
+      if (state.userMessageCount === 1 || state.userMessageCount === 5) {
+        autoGenerateTitle();
+      }
     },
     turn_error: (ev) => {
+      dismissAskDock();
       state.turnInProgress = false;
       const t = state.currentTurn;
       if (t) {
         t.streaming = false;
         t.complete = true;
-        t.banners.push({ kind: "turn_error", text: `turn error: ${ev.error || "unknown"}` });
+        // An "incomplete_goal" stop is not a failure — the model has already
+        // delivered its own words (when the turn did work) and a soft
+        // turn_wrapup note follows. Render it gently, never as a red interrupt.
+        // Genuine host failures (budget, doom loop, stream error) still show
+        // the turn_error banner.
+        if (ev.reason !== "incomplete_goal") {
+          t.banners.push({ kind: "turn_error", text: "本轮任务暂时暂停" });
+        }
       }
     },
   };
@@ -935,7 +799,7 @@
     const handler = handlers[ev.kind];
     if (!handler) {
       const t = state.currentTurn;
-      const banner = { kind: "unknown", text: `unknown event kind: ${ev.kind}`, sub: JSON.stringify(ev) };
+      const banner = { kind: "unknown", text: "收到一个暂未显示的活动状态" };
       if (t) t.banners.push(banner);
       state.errors.push(banner.text);
       console.error("unhandled SSE event kind", ev);
@@ -950,10 +814,227 @@
     return "video";
   }
 
+  // ── ask dock (declarative answering) ────────────────────────────────
+
+  function dismissAskDock() {
+    state.pendingAsk = null;
+    if (els.askDock) {
+      els.askDock.hidden = true;
+      els.askDock.innerHTML = "";
+    }
+  }
+
+  function _askControlDom(key, ctrl) {
+    const wrap = document.createElement("div");
+    wrap.className = "ask-field";
+    wrap.dataset.controlKey = key;
+
+    const label = document.createElement("span");
+    label.className = "ask-field-label";
+    label.textContent = key;
+    wrap.appendChild(label);
+
+    const errEl = document.createElement("div");
+    errEl.className = "ask-field-error";
+
+    const type = ctrl.type;
+    if (type === "select") {
+      const group = document.createElement("div");
+      group.className = "ask-radio-group";
+      for (const opt of (ctrl.options || [])) {
+        const lbl = document.createElement("label");
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = `ask-${key}`;
+        radio.value = opt.value;
+        if (ctrl.default != null && opt.value === ctrl.default) radio.checked = true;
+        lbl.appendChild(radio);
+        lbl.appendChild(document.createTextNode(opt.label));
+        group.appendChild(lbl);
+      }
+      wrap.appendChild(group);
+    } else if (type === "multi_select") {
+      const group = document.createElement("div");
+      group.className = "ask-check-group";
+      for (const opt of (ctrl.options || [])) {
+        const lbl = document.createElement("label");
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.name = `ask-${key}`;
+        chk.value = opt.value;
+        lbl.appendChild(chk);
+        lbl.appendChild(document.createTextNode(opt.label));
+        group.appendChild(lbl);
+      }
+      wrap.appendChild(group);
+    } else if (type === "text") {
+      const inp = ctrl.multiline ? document.createElement("textarea") : document.createElement("input");
+      inp.className = "ask-text-input";
+      inp.name = `ask-${key}`;
+      if (ctrl.placeholder) inp.placeholder = ctrl.placeholder;
+      if (ctrl.max_length) inp.maxLength = ctrl.max_length;
+      if (ctrl.multiline) inp.rows = 3;
+      wrap.appendChild(inp);
+    } else if (type === "slider") {
+      const sw = document.createElement("div");
+      sw.className = "ask-slider-wrap";
+      const range = document.createElement("input");
+      range.type = "range";
+      range.name = `ask-${key}`;
+      range.min = ctrl.min ?? 0;
+      range.max = ctrl.max ?? 100;
+      range.step = ctrl.step ?? 1;
+      range.value = ctrl.default ?? ctrl.min ?? 0;
+      const valSpan = document.createElement("span");
+      valSpan.className = "ask-slider-val";
+      valSpan.textContent = range.value;
+      range.addEventListener("input", () => { valSpan.textContent = range.value; });
+      sw.appendChild(range);
+      sw.appendChild(valSpan);
+      wrap.appendChild(sw);
+    } else if (type === "panel") {
+      const pg = document.createElement("div");
+      pg.className = "ask-panel-group";
+      if (ctrl.description) {
+        const t = document.createElement("div");
+        t.className = "ask-panel-group-title";
+        t.textContent = ctrl.description;
+        pg.appendChild(t);
+      }
+      for (const [fk, fv] of Object.entries(ctrl.fields || {})) {
+        pg.appendChild(_askControlDom(`${key}.${fk}`, fv));
+      }
+      wrap.appendChild(pg);
+    } else {
+      const note = document.createElement("div");
+      note.style.cssText = "font-size:11px;opacity:.6";
+      note.textContent = `(${type || "unknown"} control — 不支持在线编辑)`;
+      wrap.appendChild(note);
+    }
+
+    wrap.appendChild(errEl);
+    return wrap;
+  }
+
+  function _collectAskValue(key, ctrl, dock) {
+    const type = ctrl.type;
+    if (type === "select") {
+      const checked = dock.querySelector(`input[name="ask-${CSS.escape(key)}"]:checked`);
+      return checked ? checked.value : null;
+    }
+    if (type === "multi_select") {
+      return [...dock.querySelectorAll(`input[name="ask-${CSS.escape(key)}"]:checked`)]
+        .map((c) => c.value);
+    }
+    if (type === "text") {
+      const inp = dock.querySelector(`[name="ask-${CSS.escape(key)}"]`);
+      return inp ? inp.value : "";
+    }
+    if (type === "slider") {
+      const inp = dock.querySelector(`input[name="ask-${CSS.escape(key)}"]`);
+      return inp ? parseFloat(inp.value) : null;
+    }
+    if (type === "panel") {
+      const result = {};
+      for (const [fk, fv] of Object.entries(ctrl.fields || {})) {
+        result[fk] = _collectAskValue(`${key}.${fk}`, fv, dock);
+      }
+      return result;
+    }
+    return null;
+  }
+
+  function renderAskDock() {
+    const dock = els.askDock;
+    if (!dock || !state.pendingAsk) return;
+    const q = state.pendingAsk.question;
+
+    dock.innerHTML = "";
+
+    const title = document.createElement("div");
+    title.className = "ask-dock-title";
+    title.textContent = q.title || "需要你的输入";
+    dock.appendChild(title);
+
+    const desc = document.createElement("div");
+    desc.className = "ask-dock-desc";
+    desc.textContent = q.description || "";
+    dock.appendChild(desc);
+
+    for (const [key, ctrl] of Object.entries(q.controls || {})) {
+      dock.appendChild(_askControlDom(key, ctrl));
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "ask-actions";
+    const submitBtn = document.createElement("button");
+    submitBtn.className = "ask-submit";
+    submitBtn.textContent = "提交";
+    submitBtn.addEventListener("click", () => submitAskAnswer());
+    actions.appendChild(submitBtn);
+    dock.appendChild(actions);
+
+    dock.hidden = false;
+  }
+
+  async function submitAskAnswer() {
+    if (!state.pendingAsk || !state.sessionId) return;
+    const q = state.pendingAsk.question;
+    const dock = els.askDock;
+
+    const answers = {};
+    for (const [key, ctrl] of Object.entries(q.controls || {})) {
+      answers[key] = _collectAskValue(key, ctrl, dock);
+    }
+
+    const submitBtn = dock.querySelector(".ask-submit");
+    if (submitBtn) submitBtn.disabled = true;
+
+    dock.querySelectorAll(".ask-field-error").forEach((e) => { e.textContent = ""; });
+
+    try {
+      const res = await fetch(`/sessions/${state.sessionId}/ask_response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question_id: state.pendingAsk.question_id,
+          answers,
+        }),
+      });
+      if (res.ok) {
+        dismissAskDock();
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 422 && body.field_errors) {
+        for (const [field, msg] of Object.entries(body.field_errors)) {
+          const el = dock.querySelector(`[data-control-key="${CSS.escape(field)}"] .ask-field-error`);
+          if (el) el.textContent = msg;
+        }
+      } else {
+        state.currentTurn?.banners.push({
+          kind: "info",
+          text: "提交未成功，请稍后重试",
+        });
+        render();
+      }
+    } catch (err) {
+      state.currentTurn?.banners.push({
+        kind: "info",
+        text: "提交未成功，请稍后重试",
+      });
+      render();
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
   // ── SSE connection ──────────────────────────────────────────────────
 
+  // Status is a bare dot — the state name lives in title/aria-label only.
   function setConnPill(text, cls) {
-    els.connPill.textContent = text;
+    els.connPill.title = text;
+    els.connPill.setAttribute("aria-label", text);
     els.connPill.className = `status-pill ${cls}`;
   }
 
@@ -987,8 +1068,8 @@
         const ev = JSON.parse(e.data);
         dispatch(ev);
         render();
-      } catch (parseErr) {
-        const banner = { kind: "unknown", text: `SSE parse error: ${parseErr.message}`, sub: e.data?.slice(0, 200) };
+      } catch {
+        const banner = { kind: "unknown", text: "收到一个无法读取的活动状态" };
         state.currentTurn?.banners.push(banner);
         render();
       }
@@ -1086,12 +1167,12 @@
         </div>
         <div class="ptl-sep"></div>
         <div class="ptl-tgroup">
-          <button class="ptl-btn pt-edit-btn" id="ptl-split" title="在指针处分割 (S)"><svg viewBox="0 0 16 16"><path d="M8 2.5v11"/><rect x="2.6" y="5" width="3.4" height="6" rx="1.1"/><rect x="10" y="5" width="3.4" height="6" rx="1.1"/></svg><span>分割</span></button>
-          <button class="ptl-btn pt-edit-btn" id="ptl-delete" title="删除所选 (Del)"><svg viewBox="0 0 16 16"><path d="M3 4.5h10"/><path d="M6 4.5V3h4v1.5"/><path d="M4.6 4.5 5.1 13.3h5.8l.5-8.8"/><path d="M6.9 6.8v4.3M9.1 6.8v4.3"/></svg><span>删除</span></button>
-          <button class="ptl-btn pt-edit-btn" id="ptl-marker" title="在指针处加标记 (M)"><svg viewBox="0 0 16 16"><path d="M4.5 2v12"/><path d="M4.5 2.8h7.3l-1.8 2.6 1.8 2.6H4.5"/></svg><span>标记</span></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-split" title="在指针处分割 (S)" aria-label="分割"><svg viewBox="0 0 16 16"><path d="M8 2.5v11"/><rect x="2.6" y="5" width="3.4" height="6" rx="1.1"/><rect x="10" y="5" width="3.4" height="6" rx="1.1"/></svg></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-delete" title="删除所选 (Del)" aria-label="删除"><svg viewBox="0 0 16 16"><path d="M3 4.5h10"/><path d="M6 4.5V3h4v1.5"/><path d="M4.6 4.5 5.1 13.3h5.8l.5-8.8"/><path d="M6.9 6.8v4.3M9.1 6.8v4.3"/></svg></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-marker" title="在指针处加标记 (M)" aria-label="标记"><svg viewBox="0 0 16 16"><path d="M4.5 2v12"/><path d="M4.5 2.8h7.3l-1.8 2.6 1.8 2.6H4.5"/></svg></button>
         </div>
         <div class="ptl-sep"></div>
-        <button class="ptl-btn ptl-toggle" id="ptl-snap" title="吸附对齐"><svg viewBox="0 0 16 16"><path d="M4 2.5v5a4 4 0 0 0 8 0v-5"/><path d="M4 2.5h2.4M9.6 2.5H12M4 6h2.4M9.6 6H12"/></svg><span>吸附</span></button>
+        <button class="ptl-btn ptl-ico-btn ptl-toggle" id="ptl-snap" title="吸附对齐" aria-label="吸附对齐"><svg viewBox="0 0 16 16"><path d="M4 2.5v5a4 4 0 0 0 8 0v-5"/><path d="M4 2.5h2.4M9.6 2.5H12M4 6h2.4M9.6 6H12"/></svg></button>
         <div class="ptl-spacer"></div>
         <div class="ptl-tc" id="ptl-tc">00:00:00</div>
         <div class="ptl-zoom">
@@ -1102,7 +1183,7 @@
       </div>
       <div class="ptl-main">
         <div class="ptl-ruler-row">
-          <div class="ptl-corner">轨道</div>
+          <div class="ptl-corner"></div>
           <canvas id="ptl-ruler"></canvas>
         </div>
         <div class="ptl-lanes-row">
@@ -1111,10 +1192,10 @@
         </div>
       </div>
       <div class="pt-quick-actions" id="pt-quick-actions">
-        <button class="pt-action-btn" data-cmd="export the project at 1080p quality">↑ 导出 1080p</button>
-        <button class="pt-action-btn" data-cmd="export the project as draft quality">草稿导出</button>
-        <button class="pt-action-btn" data-cmd="add a title overlay at the start of the timeline">加标题</button>
-        <button class="pt-action-btn" data-cmd="get the current timeline layout">获取布局</button>
+        <button class="pt-action-btn" data-cmd="export the project at 1080p quality" title="导出 1080p"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>1080p</button>
+        <button class="pt-action-btn" data-cmd="export the project as draft quality" title="导出草稿"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>草稿</button>
+        <button class="pt-action-btn" data-cmd="add a title overlay at the start of the timeline" title="在片头加标题"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-text"/></svg>标题</button>
+        <button class="pt-action-btn" data-cmd="get the current timeline layout" title="获取时间线布局"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>布局</button>
       </div>`;
 
     TL.rulerCtx = tlRuler().getContext("2d");
@@ -1298,7 +1379,6 @@
     el.style.width = Math.max(timeToX(clip.duration), 8) + "px";
     const col = isPaint ? TL_CLIP_COLOR.paint : (TL_CLIP_COLOR[kind] || TL_CLIP_COLOR.video);
     el.style.setProperty("--cfill", col[0]);
-    el.style.setProperty("--cedge", col[1]);
     const label = kind === "text" ? (clip.text_config?.content?.slice(0, 24) || clip.name) : clip.name;
     // Outgoing transition (payload key "transition" ← lumerai transition_after):
     // a badge on the clip's right edge. Export renders a hard cut until xfade
@@ -1473,8 +1553,7 @@
 
     headers.innerHTML = model.tracks.map((t) => {
       const isA = t.kind === "audio";
-      return `<div class="ptl-head ${escapeHTML(t.kind)}" style="height:${TL_TRACK_H}px">`
-        + `<span class="ptl-head-name">${escapeHTML(t.name || t.id)}</span>`
+      return `<div class="ptl-head ${escapeHTML(t.kind)}" style="height:${TL_TRACK_H}px" title="${escapeHTML(t.name || t.id)}">`
         + `<span class="ptl-head-kind">${isA ? "♪" : "▦"} ${escapeHTML(t.id)}</span></div>`;
     }).join("");
 
@@ -1758,10 +1837,63 @@
     state.mediaAnnotations = new Map();
     state.planMode = false;     // fresh sessions start with plan mode off
     state.planReady = false;
+    state.sessionTitle = null;
+    state.userMessageCount = 0;
     connectSse(state.sessionId);
     startTimelinePoll();
     fetchMediaLibrary().catch(() => {});
     render();
+  }
+
+  // ── session persistence (auto-save + auto-title) ────────────────────
+
+  function _collectSessionMessages() {
+    const msgs = [];
+    for (const turn of state.turns) {
+      if (turn.userMessage) msgs.push({ role: "user", content: turn.userMessage, timestamp: Date.now() });
+      if (turn.assistantText) msgs.push({ role: "status", content: turn.assistantText, statusType: "succeeded", timestamp: Date.now() });
+    }
+    return msgs;
+  }
+
+  async function autoSaveSession() {
+    if (!state.sessionId) return;
+    const messages = _collectSessionMessages();
+    if (!messages.length) return;
+    const payload = {
+      session_id: state.sessionId,
+      title: state.sessionTitle || undefined,
+      messages,
+      project_state: null,
+      project: null,
+    };
+    try {
+      await fetch("/session-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {}
+  }
+
+  async function autoGenerateTitle() {
+    if (!state.sessionId) return;
+    const messages = _collectSessionMessages();
+    if (!messages.length) return;
+    try {
+      const r = await fetch(`/sessions/${state.sessionId}/auto_title`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+      });
+      if (!r.ok) return;
+      const data = await r.json();
+      if (data.title) {
+        state.sessionTitle = data.title;
+        els.sessionLabel.textContent = data.title;
+        autoSaveSession();
+      }
+    } catch {}
   }
 
   async function refreshSessionState() {
@@ -1884,6 +2016,7 @@
 
   async function submitTurn(message) {
     if (!state.sessionId) throw new Error("no session");
+    state.userMessageCount++;
     const turn = newTurn(message);
     state.turns.push(turn);
     state.currentTurn = turn;
@@ -1896,8 +2029,7 @@
       body: JSON.stringify({ message }),
     });
     if (!r.ok && r.status !== 202) {
-      const body = await r.text();
-      turn.banners.push({ kind: "turn_error", text: `POST /turn failed: ${r.status}`, sub: body.slice(0, 200) });
+      turn.banners.push({ kind: "turn_error", text: "任务未能开始，请稍后重试" });
       state.turnInProgress = false;
       render();
     }
@@ -1991,10 +2123,23 @@
         <div class="auth-dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-title">
           <button type="button" class="auth-x" data-model-close aria-label="关闭">×</button>
           <h2 id="model-title">模型与思考强度</h2>
-          <p class="auth-sub">按后台优先级排序 · 选中即对所有会话生效</p>
           <div class="model-list" id="model-list"></div>
+          <div class="model-add-wrap" id="model-add-wrap">
+            <button type="button" class="model-add-btn" id="model-add-btn">+ 添加模型</button>
+            <div class="model-add-dropdown" id="model-add-dropdown" hidden>
+              <div class="model-add-search-wrap">
+                <input type="text" class="model-add-search" id="model-add-search" placeholder="搜索或输入模型 ID…">
+                <span class="model-add-spinner" id="model-add-spinner" hidden></span>
+              </div>
+              <div class="model-add-list" id="model-add-list"></div>
+              <button type="button" class="model-add-custom" id="model-add-custom" hidden>添加自定义模型</button>
+            </div>
+          </div>
           <div class="model-effort-label">思考强度</div>
           <div class="model-efforts" id="model-efforts"></div>
+          <div class="model-save-wrap" id="model-save-wrap" hidden>
+            <button type="button" class="model-save-btn" id="model-save-btn">保存</button>
+          </div>
           <p class="auth-error" id="model-error" hidden></p>
         </div>`;
       document.body.appendChild(overlay);
@@ -2011,38 +2156,176 @@
       else { errEl.hidden = true; }
     };
 
+    let scannedModels = [];
+    let lastInfo = null;
+    let pendingModel = null;
+    let pendingEffort = null;
+
     function renderInfo(info) {
+      lastInfo = info;
       const active = info.active || {};
+      if (pendingModel === null) pendingModel = active.model;
+      if (pendingEffort === null) pendingEffort = active.effort;
+      const selModel = pendingModel || active.model;
+      const selEffort = pendingEffort || active.effort;
       const list = $("#model-list", overlay);
+      const canDelete = (info.priority || []).length > 1;
       list.innerHTML = (info.priority || []).map((it, i) => {
-        const on = it.id === active.model;
+        const on = it.id === selModel;
         return `
-          <button type="button" class="model-row${on ? " active" : ""}" data-model-id="${escapeHTML(it.id)}">
-            <span class="model-dot">${on ? "●" : "○"}</span>
-            <span class="model-name">${escapeHTML(it.label)}${i === 0 ? ' <span class="model-tag">默认</span>' : ""}</span>
-            <span class="model-id">${escapeHTML(it.id)}</span>
-          </button>`;
+          <div class="model-row${on ? " active" : ""}">
+            <button type="button" class="model-row-select" data-model-id="${escapeHTML(it.id)}">
+              <span class="model-dot">${on ? "●" : "○"}</span>
+              <span class="model-name">${escapeHTML(it.label)}${i === 0 ? ' <span class="model-tag">默认</span>' : ""}</span>
+              <span class="model-id">${escapeHTML(it.id)}</span>
+            </button>${canDelete ? `<button type="button" class="model-del" data-del-id="${escapeHTML(it.id)}" aria-label="删除 ${escapeHTML(it.label)}">×</button>` : ""}
+          </div>`;
       }).join("");
       const efforts = $("#model-efforts", overlay);
       efforts.innerHTML = (info.efforts || []).map((e) => {
-        const on = e === active.effort;
+        const on = e === selEffort;
         return `<button type="button" class="model-chip${on ? " active" : ""}" data-effort="${escapeHTML(e)}">${escapeHTML(e)}</button>`;
       }).join("");
 
       list.querySelectorAll("[data-model-id]").forEach((btn) =>
-        btn.addEventListener("click", () => apply({ model: btn.dataset.modelId })));
+        btn.addEventListener("click", () => { pendingModel = btn.dataset.modelId; renderInfo(info); }));
+      list.querySelectorAll("[data-del-id]").forEach((btn) =>
+        btn.addEventListener("click", (e) => { e.stopPropagation(); removeModel(btn.dataset.delId); }));
       efforts.querySelectorAll("[data-effort]").forEach((btn) =>
-        btn.addEventListener("click", () => apply({ effort: btn.dataset.effort })));
+        btn.addEventListener("click", () => { pendingEffort = btn.dataset.effort; renderInfo(info); }));
+
+      const changed = selModel !== active.model || selEffort !== active.effort;
+      const saveWrap = $("#model-save-wrap", overlay);
+      if (saveWrap) saveWrap.hidden = !changed;
     }
 
-    async function apply(body) {
+    async function apply() {
       setErr("");
       try {
+        const body = {};
+        if (pendingModel) body.model = pendingModel;
+        if (pendingEffort) body.effort = pendingEffort;
         const data = await postModelSelection(body);
+        pendingModel = data.active?.model || pendingModel;
+        pendingEffort = data.active?.effort || pendingEffort;
         renderInfo(data);
       } catch (e) {
-        setErr(`切换失败：${e.message}`);
+        setErr(`保存失败：${e.message}`);
       }
+    }
+
+    $("#model-save-btn", overlay).addEventListener("click", apply);
+
+    async function removeModel(id) {
+      setErr("");
+      try {
+        const r = await fetch("/model/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        renderInfo(data);
+      } catch (e) {
+        setErr(`删除失败：${e.message}`);
+      }
+    }
+
+    async function addModel(id, label) {
+      setErr("");
+      try {
+        const r = await fetch("/model/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, label: label || id }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        renderInfo(data);
+        closeAddDropdown();
+      } catch (e) {
+        setErr(`添加失败：${e.message}`);
+      }
+    }
+
+    // ── add-model dropdown ──
+    const addBtn = $("#model-add-btn", overlay);
+    const dropdown = $("#model-add-dropdown", overlay);
+    const searchInp = $("#model-add-search", overlay);
+    const addList = $("#model-add-list", overlay);
+    const customBtn = $("#model-add-custom", overlay);
+    const spinner = $("#model-add-spinner", overlay);
+
+    function closeAddDropdown() {
+      dropdown.hidden = true;
+      searchInp.value = "";
+      customBtn.hidden = true;
+    }
+
+    addBtn.addEventListener("click", () => {
+      if (!dropdown.hidden) { closeAddDropdown(); return; }
+      dropdown.hidden = false;
+      searchInp.value = "";
+      searchInp.focus();
+      renderAddList("");
+      if (!scannedModels.length) scanModels();
+    });
+
+    document.addEventListener("click", (e) => {
+      const wrap = $("#model-add-wrap", overlay);
+      if (wrap && !wrap.contains(e.target)) closeAddDropdown();
+    });
+
+    searchInp.addEventListener("input", () => {
+      renderAddList(searchInp.value);
+    });
+
+    customBtn.addEventListener("click", () => {
+      const v = searchInp.value.trim();
+      if (v) addModel(v, v);
+    });
+
+    function renderAddList(query) {
+      const q = query.toLowerCase().trim();
+      const currentIds = new Set(
+        [...overlay.querySelectorAll("[data-model-id]")].map((el) => el.dataset.modelId)
+      );
+      let filtered = scannedModels.filter((m) => !currentIds.has(m.id));
+      if (q) filtered = filtered.filter((m) =>
+        m.id.toLowerCase().includes(q) || (m.name || "").toLowerCase().includes(q)
+      );
+      addList.innerHTML = filtered.slice(0, 20).map((m) => {
+        const name = m.name ? ` <span class="model-add-name">${escapeHTML(m.name)}</span>` : "";
+        return `<button type="button" class="model-add-opt" data-add-id="${escapeHTML(m.id)}">${escapeHTML(m.id)}${name}</button>`;
+      }).join("") || (q ? '<div class="model-add-empty">无匹配结果</div>' : '<div class="model-add-empty">扫描中…</div>');
+      addList.querySelectorAll("[data-add-id]").forEach((btn) =>
+        btn.addEventListener("click", () => addModel(btn.dataset.addId, btn.dataset.addId)));
+      customBtn.hidden = !q || filtered.some((m) => m.id === q);
+    }
+
+    let scanAbortCtrl = null;
+    async function scanModels() {
+      if (scanAbortCtrl) scanAbortCtrl.abort();
+      const ctrl = scanAbortCtrl = new AbortController();
+      spinner.hidden = false;
+      try {
+        const r = await fetch("/config/list-models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+          signal: ctrl.signal,
+        });
+        const d = await r.json().catch(() => ({}));
+        if (ctrl.signal.aborted) return;
+        if (d.models && d.models.length) {
+          scannedModels = d.models;
+          renderAddList(searchInp.value);
+        }
+      } catch (e) {
+        if (e.name === "AbortError") return;
+      }
+      spinner.hidden = true;
     }
 
     setErr("");
@@ -2052,18 +2335,423 @@
     fetchModelInfo().then(renderInfo).catch((e) => setErr(`加载失败：${e.message}`));
   }
 
+  // ── AI 供应商 Setup 面板 ─────────────────────────────────────────────
+  // 列常见 provider（Vertex/Gemini/OpenAI/Claude/OpenRouter）+ 自定义(OpenAI 兼容)，
+  // 密钥经 POST /config 白名单存盘、即时生效；测试连接走 POST /config/test-brain。
+  function openSetupPanel() {
+    let overlay = $("#setup-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "setup-modal";
+      overlay.className = "auth-modal";
+      overlay.hidden = true;
+      overlay.innerHTML = `
+        <div class="model-backdrop" data-setup-close></div>
+        <div class="auth-dialog setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+          <button type="button" class="auth-x" data-setup-close aria-label="关闭">×</button>
+          <h2 id="setup-title">AI 供应商配置</h2>
+          <p class="setup-sub">拖动排序供应商优先级，选中后配置密钥与模型。</p>
+          <div class="setup-providers" id="setup-providers"></div>
+          <div class="setup-fields" id="setup-fields"></div>
+          <div class="setup-actions">
+            <button type="button" class="setup-test" id="setup-test">测试连接</button>
+            <button type="button" class="setup-save" id="setup-save">保存并启用</button>
+          </div>
+          <p class="setup-result" id="setup-result" hidden></p>
+          <div class="setup-divider"></div>
+          <h3 class="setup-section-title">搜索引擎</h3>
+          <p class="setup-sub">配置联网搜索的 API 密钥。留空则自动降级到 DuckDuckGo（免费、无需密钥）。</p>
+          <div class="search-provider-chips" id="search-provider-chips"></div>
+          <div class="search-fields" id="search-fields"></div>
+          <div class="setup-actions">
+            <button type="button" class="setup-save search-save" id="search-save">保存搜索配置</button>
+          </div>
+          <p class="setup-result" id="search-result" hidden></p>
+          <p class="auth-error" id="setup-error" hidden></p>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelectorAll("[data-setup-close]").forEach((el) =>
+        el.addEventListener("click", () => { overlay.hidden = true; }));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !overlay.hidden) overlay.hidden = true;
+      });
+    }
+    const st = { info: null, sel: "", vals: {}, curProvider: "", scannedModels: [], providerOrder: [] };
+    const errEl = $("#setup-error", overlay);
+    const resEl = $("#setup-result", overlay);
+    const setErr = (m) => { if (m) { errEl.textContent = m; errEl.hidden = false; } else errEl.hidden = true; };
+    const setRes = (m, ok) => {
+      if (!m) { resEl.hidden = true; return; }
+      resEl.textContent = m; resEl.hidden = false;
+      resEl.className = "setup-result " + (ok ? "ok" : "bad");
+    };
+
+    const FIELD_META = {
+      vertex_project:  { label: "GCP 项目 ID", ph: "my-project-123" },
+      vertex_location: { label: "区域", ph: "global / us-east5 / us-central1" },
+      base_url:        { label: "Base URL", ph: "https://…/v1/chat/completions" },
+      key:             { label: "API Key", ph: "sk-…（留空=沿用已存）" },
+    };
+
+    function providerCard(p, active) {
+      return `<div class="setup-pcard${active ? " active" : ""}" data-pid="${escapeHTML(p.id)}" draggable="true">
+        <span class="setup-drag" title="拖动排序">☰</span>
+        <div class="setup-ptext">
+          <span class="setup-pname">${escapeHTML(p.label)}</span>
+          <span class="setup-phint">${escapeHTML(p.hint)}</span>
+        </div>
+      </div>`;
+    }
+
+    function keyStateLabel(p, info) {
+      if (!p.key_field) return "";
+      const map = { openrouter_api_key: "openrouter", gemini_api_key: "gemini", anthropic_api_key: "anthropic", openai_api_key: "openai" };
+      const has = info.has_key && info.has_key[map[p.key_field]];
+      return has ? ' <span class="setup-haskey">已配置</span>' : "";
+    }
+
+    function getProviders() {
+      if (!st.info) return [];
+      return st.providerOrder.map((id) => (st.info.providers || []).find((x) => x.id === id)).filter(Boolean);
+    }
+
+    // ── drag-to-reorder ──
+    let dragSrc = null;
+    function initDrag(container) {
+      container.addEventListener("dragstart", (e) => {
+        const card = e.target.closest("[data-pid]");
+        if (!card) return;
+        dragSrc = card;
+        card.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", card.dataset.pid);
+      });
+      container.addEventListener("dragend", (e) => {
+        const card = e.target.closest("[data-pid]");
+        if (card) card.classList.remove("dragging");
+        container.querySelectorAll("[data-pid]").forEach((c) => c.classList.remove("drag-over"));
+        dragSrc = null;
+      });
+      container.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const card = e.target.closest("[data-pid]");
+        container.querySelectorAll("[data-pid]").forEach((c) => c.classList.remove("drag-over"));
+        if (card && card !== dragSrc) card.classList.add("drag-over");
+      });
+      container.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const target = e.target.closest("[data-pid]");
+        if (!target || !dragSrc || target === dragSrc) return;
+        const fromId = dragSrc.dataset.pid;
+        const toId = target.dataset.pid;
+        const arr = st.providerOrder;
+        const fi = arr.indexOf(fromId), ti = arr.indexOf(toId);
+        if (fi < 0 || ti < 0) return;
+        arr.splice(fi, 1);
+        arr.splice(ti, 0, fromId);
+        renderProviders();
+      });
+    }
+
+    function renderProviders() {
+      const container = $("#setup-providers", overlay);
+      const cur = st.sel;
+      container.innerHTML = getProviders().map((p) => providerCard(p, p.id === cur)).join("");
+      container.querySelectorAll("[data-pid]").forEach((c) => {
+        c.addEventListener("click", (e) => {
+          if (e.target.closest(".setup-drag")) return;
+          selectProvider(c.dataset.pid);
+        });
+      });
+    }
+
+    // ── model combo-box (auto-scan + free input) ──
+    let scanAbort = null;
+    function renderModelField(box, p, curVal) {
+      const wrap = document.createElement("label");
+      wrap.className = "setup-f";
+      wrap.innerHTML = `<span>模型 ID</span><div class="setup-model-wrap">
+        <input type="text" data-f="model" value="${escapeHTML(curVal)}" placeholder="输入模型 ID 或从列表选择">
+        <span class="setup-model-spinner" hidden></span>
+        <div class="setup-model-list" hidden></div>
+      </div>`;
+      box.appendChild(wrap);
+
+      const inp = wrap.querySelector('input[data-f="model"]');
+      const spinner = wrap.querySelector(".setup-model-spinner");
+      const listEl = wrap.querySelector(".setup-model-list");
+
+      inp.addEventListener("input", () => {
+        st.vals.model = inp.value;
+        filterModelList(inp.value, listEl, inp);
+      });
+      inp.addEventListener("focus", () => {
+        if (st.scannedModels.length) { filterModelList(inp.value, listEl, inp); listEl.hidden = false; }
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!wrap.contains(e.target)) listEl.hidden = true;
+      });
+
+      // presets as immediate fallback
+      if (p.model_presets && p.model_presets.length) {
+        st.scannedModels = p.model_presets.map((m) => ({ id: m }));
+        renderModelList(st.scannedModels, listEl, inp);
+      }
+
+      // auto-scan on render
+      autoScanModels(inp, listEl, spinner, p);
+    }
+
+    async function autoScanModels(inp, listEl, spinner, p) {
+      if (scanAbort) scanAbort.abort();
+      const ctrl = scanAbort = new AbortController();
+      spinner.hidden = false;
+      try {
+        const body = buildBody();
+        const r = await fetch("/config/list-models", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body), signal: ctrl.signal,
+        });
+        const d = await r.json().catch(() => ({}));
+        if (ctrl.signal.aborted) return;
+        if (d.models && d.models.length) {
+          st.scannedModels = d.models;
+          renderModelList(d.models, listEl, inp);
+        }
+      } catch (e) {
+        if (e.name === "AbortError") return;
+      }
+      spinner.hidden = true;
+    }
+
+    function renderModelList(models, listEl, inp) {
+      listEl.innerHTML = models.map((m) => {
+        const name = m.name ? `<span class="setup-model-name">${escapeHTML(m.name)}</span>` : "";
+        return `<div class="setup-model-opt" data-mid="${escapeHTML(m.id)}">${escapeHTML(m.id)}${name}</div>`;
+      }).join("");
+      listEl.querySelectorAll("[data-mid]").forEach((opt) => {
+        opt.addEventListener("click", () => {
+          inp.value = opt.dataset.mid;
+          st.vals.model = opt.dataset.mid;
+          listEl.hidden = true;
+        });
+      });
+    }
+
+    function filterModelList(query, listEl, inp) {
+      if (!st.scannedModels.length) return;
+      const q = query.toLowerCase();
+      const filtered = q ? st.scannedModels.filter((m) =>
+        m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q))
+      ) : st.scannedModels;
+      renderModelList(filtered, listEl, inp);
+      listEl.hidden = filtered.length === 0;
+    }
+
+    function renderFields() {
+      const p = getProviders().find((x) => x.id === st.sel);
+      const box = $("#setup-fields", overlay);
+      if (!p) { box.innerHTML = ""; return; }
+      box.innerHTML = "";
+      st.scannedModels = [];
+
+      for (const f of p.fields) {
+        if (f === "model") {
+          let val = st.vals.model ?? "";
+          if (!val && st.sel === st.curProvider) val = st.info.model || "";
+          renderModelField(box, p, val);
+          continue;
+        }
+        const meta = FIELD_META[f] || { label: f, ph: "" };
+        let val = st.vals[f] ?? "";
+        if (!val) {
+          if (f === "vertex_project") val = st.info.vertex_project || "";
+          else if (f === "vertex_location") val = st.info.vertex_location || "";
+          else if (f === "base_url") val = st.info.base_url || "";
+        }
+        const label = document.createElement("label");
+        label.className = "setup-f";
+        label.innerHTML = `<span>${escapeHTML(meta.label)}</span>
+          <input type="text" data-f="${f}" value="${escapeHTML(val)}" placeholder="${escapeHTML(meta.ph)}">`;
+        box.appendChild(label);
+      }
+      if (p.key_field) {
+        const label = document.createElement("label");
+        label.className = "setup-f";
+        label.innerHTML = `<span>${escapeHTML(FIELD_META.key.label)}${keyStateLabel(p, st.info)}</span>
+          <input type="password" data-f="key" value="" placeholder="${escapeHTML(FIELD_META.key.ph)}">`;
+        box.appendChild(label);
+      }
+
+      const effs = st.info.efforts || [];
+      const curEff = st.vals.effort || st.info.effort || "medium";
+      const effDiv = document.createElement("div");
+      effDiv.innerHTML = `<div class="setup-effort-label">思考强度</div><div class="setup-efforts">${effs.map((e) =>
+        `<button type="button" class="setup-echip${e === curEff ? " active" : ""}" data-eff="${escapeHTML(e)}">${escapeHTML(e)}</button>`).join("")}</div>`;
+      box.appendChild(effDiv);
+
+      box.querySelectorAll("input[data-f]").forEach((inp) => {
+        if (inp.dataset.f !== "model") inp.addEventListener("input", () => { st.vals[inp.dataset.f] = inp.value; });
+      });
+      box.querySelectorAll("[data-eff]").forEach((b) =>
+        b.addEventListener("click", () => {
+          st.vals.effort = b.dataset.eff;
+          box.querySelectorAll("[data-eff]").forEach((x) => x.classList.toggle("active", x === b));
+        }));
+    }
+
+    function selectProvider(pid) {
+      st.sel = pid;
+      st.vals = { effort: st.vals.effort };
+      st.scannedModels = [];
+      renderProviders();
+      setRes(""); setErr("");
+      renderFields();
+    }
+
+    function buildBody() {
+      const p = getProviders().find((x) => x.id === st.sel);
+      const body = { provider: st.sel };
+      if (st.vals.model) body.model = st.vals.model;
+      if (st.vals.effort) body.effort = st.vals.effort;
+      if (st.vals.base_url) body.base_url = st.vals.base_url;
+      if (st.vals.vertex_project) body.vertex_project = st.vals.vertex_project;
+      if (st.vals.vertex_location) body.location = st.vals.vertex_location, body.vertex_location = st.vals.vertex_location;
+      if (p && p.key_field && st.vals.key) body[p.key_field] = st.vals.key;
+      return body;
+    }
+
+    async function doSave() {
+      setErr(""); setRes("保存中…", true);
+      try {
+        const r = await fetch("/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildBody()) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setRes("已保存并启用 ✓（新会话即生效）", true);
+      } catch (e) { setRes(""); setErr(`保存失败：${e.message}`); }
+    }
+
+    async function doTest() {
+      setErr(""); setRes("测试中…（可能需数秒）", true);
+      try {
+        const r = await fetch("/config/test-brain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildBody()) });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok) setRes(`连接成功 ✓ ${d.provider}/${d.model} — 回样「${d.sample || ""}」`, true);
+        else setRes(`连接失败：${d.error || "未知错误"}（${d.provider || ""}/${d.model || ""}）`, false);
+      } catch (e) { setRes(""); setErr(`测试失败：${e.message}`); }
+    }
+
+    $("#setup-save", overlay).onclick = doSave;
+    $("#setup-test", overlay).onclick = doTest;
+
+    // ── 搜索引擎配置 ──
+    const SEARCH_PROVIDERS = [
+      { id: "auto",       label: "自动",       hint: "按优先级自动检测已配置的引擎", fields: [] },
+      { id: "tavily",     label: "Tavily",     hint: "AI 优化搜索", fields: [{ key: "tavily_api_key", label: "API Key", ph: "tvly-…" }] },
+      { id: "brave",      label: "Brave",      hint: "隐私优先搜索", fields: [{ key: "brave_api_key", label: "API Key", ph: "BSA…" }] },
+      { id: "serper",     label: "Serper",      hint: "Google 搜索 API", fields: [{ key: "serper_api_key", label: "API Key", ph: "" }] },
+      { id: "exa",        label: "Exa",         hint: "语义搜索", fields: [{ key: "exa_api_key", label: "API Key", ph: "" }] },
+      { id: "bing",       label: "Bing",        hint: "微软 Bing 搜索", fields: [{ key: "bing_api_key", label: "API Key", ph: "" }] },
+      { id: "google_cse", label: "Google CSE",  hint: "自定义搜索引擎", fields: [{ key: "google_cse_key", label: "API Key", ph: "" }, { key: "google_cse_id", label: "搜索引擎 ID (CX)", ph: "" }] },
+      { id: "searxng",    label: "SearXNG",     hint: "自托管、免费", fields: [{ key: "searxng_url", label: "实例 URL", ph: "https://searx.example.com" }, { key: "searxng_api_key", label: "Bearer Token（可选）", ph: "" }] },
+      { id: "duckduckgo",  label: "DuckDuckGo", hint: "免费、无需密钥", fields: [] },
+    ];
+    let searchSel = "auto";
+    const searchVals = {};
+    const searchResEl = $("#search-result", overlay);
+    const setSearchRes = (m, ok) => {
+      if (!m) { searchResEl.hidden = true; return; }
+      searchResEl.textContent = m; searchResEl.hidden = false;
+      searchResEl.className = "setup-result " + (ok ? "ok" : "bad");
+    };
+
+    function renderSearchChips(searchInfo) {
+      const chips = $("#search-provider-chips", overlay);
+      chips.innerHTML = SEARCH_PROVIDERS.map((sp) => {
+        const on = sp.id === searchSel;
+        const hasKey = searchInfo && searchInfo.has_key && searchInfo.has_key[sp.id];
+        const dot = hasKey ? '<span class="search-key-dot"></span>' : "";
+        return `<button type="button" class="search-chip${on ? " active" : ""}" data-sp="${escapeHTML(sp.id)}">${dot}${escapeHTML(sp.label)}</button>`;
+      }).join("");
+      chips.querySelectorAll("[data-sp]").forEach((btn) =>
+        btn.addEventListener("click", () => { searchSel = btn.dataset.sp; renderSearchChips(searchInfo); renderSearchFields(); }));
+    }
+
+    function renderSearchFields() {
+      const box = $("#search-fields", overlay);
+      const sp = SEARCH_PROVIDERS.find((p) => p.id === searchSel);
+      if (!sp || !sp.fields.length) {
+        box.innerHTML = sp && sp.id === "auto"
+          ? '<p class="search-hint">自动模式按优先级探测：Tavily → Serper → Brave → Exa → Google CSE → Bing → SearXNG → DuckDuckGo</p>'
+          : '<p class="search-hint">无需配置</p>';
+        return;
+      }
+      box.innerHTML = sp.fields.map((f) => {
+        const val = searchVals[f.key] || "";
+        const isSecret = f.key.includes("api_key") || f.key.includes("key");
+        return `<label class="setup-f"><span>${escapeHTML(f.label)}</span>
+          <input type="${isSecret ? "password" : "text"}" data-sf="${escapeHTML(f.key)}" value="${escapeHTML(val)}" placeholder="${escapeHTML(f.ph || "留空=沿用已存")}"></label>`;
+      }).join("");
+      box.querySelectorAll("input[data-sf]").forEach((inp) =>
+        inp.addEventListener("input", () => { searchVals[inp.dataset.sf] = inp.value; }));
+    }
+
+    async function doSearchSave() {
+      setSearchRes("保存中…", true);
+      try {
+        const body = { search_provider: searchSel };
+        for (const [k, v] of Object.entries(searchVals)) { if (v) body[k] = v; }
+        const r = await fetch("/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        setSearchRes("已保存 ✓", true);
+      } catch (e) { setSearchRes(`保存失败：${e.message}`, false); }
+    }
+
+    $("#search-save", overlay).onclick = doSearchSave;
+
+    setErr(""); setRes("");
+    const provBox = $("#setup-providers", overlay);
+    provBox.innerHTML = '<div class="model-loading">加载中…</div>';
+    $("#setup-fields", overlay).innerHTML = "";
+    initDrag(provBox);
+    overlay.hidden = false;
+    fetch("/config").then((r) => r.json()).then((cfg) => {
+      const info = cfg.brain;
+      if (!info) { setErr("需先登录才能配置供应商"); return; }
+      st.info = info;
+      st.vals = { effort: info.effort || "medium" };
+      st.providerOrder = (info.providers || []).map((p) => p.id);
+      const cur = info.provider === "openai" && info.base_url ? "custom" : (info.provider || "openrouter");
+      st.curProvider = cur;
+      const idx = st.providerOrder.indexOf(cur);
+      if (idx > 0) { st.providerOrder.splice(idx, 1); st.providerOrder.unshift(cur); }
+      renderProviders();
+      selectProvider(cur);
+      // 搜索引擎初始化
+      const searchInfo = cfg.search || {};
+      searchSel = searchInfo.provider || "auto";
+      renderSearchChips(searchInfo);
+      renderSearchFields();
+    }).catch((e) => setErr(`加载失败：${e.message}`));
+  }
+
   // ── slash-command palette ───────────────────────────────────────────
   // A "/" at the start of an empty-ish line opens a floating command menu
   // above the composer. Mirrors the CLI slash set (src/slash.js), mapping
   // each command to an existing web action so the two clients stay in sync.
+  // 描述 ≤10 字（文字精简）；细节进 /help，不进菜单行
   const SLASH_COMMANDS = [
-    { name: "help",    desc: "显示可用命令" },
-    { name: "new",     desc: "开启新会话（清空当前对话）" },
-    { name: "clear",   desc: "清空当前对话（保留会话与素材）" },
-    { name: "upload",  desc: "上传素材文件" },
-    { name: "plan",    desc: "计划模式：只规划不执行，批准后再动手" },
-    { name: "model",   desc: "切换模型与思考强度（按后台优先级）" },
-    { name: "sandbox", desc: "切换沙盒开关（关闭后改动落到真实工程）" },
+    { name: "help",    desc: "所有命令" },
+    { name: "new",     desc: "开启新会话" },
+    { name: "clear",   desc: "清空当前对话" },
+    { name: "upload",  desc: "上传素材" },
+    { name: "plan",    desc: "只规划，批准后执行" },
+    { name: "model",   desc: "切换模型与强度" },
+    { name: "setup",   desc: "配置 AI 供应商" },
+    { name: "sandbox", desc: "沙盒开关" },
     { name: "library", desc: "刷新媒体库标注" },
     { name: "login",   desc: "登录 / 账户" },
   ];
@@ -2096,7 +2784,7 @@
         <span class="slash-name">/${c.name}</span>
         <span class="slash-desc">${escapeHTML(c.desc)}</span>
       </div>`).join("");
-    m.innerHTML = `<div class="slash-menu-title">命令</div>${rows}`;
+    m.innerHTML = rows;
     m.hidden = false;
     m.querySelector(".slash-item.active")?.scrollIntoView({ block: "nearest" });
   }
@@ -2121,6 +2809,7 @@
       case "upload":  els.uploadBtn.click(); break;
       case "plan":    els.planBtn?.click(); break;
       case "model":   openModelPicker(); break;
+      case "setup":   openSetupPanel(); break;
       case "sandbox": els.sandboxBtn?.click(); break;
       case "library": els.libraryRefreshBtn?.click(); break;
       case "login":   $("#account-btn")?.click(); break;
@@ -2211,6 +2900,15 @@
   }
   els.promptInput.addEventListener("input", syncShell);
 
+  // Starter suggestion chips (rail empty state): click fills the composer.
+  document.getElementById("rail-empty")?.addEventListener("click", (e) => {
+    const chip = e.target.closest(".suggest-chip");
+    if (!chip) return;
+    els.promptInput.value = chip.dataset.suggest || chip.textContent.trim();
+    syncShell();
+    els.promptInput.focus();
+  });
+
   // "+" is the single entry point. Popover opens upward from the shell.
   function openPlus()  { plusMenu.hidden = false; plusBtn.setAttribute("aria-expanded", "true"); }
   function closePlus() { plusMenu.hidden = true;  plusBtn.setAttribute("aria-expanded", "false"); }
@@ -2225,7 +2923,6 @@
     if (inner) { if (!inner.contains(e.target)) inner.click(); return; }   // stay open — flip is visible
     const kind = item.dataset.plus;
     if (kind === "slash")    { closePlus(); els.promptInput.value = "/"; slashSync(); els.promptInput.focus(); return; }
-    if (kind === "timeline") { toggleDrawer(); return; }                    // stay open, reflect state
     if (kind === "assets")   { closePlus(); toggleTray(true); return; }
     closePlus();   // upload row already fired its own listener (→ file picker)
   });
@@ -2263,8 +2960,7 @@
   function toggleDrawer(force) {
     const open = force === undefined ? !previewStage.classList.contains("drawer-open") : force;
     previewStage.classList.toggle("drawer-open", open);
-    plusMenu.querySelector('[data-plus="timeline"] .switch')?.classList.toggle("on", open);
-    plusMenu.querySelector('[data-plus="timeline"]')?.setAttribute("aria-checked", open ? "true" : "false");
+    renderStageTabs();
   }
   // Summoned media-library tray.
   function toggleTray(open) {
@@ -2273,6 +2969,420 @@
   }
   $("#assets-tray-close")?.addEventListener("click", () => toggleTray(false));
   assetsTray?.addEventListener("click", (e) => { if (e.target === assetsTray) toggleTray(false); });
+
+  // ── stage tabs: browser-style strip; "预览" is the permanent home tab ──
+  const stagePanel = $("#stage-panel");
+  const panelBody = $("#panel-tray-body");
+  const panelRefreshBtn = $("#panel-refresh-btn");
+  let panelView = null;          // outline/tasks/files while such a tab is active
+  let panelPollTimer = null;
+
+  const STAGE_VIEWS = {
+    timeline: { label: "时间线", ico: '<path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/>' },
+    outline:  { label: "大纲", ico: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 10h6M7 13.5h9.5"/>' },
+    history:  { label: "会话", ico: '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 12a9 9 0 0 1 9-9"/>' },
+    tasks:    { label: "后台任务", ico: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>' },
+    files:    { label: "文件", ico: '<path d="M3.5 6.5c0-1.1.9-2 2-2h3.6c.5 0 .9.2 1.2.6l1.4 1.9H18.5c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2z"/>' },
+  };
+  const PREVIEW_ICO = '<rect x="3.5" y="5" width="17" height="12" rx="2.5"/><path d="M10.4 8.6l3.8 2.4-3.8 2.4z"/><path d="M8.5 20h7"/>';
+  const stageTabsBox = $("#stage-tabs");
+  const stageTabList = $("#stage-tab-list");
+  const stageAddBtn = $("#stage-add-btn");
+  const stageAddMenu = $("#stage-add-menu");
+  const stageOverflowBtn = $("#stage-overflow-btn");
+  const stageOverflowMenu = $("#stage-overflow-menu");
+  let stageTabs = [];
+  let activeTab = "preview";
+  let bgActive = false;   // any session running / has pending jobs → tasks tab badge
+  try {
+    stageTabs = JSON.parse(window.localStorage.getItem("lumeri:v3:stage-tabs") || "[]")
+      .filter((k) => STAGE_VIEWS[k]);
+  } catch {}
+
+  function saveStageTabs() {
+    try { window.localStorage.setItem("lumeri:v3:stage-tabs", JSON.stringify(stageTabs)); } catch {}
+  }
+
+  function setActiveTab(k) {
+    activeTab = k;
+    const panel = (k === "outline" || k === "tasks" || k === "files" || k === "history") ? k : null;
+    previewStage.dataset.tab = panel ? "panel" : "preview";
+    if (stagePanel) stagePanel.hidden = !panel;
+    if (panelRefreshBtn) panelRefreshBtn.hidden = !panel;
+    panelView = panel;
+    if (panelPollTimer) { clearInterval(panelPollTimer); panelPollTimer = null; }
+    if (panel) {
+      if (panel === "files") filesState = null;   // reopen at the root picker
+      refreshPanel();
+      if (panel !== "files" && panel !== "history") panelPollTimer = window.setInterval(refreshPanel, 5000);
+    }
+    if (k === "timeline") toggleDrawer(true);
+    renderStageTabs();
+  }
+  function refreshPanel() {
+    if (!panelView) return;
+    if (panelView === "outline") renderOutlinePanel();
+    else if (panelView === "tasks") renderTasksPanel();
+    else if (panelView === "files") renderFilesPanel();
+    else if (panelView === "history") renderHistoryPanel();
+  }
+  panelRefreshBtn?.addEventListener("click", refreshPanel);
+
+  function renderStageTabs() {
+    if (!stageTabList) return;
+    const tabHtml = (k, label, ico, closable) => `
+      <button type="button" class="stage-tab${activeTab === k ? " active" : ""}" data-stage-tab="${k}" role="tab" aria-selected="${activeTab === k}">
+        <svg viewBox="0 0 24 24" aria-hidden="true">${ico}</svg><span>${label}</span>
+        ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行" aria-label="有后台任务在运行"></span>` : ""}
+        ${closable ? `<span class="stage-tab-x" data-stage-remove="${k}" role="button" title="移除" aria-label="移除${label}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+        </span>` : ""}
+      </button>`;
+    stageTabList.innerHTML =
+      tabHtml("preview", "预览", PREVIEW_ICO, false)
+      + stageTabs.map((k) => tabHtml(k, STAGE_VIEWS[k].label, STAGE_VIEWS[k].ico, true)).join("");
+  }
+
+  function renderStageAddMenu() {
+    const avail = Object.keys(STAGE_VIEWS).filter((k) => !stageTabs.includes(k));
+    stageAddMenu.innerHTML = avail.length
+      ? avail.map((k) => `
+          <button type="button" class="plus-item" role="menuitem" data-stage-add="${k}">
+            <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true">${STAGE_VIEWS[k].ico}</svg>
+            <span class="plus-label">${STAGE_VIEWS[k].label}</span>
+          </button>`).join("")
+      : `<div class="stage-add-empty">已全部添加</div>`;
+  }
+  function openStageAdd() { renderStageAddMenu(); stageAddMenu.hidden = false; stageAddBtn.setAttribute("aria-expanded", "true"); renderStageTabs(); }
+  function closeStageAdd() { stageAddMenu.hidden = true; stageAddBtn.setAttribute("aria-expanded", "false"); renderStageTabs(); }
+  stageAddBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    stageAddMenu.hidden ? openStageAdd() : closeStageAdd();
+  });
+  document.addEventListener("click", (e) => {
+    if (stageAddMenu && !stageAddMenu.hidden
+        && !e.target.closest("#stage-add-menu") && !e.target.closest("#stage-add-btn")) closeStageAdd();
+    if (stageOverflowMenu && !stageOverflowMenu.hidden
+        && !e.target.closest("#stage-overflow-menu") && !e.target.closest("#stage-overflow-btn")) closeStageOverflow();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (stageAddMenu && !stageAddMenu.hidden) closeStageAdd();
+      if (stageOverflowMenu && !stageOverflowMenu.hidden) closeStageOverflow();
+    }
+  });
+
+  // ⌘/Ctrl + 1–9 jumps to the Nth stage tab (preview = 1). In a browser the OS
+  // may intercept ⌘1–8 for its own tabs; inside the desktop shell it lands.
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    if (!/^[1-9]$/.test(e.key)) return;
+    const order = ["preview", ...stageTabs];
+    const idx = Number(e.key) - 1;
+    if (idx >= order.length) return;
+    e.preventDefault();
+    setActiveTab(order[idx]);
+  });
+
+  // Overflow "⋮": secondary actions (refresh the active view) tucked off the bar.
+  function renderStageOverflow() {
+    const canRefresh = !!panelView && panelView !== "history";
+    stageOverflowMenu.innerHTML = `
+      <button type="button" class="plus-item" role="menuitem" data-overflow="refresh"${canRefresh ? "" : " disabled"}>
+        <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+        <span class="plus-label">刷新当前视图</span>
+      </button>`;
+  }
+  function openStageOverflow() { renderStageOverflow(); stageOverflowMenu.hidden = false; stageOverflowBtn.setAttribute("aria-expanded", "true"); }
+  function closeStageOverflow() { stageOverflowMenu.hidden = true; stageOverflowBtn.setAttribute("aria-expanded", "false"); }
+  stageOverflowBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    stageOverflowMenu.hidden ? openStageOverflow() : closeStageOverflow();
+  });
+
+  stageTabsBox?.addEventListener("click", (e) => {
+    const ov = e.target.closest("[data-overflow]");
+    if (ov) {
+      if (ov.dataset.overflow === "refresh") refreshPanel();
+      closeStageOverflow();
+      return;
+    }
+    const add = e.target.closest("[data-stage-add]");
+    if (add) {
+      const k = add.dataset.stageAdd;
+      if (!stageTabs.includes(k)) { stageTabs.push(k); saveStageTabs(); }
+      closeStageAdd();
+      setActiveTab(k);
+      return;
+    }
+    const rm = e.target.closest("[data-stage-remove]");
+    if (rm) {
+      e.stopPropagation();
+      const k = rm.dataset.stageRemove;
+      stageTabs = stageTabs.filter((x) => x !== k);
+      saveStageTabs();
+      if (k === "timeline") toggleDrawer(false);
+      if (activeTab === k) setActiveTab("preview");
+      else renderStageTabs();
+      return;
+    }
+    const tab = e.target.closest("[data-stage-tab]");
+    if (!tab) return;
+    const k = tab.dataset.stageTab;
+    // Re-clicking the active timeline tab toggles its drawer; other tabs are idempotent.
+    if (k === "timeline" && activeTab === "timeline") { toggleDrawer(); return; }
+    setActiveTab(k);
+  });
+  renderStageTabs();
+
+  // Live badge on the 后台任务 tab: a slow, visibility-gated /sessions poll
+  // flips bgActive when any session is mid-turn or has pending generation jobs.
+  async function pollBgTasks() {
+    if (document.visibilityState === "hidden") return;
+    let active = false;
+    try {
+      const r = await fetch("/sessions");
+      if (r.ok) {
+        const sessions = (await r.json()).sessions || [];
+        active = sessions.some((s) => s.turn_in_progress || (s.pending_jobs || []).length > 0);
+      }
+    } catch {}
+    if (active !== bgActive) { bgActive = active; renderStageTabs(); }
+  }
+  pollBgTasks();
+  window.setInterval(pollBgTasks, 12000);
+
+  const fmtBytes = (n) => {
+    if (!Number.isFinite(n)) return "";
+    if (n >= 1 << 30) return (n / (1 << 30)).toFixed(1) + " GB";
+    if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
+    if (n >= 1024) return Math.round(n / 1024) + " KB";
+    return n + " B";
+  };
+  const fmtAgo = (epoch) => {
+    if (!epoch) return "";
+    const s = Math.max(0, (Date.now() / 1000) - epoch);
+    if (s < 60) return "刚刚";
+    if (s < 3600) return Math.floor(s / 60) + " 分钟前";
+    if (s < 86400) return Math.floor(s / 3600) + " 小时前";
+    return Math.floor(s / 86400) + " 天前";
+  };
+
+  // ── outline panel: the shotlist riding /timeline ──────────────────────
+  const SHOT_STATUS = { draft: ["草稿", ""], filled: ["已配素材", "filled"], placed: ["已上时间线", "placed"] };
+  async function renderOutlinePanel() {
+    if (!state.sessionId) { panelBody.innerHTML = `<p class="placeholder">暂无会话</p>`; return; }
+    let sl = null;
+    try {
+      const r = await fetch(`/sessions/${state.sessionId}/timeline`);
+      if (r.ok) sl = (await r.json()).shotlist;
+    } catch {}
+    if (panelView !== "outline") return;   // panel switched while fetching
+    const scenes = (sl && Array.isArray(sl.scenes)) ? sl.scenes : [];
+    const shotCount = scenes.reduce((n, sc) => n + ((sc.shots || []).length), 0);
+    if (!shotCount) { panelBody.innerHTML = `<p class="placeholder">暂无大纲 — 让 Lumeri 起草分镜后在这里查看</p>`; return; }
+    let html = "";
+    if (sl.logline) html += `<p class="outline-logline">${escapeHTML(sl.logline)}</p>`;
+    let no = 0;
+    for (const sc of scenes) {
+      if (sc.title) html += `<div class="outline-scene">${escapeHTML(sc.title)}</div>`;
+      for (const shot of (sc.shots || [])) {
+        no += 1;
+        const st = SHOT_STATUS[shot.status] || SHOT_STATUS.draft;
+        const meta = [
+          `${Number(shot.duration_sec || 0).toFixed(1)}s`,
+          shot.narration ? `旁白：${shot.narration}` : "",
+          shot.on_screen_text ? `字幕：${shot.on_screen_text}` : "",
+          shot.mood || "",
+        ].filter(Boolean).join(" · ");
+        html += `
+          <div class="outline-row">
+            <span class="outline-no ${st[1]}" title="${st[0]}">${no}</span>
+            <span class="outline-main">
+              <span class="outline-beat">${escapeHTML(shot.description || "(未命名镜头)")}</span>
+              ${meta ? `<span class="outline-meta">${escapeHTML(meta)}</span>` : ""}
+            </span>
+          </div>`;
+      }
+    }
+    panelBody.innerHTML = html;
+  }
+
+  // ── background tasks panel: GET /sessions (runners + pending jobs) ────
+  async function renderTasksPanel() {
+    let sessions = null;
+    try {
+      const r = await fetch("/sessions");
+      if (r.ok) sessions = (await r.json()).sessions;
+    } catch {}
+    if (panelView !== "tasks") return;
+    if (!Array.isArray(sessions)) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    if (!sessions.length) { panelBody.innerHTML = `<p class="placeholder">暂无运行中的会话</p>`; return; }
+    panelBody.innerHTML = sessions.map((s) => {
+      const mine = s.session_id === state.sessionId;
+      const cls = s.turn_in_progress ? "running" : "";
+      const stateTxt = s.turn_in_progress ? "执行中" : "空闲";
+      const jobs = (s.pending_jobs || []).map((j) => `
+        <div class="task-row task-job">
+          <span class="task-dot ${j.last_polled_status === "failed" ? "failed" : "running"}"></span>
+          <span class="task-main">
+            <span class="task-name">${escapeHTML(j.summary || j.kind || j.job_id || "任务")}</span>
+            <span class="task-sub">${escapeHTML([j.provider, j.last_polled_status].filter(Boolean).join(" · "))}</span>
+          </span>
+        </div>`).join("");
+      return `
+        <div class="task-row" title="${escapeHTML(s.session_id)}">
+          <span class="task-dot ${cls}"></span>
+          <span class="task-main">
+            <span class="task-name">${escapeHTML(s.session_id)}${mine ? " · 当前" : ""}</span>
+            <span class="task-sub">${stateTxt}${s.plan_mode ? " · 计划模式" : ""} · ${fmtAgo(s.last_used_at)}</span>
+          </span>
+        </div>${jobs}`;
+    }).join("");
+  }
+
+  // ── session history panel ─────────────────────────────────────────────
+  async function renderHistoryPanel() {
+    let sessions = null;
+    try {
+      const r = await fetch("/session-history/list?limit=50");
+      if (r.ok) sessions = (await r.json()).sessions;
+    } catch {}
+    if (panelView !== "history") return;
+    if (!Array.isArray(sessions)) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    if (!sessions.length) { panelBody.innerHTML = `<p class="placeholder">暂无历史会话</p>`; return; }
+    panelBody.innerHTML = sessions.map((s) => {
+      const title = s.title || "Gemia Session";
+      const time = s.updated_at ? fmtAgo(new Date(s.updated_at).getTime() / 1000) : "";
+      const msgs = s.message_count || 0;
+      return `
+        <button type="button" class="task-row history-row" data-snapshot-id="${escapeHTML(s.id)}">
+          <span class="task-main">
+            <span class="task-name">${escapeHTML(title)}</span>
+            <span class="task-sub">${msgs} 条消息${time ? " · " + time : ""}</span>
+          </span>
+        </button>`;
+    }).join("");
+
+    panelBody.querySelectorAll(".history-row").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.snapshotId;
+        if (!id) return;
+        loadHistorySession(id);
+      });
+    });
+  }
+
+  async function loadHistorySession(snapshotId) {
+    try {
+      const r = await fetch(`/session-history/${encodeURIComponent(snapshotId)}`);
+      if (!r.ok) return;
+      const session = await r.json();
+      state.turns = [];
+      state.currentTurn = null;
+      state.sessionTitle = session.title || null;
+      state.userMessageCount = 0;
+      els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
+      const msgs = session.messages || [];
+      let currentTurn = null;
+      for (const msg of msgs) {
+        if (msg.role === "user") {
+          currentTurn = newTurn(msg.content || "");
+          state.turns.push(currentTurn);
+          state.userMessageCount++;
+        } else if (msg.role === "status" && currentTurn) {
+          currentTurn.assistantText = msg.content || "";
+          currentTurn.complete = true;
+        }
+      }
+      render();
+    } catch {}
+  }
+
+  // ── files panel: whitelisted read-only browser (/files/*) ────────────
+  let filesState = null;   // null = root picker; else {root, session, path}
+  const FILE_ICON = (name) => {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    if (["mp4", "mov", "webm", "mkv", "avi"].includes(ext)) return "i-film";
+    if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext)) return "i-image";
+    if (["mp3", "wav", "m4a", "aac", "flac", "ogg"].includes(ext)) return "i-music";
+    return "i-file";
+  };
+  async function renderFilesPanel() {
+    if (!filesState) {
+      let roots = [];
+      try {
+        const r = await fetch("/files/roots");
+        if (r.ok) roots = (await r.json()).roots || [];
+      } catch {}
+      if (panelView !== "files") return;
+      let html = "";
+      if (state.sessionId) {
+        html += `<button type="button" class="file-row" data-file-root="session">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-folder"/></svg>
+          <span class="file-name">当前会话工作区</span></button>`;
+      }
+      html += roots.map((rt) => `
+        <button type="button" class="file-row" data-file-root="${escapeHTML(rt.key)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-folder"/></svg>
+          <span class="file-name">${escapeHTML(rt.label)}</span></button>`).join("");
+      panelBody.innerHTML = html || `<p class="placeholder">暂无可浏览目录</p>`;
+      return;
+    }
+    const { root, session, path } = filesState;
+    const qs = `root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${session ? `&session=${encodeURIComponent(session)}` : ""}`;
+    let data = null;
+    try {
+      const r = await fetch(`/files/list?${qs}`);
+      if (r.ok) data = await r.json();
+    } catch {}
+    if (panelView !== "files") return;
+    if (!data) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    const segs = path ? path.split("/") : [];
+    const crumbs = [`<button type="button" data-file-crumb="">${escapeHTML(root === "session" ? "工作区" : root)}</button>`]
+      .concat(segs.map((seg, i) =>
+        `<span>/</span><button type="button" data-file-crumb="${escapeHTML(segs.slice(0, i + 1).join("/"))}">${escapeHTML(seg)}</button>`))
+      .join("");
+    const rows = (data.entries || []).map((en) => {
+      const child = path ? `${path}/${en.name}` : en.name;
+      return en.is_dir
+        ? `<button type="button" class="file-row" data-file-dir="${escapeHTML(child)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-folder"/></svg>
+            <span class="file-name">${escapeHTML(en.name)}</span></button>`
+        : `<button type="button" class="file-row" data-file-open="${escapeHTML(child)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${FILE_ICON(en.name)}"/></svg>
+            <span class="file-name">${escapeHTML(en.name)}</span>
+            <span class="file-size">${fmtBytes(en.size)}</span></button>`;
+    }).join("");
+    panelBody.innerHTML = `
+      <div class="files-crumbs"><button type="button" data-file-crumb="__roots__" title="所有目录"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:12px;height:12px"><use href="#i-chevron-l"/></svg></button>${crumbs}</div>
+      ${rows || `<p class="placeholder">空目录</p>`}
+      ${data.truncated ? `<p class="placeholder">（仅显示前 500 项）</p>` : ""}`;
+  }
+  panelBody?.addEventListener("click", (e) => {
+    const rootBtn = e.target.closest("[data-file-root]");
+    if (rootBtn) {
+      const key = rootBtn.dataset.fileRoot;
+      filesState = { root: key, session: key === "session" ? state.sessionId : "", path: "" };
+      renderFilesPanel();
+      return;
+    }
+    const crumb = e.target.closest("[data-file-crumb]");
+    if (crumb) {
+      if (crumb.dataset.fileCrumb === "__roots__") filesState = null;
+      else filesState = { ...filesState, path: crumb.dataset.fileCrumb };
+      renderFilesPanel();
+      return;
+    }
+    const dir = e.target.closest("[data-file-dir]");
+    if (dir) { filesState = { ...filesState, path: dir.dataset.fileDir }; renderFilesPanel(); return; }
+    const file = e.target.closest("[data-file-open]");
+    if (file) {
+      const { root, session } = filesState;
+      const qs = `root=${encodeURIComponent(root)}&path=${encodeURIComponent(file.dataset.fileOpen)}${session ? `&session=${encodeURIComponent(session)}` : ""}`;
+      window.open(`/files/get?${qs}`, "_blank", "noopener");
+    }
+  });
 
   // First-run discovery pulse on "+" (controls are hidden behind it now).
   try {
@@ -2396,14 +3506,31 @@
     const showErr = (msg) => { errBox.textContent = msg || ""; errBox.hidden = !msg; };
     const clearErr = () => showErr("");
 
+    // Signed in = Google photo when present, else round initial badge;
+    // signed out = person icon. Email lives in title.
     function applySession(data) {
       session = data || {};
       const acct = session.account;
       if (acct && acct.email) {
-        accountBtn.textContent = acct.email;
+        if (acct.picture) {
+          accountBtn.innerHTML = "";
+          const img = document.createElement("img");
+          img.className = "account-photo";
+          img.alt = "";
+          img.referrerPolicy = "no-referrer";
+          img.src = acct.picture;
+          img.onerror = () => { accountBtn.textContent = acct.email.trim().charAt(0).toUpperCase(); };
+          accountBtn.appendChild(img);
+        } else {
+          accountBtn.textContent = acct.email.trim().charAt(0).toUpperCase();
+        }
+        accountBtn.title = acct.email;
+        accountBtn.setAttribute("aria-label", `账户：${acct.email}`);
         accountBtn.classList.add("signed-in");
       } else {
-        accountBtn.textContent = "登录";
+        accountBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg>';
+        accountBtn.title = "登录 / 账户";
+        accountBtn.setAttribute("aria-label", "登录 / 账户");
         accountBtn.classList.remove("signed-in");
       }
     }
@@ -2460,7 +3587,23 @@
       viewSignin.hidden = !!acct;
       if (acct) {
         acctEmail.textContent = acct.email || acct.name || "已登录";
-        avatar.textContent = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+        if (acct.picture) {
+          avatar.classList.add("has-photo");
+          avatar.innerHTML = "";
+          const img = document.createElement("img");
+          img.className = "account-photo";
+          img.alt = "";
+          img.referrerPolicy = "no-referrer";
+          img.src = acct.picture;
+          img.onerror = () => {
+            avatar.classList.remove("has-photo");
+            avatar.textContent = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+          };
+          avatar.appendChild(img);
+        } else {
+          avatar.classList.remove("has-photo");
+          avatar.textContent = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+        }
         return;
       }
       const hasGoogle = !!(session && session.has_google_client_id);

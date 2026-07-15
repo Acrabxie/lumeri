@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from gemia.tools._context import ToolContext
+from gemia.turn_control import ClarificationDecisionKind, ClarificationGuard
 from gemia.tools.ask import (
     AskQuestion,
     AskAnswer,
@@ -60,6 +61,41 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             "error_code": "E_ELICIT_INVALID_SPEC",
         }
 
+    extra = getattr(ctx, "extra", None) or {}
+    guard = extra.get("clarification_guard")
+    if isinstance(guard, ClarificationGuard):
+        reason = args.get("reason")
+        if not reason:
+            return {
+                "error": "elicit requires a host-approved clarification reason",
+                "error_code": "E_CLARIFICATION_POLICY",
+            }
+        try:
+            policy = guard.decide(
+                str(reason),
+                question=str(args.get("title") or "Question"),
+                defaults=_explicit_defaults(controls_spec),
+            )
+        except ValueError:
+            return {
+                "error": f"unsupported clarification reason: {reason}",
+                "error_code": "E_CLARIFICATION_POLICY",
+            }
+        if policy.decision is ClarificationDecisionKind.DEFAULT:
+            return {
+                "status": "default_applied",
+                "reason": policy.reason.value,
+                "answers": policy.defaults,
+                "fallback_used": True,
+                "host_policy_default": True,
+            }
+        if policy.decision is ClarificationDecisionKind.DENY:
+            return {
+                "error": policy.message,
+                "error_code": policy.error_code or "E_CLARIFICATION_POLICY",
+                "reason": policy.reason.value,
+            }
+
     question = AskQuestion(
         question_id=f"ask_{uuid.uuid4().hex[:12]}",
         title=args.get("title", "Question"),
@@ -71,7 +107,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         },
     )
 
-    bridge = (getattr(ctx, "extra", None) or {}).get("ask_bridge")
+    bridge = extra.get("ask_bridge")
     if bridge is None:
         # No HITL bridge wired into this context (legacy / test path): emit nothing
         # and hand the question back so a caller can route it however it likes.
@@ -159,6 +195,40 @@ def _build_one(key_or_index: Any, spec: dict[str, Any]) -> Any:
 def _build_controls(spec: dict[str, Any]) -> dict[str, Any]:
     """Parse a ``{key: control_spec}`` mapping into control objects."""
     return {key: _build_one(key, ctrl_spec) for key, ctrl_spec in spec.items()}
+
+
+_NO_DEFAULT = object()
+
+
+def _explicit_default_for_spec(spec: dict[str, Any]) -> Any:
+    """Return only caller-declared safe defaults; never invent creative taste."""
+    ctrl_type = spec.get("type")
+    if ctrl_type in {AskControlType.SELECT, AskControlType.SLIDER}:
+        return spec["default"] if "default" in spec else _NO_DEFAULT
+    if ctrl_type == AskControlType.MULTI_SELECT:
+        if "default" in spec:
+            return list(spec.get("default") or [])
+        return [] if int(spec.get("min", 0) or 0) == 0 else _NO_DEFAULT
+    if ctrl_type == AskControlType.PANEL:
+        result: dict[str, Any] = {}
+        for key, child in (spec.get("fields") or {}).items():
+            value = _explicit_default_for_spec(child)
+            if value is _NO_DEFAULT:
+                return _NO_DEFAULT
+            result[key] = value
+        return result
+    # Text and custom panels are intentionally not fabricated.
+    return _NO_DEFAULT
+
+
+def _explicit_defaults(spec: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, control in spec.items():
+        value = _explicit_default_for_spec(control)
+        if value is _NO_DEFAULT:
+            return {}
+        result[key] = value
+    return result
 
 
 # ── default-answer synthesis (no-frontend / timeout fallback) ───────────────

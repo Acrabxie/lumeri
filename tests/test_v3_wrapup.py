@@ -41,6 +41,24 @@ class _StreamErrors:
         yield {"kind": "error", "error": "simulated stream failure"}
 
 
+class _PartialThenErrors:
+    model = "fake"
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del messages, tools, temperature
+        yield {"kind": "text_delta", "text": "starting"}
+        yield {
+            "kind": "tool_call_start",
+            "index": 0,
+            "id": "partial_call",
+            "name": "partial_tool",
+        }
+        yield {"kind": "tool_call_args_delta", "index": 0, "delta": '{"x":'}
+        yield {"kind": "error", "error": "upstream failed mid-frame"}
+
+
 def test_wrapup_emitted_on_stream_error(tmp_path: Path) -> None:
     """When the model stream errors, a ``turn_wrapup`` event is emitted with
     the stop reason — IN ADDITION to the existing ``turn_error``."""
@@ -77,6 +95,34 @@ def test_wrapup_emitted_on_stream_error(tmp_path: Path) -> None:
     ti_err = next(i for i, e in enumerate(events) if e.get("kind") == "turn_error")
     ti_wrap = next(i for i, e in enumerate(events) if e.get("kind") == "turn_wrapup")
     assert ti_wrap > ti_err
+
+
+def test_partial_text_then_error_never_dispatches_or_completes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    dispatched = False
+
+    async def forbidden_dispatch(args: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        nonlocal dispatched
+        dispatched = True
+        return {"ok": True}
+
+    monkeypatch.setitem(loop_mod.DISPATCHER, "partial_tool", forbidden_dispatch)
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="wrapup_partial_error",
+        output_dir=tmp_path,
+        gemini_client=_PartialThenErrors(),  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("make an asset"))
+
+    assert dispatched is False
+    assert len([e for e in events if e.get("kind") == "turn_error"]) == 1
+    assert len([e for e in events if e.get("kind") == "turn_wrapup"]) == 1
+    assert not [e for e in events if e.get("kind") == "turn_complete"]
+    assert not [e for e in events if e.get("kind") == "tool_exec_start"]
 
 
 class _AlwaysSucceeds:

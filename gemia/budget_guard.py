@@ -1,9 +1,9 @@
 """Budget guard for the Lumeri v3 agent loop.
 
 The only host-side gate. Tracks per-session cumulative cost and elapsed
-time; returns either ``ok`` or ``needs_approval``. The model decides what
-to do with ``needs_approval`` — host does not auto-fallback, auto-pick a
-cheaper tool, or auto-ask the user.
+time; returns either ``ok`` or a fixed-limit block. The model chooses an
+in-budget alternative or reports the blocker — the host does not auto-pick a
+cheaper tool and an approval cannot raise the cap.
 
 There is no capability gate, no stability gate, no approval stub. The
 model holds the wheel; the host only reports real money and real time.
@@ -115,6 +115,9 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "lumen_render":             {"usd": 0.00, "eta_sec": 20.0},
     "lumen_seek":               {"usd": 0.00, "eta_sec": 1.0},
     "lumen_render_range":       {"usd": 0.00, "eta_sec": 5.0},
+    # Vector motion design: create/adjust only compile SVG + patch the doc —
+    # the actual html→mp4 render cost is paid later by lumen_render/seek.
+    "vector_motion":            {"usd": 0.00, "eta_sec": 1.0},
     # Multi-agent fan-out: the verb itself is near-free orchestration; the real
     # cost of children flows through per-child budget reservations (see
     # gemia/subtasks.py + docs/multi-agent-plan.md §5). The loop special-cases

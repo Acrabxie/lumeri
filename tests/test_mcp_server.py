@@ -242,6 +242,9 @@ def test_budget_gate_blocks_over_cap_verb(tmp_path):
         assert res.isError is True
         payload = _text_payload(res)
         assert payload["error_code"] == "E_BUDGET"
+        assert payload["blocked_by_budget"] is True
+        assert payload["approval_cannot_override"] is True
+        assert "needs_approval" not in payload
         assert "reason" in payload
         assert "alternatives" in payload
     finally:
@@ -360,5 +363,40 @@ def test_sse_mirror_tags_origin_mcp(tmp_path):
         kinds = [(e["kind"], e.get("origin")) for e in events]
         assert ("tool_exec_start", "mcp") in kinds
         assert ("tool_exec_result", "mcp") in kinds
+    finally:
+        mgr.close_all()
+
+
+def test_returned_failure_maps_to_mcp_error(tmp_path, monkeypatch):
+    import gemia.tools as tools_mod
+    from gemia.session_manager import VerbGateError
+
+    async def returned_failure(args, ctx):
+        return {"exit_code": 9, "error": "probe failed"}
+
+    monkeypatch.setitem(tools_mod.DISPATCHER, "get_timeline", returned_failure)
+    mgr = _make_manager(tmp_path)
+    try:
+        runner = mgr.create_session()
+        events: list[dict] = []
+        original_emit = runner._emit_event
+
+        def capture(event):
+            events.append(event)
+            original_emit(event)
+
+        runner._emit_event = capture  # type: ignore[method-assign]
+
+        with pytest.raises(VerbGateError) as exc_info:
+            runner.run_verb("get_timeline", {})
+
+        assert exc_info.value.code == "E_PROCESS_EXIT"
+        assert any(
+            event.get("kind") == "tool_exec_error"
+            and event.get("origin") == "mcp"
+            and event.get("error_code") == "E_PROCESS_EXIT"
+            for event in events
+        )
+        assert not any(event.get("kind") == "tool_exec_result" for event in events)
     finally:
         mgr.close_all()
