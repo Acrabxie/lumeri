@@ -1412,6 +1412,46 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["t_in", "t_out"],
     ),
+    _tool(
+        "vector_motion",
+        "Professional vector motion design (logo reveals, brand stings, MG animation, "
+        "animated backgrounds) as ONE creative verb. op:'create' takes a creative BRIEF "
+        "— {subject:{kind: logo_text|title|mark|abstract, text?, mark?: ring|hex|star|blob|wave|orbit, "
+        "preset?, subtitle?}, intent: reveal|intro|loop|transition|outro, style (playful/minimal/"
+        "luxury/tech/lumeri or aliases like 'google-like'), feeling:[adjectives], duration (s), "
+        "palette, seed, params:{energy|smoothness|playfulness|elegance|complexity|density|"
+        "organicness: 0..1}} — plans the choreography (phase arc, staggering, focal order) and adds "
+        "the result as an animated html layer in the lumenframe doc. Speak creative language, not "
+        "coordinates: say energy 0.8, never x+=20. op:'adjust' re-choreographs an existing vector "
+        "layer from human feedback phrases ('more playful', 'less chaotic', '更高级'). op:'catalog' "
+        "lists the full vocabulary. Verify with lumen_seek / lumen_render_range. Deterministic per "
+        "seed; same brief renders once (content-hash cache).",
+        {
+            "op": {
+                "type": "string",
+                "enum": ["create", "adjust", "catalog"],
+                "description": "create = brief → new vector layer; adjust = feedback → rebuild an existing layer; catalog = vocabulary.",
+            },
+            "brief": {
+                "type": "object",
+                "description": "create only: the creative brief (subject required; everything else optional).",
+            },
+            "place": {
+                "type": "object",
+                "description": "create only: layer placement {start (s), lane, name}.",
+            },
+            "layer_id": {
+                "type": "string",
+                "description": "adjust only: the vector layer to re-choreograph.",
+            },
+            "feedback": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "adjust only: feedback phrases, e.g. ['more playful', 'less dense'].",
+            },
+        },
+        ["op"],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.

@@ -410,6 +410,19 @@ Rule of thumb: name the intent — trim source, constant speed, ramp, keyframe
 time, reverse, delete-and-close, or nest — and pick the matching verb above.
 Drop to `lumen_patch` only for a property no named verb covers.
 
+### Vector motion design (`vector_motion`)
+
+For **logo reveals, brand stings, MG animation, animated vector backgrounds**,
+do NOT hand-animate shapes with keyframes — call `vector_motion` with a
+creative brief. Speak creative language (style, feeling, semantic parameters
+like `energy`/`elegance` 0..1), never raw coordinates; the engine plans the
+choreography (anticipation → entrance → emphasis → hold), staggering and
+focal order for you and adds one animated `html` layer to the doc. Iterate
+with `op:"adjust"` + feedback phrases ("more playful", "更高级") — it
+re-choreographs deterministically instead of patching the SVG. `op:"catalog"`
+lists styles/behaviours/feelings. Verify like any layer: `lumen_seek` /
+`lumen_render_range`.
+
 ### Available operations (lumenframe.ops vocabulary):
 
 {{lumenframe_ops}}
