@@ -23,10 +23,10 @@ def _load_historical_prompt_corpus() -> dict[str, object]:
     return json.loads(_HISTORICAL_PROMPT_FIXTURE.read_text(encoding="utf-8"))
 
 
-def test_catalog_exactly_covers_current_105_tool_schemas() -> None:
-    # 105 = 104 + vector_motion (professional vector motion design verb).
-    assert len(MASTER_TOOL_NAMES) == 105
-    assert len(set(MASTER_TOOL_NAMES)) == 105
+def test_catalog_exactly_covers_current_111_tool_schemas() -> None:
+    # 111 = 104 + vector_motion + six dedicated creative-library verbs.
+    assert len(MASTER_TOOL_NAMES) == 111
+    assert len(set(MASTER_TOOL_NAMES)) == 111
     assert catalog_coverage() == (frozenset(), frozenset())
     # vector_motion must belong to a pack (else it only surfaces on full
     # fallback and the model falls back to hand-pushed keyframes).
@@ -218,3 +218,25 @@ def test_source_image_made_into_video_routes_to_video_generation() -> None:
 def test_common_adjustment_language_routes_to_editing_not_read_only_inspection() -> None:
     decision = classify_request("把画面调亮一点", state={"has_assets": True})
     assert decision.primary_workflow == "video_edit"
+
+
+def test_google_photos_api_topic_does_not_route_to_image_generation() -> None:
+    for request in (
+        "哦我说的是通过Google官方的api接入photo",
+        "我想了解通过Google官方API接入Google Photos，该怎么做？",
+        "请直接把 Google Photos Picker API 接进 Lumeri",
+        "Explain how the Google Photos OAuth integration works",
+    ):
+        router = ToolRouter(request)
+        assert "image" not in router.decision.workflows
+        assert "generate_image" not in router.active_tool_names
+
+
+def test_explicit_google_photos_diagram_request_still_routes_to_image() -> None:
+    for request in (
+        "生成一张 Google Photos API 接入架构图",
+        "Create a Google Photos integration diagram",
+    ):
+        router = ToolRouter(request)
+        assert "image" in router.decision.workflows
+        assert "generate_image" in router.active_tool_names

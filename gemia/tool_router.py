@@ -58,7 +58,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "generate_image", "edit_image", "composite", "color_grade",
         "adjust_media", "paint_overlay", "paint_mask_effect", "add_overlay",
         "transform_geometry", "smart_reframe", "get_safe_areas",
-        "probe_media", "analyze_media", "extract_frame",
+        "probe_media", "analyze_media", "extract_frame", "compose",
     }),
     "video_generation": frozenset({
         "generate_video", "generate_image", "check_job", "wait_for_job",
@@ -69,7 +69,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "edit_video", "composite", "color_grade", "adjust_media",
         "add_overlay", "arrange_timeline", "subtitle", "animate_captions",
         "transform_geometry", "smart_reframe", "export", "probe_media",
-        "analyze_media", "extract_frame", "timeline_insert_clip",
+        "analyze_media", "extract_frame", "timeline_insert_clip", "grade",
     }),
     "audio": frozenset({
         "generate_audio", "narrate", "mix_audio", "edit_audio",
@@ -88,13 +88,14 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "timeline_set_clip_time", "timeline_add_transition",
         "timeline_set_clip_effects", "timeline_add_track", "timeline_set_track",
         "timeline_undo", "inspect_timeline", "render_preview", "project_export",
+        "edit_grammar", "rhythm_edit",
     }),
     "lumen_core": frozenset({
         "get_lumenframe", "lumen_patch", "lumen_add_layer",
         "lumen_set_transform", "lumen_set_opacity", "lumen_delete_layer",
         "lumen_move_layer", "lumen_set_visibility", "lumen_select",
         "lumen_render", "lumen_seek", "lumen_render_range",
-        "vector_motion",
+        "vector_motion", "camera",
     }),
     "lumen_time": frozenset({
         "get_lumenframe", "lumen_set_range", "lumen_set_lane",
@@ -113,7 +114,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "analyze_media", "extract_frame", "search_library", "search_media",
         "search_frames", "get_lumenframe", "lumen_patch",
         "lumen_add_layer", "lumen_set_transform", "lumen_render", "lumen_seek",
-        "vector_motion",
+        "vector_motion", "kinetic_type",
     }),
     "files": frozenset({
         "file_list", "file_read", "file_write", "file_copy", "file_move",
@@ -317,6 +318,28 @@ def is_conversation_only(request: str) -> bool:
     return text in _CONVERSATION_ONLY
 
 
+_INTEGRATION_TOPIC_RE = re.compile(
+    r"(?:\b(?:api|oauth|sdk|picker|integration|integrate|connect|wire)\b|"
+    r"photos?\s+(?:library|picker)|官方\s*api|接口|接入|接进|集成|连接)",
+    re.I,
+)
+
+_MEDIA_ARTIFACT_ACTION_RE = re.compile(
+    r"(?:(?:生成|制作|创建|画|设计|输出|修图|编辑).{0,48}"
+    r"(?:图片|图像|照片|海报|封面|架构图|流程图)|"
+    r"(?:make|create|generate|draw|design|produce|edit).{0,48}"
+    r"(?:image|photo|poster|cover|diagram))",
+    re.I,
+)
+
+
+def _integration_topic_without_media_artifact(text: str) -> bool:
+    """True when image/photo names a service/API topic, not a deliverable."""
+    return bool(_INTEGRATION_TOPIC_RE.search(text)) and not bool(
+        _MEDIA_ARTIFACT_ACTION_RE.search(text)
+    )
+
+
 def classify_request(
     request: str,
     *,
@@ -339,6 +362,20 @@ def classify_request(
         scores[workflow] += sum(
             1 for keyword in keywords if _keyword_present(text, keyword)
         )
+
+    # A product name such as "Google Photos" is not a request to create an
+    # image.  API/OAuth/integration discussion used to activate the image pack,
+    # which then made the ledger require an image artifact.  Route such work to
+    # documentation/files instead; an explicit diagram/image request below
+    # retains the image pack.
+    integration_topic = bool(_INTEGRATION_TOPIC_RE.search(text))
+    media_artifact_action = bool(_MEDIA_ARTIFACT_ACTION_RE.search(text))
+    if integration_topic and not media_artifact_action:
+        scores["image"] = 0
+        scores["web"] += 3
+        scores["files"] += 2
+    elif integration_topic and media_artifact_action:
+        scores["image"] += 4
 
     # Head-noun generation phrasing may contain modifiers between the verb and
     # "video" ("生成一个有音乐的视频", "make a 7-second video").

@@ -30,7 +30,7 @@ def test_nano_banana_client_defaults_to_openrouter(monkeypatch):
     client = GenerativeClient()
 
     assert client._backend == "openrouter"
-    assert client._model == "google/gemini-2.5-flash-image"
+    assert client._model == "google/gemini-3.1-flash-image-preview"
     assert client.base_url == "https://openrouter.ai/api/v1"
 
 
@@ -57,7 +57,7 @@ def test_text_generation_posts_to_openrouter_chat_completions(monkeypatch):
 
     assert result.shape == (8, 8, 3)
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
-    assert captured["payload"]["model"] == "google/gemini-2.5-flash-image"
+    assert captured["payload"]["model"] == "google/gemini-3.1-flash-image-preview"
     assert captured["payload"]["modalities"] == ["image", "text"]
     assert captured["payload"]["messages"][0]["content"] == "cinematic ice-blue title card"
 

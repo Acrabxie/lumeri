@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from gemia.agent_loop_v3 import AgentLoopV3
+import gemia.agent_loop_v3 as loop_mod
+import pytest
+from gemia.agent_loop_v3 import (
+    AgentLoopV3,
+    _activity_text_from_model_preamble,
+    _progress_report_from_model_preamble,
+    _strip_activity_markup,
+)
 from gemia.gemini_client import _parse_chunk
 
 
@@ -44,6 +51,133 @@ class _FakeGeminiClient:
             return
         yield {"kind": "text_delta", "text": "没有找到现成素材，我会从空画布开始。"}
         yield {"kind": "finish", "reason": "stop"}
+
+
+class _ActivityPreambleClient:
+    """One model-authored activity label followed by a root tool call."""
+
+    model = "fake-gemini"
+
+    def __init__(self, preamble: str) -> None:
+        self.preamble = preamble
+        self.calls = 0
+        self.seen_messages: list[list[dict[str, Any]]] = []
+
+    async def stream_turn(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+    ) -> AsyncIterator[dict[str, Any]]:
+        del tools, temperature
+        self.calls += 1
+        self.seen_messages.append(json.loads(json.dumps(messages)))
+        if self.calls == 1:
+            yield {"kind": "text_delta", "text": self.preamble}
+            yield {
+                "kind": "tool_call_start",
+                "index": 0,
+                "id": "activity-call",
+                "name": "activity_fake",
+            }
+            yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{}"}
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        yield {"kind": "text_delta", "text": "这一步已经完成。"}
+        yield {"kind": "finish", "reason": "stop"}
+
+
+def test_model_activity_label_is_attached_before_tool_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def fake_activity(_args: dict[str, Any], _ctx: Any) -> dict[str, Any]:
+        return {"status": "ok"}
+
+    monkeypatch.setitem(loop_mod.DISPATCHER, "activity_fake", fake_activity)
+    client = _ActivityPreambleClient(
+        "<report>我已经理顺了开场素材，主体现在更容易看清。接下来会收紧字幕节奏。</report>"
+        "\n<activity>正在把开场节奏剪得更利落</activity>"
+    )
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="model_activity",
+        output_dir=tmp_path,
+        gemini_client=client,  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("把开场节奏调紧一些"))
+
+    ready = next(
+        event
+        for event in events
+        if event.get("kind") == "model_tool_call_ready"
+        and event.get("call_id") == "activity-call"
+    )
+    start = next(
+        event
+        for event in events
+        if event.get("kind") == "tool_exec_start"
+        and event.get("call_id") == "activity-call"
+    )
+    assert ready["activity_text"] == "正在把开场节奏剪得更利落"
+    assert ready["progress_report"] == (
+        "我已经理顺了开场素材，主体现在更容易看清。接下来会收紧字幕节奏。"
+    )
+    assert events.index(ready) < events.index(start)
+
+    # The UI-only protocol text must not re-enter provider history.
+    assistant = next(
+        message
+        for message in client.seen_messages[1]
+        if message.get("role") == "assistant" and message.get("tool_calls")
+    )
+    assert assistant["content"] is None
+
+
+@pytest.mark.parametrize(
+    ("preamble", "tool_names"),
+    [
+        ("<activity>正在查看 /tmp/secret.py</activity>", ()),
+        ("<activity>{\"code\":\"do not show\"}</activity>", ()),
+        ("<activity>先调用 activity_fake 完成这一步</activity>", ("activity_fake",)),
+        ("<activity>第一行\n第二行</activity>", ()),
+        ("正在调整开场节奏", ()),
+    ],
+)
+def test_model_activity_label_rejects_code_and_unstructured_preamble(
+    preamble: str, tool_names: tuple[str, ...]
+) -> None:
+    assert _activity_text_from_model_preamble(preamble, tool_names=tool_names) is None
+
+
+def test_activity_markup_is_not_saved_as_assistant_prose() -> None:
+    assert _strip_activity_markup("<activity>正在调整开场节奏</activity>") == ""
+    assert _strip_activity_markup("完成了。\n<activity>正在调整开场节奏</activity>") == "完成了。"
+    assert _strip_activity_markup(
+        "<report>已经理顺素材。</report>\n<activity>正在调整节奏</activity>"
+    ) == ""
+
+
+def test_progress_report_requires_safe_structured_preamble() -> None:
+    good = (
+        "<report>画面主体已经明确，下一步会检查字幕的手机端可读性。</report>"
+        "<activity>正在收紧字幕节奏</activity>"
+    )
+    assert _progress_report_from_model_preamble(good) == (
+        "画面主体已经明确，下一步会检查字幕的手机端可读性。"
+    )
+    assert _progress_report_from_model_preamble(
+        "<report>调用 activity_fake 继续</report><activity>继续处理</activity>",
+        tool_names=("activity_fake",),
+    ) is None
+    assert _progress_report_from_model_preamble(
+        "<report>泄露 /tmp/secret.py</report><activity>继续处理</activity>"
+    ) is None
+    assert _activity_text_from_model_preamble(
+        "<report>泄露 /tmp/secret.py</report><activity>继续处理</activity>"
+    ) == "继续处理"
 
 
 def test_agent_loop_preserves_gemini_tool_call_extra_content(tmp_path: Path) -> None:

@@ -45,8 +45,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from gemia.model_strength import strongest_media_model
+
+
 _CONFIG_PATH = Path.home() / ".gemia" / "config.json"
-_DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image"
+_DEFAULT_IMAGE_MODEL = strongest_media_model("image", "openrouter")
 _DEFAULT_IMAGE_BASE_URL = "https://openrouter.ai/api/v1"
 
 
@@ -57,7 +60,8 @@ def _legacy_image_model(value: object) -> bool:
 
 def _configured_image_model() -> str:
     value = os.environ.get("GEMIA_IMAGE_MODEL") or ""
-    return _DEFAULT_IMAGE_MODEL if _legacy_image_model(value) else (value or _DEFAULT_IMAGE_MODEL)
+    candidate = "" if _legacy_image_model(value) else value
+    return strongest_media_model("image", "openrouter", (candidate, _DEFAULT_IMAGE_MODEL))
 
 
 def _configured_image_base_url() -> str:
@@ -1157,9 +1161,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route == "/model":
             try:
-                from gemia.memory import apply_model_selection, model_selection_payload
+                from gemia.memory import apply_model_selection, model_selection_payload, strongest_model_lock
 
                 payload = _read_json_body(self) or {}
+                if strongest_model_lock("planner").get("enabled"):
+                    _json_response(self, 423, {"error": "模型已强制锁定为最强配置，不能降级或切换"})
+                    return
                 apply_model_selection(payload, "planner")
                 _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
             except ValueError as exc:
@@ -1170,7 +1177,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route == "/model/add":
             try:
-                from gemia.memory import add_model_to_catalog, model_selection_payload
+                from gemia.memory import add_model_to_catalog, model_selection_payload, strongest_model_lock
+
+                if strongest_model_lock("planner").get("enabled"):
+                    _json_response(self, 423, {"error": "模型已锁定为最强配置，不能添加或切换"})
+                    return
 
                 payload = _read_json_body(self) or {}
                 model_id = payload.get("id", "").strip()
@@ -1192,7 +1203,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         if route == "/model/remove":
             try:
-                from gemia.memory import remove_model_from_catalog, model_selection_payload
+                from gemia.memory import model_selection_payload, remove_model_from_catalog, strongest_model_lock
+
+                if strongest_model_lock("planner").get("enabled"):
+                    _json_response(self, 423, {"error": "模型已锁定为最强配置，不能删除或切换"})
+                    return
 
                 payload = _read_json_body(self) or {}
                 model_id = payload.get("id", "").strip()
@@ -1476,8 +1491,9 @@ class _Handler(BaseHTTPRequestHandler):
                         existing.pop("image_model", None)
                         os.environ.pop("GEMIA_IMAGE_MODEL", None)
                     else:
-                        existing["image_model"] = value
-                        os.environ["GEMIA_IMAGE_MODEL"] = value
+                        strongest = strongest_media_model("image", "openrouter", (value,))
+                        existing["image_model"] = strongest
+                        os.environ["GEMIA_IMAGE_MODEL"] = strongest
                 # 搜索引擎字段（白名单合并）。
                 _SEARCH_CONFIG_KEYS = (
                     "search_provider", "tavily_api_key", "brave_api_key",

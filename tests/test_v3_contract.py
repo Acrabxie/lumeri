@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parent.parent
 # elsewhere? Add the file here and declare its kinds in the contract first.
 EMIT_FILES = [
     "gemia/agent_loop_v3.py",
+    "gemia/session_manager.py",
     "gemia/transport/sse.py",
     "gemia/tools/_ask_bridge.py",
     "gemia/v3_routes.py",

@@ -85,8 +85,8 @@ def test_wrapup_emitted_on_stream_error(tmp_path: Path) -> None:
     assert wrap["reason"] == "stream_error"
     # The message explains the stop AND what was / wasn't done.
     msg = wrap["message"]
-    assert "Stopped because" in msg
-    assert "stream" in msg.lower()
+    assert "我先停在这里" in msg
+    assert "模型连接" in msg
     assert wrap["tools_failed"] == 0
     assert wrap["tools_succeeded"] == 0
     assert wrap["assets_produced"] == 0
@@ -234,12 +234,11 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=1,
         tool_name="echo_tool",
     )
-    assert "Stopped because" in msg
-    assert "echo_tool" in msg
-    assert "doom loop" in msg.lower()
-    assert "1 asset" in msg
-    assert "2 tool calls succeeded" in msg
-    assert "5 tool calls failed" in msg
+    assert "同一步骤连续重复" in msg
+    assert "echo_tool" not in msg
+    assert "产出了 1 个素材" in msg
+    assert "完成了 2 个执行步骤" in msg
+    assert "有 5 个步骤没有完成" in msg
 
     # Budget exhaustion, nothing done.
     msg2 = AgentLoopV3._synthesize_wrapup_message(
@@ -248,11 +247,11 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         tools_failed=0,
         assets_produced=0,
     )
-    assert "budget" in msg2.lower()
-    assert "nothing was completed" in msg2
-    assert "no failures were recorded" in msg2
+    assert "执行预算已经用完" in msg2
+    assert "还没有形成可交付的修改" in msg2
+    assert "没有记录到执行失败" in msg2
 
-    # Doom loop names the tool.
+    # Doom-loop reporting stays human-facing and does not leak tool names.
     msg3 = AgentLoopV3._synthesize_wrapup_message(
         "doom_loop",
         tools_succeeded=0,
@@ -260,8 +259,8 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=0,
         tool_name="echo_tool",
     )
-    assert "doom loop" in msg3.lower()
-    assert "echo_tool" in msg3
+    assert "同一步骤连续重复" in msg3
+    assert "echo_tool" not in msg3
 
     # Stream error path.
     msg4 = AgentLoopV3._synthesize_wrapup_message(
@@ -270,5 +269,5 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         tools_failed=0,
         assets_produced=0,
     )
-    assert "stream errored" in msg4.lower()
-    assert "1 tool call succeeded" in msg4
+    assert "模型连接" in msg4
+    assert "完成了 1 个执行步骤" in msg4

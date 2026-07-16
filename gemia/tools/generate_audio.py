@@ -1,7 +1,7 @@
 """generate_audio — Lyria via Vertex AI.
 
 Host-side synchronous tool. The model supplies only prompt-like arguments; the
-host holds Vertex auth, calls ``lyria-002:predict``, decodes the returned audio
+host holds Vertex auth, calls the code-ranked strongest Lyria model, decodes the returned audio
 bytes, writes them into the session workspace, registers an audio asset, and
 returns metadata only. Raw base64/audio bytes never enter the tool result/SSE.
 """
@@ -15,10 +15,11 @@ from typing import Any
 
 from gemia.ai.google_genai_client import GoogleGenAIClient, VertexAPIError
 from gemia.budget_guard import tool_cost_usd
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
 from gemia.tools._context import ToolContext, ProgressUpdate
 
 
-_DEFAULT_MODEL = "lyria-002"
+_DEFAULT_MODEL = strongest_media_model("audio", "vertex")
 _DEFAULT_LOCATION = "us-central1"
 
 
@@ -32,17 +33,24 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     prompt = _augment_prompt(prompt, mood=mood, bpm=bpm)
 
     client = _client_from_ctx(ctx)
-    model = _model()
     new_id = ctx.registry.allocate_id("audio")
     ctx.emit_progress(ProgressUpdate(percent=5, message="calling Lyria API", eta_sec=30))
-
-    response = await client.predict(
-        model=model,
-        instances=[{"prompt": prompt}],
-        parameters={"sampleCount": 1},
-        verb="generate_audio",
-        estimated_cost_usd=tool_cost_usd("generate_audio"),
-    )
+    response: dict[str, Any] | None = None
+    chain = media_model_failover_chain("audio", "vertex", (_model(),))
+    for index, model in enumerate(chain):
+        try:
+            response = await client.predict(
+                model=model,
+                instances=[{"prompt": prompt}],
+                parameters={"sampleCount": 1},
+                verb="generate_audio",
+                estimated_cost_usd=tool_cost_usd("generate_audio"),
+            )
+            break
+        except VertexAPIError as exc:
+            if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                raise
+    assert response is not None
     ctx.emit_progress(ProgressUpdate(percent=80, message="decoding Lyria audio", eta_sec=2))
     audio_bytes, mime_type = _extract_audio_payload(response, model=model)
     ext = _extension_for_mime(mime_type)
@@ -151,13 +159,17 @@ def _scrub_bytes(value: Any) -> Any:
 
 
 def _model() -> str:
-    return (
-        os.environ.get("VERTEX_AUDIO_MODEL")
-        or _read_config("vertex_audio_model")
-        or _read_config("audio_model")
-        or _read_config("lyria_model")
-        or _DEFAULT_MODEL
-    ).strip()
+    return strongest_media_model(
+        "audio",
+        "vertex",
+        (
+            os.environ.get("VERTEX_AUDIO_MODEL"),
+            _read_config("vertex_audio_model"),
+            _read_config("audio_model"),
+            _read_config("lyria_model"),
+            _DEFAULT_MODEL,
+        ),
+    )
 
 
 def _location() -> str:

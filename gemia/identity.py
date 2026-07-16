@@ -9,6 +9,11 @@ return for all the others.
 This module is the resolution order every route goes through INSTEAD of
 touching the global directly:
 
+0. **Public shared workspace** — requests marked ``X-Lumeri-Remote: 1`` by
+   the trusted edge always use the process-global account. Public browsers
+   therefore share sessions, media and account-gated capabilities instead of
+   being split by browser/account pins.
+
 1. **Explicit per-request pin** — ``X-Lumeri-Account: <account_id>`` header.
    Honored only when the account exists locally; an explicit pin to an
    unknown account resolves to ``None`` (→ the caller's 401 path), NEVER a
@@ -40,6 +45,12 @@ def resolve_account_id(handler: Any | None = None) -> str | None:
     """Resolve the acting account for one request. See module docstring."""
     if handler is not None:
         headers = getattr(handler, "headers", None)
+        remote = headers.get("X-Lumeri-Remote") if headers is not None else None
+        if str(remote or "").strip() == "1":
+            # The public demo is intentionally one shared Lumeri workspace.
+            # Ignore stale/malicious browser pins so account changes cannot
+            # split sessions or feature access between public visitors.
+            return accounts.current_account_id()
         pinned = headers.get(PIN_HEADER) if headers is not None else None
         if pinned is not None and str(pinned).strip():
             pinned = str(pinned).strip()

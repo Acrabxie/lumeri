@@ -38,15 +38,20 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "elicit",               # ask the user; no state written
     "file_list",
     "file_read",
+    "grade",               # deterministic recipe only; does not mutate media/doc
     "get_shotlist",
     "get_lumenframe",
     "get_media_annotations",
     "get_safe_areas",
     "get_timeline",
     "list_dir",
+    "camera",              # deterministic transform recipe only
+    "compose",             # deterministic framing recipe only
+    "edit_grammar",        # deterministic cut plan only
     "probe_media",
     "read_file",
     "recall_skills",
+    "rhythm_edit",         # deterministic beat/cut plan only
     "search_frames",       # probes existing footage; surfaces (no new derived media)
     "search_library",
     "search_media",
@@ -74,6 +79,9 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "lumen_set_range", "lumen_set_transform", "lumen_set_visibility",
     "lumen_set_work_area", "lumen_speed_ramp", "lumen_time_remap",
     "vector_motion",  # create/adjust write the lumenframe doc (catalog rides along)
+    "kinetic_type",   # create/adjust add/rebuild an html title layer in the doc
+    # grade/camera/compose/edit_grammar/rhythm_edit compute a recipe/plan only
+    # (no doc mutation) → safe to run while planning, so intentionally NOT blocked.
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",

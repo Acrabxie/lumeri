@@ -254,7 +254,60 @@ button:disabled, button.primary:disabled {
   flex-direction: column;
   overflow: hidden;
   background: var(--m3-surface);
+  container-type: inline-size;
 }
+.workspace-board {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--workspace-rows, 10), minmax(52px, 1fr));
+  gap: 2px; padding: 2px;
+  overflow: auto; align-content: stretch;
+  background: var(--m3-outline-variant);
+}
+.workspace-module {
+  position: relative; min-width: 0; min-height: 0;
+  background: var(--m3-surface); overflow: hidden;
+  transition: box-shadow 0.14s var(--md-standard), opacity 0.14s var(--md-standard);
+}
+.workspace-module.is-dragging { opacity: 0.48; }
+.workspace-module.is-drop-before { box-shadow: inset 4px 0 0 var(--m3-primary), var(--hairline); }
+.workspace-module.is-drop-after { box-shadow: inset -4px 0 0 var(--m3-primary), var(--hairline); }
+.workspace-preview-module { display: flex; flex-direction: column; overflow: hidden; }
+.workspace-module-head {
+  min-height: 38px; padding: 0 14px;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--m3-on-surface-variant); background: var(--m3-surface-low);
+  box-shadow: var(--hairline); flex-shrink: 0;
+}
+.workspace-module-head[data-module-drag] { cursor: grab; user-select: none; }
+.workspace-module-head[data-module-drag]:active { cursor: grabbing; }
+.module-drag-grip {
+  width: 14px; height: 18px; flex-shrink: 0;
+  color: var(--m3-outline); fill: currentColor; stroke: none;
+}
+.workspace-module-title { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; color: var(--m3-on-surface); }
+.workspace-module-title svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-module-meta { margin-left: auto; font: 10px/1 var(--font-mono); color: var(--m3-outline); }
+.workspace-module-refresh, .workspace-module-close {
+  width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--m3-on-surface-variant); border-radius: var(--shape-sm); box-shadow: none;
+}
+.workspace-module-refresh:hover, .workspace-module-close:hover { background: color-mix(in srgb, var(--m3-on-surface) 8%, transparent); box-shadow: none; }
+.workspace-module-refresh svg, .workspace-module-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.module-resize-edge {
+  position: absolute; z-index: 5; touch-action: none; outline: none;
+}
+.module-resize-edge::after {
+  content: ""; position: absolute; border-radius: 2px;
+  background: transparent; transition: background 0.12s var(--md-standard);
+}
+.module-resize-edge:hover::after, .module-resize-edge:focus-visible::after,
+.workspace-module.is-resizing .module-resize-edge::after { background: var(--m3-primary); }
+.module-resize-edge-x { top: 38px; right: 0; bottom: 0; width: 7px; cursor: col-resize; }
+.module-resize-edge-x::after { top: 0; right: 1px; bottom: 0; width: 2px; }
+.module-resize-edge-y { right: 0; bottom: 0; left: 0; height: 7px; cursor: row-resize; }
+.module-resize-edge-y::after { right: 0; bottom: 1px; left: 0; height: 2px; }
 .stage-scroll { flex: 1; overflow-y: auto; padding: 24px; min-height: 0; }
 /* On landing the brand canvas replaces the scroller in flow, so it re-centers
    itself in whatever space is left when the timeline drawer opens/closes. */
@@ -489,6 +542,29 @@ del { opacity: 0.6; }
 .activity-line--attention { color: var(--m3-on-surface-variant); opacity: 0.68; }
 .activity-line--waiting .activity-indicator { background: var(--m3-outline); }
 @keyframes activity-pulse { 50% { opacity: 0.28; transform: scale(0.82); } }
+
+/* Lumeri's occasional mid-turn report: richer than an activity label, quieter
+   than the final answer, and visually separated from the mechanical trail. */
+.midturn-report {
+  margin: 12px 0 7px;
+  padding: 12px 14px;
+  border-left: 2px solid color-mix(in srgb, var(--m3-primary) 68%, transparent);
+  border-radius: 0 var(--shape-md) var(--shape-md) 0;
+  background: color-mix(in srgb, var(--m3-surface-high) 86%, transparent);
+  color: var(--m3-on-surface);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.midturn-report-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--m3-primary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.midturn-report p { margin: 0; }
 
 /* ── Tool cards — M3 filled card (surface-high, 12px, flat) ──────────── */
 .tool-card {
@@ -733,7 +809,7 @@ del { opacity: 0.6; }
   border-radius: var(--shape-full);
   box-shadow: var(--shadow-float);
   display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  grid-template-columns: 40px 1fr auto;
   grid-template-areas: "plus field actions";
   align-items: center;
   gap: 6px;
@@ -749,7 +825,7 @@ del { opacity: 0.6; }
   padding: 12px 12px 10px;
 }
 .input-shell.is-grown .plus-btn { grid-area: controls; justify-self: start; }
-.input-shell.is-grown .send-btn { grid-area: controls; justify-self: end; }
+.input-shell.is-grown .composer-actions { grid-area: controls; justify-self: end; }
 
 .plus-btn {
   grid-area: plus; position: relative;
@@ -786,19 +862,83 @@ del { opacity: 0.6; }
 /* One placeholder token everywhere (browser default gray fails contrast) */
 input::placeholder, textarea::placeholder { color: var(--m3-on-surface-variant); opacity: 1; }
 
+/* Voice input occupies the action slot until there is text to send. */
+.composer-actions {
+  grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: 0;
+}
+.input-shell.has-text:not(.is-listening) .composer-actions { gap: 6px; }
+.voice-input-btn {
+  position: relative;
+  width: 40px; height: 40px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--m3-on-surface-variant); border-radius: var(--shape-full);
+  transform: scale(1); opacity: 1;
+  transition: transform 0.15s var(--md-emph-decel), opacity 0.15s var(--md-standard),
+              color 0.15s var(--md-standard), background 0.15s var(--md-standard);
+}
+.session-stop-btn {
+  width: 40px; height: 40px; padding: 0; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--shape-full); background: var(--m3-error-container);
+  color: var(--m3-on-error-container); box-shadow: none;
+}
+.session-stop-btn[hidden] { display: none; }
+.session-stop-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--m3-on-error-container) 10%, var(--m3-error-container));
+  box-shadow: none;
+}
+.session-stop-btn:disabled { opacity: 0.5; cursor: wait; }
+.session-stop-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.voice-input-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; }
+.voice-input-btn:hover { background: color-mix(in srgb, var(--m3-on-surface-variant) 8%, transparent); color: var(--m3-on-surface); box-shadow: none; }
+.voice-input-btn.is-unavailable { opacity: 0.38; }
+.input-shell.is-listening .voice-input-btn {
+  background: var(--m3-primary-container); color: var(--m3-on-primary-container);
+}
+.input-shell.is-listening .voice-input-btn::after {
+  content: ""; position: absolute; width: 40px; height: 40px; border-radius: var(--shape-full);
+  animation: voice-listening-pulse 1.4s var(--md-standard) infinite;
+}
+@keyframes voice-listening-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--m3-primary) 40%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+.voice-input-status {
+  position: absolute; right: 0; bottom: calc(100% + 8px);
+  max-width: min(280px, calc(100vw - 32px)); padding: 7px 11px;
+  border-radius: var(--shape-sm); background: var(--m3-surface-high); color: var(--m3-on-surface);
+  box-shadow: var(--elev-1); font-size: 12px; line-height: 1.35;
+}
+.voice-input-status[hidden] { display: none; }
+
 /* Send = M3 filled icon button */
 .send-btn {
-  grid-area: actions;
-  width: 40px; height: 40px; padding: 0;
+  width: 0; height: 40px; padding: 0; overflow: hidden;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--m3-primary); color: var(--m3-on-primary); border-radius: var(--shape-full);
   transform: scale(0.9); opacity: 0; pointer-events: none;
-  transition: transform 0.15s var(--md-emph-decel), opacity 0.15s var(--md-standard), background 0.15s var(--md-standard);
+  transition: width 0.15s var(--md-standard), transform 0.15s var(--md-emph-decel), opacity 0.15s var(--md-standard), background 0.15s var(--md-standard);
 }
 .send-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.input-shell.has-text .send-btn { transform: scale(1); opacity: 1; pointer-events: auto; }
+.input-shell.has-text .send-btn { width: 40px; transform: scale(1); opacity: 1; pointer-events: auto; }
+.input-shell.is-listening .send-btn { width: 0; transform: scale(0.9); opacity: 0; pointer-events: none; }
 .send-btn:hover { background: color-mix(in srgb, var(--m3-on-primary) 8%, var(--m3-primary)); box-shadow: var(--elev-1); }
 .send-btn:disabled { background: color-mix(in srgb, var(--m3-on-surface) 12%, transparent); color: color-mix(in srgb, var(--m3-on-surface) 38%, transparent); box-shadow: none; }
+.input-shell.is-steering .send-btn { background: var(--m3-secondary); color: var(--m3-on-secondary); }
+.input-shell.is-steering::before {
+  content: "执行中 · 输入可引导"; position: absolute; left: 18px; bottom: calc(100% + 6px);
+  padding: 3px 8px; border-radius: var(--shape-full); font-size: 10px; font-weight: 500;
+  color: var(--m3-on-secondary-container); background: var(--m3-secondary-container);
+  box-shadow: var(--elev-1); pointer-events: none;
+}
+
+.turn-guidance {
+  align-self: flex-end; max-width: 88%; margin-top: 6px; padding: 8px 12px;
+  border-radius: var(--shape-lg) var(--shape-sm) var(--shape-lg) var(--shape-lg);
+  color: var(--m3-on-secondary-container); background: var(--m3-secondary-container);
+  font-size: 12px; line-height: 1.45;
+}
+.turn-guidance-label { margin-right: 6px; font-weight: 600; }
 
 /* upload status is now a toast above the shell (upload button moved into "+") */
 .upload-status {
@@ -1061,21 +1201,13 @@ input::placeholder, textarea::placeholder { color: var(--m3-on-surface-variant);
   letter-spacing: .04em;
 }
 
-/* ── Timeline drawer (left stage) — auto-opens when a project timeline exists.
-   The container snaps open (animating max-height reflows the stage every frame);
-   motion lives on the content only: slide-up + fade, transform/opacity.
-   384px = toolbar + 232px lanes + action row — change the contents, sync this. ── */
+/* ── Timeline workspace module ───────────────────────────────────────── */
 .timeline-drawer {
-  flex-shrink: 0;
-  max-height: 0;
-  overflow: hidden;
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
-.preview-stage.drawer-open .timeline-drawer { max-height: 384px; }
-.timeline-drawer > .ptl { opacity: 0; transform: translateY(14px); }
-.preview-stage.drawer-open .timeline-drawer > .ptl {
-  opacity: 1; transform: none;
-  transition: transform 0.25s var(--md-emph-decel), opacity 0.2s var(--md-standard);
-}
+.timeline-drawer[hidden] { display: none; }
+.timeline-module-body { flex: 1; min-height: 0; overflow: hidden; }
+.timeline-module-body > .ptl { height: 100%; min-height: 0; overflow: auto; }
 
 /* ── Assets tray — summoned media library overlay ────────────────────── */
 .assets-tray {
@@ -1159,21 +1291,22 @@ input::placeholder, textarea::placeholder { color: var(--m3-on-surface-variant);
 .stage-overflow-menu { left: auto; right: 10px; }
 .stage-overflow-menu .plus-tail { font: 11px/1 var(--font-mono); color: var(--m3-outline); }
 
-/* ── Full-area workspace view (outline / tasks / files tab content) ──── */
+/* ── Simultaneous workspace modules (outline / tasks / files / history) ─ */
 .stage-panel {
-  flex: 1; min-height: 0;
-  overflow-y: auto;
-  padding: 18px 24px 24px;
+  display: contents;
 }
 .stage-panel[hidden] { display: none; }
-/* a panel tab hides the preview surfaces entirely (browser-tab semantics) */
-.preview-stage[data-tab="panel"] .empty-state,
-.preview-stage[data-tab="panel"] .stage-scroll,
-.preview-stage[data-tab="panel"] .timeline-drawer { display: none; }
+
+.workspace-side-module { display: flex; flex-direction: column; overflow: hidden; background: var(--m3-surface-low); }
+.workspace-side-module.is-focused .workspace-module-head { box-shadow: inset 3px 0 0 0 var(--m3-primary), var(--hairline); }
+.workspace-module-head .tab-badge {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--m3-primary); animation: task-breathe 1.6s ease-in-out infinite;
+}
 
 .panel-tray-body {
   display: flex; flex-direction: column; gap: 8px; min-height: 60px;
-  max-width: 720px; margin: 0 auto;
+  padding: 12px; overflow-y: auto;
 }
 .panel-tray-body .placeholder { color: var(--m3-outline); font-size: 13px; }
 /* outline rows: shot number chip + text block */
@@ -1489,6 +1622,12 @@ input::placeholder, textarea::placeholder { color: var(--m3-on-surface-variant);
 .model-backdrop { position: absolute; inset: 0; background: var(--m3-scrim); backdrop-filter: blur(2px); }
 .model-dialog { width: min(94vw, 460px); }
 .model-dialog h2 { margin: 0; font-size: 20px; font-weight: 400; color: var(--m3-on-surface); }
+.model-lock-note {
+  margin: 12px 0 4px; padding: 9px 12px; border-radius: var(--shape-md);
+  color: var(--m3-on-primary-container); background: var(--m3-primary-container);
+  font-size: 12px; line-height: 1.45;
+}
+.model-lock-note[hidden] { display: none; }
 .model-list { display: flex; flex-direction: column; gap: 6px; margin: 18px 0 4px; }
 .model-row {
   display: flex; align-items: center; border-radius: var(--shape-md);
@@ -1496,6 +1635,7 @@ input::placeholder, textarea::placeholder { color: var(--m3-on-surface-variant);
 }
 .model-row:hover { background: color-mix(in srgb, var(--m3-on-surface) 8%, transparent); }
 .model-row.active { background: var(--m3-secondary-container); color: var(--m3-on-secondary-container); }
+.model-row-select:disabled, .model-chip:disabled { cursor: default; opacity: 1; }
 .model-row-select {
   display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 10px;
   flex: 1; min-width: 0; padding: 11px 14px; text-align: left;
@@ -1767,4 +1907,5 @@ a:focus-visible {
   .assistant-bubble.streaming > :last-child::after { animation: none; }
   .progress-bar-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
   .plus-btn.pulse::after { animation: none; }
+  .input-shell.is-listening .voice-input-btn::after { animation: none; }
 }

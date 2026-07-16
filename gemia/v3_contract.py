@@ -22,11 +22,14 @@ from __future__ import annotations
 PROTOCOL_VERSION = 1
 
 # Every SSE event kind any backend code path may emit. Emit sites live in
-# exactly five files: agent_loop_v3.py, transport/sse.py (replay_gap),
-# tools/_ask_bridge.py (ask_question), v3_routes.py, and subtasks.py
+# the files listed in tests/test_v3_contract.py, including session_manager.py
+# for cross-thread stop/steer acknowledgement events.
 # (subagent_start / subagent_result + child tool_exec_* with agent_id).
 EVENT_KINDS: frozenset[str] = frozenset({
     "turn_start",
+    "turn_guidance_queued",
+    "turn_guidance_applied",
+    "turn_cancelled",
     "model_text_delta",
     "model_tool_call_start",
     "model_tool_call_ready",

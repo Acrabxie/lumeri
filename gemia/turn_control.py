@@ -117,6 +117,42 @@ _PLAN_SIGNALS = (
     re.compile(r"\b(?:plan|planning|proposal|approach|outline the steps|do not execute|don't execute)\b"),
 )
 
+# High-confidence requests whose honest outcome is an explanation, not a
+# workspace mutation.  These are checked before the generic action lexicon so
+# a topic phrase such as "how to integrate" does not become execution merely
+# because it contains ``integrate``.  An explicit execute-now marker still wins
+# (see ``_has_explicit_execution`` below).
+_INFORMATION_REQUEST = (
+    re.compile(
+        r"(?:我(?:只是)?(?:想|要)(?:了解|知道|问|咨询|弄清|理解)|"
+        r"(?:请)?(?:解释|介绍|说明|讲讲|说说)(?:一下)?|"
+        r"(?:是什么(?:架构|原理|流程|方案)?|是啥|什么意思)|"
+        r"(?:怎么|如何|为什么|为何|是怎么).{0,80}(?:做|实现|接入|接进|集成|连接|"
+        r"使用|工作|配置|授权|运作)|"
+        r"(?:我说的是|我的意思是|我是说|纠正一下|准确地说)|"
+        r"不是.{0,48}(?:而是|我是在问))"
+    ),
+    re.compile(
+        r"\b(?:i mean|what i mean|i was asking about|to clarify|"
+        r"i (?:just )?want to (?:understand|know|learn)|"
+        r"explain|describe|tell me|why|"
+        r"how (?:do|does|can|should|would|is|are))\b",
+        re.I,
+    ),
+)
+
+_EXPLICIT_EXECUTION_MARKER = (
+    re.compile(
+        r"(?:帮我|替我|给我|请(?:你)?(?:直接)?|直接|现在(?:就)?|马上|立刻|"
+        r"开始|继续|照着|就按|按上面)"
+    ),
+    re.compile(
+        r"\b(?:please|help me|go ahead|do it|start|continue|now|right now|"
+        r"directly)\b",
+        re.I,
+    ),
+)
+
 _ACTION_CJK = (
     "帮我",
     "替我",
@@ -152,6 +188,11 @@ _ACTION_CJK = (
     "安装",
     "运行",
     "执行",
+    "接入",
+    "接进",
+    "接好",
+    "集成",
+    "连接",
     "重构",
     "写入",
     "写个",
@@ -180,7 +221,8 @@ _ACTION_EN = re.compile(
     r"\b(?:create|make|build|edit|fix|change|modify|update|add|remove|delete|"
     r"import|export|render|analy[sz]e|inspect|search|find|open|close|save|"
     r"download|upload|send|publish|install|run|execute|refactor|write|draw|"
-    r"design|implement|compile|test|debug|clean|convert|merge|split|trim|crop|"
+    r"design|implement|integrate|connect|wire|compile|test|debug|clean|convert|"
+    r"merge|split|trim|crop|"
     r"caption|continue|retry|redo|finish)\b|\b(?:help me|color grade)\b"
 )
 
@@ -193,17 +235,22 @@ def _has_action(text: str) -> bool:
     return any(token in text for token in _ACTION_CJK) or _ACTION_EN.search(text) is not None
 
 
+def _has_explicit_execution(text: str) -> bool:
+    return _has_action(text) and any(
+        pattern.search(text) for pattern in _EXPLICIT_EXECUTION_MARKER
+    )
+
+
 def classify_turn_intent(text: str) -> TurnIntent:
     """Return a conservative intent classification for one user message.
 
     Planning signals are recognized separately, but phrases that explicitly
-    execute a plan remain actionable.  Action verbs are checked before the
-    zero-tool allowlists, so e.g. ``"谢谢，继续渲染"`` cannot be mistaken for a
-    thank-you-only turn.  Only after no action verb is found do we consult the
-    greeting/identity full-match allowlists and the capability/existence
-    question patterns (``"你有 vector motion 吗"`` is an INFORMATION query whose
-    honest completion is prose, not a goal mutation).  Empty and unknown text
-    is actionable.
+    execute a plan remain actionable.  Explicit execute-now language wins over
+    explanation/correction wording; high-confidence how-to, explanation, and
+    correction forms then get a zero-tool INFORMATION turn.  Generic action
+    verbs still win over the narrower capability/existence allowlist, so e.g.
+    ``"谢谢，继续渲染"`` cannot be mistaken for a thank-you-only turn. Empty and
+    unknown text remains actionable.
     """
 
     normalized = _normalize(text)
@@ -215,6 +262,10 @@ def classify_turn_intent(text: str) -> TurnIntent:
         return TurnIntent.ACTIONABLE
     if any(pattern.search(normalized) for pattern in _PLAN_SIGNALS):
         return TurnIntent.PLAN
+    if _has_explicit_execution(normalized):
+        return TurnIntent.ACTIONABLE
+    if any(pattern.search(normalized) for pattern in _INFORMATION_REQUEST):
+        return TurnIntent.INFORMATION
     if _has_action(normalized):
         return TurnIntent.ACTIONABLE
     if _full_match(_CONVERSATION_FULL, normalized):

@@ -39,6 +39,24 @@ class _ModelStopsImmediately:
         yield {"kind": "finish", "reason": "stop"}
 
 
+class _CapturesInformationalSurface(_ModelStopsImmediately):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tool_surfaces: list[list[dict[str, Any]]] = []
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del messages, temperature
+        self.calls += 1
+        self.tool_surfaces.append(list(tools or []))
+        yield {
+            "kind": "text_delta",
+            "text": "Google Photos 官方 API 接入应使用 OAuth 和 Picker API。",
+        }
+        yield {"kind": "finish", "reason": "stop"}
+
+
 def test_only_explicitly_continued_session_jobs_bind_to_current_turn() -> None:
     pending = {"job-old": "running", "job-other": "queued"}
     assert _relevant_existing_jobs("查看当前时间线", pending) == {}
@@ -310,6 +328,36 @@ def test_no_gate_for_pure_conversation(tmp_path: Path) -> None:
     # Turn completes cleanly on the first stop.
     turn_completes = [e for e in events if e.get("kind") == "turn_complete"]
     assert len(turn_completes) == 1, f"Expected 1 turn_complete, got {len(turn_completes)}"
+
+
+@pytest.mark.parametrize(
+    "user_message",
+    [
+        "哦我说的是通过Google官方的api接入photo",
+        "我想了解通过Google官方API接入Google Photos，该怎么做？",
+    ],
+)
+def test_information_correction_has_no_tools_no_gate_and_no_artifact(
+    tmp_path: Path, user_message: str
+) -> None:
+    client = _CapturesInformationalSurface()
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="information_correction_no_gate",
+        output_dir=tmp_path,
+        gemini_client=client,  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn(user_message))
+
+    assert client.calls == 1
+    assert client.tool_surfaces == [[]]
+    assert not [e for e in events if e.get("kind") == "completion_check"]
+    assert not [e for e in events if e.get("kind") == "model_tool_call_ready"]
+    completes = [e for e in events if e.get("kind") == "turn_complete"]
+    assert len(completes) == 1
+    assert completes[0]["final_asset_ids"] == []
 
 
 def test_parent_budget_gate_is_a_non_overridable_blocker_not_an_ask(

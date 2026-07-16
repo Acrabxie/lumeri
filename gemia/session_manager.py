@@ -80,16 +80,21 @@ class SessionRunner:
         output_dir: Path,
         sessions_root: Path,
         account_id: str | None = None,
+        remote: bool = False,
     ) -> None:
         self.session_id = session_id
         self.output_dir = Path(output_dir)
         self.sessions_root = Path(sessions_root)
         self.account_id = str(account_id or "").strip()
+        # Remote = a public, passcode-gated visitor session; host-dangerous
+        # tools are stripped for it (see agent_loop_v3._REMOTE_DENY_TOOLS).
+        self.remote = bool(remote)
 
         self._loop = asyncio.new_event_loop()
         self._ready = threading.Event()
         self._state_lock = threading.Lock()
         self._turn_in_progress = False
+        self._turn_future = None
         now = time.time()
         self.created_at = now
         self.last_used_at = now
@@ -143,12 +148,17 @@ class SessionRunner:
             self._loop.close()
 
     async def _create_agent(self) -> AgentLoopV3:
+        extra: dict[str, Any] = {}
+        if self.account_id:
+            extra["account_id"] = self.account_id
+        if self.remote:
+            extra["remote"] = True
         return AgentLoopV3(
             session_id=self.session_id,
             output_dir=self.output_dir,
             sessions_root=self.sessions_root,
             emit_event=self._emit_event,
-            extra={"account_id": self.account_id} if self.account_id else None,
+            extra=extra or None,
         )
 
     def _emit_event(self, event: dict[str, Any]) -> None:
@@ -209,13 +219,50 @@ class SessionRunner:
         async def _run() -> None:
             try:
                 await self.agent.run_turn(message)
+            except asyncio.CancelledError:
+                self._emit_event({
+                    "kind": "turn_cancelled",
+                    "message": "已按你的要求停止。当前已经完成的进度会保留。",
+                })
+                raise
             finally:
                 with self._state_lock:
                     self._turn_in_progress = False
+                    self._turn_future = None
                     self.last_used_at = time.time()
 
-        asyncio.run_coroutine_threadsafe(_run(), self._loop)
+        future = asyncio.run_coroutine_threadsafe(_run(), self._loop)
+        with self._state_lock:
+            if self._turn_in_progress:
+                self._turn_future = future
         return True
+
+    def steer_turn(self, guidance: str) -> bool:
+        """Queue guidance for an active turn without starting a second turn."""
+        text = str(guidance or "").strip()
+        if not text:
+            return False
+        with self._state_lock:
+            future = self._turn_future
+            active = self._turn_in_progress and future is not None and not future.done()
+            if active:
+                self.last_used_at = time.time()
+        if not active:
+            return False
+        self.agent.queue_turn_guidance(text)
+        self._emit_event({"kind": "turn_guidance_queued", "guidance": text})
+        return True
+
+    def stop_turn(self) -> bool:
+        """Request cancellation of the active turn, preserving completed work."""
+        with self._state_lock:
+            future = self._turn_future
+            active = self._turn_in_progress and future is not None and not future.done()
+            if active:
+                self.last_used_at = time.time()
+        if not active:
+            return False
+        return bool(future.cancel())
 
     def run_project_edit(self, fn, *, timeout: float = 30.0) -> Any:
         """Run a project mutation on the session's event loop and return its
@@ -642,7 +689,7 @@ class SessionManager:
             )
             self._sweeper.start()
 
-    def create_session(self, *, account_id: str | None = None) -> SessionRunner:
+    def create_session(self, *, account_id: str | None = None, remote: bool = False) -> SessionRunner:
         self.cleanup_idle()
         session_id = f"v3-{uuid.uuid4().hex[:12]}"
         with self._lock:
@@ -665,6 +712,7 @@ class SessionManager:
                 output_dir=self._workdirs_root / session_id,
                 sessions_root=self._sessions_root,
                 account_id=account_id,
+                remote=remote,
             )
             created = True
         except Exception:

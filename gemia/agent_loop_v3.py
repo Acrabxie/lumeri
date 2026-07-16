@@ -5,9 +5,9 @@ Contract — what this loop is and what it is NOT:
   - It streams from the model through the v3 client (any of the supported
     providers — Gemini, Claude, GPT, …) and forwards every real chunk to the
     SSE transport. ``model_text_delta`` events ONLY come from real model
-    text chunks. The host never fabricates
-    status narration of its own. If the model is silent, the user-facing
-    stream stays silent.
+    text chunks. A narrowly validated model-authored activity label may ride
+    an existing tool-ready event; the host never fabricates status narration
+    of its own. If the model is silent, the user-facing stream stays silent.
 
   - It accumulates function-calling tool_call args across stream
     chunks, then dispatches each call via ``gemia.tools.DISPATCHER``.
@@ -59,6 +59,7 @@ import asyncio
 import base64
 import json
 import os
+import queue
 import re
 import time
 from dataclasses import dataclass, field
@@ -77,6 +78,27 @@ from gemia.plan_mode import (
     is_plan_safe,
     plan_gate_message,
 )
+
+# ── Remote-session host protection ───────────────────────────────────────
+# When a turn runs for a REMOTE (public, passcode-gated) visitor, these
+# host-reaching tools are stripped from the model's tool surface AND refused
+# at dispatch. Keeps a friend demoing Lumeri from driving shell, reading or
+# writing arbitrary host files, or arbitrary network egress on the owner's
+# machine. Creative tools (generate/edit/lumen/timeline/vector/paint…) are
+# untouched, so remote sessions keep full creative parity.
+_REMOTE_DENY_TOOLS = frozenset({
+    "run_shell", "build",
+    "file_read", "read_file", "file_list", "list_dir",
+    "file_write", "write_file", "file_copy", "copy_in",
+    "file_move", "move_file", "file_delete", "organize_files",
+    "fetch", "web_search", "web_open",
+})
+
+
+def _strip_remote_denied(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop host-reaching tools from a schema list for remote sessions."""
+    return [s for s in schemas
+            if s.get("function", {}).get("name") not in _REMOTE_DENY_TOOLS]
 from gemia.project_store import ProjectHandle
 from gemia.tools import DISPATCHER, AssetRegistry, ToolContext
 from gemia.tools._ask_bridge import AskBridge
@@ -325,6 +347,92 @@ class _StreamAccumulator:
 # ──────────────────────────────────────────────────────────────────────
 
 
+# Model-authored mid-turn UI copy is deliberately opt-in and narrow. A tool
+# preamble may contain one occasional descriptive report followed by the short
+# activity label for the next batch; no unstructured prose is accepted.
+_UI_PREAMBLE_RE = re.compile(
+    r"^\s*(?:<report>(?P<report>[^<>\r\n]+)</report>\s*)?"
+    r"<activity>(?P<activity>[^<>\r\n]+)</activity>\s*$",
+    re.IGNORECASE,
+)
+_UI_COPY_BLOCK_RE = re.compile(
+    r"<(?:activity|report)\b[^>]*>[\s\S]*?</(?:activity|report)\s*>",
+    re.IGNORECASE,
+)
+_ACTIVITY_UNSAFE_RE = re.compile(
+    r"(?:[`{}\[\]<>\\]|[=;]|(?:https?|file)://|"
+    r"(?:^|\s)(?:/|~/|[A-Za-z]:[\\/])|"
+    r"\b[\w.-]+\.(?:py|js|jsx|ts|tsx|json|md|yaml|yml|sh|bash|zsh|html|css|sql)\b|"
+    r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b|"
+    r"\b(?:api[_-]?key|token|password|secret|system[_ -]?prompt|"
+    r"reasoning|thought[_ -]?signature|asset[_ -]?id)\b|"
+    r"(?:代码|路径|工具名?|参数|命令|思维链|推理|内部))",
+    re.IGNORECASE,
+)
+_ACTIVITY_TEXT_MAX_CHARS = 72
+_PROGRESS_REPORT_MAX_CHARS = 240
+
+
+def _safe_model_ui_text(
+    value: str,
+    *,
+    max_chars: int,
+    tool_names: list[str] | tuple[str, ...] = (),
+) -> str | None:
+    candidate = " ".join(str(value or "").split())
+    if not candidate or len(candidate) > max_chars:
+        return None
+    if _ACTIVITY_UNSAFE_RE.search(candidate):
+        return None
+    folded = candidate.casefold()
+    if any(name and str(name).casefold() in folded for name in tool_names):
+        return None
+    return candidate
+
+
+def _activity_text_from_model_preamble(
+    text: str, *, tool_names: list[str] | tuple[str, ...] = ()
+) -> str | None:
+    """Return one safe, model-authored activity label or ``None``.
+
+    The activity tag is protocol text written by the model, never a host
+    summary.  Reject rather than repair anything technical so no code, path,
+    argument, ID, or hidden reasoning can reach the display layer.
+    """
+    match = _UI_PREAMBLE_RE.fullmatch(str(text or ""))
+    if match is None:
+        return None
+    return _safe_model_ui_text(
+        match.group("activity"),
+        max_chars=_ACTIVITY_TEXT_MAX_CHARS,
+        tool_names=tool_names,
+    )
+
+
+def _progress_report_from_model_preamble(
+    text: str, *, tool_names: list[str] | tuple[str, ...] = ()
+) -> str | None:
+    """Return one safe, model-authored mid-turn progress report or ``None``."""
+    match = _UI_PREAMBLE_RE.fullmatch(str(text or ""))
+    if match is None or not match.group("report"):
+        return None
+    return _safe_model_ui_text(
+        match.group("report"),
+        max_chars=_PROGRESS_REPORT_MAX_CHARS,
+        tool_names=tool_names,
+    )
+
+
+def _strip_activity_markup(text: str) -> str:
+    """Keep mid-turn UI protocol text out of history and final prose."""
+    without_blocks = _UI_COPY_BLOCK_RE.sub("", str(text or ""))
+    return "\n".join(
+        line
+        for line in without_blocks.splitlines()
+        if not re.search(r"</?(?:activity|report)\b", line, re.IGNORECASE)
+    ).strip()
+
+
 def _load_system_template() -> str:
     return _PROMPT_PATH.read_text(encoding="utf-8")
 
@@ -408,6 +516,11 @@ class AgentLoopV3:
         self.client = gemini_client or GeminiClientV3()
 
         self._messages: list[dict[str, Any]] = []
+        # Thread-safe mailbox for guidance arriving from the HTTP thread while
+        # this loop is streaming or awaiting a tool. Guidance is drained only
+        # at model-round boundaries so it can never split an assistant
+        # tool_call from its matching tool result.
+        self._turn_guidance: queue.SimpleQueue[str] = queue.SimpleQueue()
         self._pinned_intent: str | None = None
         self._pending_thumbnails: list[Path] = []
         self._turn_count = 0
@@ -442,6 +555,9 @@ class AgentLoopV3:
         # cannot elicit; agent_loop is present in the PARENT ctx only for the
         # spawn dispatcher.
         _extra.setdefault("agent_loop", self)
+        # Remote (public, passcode-gated demo) session: kept in ctx.extra so
+        # spawned subtasks inherit the restriction (they copy parent extra).
+        self._remote: bool = bool(_extra.get("remote"))
         self._tool_ctx = ToolContext(
             session_id=session_id,
             output_dir=self.output_dir,
@@ -1086,52 +1202,33 @@ class AgentLoopV3:
         ``"budget_exhausted"``, ``"stream_error"``); the rest
         is synthesized from the turn state that is already on hand at the exit
         point."""
+        del tool_name  # Kept in the event for diagnostics; never expose it in copy.
         why = {
-            "doom_loop": (
-                f"tool '{tool_name}' was called repeatedly with identical "
-                f"arguments (a doom loop) and was stopped"
-                if tool_name
-                else "the same call was repeated with identical arguments "
-                "(a doom loop) and was stopped"
-            ),
-            "budget_exhausted": "the per-turn budget (cost / time) was exhausted",
-            "stream_error": "the model stream errored out",
-            "plan_gate_limit": (
-                "plan mode kept blocking mutating tool calls; the plan should "
-                "be presented as text and approved before execution"
-            ),
-            "incomplete_goal": (
-                "the host acceptance ledger still had open requirements after "
-                "the routed tool surface was fully expanded"
-            ),
-        }.get(reason, f"the turn stopped ({reason})")
+            "doom_loop": "同一步骤连续重复，继续重试只会原地打转",
+            "budget_exhausted": "本轮可用的执行预算已经用完",
+            "stream_error": "模型连接在执行过程中中断",
+            "plan_gate_limit": "当前处于计划模式，修改操作还没有获得批准",
+            "incomplete_goal": "我检查后发现目标还有未完成的验收项",
+        }.get(reason, "本轮执行没有完整结束")
 
         done_bits: list[str] = []
-        if assets_produced:
-            done_bits.append(
-                f"{assets_produced} asset" + ("s" if assets_produced != 1 else "")
-            )
         if tools_succeeded:
-            done_bits.append(
-                f"{tools_succeeded} tool call"
-                + ("s" if tools_succeeded != 1 else "")
-                + " succeeded"
-            )
-        done = ", ".join(done_bits) if done_bits else "nothing was completed"
+            done_bits.append(f"完成了 {tools_succeeded} 个执行步骤")
+        if assets_produced:
+            done_bits.append(f"产出了 {assets_produced} 个素材")
+        done = "，".join(done_bits) if done_bits else "还没有形成可交付的修改"
 
         not_done = (
-            f"{tools_failed} tool call"
-            + ("s" if tools_failed != 1 else "")
-            + " failed"
+            f"有 {tools_failed} 个步骤没有完成，我没有把它们算作成功"
             if tools_failed
-            else "no failures were recorded before the stop"
+            else "没有记录到执行失败，但目标仍未完整闭环"
         )
 
         return (
-            f"Stopped because {why}. "
-            f"What was done: {done}. "
-            f"What wasn't: {not_done}. "
-            "Ask me to continue or adjust the approach if you'd like more."
+            f"我先停在这里：{why}。\n\n"
+            f"- 已完成：{done}\n"
+            f"- 仍待处理：{not_done}\n\n"
+            "当前进度已经保留。你让我继续，我会从这里接着处理。"
         )
 
     def _emit_turn_wrapup(
@@ -1299,6 +1396,30 @@ class AgentLoopV3:
             except Exception:  # noqa: BLE001 — open criteria remain blockers
                 continue
 
+    # ── live turn control ───────────────────────────────────────────
+
+    def queue_turn_guidance(self, text: str) -> None:
+        """Queue user guidance for the next safe model-round boundary.
+
+        ``SimpleQueue`` makes this callable from the HTTP handler thread. The
+        drive loop is the only consumer and never drains between an assistant
+        tool call and its tool result, preserving provider protocol ordering.
+        """
+        value = str(text or "").strip()
+        if value:
+            self._turn_guidance.put(value)
+
+    def _drain_turn_guidance(self) -> list[str]:
+        items: list[str] = []
+        while True:
+            try:
+                items.append(self._turn_guidance.get_nowait())
+            except queue.Empty:
+                return items
+
+    def _clear_turn_guidance(self) -> None:
+        self._drain_turn_guidance()
+
     # ── public entrypoint ────────────────────────────────────────────
 
     async def run_turn(self, user_message: str) -> None:
@@ -1315,6 +1436,7 @@ class AgentLoopV3:
         try:
             await self._drive_turn(user_message, intent)
         finally:
+            self._clear_turn_guidance()
             self._turn_count += 1
             if self.sessions_root is not None:
                 self._write_session_meta(turn_count=self._turn_count)
@@ -1409,7 +1531,24 @@ class AgentLoopV3:
         # a failed job polled repeatedly must be disclosed once, not N times.
         failed_job_ids: set[str] = set()
 
+        def _apply_guidance(items: list[str]) -> str:
+            joined = "\n".join(f"- {item}" for item in items)
+            content = (
+                "用户在本轮执行过程中给出了最新引导。立即调整后续工作；"
+                "若它与原请求冲突，以最新引导为准。\n" + joined
+            )
+            self._messages.append({"role": "user", "content": content})
+            self._emit({"kind": "turn_guidance_applied", "guidance": items[-1]})
+            return content
+
         while True:
+            guidance = self._drain_turn_guidance()
+            if guidance:
+                guidance_context = _apply_guidance(guidance)
+                router = ToolRouter(
+                    f"{turn_request}\n\n{guidance_context}",
+                    state=self._routing_state(),
+                )
             accum = _StreamAccumulator()
             self._compact_turn_history()
             messages = self.render_messages()
@@ -1421,6 +1560,8 @@ class AgentLoopV3:
                 active_schemas: list[dict[str, Any]] = []
             else:
                 active_schemas = router.active_schemas
+                if self._remote:
+                    active_schemas = _strip_remote_denied(active_schemas)
                 if self.plan_mode:
                     active_schemas = [
                         schema
@@ -1502,9 +1643,20 @@ class AgentLoopV3:
                 gate_visual_asset_ids = []
 
             # ---- persist the assistant message ---------------------
+            # Activity markup is a UI-only, model-authored label. It must not
+            # become assistant history or leak into the eventual final reply.
+            activity_text = _activity_text_from_model_preamble(
+                accum.text,
+                tool_names=[tc.name for tc in accum.tool_calls],
+            )
+            progress_report = _progress_report_from_model_preamble(
+                accum.text,
+                tool_names=[tc.name for tc in accum.tool_calls],
+            )
+            assistant_text = _strip_activity_markup(accum.text)
             assistant_msg: dict[str, Any] = {
                 "role": "assistant",
-                "content": accum.text if accum.text else None,
+                "content": assistant_text if assistant_text else None,
             }
             if accum.tool_calls:
                 assistant_msg["tool_calls"] = [
@@ -1512,6 +1664,18 @@ class AgentLoopV3:
                     for tc in accum.tool_calls
                 ]
             self._messages.append(assistant_msg)
+
+            # Guidance can arrive while a text-only model response is
+            # streaming. Consume it before accepting that response as final,
+            # then give the model a fresh round to follow the new direction.
+            late_guidance = self._drain_turn_guidance()
+            if not accum.tool_calls and late_guidance:
+                guidance_context = _apply_guidance(late_guidance)
+                router = ToolRouter(
+                    f"{turn_request}\n\n{guidance_context}",
+                    state=self._routing_state(),
+                )
+                continue
 
             # ---- model called no tools → maybe pre-delivery gate (RC4+) ----
             if not accum.tool_calls:
@@ -1605,8 +1769,8 @@ class AgentLoopV3:
                     # (turn_did_work is False) is still withheld. The incomplete
                     # note below is rendered softly by the clients — never a red
                     # interrupt banner.
-                    if accum.text and turn_did_work:
-                        self._emit({"kind": "model_text_delta", "delta": accum.text})
+                    if assistant_text and turn_did_work:
+                        self._emit({"kind": "model_text_delta", "delta": assistant_text})
                     self._emit(
                         {
                             "kind": "turn_error",
@@ -1624,8 +1788,8 @@ class AgentLoopV3:
                     return
 
                 # Ledger satisfied (or a conversation/plan turn): honest stop.
-                if ledger_enforced and accum.text:
-                    self._emit({"kind": "model_text_delta", "delta": accum.text})
+                if ledger_enforced and assistant_text:
+                    self._emit({"kind": "model_text_delta", "delta": assistant_text})
                 produced_ids = [
                     r.asset_id
                     for r in self.registry.list_records()
@@ -1657,18 +1821,21 @@ class AgentLoopV3:
                 parsed_args, parse_error = _parse_args(tc.args)
                 call_target = tool_target_key(parsed_args) if parse_error is None else None
 
-                self._emit(
-                    {
-                        "kind": "model_tool_call_ready",
-                        "call_id": tc.id,
-                        "tool_name": tc.name,
-                        "args": (
-                            parsed_args
-                            if parse_error is None
-                            else {"_raw": tc.args, "_parse_error": parse_error}
-                        ),
-                    }
-                )
+                ready_event: dict[str, Any] = {
+                    "kind": "model_tool_call_ready",
+                    "call_id": tc.id,
+                    "tool_name": tc.name,
+                    "args": (
+                        parsed_args
+                        if parse_error is None
+                        else {"_raw": tc.args, "_parse_error": parse_error}
+                    ),
+                }
+                if activity_text is not None:
+                    ready_event["activity_text"] = activity_text
+                if progress_report is not None:
+                    ready_event["progress_report"] = progress_report
+                self._emit(ready_event)
 
                 if parse_error is not None:
                     parse_payload = {
@@ -1969,6 +2136,27 @@ class AgentLoopV3:
                     record.asset_id for record in self.registry.list_records()
                 }
 
+                if self._remote and tc.name in _REMOTE_DENY_TOOLS:
+                    denied_payload = {
+                        "error": f"tool '{tc.name}' is disabled in this shared demo",
+                        "error_code": "E_REMOTE_BLOCKED",
+                        "recovery": RECOVERY_FIX_ARGS,
+                    }
+                    self._emit({
+                        "kind": "tool_exec_error",
+                        "call_id": tc.id,
+                        "tool_name": tc.name,
+                        **denied_payload,
+                    })
+                    self._append_tool_result(tc.id, denied_payload)
+                    ledger.record_outcome(
+                        tc.name,
+                        classify_tool_result(denied_payload),
+                        call_id=tc.id,
+                        target_key=call_target,
+                    )
+                    tools_failed += 1
+                    continue
                 start_ts = time.monotonic()
                 try:
                     result = await DISPATCHER[tc.name](parsed_args, self._tool_ctx)

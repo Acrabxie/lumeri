@@ -20,10 +20,11 @@ from typing import Any
 
 from gemia.ai.google_genai_client import GoogleGenAIClient, VertexAPIError
 from gemia.budget_guard import tool_cost_usd
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
 from gemia.tools._context import ToolContext, ProgressUpdate
 
 
-_DEFAULT_MODEL = "veo-3.1-fast-generate-preview"
+_DEFAULT_MODEL = strongest_media_model("video", "vertex")
 _DEFAULT_LOCATION = "us-central1"
 _DEFAULT_MAX_WAIT_SEC = 300.0
 _DEFAULT_POLL_INTERVAL_SEC = 10.0
@@ -55,22 +56,30 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         }
 
     client = _client_from_ctx(ctx)
-    model = _model()
     new_id = ctx.registry.allocate_id("video")
     ctx.emit_progress(ProgressUpdate(percent=2, message="submitting Veo job", eta_sec=120))
-    submit = await client.predict_long_running(
-        model=model,
-        instances=[instance],
-        parameters={
-            "aspectRatio": aspect_ratio,
-            "durationSeconds": duration_sec,
-            "sampleCount": 1,
-            "personGeneration": "allow_adult",
-            "addWatermark": True,
-        },
-        verb="generate_video",
-        estimated_cost_usd=tool_cost_usd("generate_video"),
-    )
+    submit: dict[str, Any] | None = None
+    chain = media_model_failover_chain("video", "vertex", (_model(),))
+    for index, model in enumerate(chain):
+        try:
+            submit = await client.predict_long_running(
+                model=model,
+                instances=[instance],
+                parameters={
+                    "aspectRatio": aspect_ratio,
+                    "durationSeconds": duration_sec,
+                    "sampleCount": 1,
+                    "personGeneration": "allow_adult",
+                    "addWatermark": True,
+                },
+                verb="generate_video",
+                estimated_cost_usd=tool_cost_usd("generate_video"),
+            )
+            break
+        except VertexAPIError as exc:
+            if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                raise
+    assert submit is not None
     operation_name = str(submit.get("name") or "").strip()
     if not operation_name:
         raise VertexAPIError(
@@ -143,7 +152,7 @@ async def resolve_veo_job(job_id: str, ctx: ToolContext) -> dict[str, Any]:
 
     # Poll the Vertex LRO.
     client = _client_from_ctx(ctx)
-    model = _model()
+    model = record.provider.removeprefix("vertex:") or _model()
     response = await client.fetch_predict_operation(
         model=model,
         operation_name=record.operation_name,
@@ -311,13 +320,17 @@ def _client_from_ctx(ctx: ToolContext) -> GoogleGenAIClient:
 
 
 def _model() -> str:
-    return (
-        os.environ.get("VERTEX_VIDEO_MODEL")
-        or _read_config("vertex_video_model")
-        or _read_config("video_model")
-        or _read_config("veo_model")
-        or _DEFAULT_MODEL
-    ).strip()
+    return strongest_media_model(
+        "video",
+        "vertex",
+        (
+            os.environ.get("VERTEX_VIDEO_MODEL"),
+            _read_config("vertex_video_model"),
+            _read_config("video_model"),
+            _read_config("veo_model"),
+            _DEFAULT_MODEL,
+        ),
+    )
 
 
 def _location() -> str:

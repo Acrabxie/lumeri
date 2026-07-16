@@ -97,3 +97,17 @@ def test_two_requests_with_different_pins_are_isolated(accounts_root) -> None:
     assert identity.resolve_account_id(a) == "acct_alpha_11"
     assert identity.resolve_account_id(b) == "acct_beta_222"
     assert identity.resolve_account_id(a) == "acct_alpha_11"
+
+
+def test_remote_requests_share_global_and_ignore_browser_pins(accounts_root) -> None:
+    _mk_account(accounts_root, "acct_global_22")
+    _mk_account(accounts_root, "acct_pinned_11")
+    _set_global(accounts_root, "acct_global_22")
+
+    unpinned = _handler(None)
+    unpinned.headers["X-Lumeri-Remote"] = "1"
+    pinned = _handler("acct_pinned_11")
+    pinned.headers["X-Lumeri-Remote"] = "1"
+
+    assert identity.resolve_account_id(unpinned) == "acct_global_22"
+    assert identity.resolve_account_id(pinned) == "acct_global_22"

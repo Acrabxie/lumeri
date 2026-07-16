@@ -90,6 +90,46 @@ def test_capability_and_existence_questions_are_information(text: str) -> None:
 @pytest.mark.parametrize(
     "text",
     [
+        "哦我说的是通过Google官方的api接入photo",
+        "我想了解通过Google官方API接入Google Photos，该怎么做？",
+        "我不是让你画图，我是在问 Google Photos API 怎么接",
+        "解释一下 Photos Picker API",
+        "Google Photos 接入 Lumeri 是什么架构？",
+        "如何通过 OAuth 接入？",
+        "I mean the official Google API integration, not an image",
+        "I want to understand how to integrate Google Photos",
+        "Explain the Google Photos Picker API",
+        "How should Google Photos OAuth work?",
+        "你能解释怎么接入吗？",
+    ],
+)
+def test_explanations_how_to_and_corrections_are_information(text: str) -> None:
+    assert classify_turn_intent(text) is TurnIntent.INFORMATION
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "请直接把Google Photos接进Lumeri",
+        "现在直接实现 Google Photos Picker API 接入",
+        "帮我把 OAuth 和 Picker 接好并测试",
+        "按上面的方案开始接入",
+        "先解释一下，然后直接接入并测试",
+        "我的意思是让你直接把它接入并测试",
+        "Please integrate Google Photos into Lumeri now",
+        "Implement and test the OAuth + Picker flow",
+        "Go ahead with the integration",
+        "Please implement it now, then explain the architecture",
+        "你能帮我接入吗？",
+    ],
+)
+def test_explicit_integration_execution_stays_actionable(text: str) -> None:
+    assert classify_turn_intent(text) is TurnIntent.ACTIONABLE
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         # An action verb anywhere still wins over question phrasing.
         "你能帮我生成一个视频吗",  # 生成 / 帮我
         "可以帮我导出4k吗",  # 导出
@@ -97,7 +137,7 @@ def test_capability_and_existence_questions_are_information(text: str) -> None:
         "帮我看看有没有问题",  # 帮我
         # "所有" / bare status questions must not read as a possession query.
         "把所有片段都删了吗",
-        # Opinion/how questions stay on the actionable default (unchanged).
+        # Bare opinion questions stay on the conservative actionable default.
         "这段片子怎么样",
     ],
 )

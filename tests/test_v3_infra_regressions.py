@@ -50,9 +50,15 @@ class FakeHandler:
 class FakeAgentLoop:
     def __init__(self, **_kwargs) -> None:
         self.registry = AssetRegistry()
+        self.guidance = []
+        self.started = False
 
     async def run_turn(self, _message: str) -> None:
+        self.started = True
         await asyncio.sleep(0.2)
+
+    def queue_turn_guidance(self, message: str) -> None:
+        self.guidance.append(message)
 
 
 def _parse_sse(chunk: bytes) -> tuple[int, dict]:
@@ -81,6 +87,34 @@ def test_session_runner_rejects_overlapping_turns(monkeypatch, tmp_path: Path) -
     try:
         assert runner.submit_turn("one") is True
         assert runner.submit_turn("two") is False
+    finally:
+        runner.close()
+
+
+def test_session_runner_can_steer_and_stop_active_turn(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(session_manager, "AgentLoopV3", FakeAgentLoop)
+    runner = SessionRunner(
+        session_id="v3-control",
+        output_dir=tmp_path / "work",
+        sessions_root=tmp_path / "sessions",
+    )
+    try:
+        assert runner.submit_turn("make a video") is True
+        deadline = time.time() + 1
+        while not runner.agent.started and time.time() < deadline:
+            time.sleep(0.01)
+        assert runner.steer_turn("先不要字幕，改成蓝色调") is True
+        assert runner.agent.guidance == ["先不要字幕，改成蓝色调"]
+        assert runner.stop_turn() is True
+        deadline = time.time() + 1
+        while runner.turn_in_progress and time.time() < deadline:
+            time.sleep(0.01)
+        assert runner.turn_in_progress is False
+        transcript = (tmp_path / "sessions/v3-control/transcript.jsonl").read_text(encoding="utf-8")
+        assert '"kind": "turn_guidance_queued"' in transcript
+        assert '"kind": "turn_cancelled"' in transcript
+        assert runner.steer_turn("too late") is False
+        assert runner.stop_turn() is False
     finally:
         runner.close()
 
@@ -336,6 +370,37 @@ def test_v3_frontend_persists_last_event_id_and_handles_replay_gap() -> None:
     assert "replay_gap" in source
     assert "refreshSessionState()" in source
     assert "scheduleReconnect" in source
+
+
+def test_v3_frontend_uses_only_model_authored_activity_copy() -> None:
+    """The activity UI must not infer user copy from a tool name or payload."""
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+    preview = Path("static/v3/preview.html").read_text(encoding="utf-8")
+
+    for content in (source, preview):
+        assert "ACTIVITY_COPY" not in content
+        assert "activityKind" not in content
+        assert "activity_text" in content
+        assert "safeActivityText" in content
+        assert "ev.args" not in content
+
+    assert "model_tool_call_ready: (ev)" in source
+    assert "tc.activityText = safeActivityText(ev.activity_text)" in source
+    assert "activityLabel(tc)" in source
+    assert "tc.progressReport = safeProgressReport(ev.progress_report)" in source
+    assert 'class="midturn-report"' in source
+    assert "已完成：${activityText}" not in source
+
+
+def test_v3_frontend_renders_lumeri_wrapup_as_assistant_report() -> None:
+    """A graceful stop must show Lumeri's report, never a fixed pause banner."""
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert 'ev.reason === "incomplete_goal"' in source
+    assert "stripActivityMarkup(t.pendingAssistantText).trim()" in source
+    assert 'String(ev.message || "").trim()' in source
+    assert "t.assistantText = modelReport || fallbackReport" in source
+    assert "本轮已暂停，等待下一步" not in source
 
 
 # ──────────────────────────── budget_guard regression ────────────────────────────

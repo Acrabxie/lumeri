@@ -94,9 +94,9 @@ def test_run_onboarding_vertex_block(cfg_path):
     assert on_disk["lumeri_v3_model"] == "google/gemini-3.5-flash"
     assert on_disk["lumeri_v3_location"] == "global"
     assert on_disk["vertex_location"] == "us-central1"
-    assert on_disk["vertex_video_model"] == "veo-3.0-fast-generate-001"
-    assert on_disk["vertex_image_model"] == "gemini-2.5-flash-image"
-    assert on_disk["vertex_audio_model"] == "lyria-002"
+    assert on_disk["vertex_video_model"] == "veo-3.1-generate-preview"
+    assert on_disk["vertex_image_model"] == "gemini-3.1-flash-image-preview"
+    assert on_disk["vertex_audio_model"] == "lyria-3-pro-preview"
     # Auth note printed somewhere.
     assert any("Vertex AI User" in line for line in lines)
 

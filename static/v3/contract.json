@@ -42,8 +42,11 @@
     "tool_exec_progress",
     "tool_exec_result",
     "tool_exec_start",
+    "turn_cancelled",
     "turn_complete",
     "turn_error",
+    "turn_guidance_applied",
+    "turn_guidance_queued",
     "turn_start",
     "turn_wrapup"
   ],

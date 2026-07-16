@@ -33,6 +33,8 @@ from typing import Any, AsyncIterator, Iterator
 
 import certifi
 
+from gemia.memory import strongest_model_lock
+
 
 logger = logging.getLogger(__name__)
 
@@ -399,18 +401,29 @@ class GeminiClientV3:
         self.proxy = proxy_value or None
         self.timeout = float(timeout)
 
-        # Provider resolution: explicit → auto-probe → openrouter (fail at key check)
+        strongest_lock = strongest_model_lock("planner")
+
+        # Provider resolution: a strongest-model lock wins over every env/config
+        # override and disables auto-probe fallback to a weaker provider.
         self.provider = (
-            (os.environ.get("LUMERI_V3_PROVIDER") or _read_config_key("lumeri_v3_provider") or "").strip().lower()
-            or _probe_provider()
-            or "openrouter"
+            (str(strongest_lock.get("provider") or "").strip().lower() or "openrouter")
+            if strongest_lock.get("enabled")
+            else (
+                (os.environ.get("LUMERI_V3_PROVIDER") or _read_config_key("lumeri_v3_provider") or "").strip().lower()
+                or _probe_provider()
+                or "openrouter"
+            )
         )
 
         # Shared model override (highest priority across all providers)
         model_override = (
-            model
-            or os.environ.get("LUMERI_V3_MODEL")
-            or _read_config_key("lumeri_v3_model")
+            str(strongest_lock.get("model") or "").strip()
+            if strongest_lock.get("enabled")
+            else (
+                model
+                or os.environ.get("LUMERI_V3_MODEL")
+                or _read_config_key("lumeri_v3_model")
+            )
         )
 
         if self.provider == "vertex":
@@ -503,8 +516,12 @@ class GeminiClientV3:
         # config.json:lumeri_v3_effort or env LUMERI_V3_EFFORT). Empty = leave the
         # provider on its own default. Applied to reasoning-capable models below.
         self.reasoning_effort = (
-            os.environ.get("LUMERI_V3_EFFORT") or _read_config_key("lumeri_v3_effort") or ""
-        ).strip().lower()
+            str(strongest_lock.get("effort") or "").strip().lower()
+            if strongest_lock.get("enabled")
+            else (
+                os.environ.get("LUMERI_V3_EFFORT") or _read_config_key("lumeri_v3_effort") or ""
+            ).strip().lower()
+        )
         # Tri-state: None preserves each provider's compatibility default;
         # explicit true/false is sent only when tools are present. This flag
         # allows a model to PROPOSE multiple independent calls in one response;

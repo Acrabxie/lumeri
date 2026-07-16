@@ -10,10 +10,10 @@ Sync dispatcher (no LRO). The host:
      the asset_id + URL the frontend can GET. (A 2K PNG is ~3 MB; pushing
      it through SSE would saturate the wire and bloat frontend memory.)
 
-The dispatcher does NOT retry. Provider 5xx errors propagate as
-``VertexAPIError`` → ``tool_exec_error`` event → tool_result for the
-model. The model decides whether to fall back or surrender — host does
-not auto-retry, auto-switch models, or hide failures.
+The dispatcher only retries when Vertex explicitly reports that a model is
+missing or unsupported; it then silently advances through the code-owned
+strongest-first list. Provider 5xx, safety, quota, and transport errors still
+propagate unchanged so a retry cannot accidentally duplicate paid work.
 """
 from __future__ import annotations
 
@@ -26,10 +26,11 @@ from gemia.ai.google_genai_client import (
     VertexAuthMissingError,
 )
 from gemia.budget_guard import tool_cost_usd
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
 from gemia.tools._context import ToolContext
 
 
-_DEFAULT_MODEL = "gemini-2.5-flash-image"  # Nano Banana (Vertex, us-central1) — verified available on project
+_DEFAULT_MODEL = strongest_media_model("image", "vertex")
 _DEFAULT_IMAGE_SIZE = "2K"
 
 
@@ -62,22 +63,27 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     client = _client_from_ctx(ctx)
     new_id = ctx.registry.allocate_id("image")
 
-    try:
-        result = await client.generate_image(
-            prompt=prompt,
-            model=_DEFAULT_MODEL,
-            aspect_ratio=aspect_ratio,
-            image_size=_DEFAULT_IMAGE_SIZE,
-            reference_images=reference_bytes,
-            verb="generate_image",
-            estimated_cost_usd=tool_cost_usd("generate_image"),
-            asset_id=new_id,
-        )
-    except VertexAuthMissingError:
-        # Honest user-actionable message — re-raise as-is so the agent loop
-        # surfaces it cleanly. Distinct error_class lets telemetry quantify
-        # "users couldn't run generate_image because Vertex auth not set".
-        raise
+    result: dict[str, Any] | None = None
+    chain = media_model_failover_chain("image", "vertex")
+    for index, model in enumerate(chain):
+        try:
+            result = await client.generate_image(
+                prompt=prompt,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                image_size=_DEFAULT_IMAGE_SIZE,
+                reference_images=reference_bytes,
+                verb="generate_image",
+                estimated_cost_usd=tool_cost_usd("generate_image"),
+                asset_id=new_id,
+            )
+            break
+        except VertexAuthMissingError:
+            raise
+        except VertexAPIError as exc:
+            if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                raise
+    assert result is not None
 
     image_bytes: bytes = result["image_bytes"]
     mime_type: str = result["mime_type"]

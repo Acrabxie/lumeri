@@ -53,9 +53,9 @@ VERTEX_DEFAULTS = {
     "lumeri_v3_model": "google/gemini-3.5-flash",
     "lumeri_v3_location": "global",
     "vertex_location": "us-central1",
-    "vertex_video_model": "veo-3.0-fast-generate-001",
-    "vertex_image_model": "gemini-2.5-flash-image",
-    "vertex_audio_model": "lyria-002",
+    "vertex_video_model": "veo-3.1-generate-preview",
+    "vertex_image_model": "gemini-3.1-flash-image-preview",
+    "vertex_audio_model": "lyria-3-pro-preview",
 }
 
 DEFAULT_OPENAI_MODEL = "gpt-4o"

@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+
 from .common import cleared_proxy_env, get_config_value
 
 
@@ -21,8 +23,12 @@ class GeminiMediaClient:
         self.api_key = (api_key or get_config_value("gemini_api_key", "GEMINI_API_KEY")).strip()
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is required for native Gemini media generation.")
-        self.image_model = image_model or os.environ.get("GEMIA_GEMINI_IMAGE_MODEL", "imagen-4.0-fast-generate-001")
-        self.video_model = video_model or os.environ.get("GEMIA_GEMINI_VIDEO_MODEL", "veo-3.1-fast-generate-preview")
+        self.image_model = strongest_media_model(
+            "image", "imagen", (image_model, os.environ.get("GEMIA_GEMINI_IMAGE_MODEL"))
+        )
+        self.video_model = strongest_media_model(
+            "video", "gemini", (video_model, os.environ.get("GEMIA_GEMINI_VIDEO_MODEL"))
+        )
 
     @staticmethod
     def _sdk() -> tuple[Any, Any]:
@@ -50,16 +56,26 @@ class GeminiMediaClient:
         output_dir.mkdir(parents=True, exist_ok=True)
         with cleared_proxy_env():
             client = genai.Client(api_key=self.api_key)
-            response = client.models.generate_images(
-                model=self.image_model,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=max(int(count), 1),
-                    aspect_ratio=aspect_ratio,
-                    image_size=image_size,
-                    output_mime_type="image/png",
-                ),
-            )
+            response = None
+            chain = media_model_failover_chain("image", "imagen", (self.image_model,))
+            for index, model in enumerate(chain):
+                try:
+                    response = client.models.generate_images(
+                        model=model,
+                        prompt=prompt,
+                        config=types.GenerateImagesConfig(
+                            number_of_images=max(int(count), 1),
+                            aspect_ratio=aspect_ratio,
+                            image_size=image_size,
+                            output_mime_type="image/png",
+                        ),
+                    )
+                    self.image_model = model
+                    break
+                except Exception as exc:
+                    if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                        raise
+            assert response is not None
         generated = list(response.generated_images or [])
         if not generated:
             raise RuntimeError(f"Gemini returned no images for task {task_id}.")
@@ -93,17 +109,27 @@ class GeminiMediaClient:
         video_arg = types.Video.from_file(location=video_path) if video_path else None
         with cleared_proxy_env():
             client = genai.Client(api_key=self.api_key)
-            operation = client.models.generate_videos(
-                model=self.video_model,
-                prompt=prompt,
-                image=image_arg,
-                video=video_arg,
-                config=types.GenerateVideosConfig(
-                    duration_seconds=max(int(duration_seconds), 1),
-                    aspect_ratio=aspect_ratio,
-                    resolution=resolution,
-                ),
-            )
+            operation = None
+            chain = media_model_failover_chain("video", "gemini", (self.video_model,))
+            for index, model in enumerate(chain):
+                try:
+                    operation = client.models.generate_videos(
+                        model=model,
+                        prompt=prompt,
+                        image=image_arg,
+                        video=video_arg,
+                        config=types.GenerateVideosConfig(
+                            duration_seconds=max(int(duration_seconds), 1),
+                            aspect_ratio=aspect_ratio,
+                            resolution=resolution,
+                        ),
+                    )
+                    self.video_model = model
+                    break
+                except Exception as exc:
+                    if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                        raise
+            assert operation is not None
             while not operation.done:
                 time.sleep(max(int(poll_interval_sec), 5))
                 operation = client.operations.get(operation)

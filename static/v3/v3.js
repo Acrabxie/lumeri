@@ -48,7 +48,11 @@
     uploadInput: $("#upload-input"),
     uploadBtn: $("#upload-btn"),
     promptInput: $("#prompt-input"),
+    voiceInputBtn: $("#voice-input-btn"),
+    voiceInputStatus: $("#voice-input-status"),
     sendBtn: $("#send-btn"),
+    stopBtn: $("#session-stop-btn"),
+    inputShell: $("#input-shell"),
     sandboxBtn: $("#sandbox-toggle-btn"),
     planBtn: $("#plan-toggle-btn"),
     planBar: $("#plan-bar"),
@@ -83,6 +87,7 @@
     pendingAsk: null,           // {question_id, question} while elicit awaits
     sessionTitle: null,         // auto-generated title
     userMessageCount: 0,        // user message counter for auto-title triggers
+    stopPending: false,
   };
 
   function newTurn(userMessage) {
@@ -93,6 +98,7 @@
       streaming: false,
       toolCalls: new Map(),     // call_id -> ToolCallState
       orderedCallIds: [],
+      guidance: [],             // user steering messages inside this same turn
       banners: [],              // { kind: "budget"|"turn_error"|"unknown", text }
       complete: false,
     };
@@ -106,39 +112,52 @@
     }[c]));
   }
 
-  // The activity stream is an orientation aid, not a developer console. Only
-  // project-level verbs are rendered; tool names and every dynamic payload stay
-  // inside the protocol layer so paths, code, arguments, and model scratch work
-  // never become user-facing copy.
-  const ACTIVITY_COPY = Object.freeze({
-    create: { pending: "准备创建内容", running: "正在创建内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    edit: { pending: "准备编辑项目", running: "正在编辑项目", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    remove: { pending: "准备删除内容", running: "正在删除内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    inspect: { pending: "准备查看信息", running: "正在查看信息", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    export: { pending: "准备导出成片", running: "正在导出成片", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    ask: { pending: "准备向你确认", running: "正在整理需要确认的内容", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的选择", cancelled: "已取消此步骤" },
-    parallel: { pending: "准备并行处理任务", running: "正在并行处理任务", done: "已完成这一步", failed: "部分步骤暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-    task: { pending: "准备处理任务", running: "正在处理任务", done: "已完成这一步", failed: "这一步暂未完成", gated: "等待你的批准", cancelled: "已取消此步骤" },
-  });
+  // The activity stream is an orientation aid, not a developer console. The
+  // only specific wording comes from Lumeri's own constrained activity label;
+  // the display layer rejects anything that could be code or implementation
+  // detail before it reaches the DOM.
+  const ACTIVITY_TEXT_MAX_CHARS = 72;
+  const PROGRESS_REPORT_MAX_CHARS = 240;
+  const ACTIVITY_TEXT_UNSAFE_RE = /[`{}[\]<>\\]|[=;]|(?:https?|file):\/\/|(?:^|\s)(?:\/|~\/|[A-Za-z]:[\\/])|\b[\w.-]+\.(?:py|js|jsx|ts|tsx|json|md|yaml|yml|sh|bash|zsh|html|css|sql)\b|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b(?:api[_-]?key|token|password|secret|system[_ -]?prompt|reasoning|thought[_ -]?signature|asset[_ -]?id)\b|(?:代码|路径|工具名?|参数|命令|思维链|推理|内部)/i;
 
-  function activityKind(toolName) {
-    const name = String(toolName || "").toLowerCase();
-    if (name === "spawn_subtasks" || name.includes("subtask")) return "parallel";
-    if (name === "ask" || name === "elicit") return "ask";
-    if (/^(project_)?export|^export_|^render_|^lumen_render|^assemble/.test(name)) return "export";
-    if (/(delete|remove|discard|clear)/.test(name)) return "remove";
-    if (/^(get_|search_|inspect_|probe_|analyze_|read_|list_|file_list|web_search|web_open|recall_|lumen_seek)/.test(name)) return "inspect";
-    if (/^(generate_|create_|draft_|set_shotlist|paint_overlay|add_overlay|lumen_add_layer|timeline_insert_clip|timeline_add_track|vector_motion|copy_in|upload)/.test(name)) return "create";
-    if (/^(edit_|update_|adjust_|patch_|arrange_|move_|set_|transform_|trim_|cut_|lumen_|timeline_)/.test(name)) return "edit";
-    return "task";
+  function safeActivityText(value) {
+    const text = String(value || "").trim().replace(/\s+/g, " ");
+    if (!text || text.length > ACTIVITY_TEXT_MAX_CHARS || ACTIVITY_TEXT_UNSAFE_RE.test(text)) {
+      return "";
+    }
+    return text;
   }
 
-  function activityLabel(toolName, status) {
-    const copy = ACTIVITY_COPY[activityKind(toolName)];
-    if (status === "ok") return copy.done;
-    if (status === "error" || status === "timeout") return copy.failed;
-    if (status === "needs_user") return "等待你的选择";
-    return copy[status] || copy.running;
+  function safeProgressReport(value) {
+    const text = String(value || "").trim().replace(/\s+/g, " ");
+    if (!text || text.length > PROGRESS_REPORT_MAX_CHARS || ACTIVITY_TEXT_UNSAFE_RE.test(text)) {
+      return "";
+    }
+    return text;
+  }
+
+  function stripActivityMarkup(value) {
+    const withoutBlocks = String(value || "").replace(/<(?:activity|report)\b[^>]*>[\s\S]*?<\/(?:activity|report)\s*>/gi, "");
+    return withoutBlocks
+      .split(/\r?\n/)
+      .filter((line) => !/<\/?(?:activity|report)\b/i.test(line))
+      .join("\n")
+      .trim();
+  }
+
+  function activityLabel(tc) {
+    const activityText = safeActivityText(tc.activityText);
+    if (tc.status === "done" || tc.status === "ok") {
+      return activityText || "这一步已完成";
+    }
+    if (tc.status === "failed" || tc.status === "error" || tc.status === "timeout") {
+      return "这一步暂未完成";
+    }
+    if (tc.status === "gated" || tc.status === "needs_user") {
+      return tc.status === "needs_user" ? "等待你的选择" : "等待你的批准";
+    }
+    if (tc.status === "cancelled") return "已取消此步骤";
+    return activityText || "正在准备下一步";
   }
 
   function activityPhase(status) {
@@ -334,8 +353,16 @@
   function render() {
     els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
     const busy = !state.sessionId || state.turnInProgress;
-    els.sendBtn.disabled = busy;
+    els.sendBtn.disabled = !state.sessionId;
     els.uploadBtn.disabled = busy;
+    els.stopBtn.hidden = !state.turnInProgress;
+    els.stopBtn.disabled = state.stopPending;
+    els.inputShell.classList.toggle("is-steering", state.turnInProgress);
+    els.promptInput.placeholder = state.turnInProgress
+      ? "输入引导，让 Lumeri 调整当前方向…"
+      : "描述你想要的视频，或输入 / 唤起命令…";
+    els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
+    els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
     updateEditHint();   // selection-aware split/delete rule wins over the blanket disable above
 
@@ -354,8 +381,7 @@
     // 有素材就自动展开左侧时间轴抽屉（一次性，之后尊重用户手动开合）。
     if (!state._drawerAutoShown && state.assets && state.assets.length > 0) {
       state._drawerAutoShown = true;
-      document.getElementById("preview-stage")?.classList.add("drawer-open");
-      renderStageTabs();
+      toggleDrawer(true);
     }
 
     renderAssets();
@@ -402,12 +428,16 @@
   function renderTurn(turn, idx) {
     const callsHtml = buildCallGroups(turn).map(renderCallGroup).join("");
     const bannersHtml = turn.banners.map(renderBanner).join("");
+    const guidanceHtml = (turn.guidance || []).map((text) =>
+      `<div class="turn-guidance"><span class="turn-guidance-label">引导</span>${escapeHTML(text)}</div>`
+    ).join("");
     const assistantHtml = (turn.assistantText || turn.streaming)
       ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${renderMarkdown(turn.assistantText)}</div>`
       : "";
     return `
       ${idx ? '<div class="turn-divider" role="separator"></div>' : ""}
       <div class="user-bubble">${renderMarkdown(turn.userMessage)}</div>
+      ${guidanceHtml}
       ${callsHtml}
       ${bannersHtml}
       ${assistantHtml}
@@ -416,20 +446,50 @@
 
   // Keep each activity at the same calm, high-level granularity. The backend
   // still tracks recoveries; exposing that diagnostic arc is not useful here.
+  function callGroupStatus(calls) {
+    if (calls.some((tc) => tc.status === "running")) return "running";
+    if (calls.some((tc) => tc.status === "pending")) return "pending";
+    if (calls.some((tc) => tc.status === "needs_user")) return "needs_user";
+    if (calls.some((tc) => tc.status === "gated")) return "gated";
+    if (calls.some((tc) => tc.status === "failed" || tc.status === "error" || tc.status === "timeout")) return "failed";
+    if (calls.every((tc) => tc.status === "cancelled")) return "cancelled";
+    return calls[calls.length - 1]?.status || "pending";
+  }
+
   function buildCallGroups(turn) {
-    return turn.orderedCallIds
-      .map((cid) => turn.toolCalls.get(cid))
-      .filter(Boolean)
-      .map((tc) => ({ type: "single", tc }));
+    const groups = [];
+    for (const tc of turn.orderedCallIds.map((cid) => turn.toolCalls.get(cid)).filter(Boolean)) {
+      const activityText = safeActivityText(tc.activityText);
+      const progressReport = safeProgressReport(tc.progressReport);
+      const previous = groups[groups.length - 1];
+      if (activityText && previous?.activityText === activityText) {
+        previous.calls.push(tc);
+        if (!previous.progressReport && progressReport) previous.progressReport = progressReport;
+      } else {
+        groups.push({ calls: [tc], activityText, progressReport });
+      }
+    }
+    return groups;
   }
 
   function renderCallGroup(group) {
-    if (group.type === "single") return renderToolCall(group.tc);
-    return `<div class="activity-group">${group.calls.map(renderToolCall).join("")}</div>`;
+    const last = group.calls[group.calls.length - 1];
+    const progressReport = safeProgressReport(group.progressReport);
+    const reportHtml = progressReport
+      ? `<div class="midturn-report" aria-label="Lumeri 阶段汇报">
+          <span class="midturn-report-label">Lumeri</span>
+          <div>${renderMarkdown(progressReport)}</div>
+        </div>`
+      : "";
+    return reportHtml + renderToolCall({
+      ...last,
+      activityText: group.activityText || last.activityText,
+      status: callGroupStatus(group.calls),
+    });
   }
 
   function renderToolCall(tc) {
-    const label = activityLabel(tc.tool_name, tc.status);
+    const label = activityLabel(tc);
     const phase = activityPhase(tc.status);
     return `
       <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(label)}">
@@ -596,9 +656,37 @@
   const handlers = {
     turn_start: () => {
       state.turnInProgress = true;
+      state.stopPending = false;
       if (state.currentTurn) {
         state.currentTurn.streaming = false;
       }
+    },
+    turn_guidance_queued: () => {},
+    turn_guidance_applied: () => {
+      const t = state.currentTurn;
+      if (!t) return;
+      // Text streamed before the safe steering boundary is a superseded draft.
+      t.assistantText = "";
+      t.pendingAssistantText = "";
+      t.streaming = false;
+    },
+    turn_cancelled: (ev) => {
+      dismissAskDock();
+      state.turnInProgress = false;
+      state.stopPending = false;
+      const t = state.currentTurn;
+      if (!t) return;
+      for (const tc of t.toolCalls.values()) {
+        if (tc.status === "pending" || tc.status === "running") tc.status = "cancelled";
+      }
+      t.pendingAssistantText = "";
+      t.streaming = false;
+      t.complete = true;
+      t.banners.push({
+        kind: "info",
+        text: String(ev.message || "已停止当前执行，已经完成的进度会保留"),
+      });
+      autoSaveSession();
     },
     model_text_delta: (ev) => {
       const t = state.currentTurn;
@@ -621,11 +709,20 @@
         call_id: ev.call_id,
         tool_name: ev.tool_name,
         status: "pending",
+        activityText: "",
+        progressReport: "",
       });
       t.orderedCallIds.push(ev.call_id);
     },
     // Raw arguments are deliberately never retained by the display layer.
-    model_tool_call_ready: () => {},
+    // The only text allowed through is Lumeri's backend-validated activity label.
+    model_tool_call_ready: (ev) => {
+      const tc = state.currentTurn?.toolCalls.get(ev.call_id);
+      if (tc) {
+        tc.activityText = safeActivityText(ev.activity_text);
+        tc.progressReport = safeProgressReport(ev.progress_report);
+      }
+    },
     tool_exec_start: (ev) => {
       if (ev.agent_id) return;
       const tc = state.currentTurn?.toolCalls.get(ev.call_id);
@@ -699,12 +796,26 @@
       t.streaming = false;
     },
     turn_wrapup: (ev) => {
-      // Informational "stopped because X; here's what was / wasn't done".
-      if (state.currentTurn) state.currentTurn.pendingAssistantText = "";
-      state.currentTurn?.banners.push({
-        kind: "info",
-        text: "本轮已暂停，等待下一步",
-      });
+      // This is Lumeri's hand-off, not a generic host banner. For an
+      // incomplete-goal stop the backend deliberately released the model's
+      // own closing report just before this event; preserve that richer text.
+      // Other stop reasons may leave a partial stream fragment, so use the
+      // backend's deterministic wrap-up instead of presenting a broken draft.
+      dismissAskDock();
+      const t = state.currentTurn;
+      state.turnInProgress = false;
+      state.stopPending = false;
+      if (!t) return;
+      const modelReport = ev.reason === "incomplete_goal"
+        ? stripActivityMarkup(t.pendingAssistantText).trim()
+        : "";
+      const fallbackReport = String(ev.message || "").trim();
+      t.assistantText = modelReport || fallbackReport
+        || "我先停在这里。当前进度已经保留；你让我继续，我会从这里接着处理。";
+      t.pendingAssistantText = "";
+      t.streaming = false;
+      t.complete = true;
+      autoSaveSession();
     },
     ask_question: (ev) => {
       const q = ev.question || {};
@@ -734,6 +845,7 @@
       if (state.currentTurn) state.currentTurn.banners.push(banner);
       state.errors.push(text);
       state.turnInProgress = false;
+      state.stopPending = false;
       const sessionId = state.sessionId;
       if (state.eventSource) {
         state.eventSource.close();
@@ -750,8 +862,9 @@
       dismissAskDock();
       const t = state.currentTurn;
       state.turnInProgress = false;
+      state.stopPending = false;
       if (!t) return;
-      t.assistantText = t.pendingAssistantText;
+      t.assistantText = stripActivityMarkup(t.pendingAssistantText);
       t.pendingAssistantText = "";
       t.streaming = false;
       t.complete = true;
@@ -777,6 +890,7 @@
     turn_error: (ev) => {
       dismissAskDock();
       state.turnInProgress = false;
+      state.stopPending = false;
       const t = state.currentTurn;
       if (t) {
         t.streaming = false;
@@ -1832,6 +1946,7 @@
     state.assets = [];
     state.errors = [];
     state.turnInProgress = false;
+    state.stopPending = false;
     state.lastEventId = null;
     state.projectTimeline = null;
     state.mediaAnnotations = new Map();
@@ -1851,6 +1966,9 @@
     const msgs = [];
     for (const turn of state.turns) {
       if (turn.userMessage) msgs.push({ role: "user", content: turn.userMessage, timestamp: Date.now() });
+      for (const guidance of (turn.guidance || [])) {
+        msgs.push({ role: "status", content: guidance, statusType: "guidance", timestamp: Date.now() });
+      }
       if (turn.assistantText) msgs.push({ role: "status", content: turn.assistantText, statusType: "succeeded", timestamp: Date.now() });
     }
     return msgs;
@@ -1915,6 +2033,10 @@
     if (typeof data.plan_mode === "boolean") {
       state.planMode = data.plan_mode;
       if (!state.planMode) state.planReady = false;
+    }
+    if (typeof data.turn_in_progress === "boolean") {
+      state.turnInProgress = data.turn_in_progress;
+      if (!state.turnInProgress) state.stopPending = false;
     }
   }
 
@@ -2035,6 +2157,39 @@
     }
   }
 
+  async function steerTurn(message) {
+    if (!state.sessionId || !state.turnInProgress) throw new Error("no active turn");
+    const r = await fetch(`/sessions/${state.sessionId}/steer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `引导未送达 (${r.status})`);
+    }
+    if (state.currentTurn) state.currentTurn.guidance.push(message);
+    render();
+  }
+
+  async function stopCurrentTurn() {
+    if (!state.sessionId || !state.turnInProgress || state.stopPending) return;
+    state.stopPending = true;
+    render();
+    try {
+      const r = await fetch(`/sessions/${state.sessionId}/stop`, { method: "POST" });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || `停止未生效 (${r.status})`);
+      }
+    } catch (err) {
+      state.stopPending = false;
+      state.currentTurn?.banners.push({ kind: "info", text: "停止请求未成功，请再试一次" });
+      state.errors.push(`stop turn failed: ${err.message}`);
+      render();
+    }
+  }
+
   // ── wiring ──────────────────────────────────────────────────────────
 
   els.newSessionBtn.addEventListener("click", () => {
@@ -2123,6 +2278,7 @@
         <div class="auth-dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-title">
           <button type="button" class="auth-x" data-model-close aria-label="关闭">×</button>
           <h2 id="model-title">模型与思考强度</h2>
+          <p class="model-lock-note" id="model-lock-note" hidden></p>
           <div class="model-list" id="model-list"></div>
           <div class="model-add-wrap" id="model-add-wrap">
             <button type="button" class="model-add-btn" id="model-add-btn">+ 添加模型</button>
@@ -2164,6 +2320,11 @@
     function renderInfo(info) {
       lastInfo = info;
       const active = info.active || {};
+      const locked = !!active.locked;
+      if (locked) {
+        pendingModel = active.model;
+        pendingEffort = active.effort;
+      }
       if (pendingModel === null) pendingModel = active.model;
       if (pendingEffort === null) pendingEffort = active.effort;
       const selModel = pendingModel || active.model;
@@ -2174,17 +2335,17 @@
         const on = it.id === selModel;
         return `
           <div class="model-row${on ? " active" : ""}">
-            <button type="button" class="model-row-select" data-model-id="${escapeHTML(it.id)}">
+            <button type="button" class="model-row-select" data-model-id="${escapeHTML(it.id)}"${locked ? " disabled" : ""}>
               <span class="model-dot">${on ? "●" : "○"}</span>
               <span class="model-name">${escapeHTML(it.label)}${i === 0 ? ' <span class="model-tag">默认</span>' : ""}</span>
               <span class="model-id">${escapeHTML(it.id)}</span>
-            </button>${canDelete ? `<button type="button" class="model-del" data-del-id="${escapeHTML(it.id)}" aria-label="删除 ${escapeHTML(it.label)}">×</button>` : ""}
+            </button>${canDelete && !locked ? `<button type="button" class="model-del" data-del-id="${escapeHTML(it.id)}" aria-label="删除 ${escapeHTML(it.label)}">×</button>` : ""}
           </div>`;
       }).join("");
       const efforts = $("#model-efforts", overlay);
       efforts.innerHTML = (info.efforts || []).map((e) => {
         const on = e === selEffort;
-        return `<button type="button" class="model-chip${on ? " active" : ""}" data-effort="${escapeHTML(e)}">${escapeHTML(e)}</button>`;
+        return `<button type="button" class="model-chip${on ? " active" : ""}" data-effort="${escapeHTML(e)}"${locked ? " disabled" : ""}>${escapeHTML(e)}</button>`;
       }).join("");
 
       list.querySelectorAll("[data-model-id]").forEach((btn) =>
@@ -2196,7 +2357,16 @@
 
       const changed = selModel !== active.model || selEffort !== active.effort;
       const saveWrap = $("#model-save-wrap", overlay);
-      if (saveWrap) saveWrap.hidden = !changed;
+      if (saveWrap) saveWrap.hidden = locked || !changed;
+      const addWrap = $("#model-add-wrap", overlay);
+      if (addWrap) addWrap.hidden = locked;
+      const lockNote = $("#model-lock-note", overlay);
+      if (lockNote) {
+        lockNote.hidden = !locked;
+        lockNote.textContent = locked
+          ? `已强制锁定最强模型：${active.label || active.model} · ${active.effort || "max"} 思考强度`
+          : "";
+      }
     }
 
     async function apply() {
@@ -2854,16 +3024,24 @@
     if (!msg) return;
     const name = parseSlashName(msg);
     if (name) { execSlash(name); return; }
-    submitTurn(msg).then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
+    const action = state.turnInProgress ? steerTurn(msg) : submitTurn(msg);
+    action.then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
                    .catch((err) => {
-                     state.errors.push(`submit turn failed: ${err.message}`);
+                     state.errors.push(`${state.turnInProgress ? "steer" : "submit turn"} failed: ${err.message}`);
+                     state.currentTurn?.banners.push({ kind: "info", text: state.turnInProgress ? "引导未送达，请再试一次" : "任务未能开始，请稍后重试" });
                      render();
                    });
   });
+  els.stopBtn.addEventListener("click", stopCurrentTurn);
 
   els.promptInput.addEventListener("keydown", (e) => {
     // Slash menu gets first crack at arrows/enter/tab/esc.
     if (slashKeydown(e)) return;
+    if (voiceInput.listening && e.key === "Enter") {
+      e.preventDefault();
+      stopVoiceInput();
+      return;
+    }
     // Enter sends; Shift+Enter = newline. Never send mid-IME-composition (中文输入法候选).
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
@@ -2899,6 +3077,155 @@
     shell.classList.toggle("has-text", ta.value.trim().length > 0);
   }
   els.promptInput.addEventListener("input", syncShell);
+
+  // ── voice input: browser speech recognition → editable composer text ──
+  // Recognition never submits a turn. The user can review/correct the text,
+  // then explicitly send it. Chrome exposes the API with a webkit prefix.
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const voiceInput = {
+    recognition: null,
+    listening: false,
+    requesting: false,
+    baseText: "",
+    hadResult: false,
+    stopMessage: "",
+    errorMessage: "",
+    statusTimer: null,
+  };
+
+  function setVoiceStatus(message, persistent = false) {
+    clearTimeout(voiceInput.statusTimer);
+    els.voiceInputStatus.textContent = message || "";
+    els.voiceInputStatus.hidden = !message;
+    if (message && !persistent) {
+      voiceInput.statusTimer = setTimeout(() => { els.voiceInputStatus.hidden = true; }, 4200);
+    }
+  }
+
+  function joinVoiceText(base, spoken) {
+    const left = String(base || "").trimEnd();
+    const right = String(spoken || "").trim();
+    if (!left) return right;
+    if (!right) return left;
+    return `${left} ${right}`;
+  }
+
+  function renderVoiceState() {
+    shell.classList.toggle("is-listening", voiceInput.listening);
+    els.voiceInputBtn.classList.toggle("is-listening", voiceInput.listening);
+    els.voiceInputBtn.setAttribute("aria-pressed", String(voiceInput.listening));
+    els.voiceInputBtn.setAttribute("aria-label", voiceInput.listening ? "停止语音输入" : "语音输入");
+    els.voiceInputBtn.title = voiceInput.listening ? "停止语音输入" : "语音输入";
+    els.voiceInputBtn.querySelector("use")?.setAttribute("href", voiceInput.listening ? "#i-stop" : "#i-mic");
+    syncShell();
+  }
+
+  function stopVoiceInput(message = "语音已转成文字，请确认后发送") {
+    if (!voiceInput.listening) return;
+    voiceInput.stopMessage = message;
+    try { voiceInput.recognition?.stop(); } catch {}
+  }
+
+  async function requestMicrophonePermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceStatus("麦克风权限只能在 HTTPS 或 localhost 页面申请");
+      return false;
+    }
+    voiceInput.requesting = true;
+    els.voiceInputBtn.setAttribute("aria-busy", "true");
+    setVoiceStatus("正在申请麦克风权限…", true);
+    let stream = null;
+    try {
+      // Calling getUserMedia directly from the click handler makes Chrome show
+      // its permission prompt before speech recognition starts.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return true;
+    } catch (error) {
+      const messages = {
+        NotAllowedError: "麦克风权限被拒绝，请在浏览器地址栏中允许后重试",
+        SecurityError: "当前页面无法申请麦克风权限，请使用 HTTPS 或 localhost",
+        NotFoundError: "没有检测到可用的麦克风",
+        NotReadableError: "麦克风正被其他应用占用，请关闭后重试",
+        AbortError: "麦克风启动失败，请重试",
+      };
+      setVoiceStatus(messages[error?.name] || "无法取得麦克风权限，请检查浏览器设置");
+      return false;
+    } finally {
+      // Permission is retained by the browser; release the probe stream so the
+      // speech recognizer can own the microphone without two active captures.
+      stream?.getTracks().forEach((track) => track.stop());
+      voiceInput.requesting = false;
+      els.voiceInputBtn.removeAttribute("aria-busy");
+    }
+  }
+
+  async function startVoiceInput() {
+    if (!SpeechRecognition) {
+      setVoiceStatus("此浏览器不支持语音输入，请使用最新版 Chrome");
+      return;
+    }
+    if (voiceInput.listening) { stopVoiceInput(); return; }
+    if (voiceInput.requesting) return;
+    if (!await requestMicrophonePermission()) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = document.documentElement.lang || navigator.language || "zh-CN";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    voiceInput.recognition = recognition;
+    voiceInput.baseText = els.promptInput.value;
+    voiceInput.hadResult = false;
+    voiceInput.stopMessage = "";
+    voiceInput.errorMessage = "";
+
+    recognition.onstart = () => {
+      voiceInput.listening = true;
+      renderVoiceState();
+      setVoiceStatus("正在听… 再点一次麦克风即可停止", true);
+    };
+    recognition.onresult = (event) => {
+      let spoken = "";
+      for (let i = 0; i < event.results.length; i += 1) {
+        spoken += event.results[i][0]?.transcript || "";
+      }
+      voiceInput.hadResult = voiceInput.hadResult || Boolean(spoken.trim());
+      els.promptInput.value = joinVoiceText(voiceInput.baseText, spoken);
+      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    recognition.onerror = (event) => {
+      const messages = {
+        "not-allowed": "麦克风权限被拒绝，请在浏览器设置中允许后重试",
+        "service-not-allowed": "浏览器已禁止语音识别服务",
+        "audio-capture": "没有检测到可用的麦克风",
+        "no-speech": "没有听到语音，请再试一次",
+        "network": "语音识别网络不可用，请检查连接后重试",
+      };
+      if (event.error !== "aborted" || !voiceInput.stopMessage) {
+        voiceInput.errorMessage = messages[event.error] || "语音识别暂时不可用，请重试";
+      }
+    };
+    recognition.onend = () => {
+      voiceInput.listening = false;
+      voiceInput.recognition = null;
+      renderVoiceState();
+      if (voiceInput.errorMessage) setVoiceStatus(voiceInput.errorMessage);
+      else if (voiceInput.stopMessage) setVoiceStatus(voiceInput.stopMessage);
+      else if (voiceInput.hadResult) setVoiceStatus("语音已转成文字，请确认后发送");
+      else setVoiceStatus("语音输入已结束");
+      els.promptInput.focus();
+    };
+
+    try { recognition.start(); }
+    catch { setVoiceStatus("语音输入正在启动，请稍后再试"); }
+  }
+
+  if (!SpeechRecognition) {
+    els.voiceInputBtn.classList.add("is-unavailable");
+    els.voiceInputBtn.setAttribute("aria-disabled", "true");
+    els.voiceInputBtn.title = "当前浏览器不支持语音输入";
+  }
+  els.voiceInputBtn.addEventListener("click", startVoiceInput);
 
   // Starter suggestion chips (rail empty state): click fills the composer.
   document.getElementById("rail-empty")?.addEventListener("click", (e) => {
@@ -2959,6 +3286,10 @@
   // Left-stage timeline drawer (also mirrored on the "+" timeline switch).
   function toggleDrawer(force) {
     const open = force === undefined ? !previewStage.classList.contains("drawer-open") : force;
+    if (open && !stageTabs.includes("timeline")) {
+      stageTabs.push("timeline");
+      saveStageTabs();
+    }
     previewStage.classList.toggle("drawer-open", open);
     renderStageTabs();
   }
@@ -2970,12 +3301,11 @@
   $("#assets-tray-close")?.addEventListener("click", () => toggleTray(false));
   assetsTray?.addEventListener("click", (e) => { if (e.target === assetsTray) toggleTray(false); });
 
-  // ── stage tabs: browser-style strip; "预览" is the permanent home tab ──
+  // ── workspace modules: the strip controls visibility, not exclusive pages ──
   const stagePanel = $("#stage-panel");
-  const panelBody = $("#panel-tray-body");
-  const panelRefreshBtn = $("#panel-refresh-btn");
-  let panelView = null;          // outline/tasks/files while such a tab is active
-  let panelPollTimer = null;
+  const workspaceBoard = $("#workspace-board");
+  const timelineDrawer = $("#timeline-drawer");
+  const WorkspaceLayout = window.LumeriWorkspaceLayout;
 
   const STAGE_VIEWS = {
     timeline: { label: "时间线", ico: '<path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/>' },
@@ -2994,44 +3324,136 @@
   let stageTabs = [];
   let activeTab = "preview";
   let bgActive = false;   // any session running / has pending jobs → tasks tab badge
+  let didMigrateModules = false;
+  const DEFAULT_MODULES = ["timeline", "outline", "tasks"];
+  const PANEL_MODULES = new Set(["outline", "tasks", "files", "history"]);
+  const ALL_WORKSPACE_MODULES = ["preview", "outline", "tasks", "timeline", "files", "history"];
+  const WORKSPACE_ORDER_KEY = "lumeri:v3:workspace-order";
+  const WORKSPACE_SIZES_KEY = "lumeri:v3:workspace-sizes";
+  let workspaceOrder = [...ALL_WORKSPACE_MODULES];
+  let workspaceSizes = {};
   try {
     stageTabs = JSON.parse(window.localStorage.getItem("lumeri:v3:stage-tabs") || "[]")
       .filter((k) => STAGE_VIEWS[k]);
+  } catch {}
+  try {
+    // One-time migration from exclusive tabs to the simultaneous modular desk.
+    if (window.localStorage.getItem("lumeri:v3:module-layout") !== "1") {
+      stageTabs = [...new Set([...DEFAULT_MODULES, ...stageTabs])];
+      window.localStorage.setItem("lumeri:v3:module-layout", "1");
+      didMigrateModules = true;
+    }
+  } catch {
+    if (!stageTabs.length) stageTabs = [...DEFAULT_MODULES];
+  }
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(WORKSPACE_ORDER_KEY) || "[]");
+    const valid = Array.isArray(saved) ? saved.filter((id, i) => ALL_WORKSPACE_MODULES.includes(id) && saved.indexOf(id) === i) : [];
+    workspaceOrder = [...valid, ...ALL_WORKSPACE_MODULES.filter((id) => !valid.includes(id))];
+  } catch {}
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(WORKSPACE_SIZES_KEY) || "{}");
+    if (saved && typeof saved === "object") workspaceSizes = saved;
   } catch {}
 
   function saveStageTabs() {
     try { window.localStorage.setItem("lumeri:v3:stage-tabs", JSON.stringify(stageTabs)); } catch {}
   }
+  function saveWorkspaceLayout() {
+    try {
+      window.localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(workspaceOrder));
+      window.localStorage.setItem(WORKSPACE_SIZES_KEY, JSON.stringify(workspaceSizes));
+    } catch {}
+  }
+  function orderedStageTabs() {
+    return workspaceOrder.filter((id) => stageTabs.includes(id))
+      .concat(stageTabs.filter((id) => !workspaceOrder.includes(id)));
+  }
+  function visibleWorkspaceIds() {
+    const visible = new Set(["preview"]);
+    for (const id of orderedStageTabs()) {
+      if (PANEL_MODULES.has(id) || (id === "timeline" && previewStage.classList.contains("drawer-open"))) visible.add(id);
+    }
+    return workspaceOrder.filter((id) => visible.has(id))
+      .concat([...visible].filter((id) => !workspaceOrder.includes(id)));
+  }
+  function applyWorkspaceLayout() {
+    if (!workspaceBoard || !WorkspaceLayout) return;
+    const ids = visibleWorkspaceIds();
+    const packed = WorkspaceLayout.packModules(ids.map((id) => ({ id, ...WorkspaceLayout.clampSize(id, workspaceSizes[id]) })));
+    workspaceBoard.style.setProperty("--workspace-rows", String(packed.rows));
+    workspaceBoard.querySelectorAll("[data-workspace-module]").forEach((module) => {
+      const place = packed.placements[module.dataset.workspaceModule];
+      module.hidden = !place;
+      if (!place) return;
+      module.style.gridColumn = `${place.col} / span ${place.cols}`;
+      module.style.gridRow = `${place.row} / span ${place.rows}`;
+    });
+  }
+  function hideWorkspaceModule(id) {
+    stageTabs = stageTabs.filter((key) => key !== id);
+    if (id === "timeline") previewStage.classList.remove("drawer-open");
+    saveStageTabs();
+    if (activeTab === id) activeTab = "preview";
+    renderStageTabs();
+  }
+  if (didMigrateModules) saveStageTabs();
 
   function setActiveTab(k) {
     activeTab = k;
-    const panel = (k === "outline" || k === "tasks" || k === "files" || k === "history") ? k : null;
-    previewStage.dataset.tab = panel ? "panel" : "preview";
-    if (stagePanel) stagePanel.hidden = !panel;
-    if (panelRefreshBtn) panelRefreshBtn.hidden = !panel;
-    panelView = panel;
-    if (panelPollTimer) { clearInterval(panelPollTimer); panelPollTimer = null; }
-    if (panel) {
-      if (panel === "files") filesState = null;   // reopen at the root picker
-      refreshPanel();
-      if (panel !== "files" && panel !== "history") panelPollTimer = window.setInterval(refreshPanel, 5000);
-    }
     if (k === "timeline") toggleDrawer(true);
+    if (PANEL_MODULES.has(k)) refreshPanel(k);
     renderStageTabs();
   }
-  function refreshPanel() {
-    if (!panelView) return;
-    if (panelView === "outline") renderOutlinePanel();
-    else if (panelView === "tasks") renderTasksPanel();
-    else if (panelView === "files") renderFilesPanel();
-    else if (panelView === "history") renderHistoryPanel();
+  function panelBodyFor(view) {
+    return stagePanel?.querySelector(`[data-panel-body="${view}"]`) || null;
   }
-  panelRefreshBtn?.addEventListener("click", refreshPanel);
+  function refreshPanel(view = activeTab) {
+    const body = panelBodyFor(view);
+    if (!body) return;
+    if (view === "outline") renderOutlinePanel(body);
+    else if (view === "tasks") renderTasksPanel(body);
+    else if (view === "files") renderFilesPanel(body);
+    else if (view === "history") renderHistoryPanel(body);
+  }
+  function refreshVisibleModules() {
+    stageTabs.filter((k) => PANEL_MODULES.has(k)).forEach(refreshPanel);
+  }
+  function syncWorkspaceModules() {
+    if (!stagePanel) return;
+    const visible = stageTabs.filter((k) => PANEL_MODULES.has(k));
+    stagePanel.hidden = visible.length === 0;
+    const signature = `${visible.join("|")}|tasks:${bgActive}`;
+    if (stagePanel.dataset.signature !== signature) {
+      stagePanel.dataset.signature = signature;
+      stagePanel.innerHTML = visible.map((k) => `
+        <section class="workspace-module workspace-side-module" data-workspace-module="${k}" aria-labelledby="workspace-${k}-title">
+          <div class="workspace-module-head" data-module-drag="${k}" draggable="true">
+            <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
+            <span class="workspace-module-title" id="workspace-${k}-title">
+              <svg viewBox="0 0 24 24" aria-hidden="true">${STAGE_VIEWS[k].ico}</svg>${STAGE_VIEWS[k].label}
+            </span>
+            ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行"></span>` : ""}
+            <span class="workspace-module-meta">${k === "outline" ? "镜头结构" : k === "tasks" ? "运行状态" : k === "files" ? "只读浏览" : "历史记录"}</span>
+            ${k !== "history" ? `<button type="button" class="workspace-module-refresh" data-module-refresh="${k}" title="刷新${STAGE_VIEWS[k].label}" aria-label="刷新${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg></button>` : ""}
+            <button type="button" class="workspace-module-close" data-module-close="${k}" title="隐藏${STAGE_VIEWS[k].label}" aria-label="隐藏${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
+          </div>
+          <div class="panel-tray-body" data-panel-body="${k}"><p class="placeholder">加载中…</p></div>
+          <div class="module-resize-edge module-resize-edge-x" data-module-resize="${k}" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整${STAGE_VIEWS[k].label}宽度"></div>
+          <div class="module-resize-edge module-resize-edge-y" data-module-resize="${k}" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整${STAGE_VIEWS[k].label}高度"></div>
+        </section>`).join("");
+      window.queueMicrotask(refreshVisibleModules);
+    }
+    stagePanel.querySelectorAll("[data-workspace-module]").forEach((module) => {
+      module.classList.toggle("is-focused", module.dataset.workspaceModule === activeTab);
+    });
+    applyWorkspaceLayout();
+  }
 
   function renderStageTabs() {
     if (!stageTabList) return;
     const tabHtml = (k, label, ico, closable) => `
-      <button type="button" class="stage-tab${activeTab === k ? " active" : ""}" data-stage-tab="${k}" role="tab" aria-selected="${activeTab === k}">
+      <button type="button" class="stage-tab is-visible${activeTab === k ? " active" : ""}" data-stage-tab="${k}" role="tab" aria-selected="${activeTab === k}">
         <svg viewBox="0 0 24 24" aria-hidden="true">${ico}</svg><span>${label}</span>
         ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行" aria-label="有后台任务在运行"></span>` : ""}
         ${closable ? `<span class="stage-tab-x" data-stage-remove="${k}" role="button" title="移除" aria-label="移除${label}">
@@ -3040,7 +3462,8 @@
       </button>`;
     stageTabList.innerHTML =
       tabHtml("preview", "预览", PREVIEW_ICO, false)
-      + stageTabs.map((k) => tabHtml(k, STAGE_VIEWS[k].label, STAGE_VIEWS[k].ico, true)).join("");
+      + orderedStageTabs().map((k) => tabHtml(k, STAGE_VIEWS[k].label, STAGE_VIEWS[k].ico, true)).join("");
+    syncWorkspaceModules();
   }
 
   function renderStageAddMenu() {
@@ -3086,7 +3509,7 @@
 
   // Overflow "⋮": secondary actions (refresh the active view) tucked off the bar.
   function renderStageOverflow() {
-    const canRefresh = !!panelView && panelView !== "history";
+    const canRefresh = PANEL_MODULES.has(activeTab) && activeTab !== "history";
     stageOverflowMenu.innerHTML = `
       <button type="button" class="plus-item" role="menuitem" data-overflow="refresh"${canRefresh ? "" : " disabled"}>
         <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
@@ -3118,12 +3541,7 @@
     const rm = e.target.closest("[data-stage-remove]");
     if (rm) {
       e.stopPropagation();
-      const k = rm.dataset.stageRemove;
-      stageTabs = stageTabs.filter((x) => x !== k);
-      saveStageTabs();
-      if (k === "timeline") toggleDrawer(false);
-      if (activeTab === k) setActiveTab("preview");
-      else renderStageTabs();
+      hideWorkspaceModule(rm.dataset.stageRemove);
       return;
     }
     const tab = e.target.closest("[data-stage-tab]");
@@ -3133,7 +3551,116 @@
     if (k === "timeline" && activeTab === "timeline") { toggleDrawer(); return; }
     setActiveTab(k);
   });
+  if (stageTabs.includes("timeline")) previewStage.classList.add("drawer-open");
   renderStageTabs();
+
+  // Dragging changes only module order; the deterministic packer then finds
+  // the first free rectangle for every module, so modules can never overlap.
+  let draggedModule = null;
+  let dropTarget = null;
+  let dropAfter = false;
+  const clearDropState = () => {
+    workspaceBoard?.querySelectorAll(".is-drop-before, .is-drop-after").forEach((el) =>
+      el.classList.remove("is-drop-before", "is-drop-after"));
+    dropTarget = null;
+  };
+  workspaceBoard?.addEventListener("dragstart", (e) => {
+    const handle = e.target.closest("[data-module-drag]");
+    if (!handle) { e.preventDefault(); return; }
+    draggedModule = handle.dataset.moduleDrag;
+    handle.closest("[data-workspace-module]")?.classList.add("is-dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", draggedModule);
+  });
+  workspaceBoard?.addEventListener("dragover", (e) => {
+    if (!draggedModule) return;
+    const target = e.target.closest("[data-workspace-module]");
+    if (!target || target.dataset.workspaceModule === draggedModule) return;
+    e.preventDefault();
+    clearDropState();
+    dropTarget = target.dataset.workspaceModule;
+    const rect = target.getBoundingClientRect();
+    const dx = (e.clientX - (rect.left + rect.width / 2)) / Math.max(1, rect.width);
+    const dy = (e.clientY - (rect.top + rect.height / 2)) / Math.max(1, rect.height);
+    dropAfter = Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
+    target.classList.add(dropAfter ? "is-drop-after" : "is-drop-before");
+  });
+  workspaceBoard?.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (!draggedModule || !dropTarget) return;
+    workspaceOrder = workspaceOrder.filter((id) => id !== draggedModule);
+    const targetIndex = workspaceOrder.indexOf(dropTarget);
+    workspaceOrder.splice(Math.max(0, targetIndex + (dropAfter ? 1 : 0)), 0, draggedModule);
+    stageTabs = orderedStageTabs();
+    saveStageTabs();
+    saveWorkspaceLayout();
+    clearDropState();
+    workspaceBoard.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+    draggedModule = null;
+    renderStageTabs();
+  });
+  workspaceBoard?.addEventListener("dragend", () => {
+    clearDropState();
+    workspaceBoard.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+    draggedModule = null;
+  });
+
+  // Right and bottom edges resize in whole grid cells; repacking after every
+  // step keeps the same no-overlap invariant as module dragging.
+  let resizeState = null;
+  workspaceBoard?.addEventListener("pointerdown", (e) => {
+    const edge = e.target.closest("[data-module-resize]");
+    if (!edge || !WorkspaceLayout) return;
+    e.preventDefault();
+    e.stopPropagation();
+    edge.focus({ preventScroll: true });
+    const id = edge.dataset.moduleResize;
+    const size = WorkspaceLayout.clampSize(id, workspaceSizes[id]);
+    const rows = Math.max(1, Number(workspaceBoard.style.getPropertyValue("--workspace-rows")) || 1);
+    resizeState = {
+      id, axis: edge.dataset.resizeAxis, startX: e.clientX, startY: e.clientY, size,
+      colPx: Math.max(1, (workspaceBoard.clientWidth - 26) / 12),
+      rowPx: Math.max(1, (workspaceBoard.scrollHeight - 2 * (rows - 1) - 4) / rows),
+    };
+    edge.closest("[data-workspace-module]")?.classList.add("is-resizing");
+    edge.setPointerCapture?.(e.pointerId);
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!resizeState || !WorkspaceLayout) return;
+    const next = { ...resizeState.size };
+    if (resizeState.axis === "x") next.cols += Math.round((e.clientX - resizeState.startX) / resizeState.colPx);
+    else next.rows += Math.round((e.clientY - resizeState.startY) / resizeState.rowPx);
+    workspaceSizes[resizeState.id] = WorkspaceLayout.clampSize(resizeState.id, next);
+    applyWorkspaceLayout();
+  });
+  document.addEventListener("pointerup", () => {
+    if (!resizeState) return;
+    workspaceBoard?.querySelector(`[data-workspace-module="${resizeState.id}"]`)?.classList.remove("is-resizing");
+    resizeState = null;
+    saveWorkspaceLayout();
+  });
+  workspaceBoard?.addEventListener("keydown", (e) => {
+    const edge = e.target.closest("[data-module-resize]");
+    if (!edge || !WorkspaceLayout || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    const horizontal = edge.dataset.resizeAxis === "x";
+    if ((horizontal && !["ArrowLeft", "ArrowRight"].includes(e.key)) || (!horizontal && !["ArrowUp", "ArrowDown"].includes(e.key))) return;
+    e.preventDefault();
+    const id = edge.dataset.moduleResize;
+    const size = WorkspaceLayout.clampSize(id, workspaceSizes[id]);
+    if (horizontal) size.cols += e.key === "ArrowRight" ? 1 : -1;
+    else size.rows += e.key === "ArrowDown" ? 1 : -1;
+    workspaceSizes[id] = WorkspaceLayout.clampSize(id, size);
+    saveWorkspaceLayout();
+    applyWorkspaceLayout();
+  });
+  workspaceBoard?.addEventListener("click", (e) => {
+    const close = e.target.closest("[data-module-close]");
+    if (close) { e.stopPropagation(); hideWorkspaceModule(close.dataset.moduleClose); return; }
+    const refresh = e.target.closest("[data-module-refresh]");
+    if (refresh) { e.stopPropagation(); refreshPanel(refresh.dataset.moduleRefresh); return; }
+    const module = e.target.closest("[data-workspace-module]");
+    if (module) setActiveTab(module.dataset.workspaceModule);
+  });
 
   // Live badge on the 后台任务 tab: a slow, visibility-gated /sessions poll
   // flips bgActive when any session is mid-turn or has pending generation jobs.
@@ -3170,17 +3697,18 @@
 
   // ── outline panel: the shotlist riding /timeline ──────────────────────
   const SHOT_STATUS = { draft: ["草稿", ""], filled: ["已配素材", "filled"], placed: ["已上时间线", "placed"] };
-  async function renderOutlinePanel() {
-    if (!state.sessionId) { panelBody.innerHTML = `<p class="placeholder">暂无会话</p>`; return; }
+  async function renderOutlinePanel(body) {
+    if (!body) return;
+    if (!state.sessionId) { body.innerHTML = `<p class="placeholder">暂无会话</p>`; return; }
     let sl = null;
     try {
       const r = await fetch(`/sessions/${state.sessionId}/timeline`);
       if (r.ok) sl = (await r.json()).shotlist;
     } catch {}
-    if (panelView !== "outline") return;   // panel switched while fetching
+    if (!body.isConnected || !stageTabs.includes("outline")) return;
     const scenes = (sl && Array.isArray(sl.scenes)) ? sl.scenes : [];
     const shotCount = scenes.reduce((n, sc) => n + ((sc.shots || []).length), 0);
-    if (!shotCount) { panelBody.innerHTML = `<p class="placeholder">暂无大纲 — 让 Lumeri 起草分镜后在这里查看</p>`; return; }
+    if (!shotCount) { body.innerHTML = `<p class="placeholder">暂无大纲 — 让 Lumeri 起草分镜后在这里查看</p>`; return; }
     let html = "";
     if (sl.logline) html += `<p class="outline-logline">${escapeHTML(sl.logline)}</p>`;
     let no = 0;
@@ -3205,20 +3733,21 @@
           </div>`;
       }
     }
-    panelBody.innerHTML = html;
+    body.innerHTML = html;
   }
 
   // ── background tasks panel: GET /sessions (runners + pending jobs) ────
-  async function renderTasksPanel() {
+  async function renderTasksPanel(body) {
+    if (!body) return;
     let sessions = null;
     try {
       const r = await fetch("/sessions");
       if (r.ok) sessions = (await r.json()).sessions;
     } catch {}
-    if (panelView !== "tasks") return;
-    if (!Array.isArray(sessions)) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
-    if (!sessions.length) { panelBody.innerHTML = `<p class="placeholder">暂无运行中的会话</p>`; return; }
-    panelBody.innerHTML = sessions.map((s) => {
+    if (!body.isConnected || !stageTabs.includes("tasks")) return;
+    if (!Array.isArray(sessions)) { body.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    if (!sessions.length) { body.innerHTML = `<p class="placeholder">暂无运行中的会话</p>`; return; }
+    body.innerHTML = sessions.map((s) => {
       const mine = s.session_id === state.sessionId;
       const cls = s.turn_in_progress ? "running" : "";
       const stateTxt = s.turn_in_progress ? "执行中" : "空闲";
@@ -3242,16 +3771,17 @@
   }
 
   // ── session history panel ─────────────────────────────────────────────
-  async function renderHistoryPanel() {
+  async function renderHistoryPanel(body) {
+    if (!body) return;
     let sessions = null;
     try {
       const r = await fetch("/session-history/list?limit=50");
       if (r.ok) sessions = (await r.json()).sessions;
     } catch {}
-    if (panelView !== "history") return;
-    if (!Array.isArray(sessions)) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
-    if (!sessions.length) { panelBody.innerHTML = `<p class="placeholder">暂无历史会话</p>`; return; }
-    panelBody.innerHTML = sessions.map((s) => {
+    if (!body.isConnected || !stageTabs.includes("history")) return;
+    if (!Array.isArray(sessions)) { body.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    if (!sessions.length) { body.innerHTML = `<p class="placeholder">暂无历史会话</p>`; return; }
+    body.innerHTML = sessions.map((s) => {
       const title = s.title || "Gemia Session";
       const time = s.updated_at ? fmtAgo(new Date(s.updated_at).getTime() / 1000) : "";
       const msgs = s.message_count || 0;
@@ -3264,7 +3794,7 @@
         </button>`;
     }).join("");
 
-    panelBody.querySelectorAll(".history-row").forEach((btn) => {
+    body.querySelectorAll(".history-row").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.snapshotId;
         if (!id) return;
@@ -3290,6 +3820,8 @@
           currentTurn = newTurn(msg.content || "");
           state.turns.push(currentTurn);
           state.userMessageCount++;
+        } else if (msg.role === "status" && msg.statusType === "guidance" && currentTurn) {
+          currentTurn.guidance.push(msg.content || "");
         } else if (msg.role === "status" && currentTurn) {
           currentTurn.assistantText = msg.content || "";
           currentTurn.complete = true;
@@ -3308,14 +3840,15 @@
     if (["mp3", "wav", "m4a", "aac", "flac", "ogg"].includes(ext)) return "i-music";
     return "i-file";
   };
-  async function renderFilesPanel() {
+  async function renderFilesPanel(body) {
+    if (!body) return;
     if (!filesState) {
       let roots = [];
       try {
         const r = await fetch("/files/roots");
         if (r.ok) roots = (await r.json()).roots || [];
       } catch {}
-      if (panelView !== "files") return;
+      if (!body.isConnected || !stageTabs.includes("files")) return;
       let html = "";
       if (state.sessionId) {
         html += `<button type="button" class="file-row" data-file-root="session">
@@ -3326,7 +3859,7 @@
         <button type="button" class="file-row" data-file-root="${escapeHTML(rt.key)}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-folder"/></svg>
           <span class="file-name">${escapeHTML(rt.label)}</span></button>`).join("");
-      panelBody.innerHTML = html || `<p class="placeholder">暂无可浏览目录</p>`;
+      body.innerHTML = html || `<p class="placeholder">暂无可浏览目录</p>`;
       return;
     }
     const { root, session, path } = filesState;
@@ -3336,8 +3869,8 @@
       const r = await fetch(`/files/list?${qs}`);
       if (r.ok) data = await r.json();
     } catch {}
-    if (panelView !== "files") return;
-    if (!data) { panelBody.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
+    if (!body.isConnected || !stageTabs.includes("files")) return;
+    if (!data) { body.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
     const segs = path ? path.split("/") : [];
     const crumbs = [`<button type="button" data-file-crumb="">${escapeHTML(root === "session" ? "工作区" : root)}</button>`]
       .concat(segs.map((seg, i) =>
@@ -3354,28 +3887,28 @@
             <span class="file-name">${escapeHTML(en.name)}</span>
             <span class="file-size">${fmtBytes(en.size)}</span></button>`;
     }).join("");
-    panelBody.innerHTML = `
+    body.innerHTML = `
       <div class="files-crumbs"><button type="button" data-file-crumb="__roots__" title="所有目录"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:12px;height:12px"><use href="#i-chevron-l"/></svg></button>${crumbs}</div>
       ${rows || `<p class="placeholder">空目录</p>`}
       ${data.truncated ? `<p class="placeholder">（仅显示前 500 项）</p>` : ""}`;
   }
-  panelBody?.addEventListener("click", (e) => {
+  stagePanel?.addEventListener("click", (e) => {
     const rootBtn = e.target.closest("[data-file-root]");
     if (rootBtn) {
       const key = rootBtn.dataset.fileRoot;
       filesState = { root: key, session: key === "session" ? state.sessionId : "", path: "" };
-      renderFilesPanel();
+      refreshPanel("files");
       return;
     }
     const crumb = e.target.closest("[data-file-crumb]");
     if (crumb) {
       if (crumb.dataset.fileCrumb === "__roots__") filesState = null;
       else filesState = { ...filesState, path: crumb.dataset.fileCrumb };
-      renderFilesPanel();
+      refreshPanel("files");
       return;
     }
     const dir = e.target.closest("[data-file-dir]");
-    if (dir) { filesState = { ...filesState, path: dir.dataset.fileDir }; renderFilesPanel(); return; }
+    if (dir) { filesState = { ...filesState, path: dir.dataset.fileDir }; refreshPanel("files"); return; }
     const file = e.target.closest("[data-file-open]");
     if (file) {
       const { root, session } = filesState;
@@ -3383,6 +3916,14 @@
       window.open(`/files/get?${qs}`, "_blank", "noopener");
     }
   });
+
+  // Visible live modules refresh together; files/history remain stable while
+  // the user is reading or navigating them.
+  window.setInterval(() => {
+    if (document.visibilityState === "hidden") return;
+    if (stageTabs.includes("outline")) refreshPanel("outline");
+    if (stageTabs.includes("tasks")) refreshPanel("tasks");
+  }, 5000);
 
   // First-run discovery pulse on "+" (controls are hidden behind it now).
   try {
@@ -3703,6 +4244,9 @@
   // teardown on page hide
   window.addEventListener("beforeunload", () => {
     stopTimelinePoll();
+    if (voiceInput.listening) {
+      try { voiceInput.recognition?.abort(); } catch {}
+    }
     if (state.sessionId) {
       navigator.sendBeacon?.(`/sessions/${state.sessionId}/close`);
     }

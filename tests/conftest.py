@@ -79,3 +79,17 @@ def sample_video_path(tmp_path: Path) -> str:
 @pytest.fixture(autouse=True)
 def isolated_skill_telemetry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("GEMIA_SKILL_TELEMETRY_DB", str(tmp_path / "skill_telemetry.sqlite3"))
+
+
+@pytest.fixture(autouse=True)
+def _force_cpu_video_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin video encoding to libx264/libx265 across the suite.
+
+    Production auto-detects GPU encoders (VideoToolbox / NVENC / QSV), which
+    would make ffmpeg output host-dependent — VideoToolbox on the dev's Mac,
+    libx264 on CI. Forcing CPU keeps every integration test deterministic and
+    byte-identical to the pre-GPU baseline. Tests that exercise the detection /
+    GPU-fallback paths opt back in by setting ``GEMIA_VIDEO_ENCODER=auto`` and
+    monkeypatching ``detect_supported_encoders`` themselves.
+    """
+    monkeypatch.setenv("GEMIA_VIDEO_ENCODER", "cpu")

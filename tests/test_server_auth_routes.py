@@ -32,8 +32,14 @@ def _claims(sub: str, email: str) -> dict[str, object]:
     }
 
 
-def make_request(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, str, str]:
-    headers = {}
+def make_request(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None = None,
+    *,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    headers = dict(headers or {})
     if body is not None:
         headers["Content-Type"] = "application/json"
     raw_request = create_raw_request(method, path, headers=headers, body=body)
@@ -134,6 +140,44 @@ def test_email_code_login_routes_activate_account(monkeypatch, tmp_path: Path) -
     roster = json.loads(accounts_raw)
     assert roster["account"]["email"] == "user@example.dev"
     assert roster["accounts"][0]["email"] == "user@example.dev"
+
+
+def test_remote_auth_state_uses_shared_global_account(monkeypatch, tmp_path: Path) -> None:
+    _patch_account_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        accounts,
+        "verify_google_id_token",
+        lambda credential, client_id=None: _claims(credential, f"{credential}@example.com"),
+    )
+    first = accounts.sign_in_with_google("browser-one")
+    second = accounts.sign_in_with_google("browser-two")
+    assert accounts.current_account_id() == second["account_id"]
+
+    remote = {"X-Lumeri-Remote": "1"}
+    status, _, raw = make_request("GET", "/auth/session", headers=remote)
+    assert status == 200
+    shared = json.loads(raw)
+    assert shared["account"]["account_id"] == second["account_id"]
+    assert {item["account_id"] for item in shared["accounts"]} == {
+        first["account_id"],
+        second["account_id"],
+    }
+    assert "browser_isolated" not in shared
+
+    pinned = {**remote, "X-Lumeri-Account": first["account_id"]}
+    status, _, raw = make_request("GET", "/auth/session", headers=pinned)
+    still_shared = json.loads(raw)
+    assert still_shared["account"]["account_id"] == second["account_id"]
+
+    status, _, raw = make_request(
+        "POST",
+        "/accounts/switch",
+        {"account_id": first["account_id"]},
+        headers=remote,
+    )
+    assert status == 200
+    assert json.loads(raw)["account"]["account_id"] == first["account_id"]
+    assert accounts.current_account_id() == first["account_id"]
 
 
 def test_session_history_snapshot_route_opens_previous_session(monkeypatch, tmp_path: Path) -> None:

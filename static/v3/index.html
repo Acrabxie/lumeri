@@ -16,8 +16,8 @@
 </header>
 
 <main class="app-main">
-  <!-- LEFT · preview stage: browser-style tab strip, then the active tab's content -->
-  <section class="preview-stage" id="preview-stage" data-tab="preview">
+  <!-- LEFT · modular editing desk: preview + side modules + shared timeline -->
+  <section class="preview-stage" id="preview-stage">
     <div class="stage-tabbar" id="stage-tabs" role="tablist" aria-label="工作区视图">
       <div class="stage-tab-list" id="stage-tab-list"></div>
       <button type="button" id="stage-add-btn" class="stage-add-btn" title="添加视图" aria-label="添加视图" aria-haspopup="menu" aria-expanded="false">
@@ -31,24 +31,48 @@
       <div id="stage-overflow-menu" class="stage-add-menu stage-overflow-menu" hidden role="menu" aria-label="更多操作"></div>
     </div>
 
-    <!-- full-area workspace view (outline / tasks / files) shown instead of the preview -->
-    <div class="stage-panel" id="stage-panel" hidden>
-      <div class="panel-tray-body" id="panel-tray-body"></div>
-    </div>
+    <div class="workspace-board" id="workspace-board">
+      <section class="workspace-module workspace-preview-module" data-workspace-module="preview" aria-labelledby="preview-module-title">
+        <div class="workspace-module-head" data-module-drag="preview" draggable="true">
+          <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
+          <span class="workspace-module-title" id="preview-module-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2.5"/><path d="M10.4 8.6l3.8 2.4-3.8 2.4z"/></svg>
+            预览
+          </span>
+          <span class="workspace-module-meta">实时画布</span>
+        </div>
 
-    <div class="empty-state" id="empty-state">
-      <img class="empty-mark" src="/v3/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
-      <h2 class="empty-title">开始创作</h2>
-      <p class="empty-sub">在右侧描述你想要的视频</p>
-    </div>
+        <div class="empty-state" id="empty-state">
+          <img class="empty-mark" src="/v3/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
+          <h2 class="empty-title">开始创作</h2>
+          <p class="empty-sub">在右侧描述你想要的视频</p>
+        </div>
 
-    <div class="stage-scroll" id="stage-scroll">
-      <div class="asset-grid" id="asset-grid"></div>
-    </div>
+        <div class="stage-scroll" id="stage-scroll">
+          <div class="asset-grid" id="asset-grid"></div>
+        </div>
+        <div class="module-resize-edge module-resize-edge-x" data-module-resize="preview" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整预览宽度"></div>
+        <div class="module-resize-edge module-resize-edge-y" data-module-resize="preview" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整预览高度"></div>
+      </section>
 
-    <!-- CapCut-style project timeline: collapsible drawer, auto-opens when a timeline exists -->
-    <div class="timeline-drawer" id="timeline-drawer">
-      <section id="project-timeline-panel" class="ptl"></section>
+      <!-- outline / tasks / files / history are rendered here simultaneously -->
+      <aside class="stage-panel" id="stage-panel" aria-label="工作区模块" hidden></aside>
+
+      <!-- Timeline is a first-class workspace module, packed by the same no-overlap algorithm. -->
+      <section class="workspace-module workspace-timeline-module timeline-drawer" id="timeline-drawer" data-workspace-module="timeline" aria-labelledby="timeline-module-title">
+        <div class="workspace-module-head" data-module-drag="timeline" draggable="true">
+          <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
+          <span class="workspace-module-title" id="timeline-module-title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/></svg>
+            时间线
+          </span>
+          <span class="workspace-module-meta">轨道编辑</span>
+          <button type="button" class="workspace-module-close" data-module-close="timeline" title="隐藏时间线" aria-label="隐藏时间线"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
+        </div>
+        <div class="timeline-module-body"><section id="project-timeline-panel" class="ptl"></section></div>
+        <div class="module-resize-edge module-resize-edge-x" data-module-resize="timeline" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整时间线宽度"></div>
+        <div class="module-resize-edge module-resize-edge-y" data-module-resize="timeline" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整时间线高度"></div>
+      </section>
     </div>
   </section>
 
@@ -127,9 +151,18 @@
         rows="1"
         placeholder="描述你想要的视频，或输入 / 唤起命令…"
       ></textarea>
-      <button type="button" id="send-btn" class="send-btn" disabled aria-label="发送">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-send"/></svg>
-      </button>
+      <div class="composer-actions">
+        <button type="button" id="session-stop-btn" class="session-stop-btn" aria-label="停止当前执行" title="停止当前执行" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-stop"/></svg>
+        </button>
+        <button type="button" id="voice-input-btn" class="voice-input-btn" aria-label="语音输入" title="语音输入">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"/></svg>
+        </button>
+        <button type="button" id="send-btn" class="send-btn" disabled aria-label="发送">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-send"/></svg>
+        </button>
+      </div>
+      <span id="voice-input-status" class="voice-input-status" role="status" aria-live="polite" hidden></span>
     </footer>
   </aside>
 </main>
@@ -211,6 +244,7 @@
   </div>
 </div>
 
+<script src="/v3/workspace-layout.js" defer></script>
 <script src="/v3/v3.js" defer></script>
 </body>
 </html>

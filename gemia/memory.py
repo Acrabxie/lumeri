@@ -63,9 +63,13 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
             "description": "Primary planning model through OpenRouter. Legacy Gemini model names are mapped where possible.",
         },
         "image": {
-            "default": "google/gemini-2.5-flash-image",
+            "default": "google/gemini-3.1-flash-image-preview",
             "provider": "openrouter/nano-banana",
-            "aliases": ["Nano Banana", "Gemini 2.5 Flash Image"],
+            "aliases": ["Nano Banana Pro", "Gemini 3.1 Flash Image"],
+            "priority": [
+                {"id": "google/gemini-3.1-flash-image-preview", "label": "Gemini 3.1 Flash Image", "provider": "openrouter"},
+                {"id": "google/gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image", "provider": "openrouter"},
+            ],
             "tiers": {
                 "flash": "google/gemini-2.5-flash-image",
                 "pro": "google/gemini-3.1-flash-image-preview",
@@ -85,6 +89,10 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
         "video": {
             "default": "veo-3.1-generate-preview",
             "aliases": ["veo3.1quality", "Veo 3.1 quality"],
+            "priority": [
+                {"id": "veo-3.1-generate-preview", "label": "Veo 3.1 Quality", "provider": "vertex"},
+                {"id": "veo-3.1-fast-generate-preview", "label": "Veo 3.1 Fast", "provider": "vertex"},
+            ],
             "variants": {"fast": "veo-3.1-fast-generate-preview"},
             "env": ["GEMIA_VIDEO_MODEL", "GEMIA_GEMINI_VIDEO_MODEL", "VEO_MODEL"],
             "config": ["video_model", "veo_model", "gemini_video_model"],
@@ -93,6 +101,11 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
         "audio": {
             "default": "lyria-3-pro-preview",
             "aliases": ["lyric2pro", "Lyria 3 Pro"],
+            "priority": [
+                {"id": "lyria-3-pro-preview", "label": "Lyria 3 Pro", "provider": "vertex"},
+                {"id": "lyria-002", "label": "Lyria 2", "provider": "vertex"},
+                {"id": "lyria-3-clip-preview", "label": "Lyria 3 Clip", "provider": "vertex"},
+            ],
             "variants": {"clip": "lyria-3-clip-preview"},
             "env": ["GEMIA_AUDIO_MODEL", "LYRIA_MODEL"],
             "config": ["audio_model", "lyria_model"],
@@ -277,7 +290,7 @@ def bootstrap_memory(day: str | date | None = None) -> dict[str, str]:
         "# Gemia Memory Roles\n\n"
         "## Model Defaults\n\n"
         "- Primary planner: `google/gemini-3.1-pro-preview` through OpenRouter (`LumeriPlanner`)\n"
-        "- Image generation: `google/gemini-2.5-flash-image` through OpenRouter (`Nano Banana`)\n"
+        "- Image generation: `google/gemini-3.1-flash-image-preview` through OpenRouter (`Nano Banana Pro`)\n"
         "- Video generation: `veo-3.1-generate-preview` (`veo3.1quality`)\n"
         "- Audio generation: `lyria-3-pro-preview` (`lyric2pro`)\n",
     )
@@ -530,6 +543,17 @@ def _migrate_model_profile(profile: dict[str, Any]) -> None:
         image_provider = _clean_string(image.get("provider")).lower()
         if image_default in {"gpt-image-2", "gpt_image2", "gpt image2"} or image_provider == "sisyphus":
             models["image"] = copy.deepcopy(defaults["models"]["image"])
+    # Media generation strength is code-owned, not a user preference. Keep
+    # descriptive/provider fields, but force every stale local profile to the
+    # reviewed strongest-first defaults and priority tables.
+    for slot in ("image", "video", "audio"):
+        slot_defaults = defaults["models"][slot]
+        slot_info = models.setdefault(slot, {})
+        if not isinstance(slot_info, dict):
+            slot_info = {}
+            models[slot] = slot_info
+        slot_info["default"] = slot_defaults["default"]
+        slot_info["priority"] = copy.deepcopy(slot_defaults["priority"])
 
 
 def _slot_default(slot: str, profile: dict[str, Any], tier: str | None = None) -> str:
@@ -622,6 +646,42 @@ _MODEL_OVERRIDE_ENV = "LUMERI_V3_MODEL"
 _MODEL_OVERRIDE_CONFIG = "lumeri_v3_model"
 _EFFORT_OVERRIDE_ENV = "LUMERI_V3_EFFORT"
 _EFFORT_OVERRIDE_CONFIG = "lumeri_v3_effort"
+_FORCE_STRONGEST_CONFIG = "lumeri_v3_force_strongest"
+_STRONGEST_MODEL_CONFIG = "lumeri_v3_strongest_model"
+_STRONGEST_PROVIDER_CONFIG = "lumeri_v3_strongest_provider"
+_STRONGEST_EFFORT_CONFIG = "lumeri_v3_strongest_effort"
+
+
+def _config_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def strongest_model_lock(slot: str = "planner") -> dict[str, Any]:
+    """Return the fail-closed strongest-model lock for the planner slot."""
+    if slot != "planner":
+        return {"enabled": False}
+    config = read_user_config()
+    enabled = _config_bool(config.get(_FORCE_STRONGEST_CONFIG))
+    if not enabled:
+        return {"enabled": False}
+    catalog = model_catalog(slot)
+    fallback = catalog[0]["id"] if catalog else _slot_default(slot, load_model_profile())
+    model = _clean_string(config.get(_STRONGEST_MODEL_CONFIG)) or fallback
+    provider = (
+        _clean_string(config.get(_STRONGEST_PROVIDER_CONFIG))
+        or _clean_string(config.get("lumeri_v3_provider"))
+    ).lower()
+    effort = _clean_string(config.get(_STRONGEST_EFFORT_CONFIG)).lower() or "max"
+    if effort not in effort_options(slot):
+        effort = "max"
+    return {
+        "enabled": True,
+        "model": model,
+        "provider": provider,
+        "effort": effort,
+    }
 
 
 def _slot_info(slot: str, profile: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -680,6 +740,22 @@ def active_model_selection(slot: str = "planner") -> dict[str, Any]:
     """
     catalog = model_catalog(slot)
     default_model = catalog[0]["id"] if catalog else _slot_default(slot, load_model_profile())
+    lock = strongest_model_lock(slot)
+    if lock.get("enabled"):
+        model = str(lock.get("model") or default_model)
+        label = next((item["label"] for item in catalog if item["id"] == model), model)
+        return {
+            "model": model,
+            "label": label,
+            "effort": str(lock.get("effort") or "max"),
+            "provider": str(lock.get("provider") or ""),
+            "locked": True,
+            "lock_reason": "strongest",
+            "is_default_model": False,
+            "is_default_effort": False,
+            "default_model": default_model,
+            "default_effort": default_effort(slot),
+        }
 
     model_override = (
         _clean_string(os.environ.get(_MODEL_OVERRIDE_ENV))
@@ -701,6 +777,7 @@ def active_model_selection(slot: str = "planner") -> dict[str, Any]:
         "is_default_effort": not effort_override,
         "default_model": default_model,
         "default_effort": default_effort(slot),
+        "locked": False,
     }
 
 
@@ -739,6 +816,11 @@ def set_model_selection(
     ``None`` / ``""`` / ``"default"`` = reset to the backend default; any other
     value = set it (model accepts id, index, or fuzzy match).
     """
+    lock = strongest_model_lock(slot)
+    if lock.get("enabled") and (model is not _UNSET or effort is not _UNSET):
+        raise ValueError(
+            f"model is locked to strongest: {lock.get('model')} (effort={lock.get('effort')})"
+        )
     catalog = model_catalog(slot)
     patch: dict[str, Any] = {}
 
@@ -782,11 +864,25 @@ def apply_model_selection(payload: dict[str, Any], slot: str = "planner") -> dic
 
 def model_selection_payload(slot: str = "planner") -> dict[str, Any]:
     """Full ``/model`` GET payload: catalog + effort options + active selection."""
+    from gemia.model_strength import MEDIA_MODEL_PRIORITY
+
     return {
         "slot": slot,
         "priority": model_catalog(slot),
         "efforts": effort_options(slot),
         "active": active_model_selection(slot),
+        "media_strength_policy": {
+            media_slot: {
+                backend: {
+                    "active": models[0],
+                    "priority": list(models),
+                    "locked": True,
+                    "unavailable_policy": "silent_next_strongest",
+                }
+                for backend, models in backends.items()
+            }
+            for media_slot, backends in MEDIA_MODEL_PRIORITY.items()
+        },
     }
 
 

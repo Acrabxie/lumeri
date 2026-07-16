@@ -3,6 +3,8 @@
     POST   /sessions                            create session
     GET    /sessions/{id}                       info (assets, latest_event_id, plan_mode, protocol_version)
     POST   /sessions/{id}/turn                  submit user message (202)
+    POST   /sessions/{id}/steer                 guide the active turn (202)
+    POST   /sessions/{id}/stop                  stop the active turn (202)
     POST   /sessions/{id}/plan_mode             toggle plan mode {"enabled": bool}
     POST   /sessions/{id}/assets                upload asset (raw body + X-Filename)
     GET    /sessions/{id}/assets                list session assets
@@ -96,7 +98,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|assets|close|ask_response|plan_mode|auto_title)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|assets|close|ask_response|plan_mode|auto_title)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -107,6 +109,10 @@ def _route_post(handler, path: str, query: dict) -> bool:
 
     if action == "turn":
         return _submit_turn(handler, runner)
+    if action == "steer":
+        return _steer_turn(handler, runner)
+    if action == "stop":
+        return _stop_turn(handler, runner)
     if action == "assets":
         return _upload_asset(handler, runner)
     if action == "close":
@@ -164,8 +170,15 @@ def _create_session(handler) -> bool:
         account_id = identity.resolve_account_id(handler)
     except Exception:
         account_id = None
+    # X-Lumeri-Remote is injected by the public edge (nginx) and cannot be
+    # cleared by the client; local/native callers never send it. Marks a
+    # public demo session so host-dangerous tools are stripped.
     try:
-        runner = get_manager().create_session(account_id=account_id)
+        remote = str(handler.headers.get("X-Lumeri-Remote", "")).strip() == "1"
+    except Exception:
+        remote = False
+    try:
+        runner = get_manager().create_session(account_id=account_id, remote=remote)
     except SessionLimitError as exc:
         _json_error(handler, 503, str(exc))
         return True
@@ -192,6 +205,37 @@ def _submit_turn(handler, runner: SessionRunner) -> bool:
         _json_error(handler, 409, "turn already in progress for this session")
         return True
     _json_response(handler, 202, {"session_id": runner.session_id, "accepted": True})
+    return True
+
+
+def _steer_turn(handler, runner: SessionRunner) -> bool:
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    message = body.get("message")
+    if not isinstance(message, str) or not message.strip():
+        _json_error(handler, 400, "request body must include non-empty 'message' string")
+        return True
+    if not runner.steer_turn(message):
+        _json_error(handler, 409, "no active turn to guide for this session")
+        return True
+    _json_response(handler, 202, {
+        "session_id": runner.session_id,
+        "accepted": True,
+        "mode": "steer",
+    })
+    return True
+
+
+def _stop_turn(handler, runner: SessionRunner) -> bool:
+    if not runner.stop_turn():
+        _json_error(handler, 409, "no active turn to stop for this session")
+        return True
+    _json_response(handler, 202, {
+        "session_id": runner.session_id,
+        "accepted": True,
+        "mode": "stop",
+    })
     return True
 
 
@@ -496,6 +540,7 @@ def _session_info(handler, session_id: str) -> bool:
         "assets": runner.list_assets(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
         "plan_mode": runner.plan_mode,
+        "turn_in_progress": runner.turn_in_progress,
         "protocol_version": PROTOCOL_VERSION,
     })
     return True

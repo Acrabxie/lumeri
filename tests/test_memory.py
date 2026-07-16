@@ -71,7 +71,7 @@ def test_model_profile_contains_gemia_defaults(tmp_path, monkeypatch) -> None:
     assert models["planner"]["provider"] == "openrouter"
     assert "GeminiFlash3" not in models["planner"]["aliases"]
     assert models["planner"]["variants"]["fast"] == "google/gemini-3-flash-preview"
-    assert models["image"]["default"] == "google/gemini-2.5-flash-image"
+    assert models["image"]["default"] == "google/gemini-3.1-flash-image-preview"
     assert models["image"]["provider"] == "openrouter/nano-banana"
     assert models["video"]["default"] == "veo-3.1-generate-preview"
     assert models["audio"]["default"] == "lyria-3-pro-preview"
@@ -119,7 +119,7 @@ def test_clients_use_model_profile_defaults(tmp_path, monkeypatch) -> None:
 
     assert adapter.gemini_model == "gemini-3.1-pro-preview"
     assert adapter.model == "google/gemini-3.1-pro-preview"
-    assert image_client._model == "google/gemini-2.5-flash-image"
+    assert image_client._model == "google/gemini-3.1-flash-image-preview"
     assert image_client.base_url == "https://openrouter.ai/api/v1"
     assert video_client.model == "google/veo-3.1"
 
@@ -270,3 +270,60 @@ def test_config_override_reflected_in_active(tmp_path, monkeypatch) -> None:
     assert active["model"] == "google/gemini-3.5-flash"
     assert active["label"] == "Gemini 3.5 Flash"
     assert active["is_default_model"] is False
+
+
+def test_strongest_model_lock_overrides_runtime_selection(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    monkeypatch.setenv("LUMERI_V3_MODEL", "weaker-env-model")
+    monkeypatch.setenv("LUMERI_V3_EFFORT", "low")
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    memory.write_user_config(
+        {
+            "lumeri_v3_force_strongest": True,
+            "lumeri_v3_strongest_model": "gpt-5.6-sol",
+            "lumeri_v3_strongest_provider": "openai",
+            "lumeri_v3_strongest_effort": "max",
+            "lumeri_v3_model": "weaker-config-model",
+            "lumeri_v3_effort": "low",
+        }
+    )
+
+    active = memory.active_model_selection("planner")
+    assert active["locked"] is True
+    assert active["model"] == "gpt-5.6-sol"
+    assert active["provider"] == "openai"
+    assert active["effort"] == "max"
+    with pytest.raises(ValueError, match="locked to strongest"):
+        memory.apply_model_selection({"model": "default", "effort": "low"})
+
+
+def test_strongest_model_lock_controls_client_resolution(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _clear_model_env(monkeypatch)
+    _clear_selection_env(monkeypatch)
+    monkeypatch.setenv("LUMERI_V3_PROVIDER", "gemini")
+    monkeypatch.setenv("LUMERI_V3_MODEL", "weaker-env-model")
+    monkeypatch.setenv("LUMERI_V3_EFFORT", "low")
+    from gemia import memory
+
+    memory = importlib.reload(memory)
+    memory.write_user_config(
+        {
+            "openai_api_key": "test-key",
+            "lumeri_v3_force_strongest": True,
+            "lumeri_v3_strongest_model": "gpt-5.6-sol",
+            "lumeri_v3_strongest_provider": "openai",
+            "lumeri_v3_strongest_effort": "max",
+        }
+    )
+
+    from gemia.gemini_client import GeminiClientV3
+
+    client = GeminiClientV3(model="weaker-constructor-model")
+    assert client.provider == "openai"
+    assert client.model == "gpt-5.6-sol"
+    assert client.reasoning_effort == "max"

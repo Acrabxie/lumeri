@@ -1452,6 +1452,120 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
         ["op"],
     ),
+    # ── creative "point libraries" (second layer; each = ONE creative verb,
+    #    op: create|adjust|catalog, speak creative language not raw numbers) ──
+    _tool(
+        "grade",
+        "Creative COLOUR GRADING as one verb. op:'create' takes a BRIEF "
+        "{look (neutral|teal_orange|film|bleach_bypass|noir|day_for_night|pastel|"
+        "cyberpunk|vintage|clean, or aliases kodak/blockbuster/bw/instagram), "
+        "feeling:[adjectives], intensity (0..1), params:{warmth|contrast|saturation|"
+        "lift|drama|filmic:0..1}, seed} → a deterministic grade RECIPE (protected "
+        "S-curve tone, complementary split toning, skin-safe by default) + a preview "
+        "SVG + an ffmpeg_filter string to apply to footage. op:'adjust' folds feedback "
+        "('warmer','更电影感') into the recipe. op:'catalog' lists looks. Speak looks, "
+        "not curve points.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = brief → grade recipe; adjust = feedback → re-derive; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create/adjust: the grade brief (look + feelings + params)."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['warmer','less contrast','更高级']."},
+        },
+        ["op"],
+    ),
+    _tool(
+        "kinetic_type",
+        "Animated TITLES / KINETIC TYPOGRAPHY as one verb. op:'create' takes a BRIEF "
+        "{text or lines:[...], layout (title_card|lower_third|quote|kinetic_lyric|"
+        "list_reveal|caption|credits_roll), style (title_hero|editorial|kinetic|"
+        "broadcast|lyric|minimal), feeling:[...], reveal (per_word|per_line|typewriter|"
+        "mask_wipe|rise_fade|scale_pop), emphasis:[words], duration, palette, seed} → a "
+        "typeset, choreographed animated SVG added as an html layer (modular type scale, "
+        "TV title-safe margins, pace-timed reveals). Verify with lumen_seek/lumen_render. "
+        "op:'adjust' re-typesets a kinetic layer from feedback ('more energetic','更优雅'). "
+        "op:'catalog' lists layouts/reveals/styles. Deterministic per seed.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = brief → new title layer; adjust = feedback → rebuild; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create only: the text brief (text or lines + layout)."},
+            "place": {"type": "object", "description": "create only: layer placement {start (s), lane, name}."},
+            "layer_id": {"type": "string", "description": "adjust only: the kinetic layer to re-typeset."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['more energetic','更优雅']."},
+        },
+        ["op"],
+    ),
+    _tool(
+        "edit_grammar",
+        "EDIT GRAMMAR / cut craft as one verb. op:'create' takes a BRIEF "
+        "{clips:[{id, duration, has_action?, tags?, scene?}], style (invisible|energetic|"
+        "dreamy|documentary|montage|commercial, aliases mtv/film/music_video), feeling:[...], "
+        "seed} → a reasoned CUT PLAN (straight cuts by default; J/L cuts; cut-on-action; a "
+        "capped transition budget) of timeline transition/trim ops with a reason each. "
+        "op:'adjust' re-plans from feedback ('more energetic','更梦幻'). op:'catalog' lists "
+        "styles + transition vocabulary.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = clips → cut plan; adjust = feedback → re-plan; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create/adjust: {clips:[...], style, feeling}."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['more energetic','fewer transitions']."},
+        },
+        ["op"],
+    ),
+    _tool(
+        "camera",
+        "Synthetic CAMERA MOVEMENT as one verb. op:'create' takes a BRIEF {move "
+        "(push_in|pull_out|pan_left|pan_right|tilt_up|tilt_down|dolly|reveal|ken_burns|"
+        "handheld|float|whip), subject:{x,y in 0..1}, style (locked|cinematic|energetic|"
+        "handheld|documentary|epic), feeling:[...], energy, duration, canvas, seed} → an "
+        "eased, motivated, frame-safe keyframe TRANSFORM TRACK (subtle by default, never "
+        "reveals an edge; organic handheld from seeded noise) to apply via lumen_set_transform. "
+        "op:'adjust' re-derives from feedback; op:'catalog' lists moves. Canvas defaults to the doc.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = move → transform track; adjust = feedback → re-derive; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create/adjust: {move, subject, style, duration}."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['slower','more handheld']."},
+        },
+        ["op"],
+    ),
+    _tool(
+        "compose",
+        "COMPOSITION / FRAMING as one verb. op:'create' takes a BRIEF {subjects:[{bbox:"
+        "[x,y,w,h] in 0..1, weight?, facing?}], canvas or aspect, framing (thirds|centered|"
+        "golden|negative_space|dynamic|tight|wide), intent?, headroom?, horizon?, seed} → a "
+        "REFRAME RECIPE (thirds/golden anchor, hard subject containment so the head is never "
+        "cropped, honest horizon snapping) + a guide-overlay SVG, to apply via lumen_set_transform. "
+        "op:'adjust' re-derives from feedback; op:'catalog' lists framings. Canvas defaults to the doc.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = subjects → reframe recipe; adjust = feedback → re-derive; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create/adjust: {subjects:[...], framing, canvas}."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['tighter','more negative space']."},
+        },
+        ["op"],
+    ),
+    _tool(
+        "rhythm_edit",
+        "Musical RHYTHM EDITING (cut to the beat) as one verb. op:'create' takes a BRIEF "
+        "{bpm, time_signature?, sections?:[{name, bars}], clips?:[{id, duration}], style "
+        "(on_beat|on_downbeat|on_phrase|syncopated|half_time|double_time|build_drop, alias edm), "
+        "feeling:[...], energy, sync, seed} → a BEAT GRID + a phrase-aware beat-aligned CUT PLAN "
+        "(accents on strong beats, density following energy, build/drop acceleration). op:'adjust' "
+        "re-derives from feedback; op:'catalog' lists sync patterns. Deterministic from bpm.",
+        {
+            "op": {"type": "string", "enum": ["create", "adjust", "catalog"],
+                   "description": "create = bpm → beat grid + cut plan; adjust = feedback → re-derive; catalog = vocabulary."},
+            "brief": {"type": "object", "description": "create/adjust: {bpm, sections, style} (bpm required)."},
+            "feedback": {"type": "array", "items": {"type": "string"},
+                         "description": "adjust only: phrases like ['tighter','more drive']."},
+        },
+        ["op"],
+    ),
     # ── timeline document verbs (timeline v1, 2026-06-13 design) ──────
     # The session owns ONE persistent timeline (tracks + clips). These verbs
     # are fine-grained on purpose: each call = one logged, undoable patch.

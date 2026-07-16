@@ -123,7 +123,7 @@ class TestVertexGenerateAudio:
             )
         )
 
-        assert seen["model"] == "lyria-002"
+        assert seen["model"] == "lyria-3-pro-preview"
         assert seen["verb"] == "generate_audio"
         assert "bright motion graphics sting" in seen["instances"][0]["prompt"]
         assert "120 BPM" in seen["instances"][0]["prompt"]
@@ -170,7 +170,7 @@ class TestVertexGenerateVideo:
             )
         )
 
-        assert seen["submit"]["model"] == "veo-3.1-fast-generate-preview"
+        assert seen["submit"]["model"] == "veo-3.1-generate-preview"
         assert seen["submit"]["verb"] == "generate_video"
         assert seen["submit"]["parameters"]["durationSeconds"] == 4
         # New async shape: job_id + status, no asset_id yet

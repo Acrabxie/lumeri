@@ -22,8 +22,8 @@ from typing import Any, Literal, TypedDict
 
 import certifi
 
-from gemia.memory import resolve_model
 from gemia.audio.effects import text_to_speech as local_text_to_speech
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
 from gemia.primitives_common import ensure_path_exists
 
 # ── Type Definitions ─────────────────────────────────────────────────────
@@ -147,7 +147,17 @@ class AudioClient:
                 }
             },
         }
-        body = self._post_json(_GEMINI_GENERATE_URL.format(model=self._model), payload)
+        body: dict[str, Any] | None = None
+        chain = media_model_failover_chain("audio", "gemini", (self._model,))
+        for index, model in enumerate(chain):
+            try:
+                body = self._post_json(_GEMINI_GENERATE_URL.format(model=model), payload)
+                self._model = model
+                break
+            except RuntimeError as exc:
+                if index + 1 >= len(chain) or not is_model_unavailable_error(exc):
+                    raise
+        assert body is not None
         audio_data_b64 = self._extract_audio_from_gemini_response(body)
         
         audio_data = base64.b64decode(audio_data_b64)
@@ -217,29 +227,18 @@ class AudioClient:
 
     @staticmethod
     def _resolve_gemini_model(tier: str) -> str:
-        # Currently, only a "pro" tier is specified for Lyria audio generation.
-        if tier == "pro":
-            return resolve_model(
-                "audio",
-                env_names=("GEMIA_AUDIO_PRO_MODEL", "GEMIA_AUDIO_MODEL", "GEMIA_GEMINI_AUDIO_MODEL"),
-                config_keys=(
-                    "audio_pro_model",
-                    "lyria_pro_model",
-                    "audio_model",
-                    "lyria_model",
-                    "gemini_audio_model",
-                ),
-                fallback=_GEMINI_LYRIA_DEFAULT,
-                tier="pro",
-            )
-        # Default fallback if no specific tier is matched, though currently only 'pro' is expected.
-        return resolve_model(
-            "audio",
-            env_names=("GEMIA_AUDIO_MODEL", "GEMIA_GEMINI_AUDIO_MODEL"),
-            config_keys=("audio_model", "lyria_model", "gemini_audio_model"),
-            fallback=_GEMINI_LYRIA_DEFAULT, # Revert to pro as default if other tiers emerge
-            tier="default",
+        candidates = (
+            os.environ.get("GEMIA_AUDIO_PRO_MODEL"),
+            os.environ.get("GEMIA_AUDIO_MODEL"),
+            os.environ.get("GEMIA_GEMINI_AUDIO_MODEL"),
+            _read_config_key("audio_pro_model"),
+            _read_config_key("lyria_pro_model"),
+            _read_config_key("audio_model"),
+            _read_config_key("lyria_model"),
+            _read_config_key("gemini_audio_model"),
+            _GEMINI_LYRIA_DEFAULT,
         )
+        return strongest_media_model("audio", "gemini", candidates)
 
 
 # ── Primitive for Registry ────────────────────────────────────────────────

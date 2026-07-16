@@ -4,7 +4,7 @@ Environment variables
 ---------------------
 OPENROUTER_API_KEY : Required. API key for OpenRouter.
 OPENROUTER_VEO_URL : Optional. Base URL (default: https://openrouter.ai/api/v1).
-VEO_MODEL          : Optional. Model name (default: google/veo-3).
+VEO_MODEL          : Legacy candidate; cannot override the strongest model.
 GEMIA_SSL_VERIFY   : Set to "0" to disable SSL certificate verification.
 """
 from __future__ import annotations
@@ -22,9 +22,11 @@ from typing import Any
 
 import certifi
 
+from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+
 # ── Defaults ─────────────────────────────────────────────────────────────
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-_DEFAULT_MODEL = "google/veo-3.1"
+_DEFAULT_MODEL = strongest_media_model("video", "openrouter")
 _POLL_INTERVAL_SEC = 5
 _MAX_POLL_SEC = 600  # 10 minutes
 
@@ -52,7 +54,9 @@ class VeoClient:
                 "Set OPENROUTER_API_KEY for Veo video generation."
             )
         self.base_url = os.environ.get("OPENROUTER_VEO_URL", _DEFAULT_BASE_URL).rstrip("/")
-        self.model = os.environ.get("VEO_MODEL", _DEFAULT_MODEL)
+        self.model = strongest_media_model(
+            "video", "openrouter", (os.environ.get("VEO_MODEL"), _DEFAULT_MODEL)
+        )
         self.ssl_verify = os.environ.get("GEMIA_SSL_VERIFY", "1") != "0"
 
         # Local directory for downloaded videos
@@ -158,22 +162,30 @@ class VeoClient:
         """
         url = f"{self.base_url}/video/generations"
         last_exc: Exception | None = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = self._post_json(url, body)
-                # Response may contain job_id directly or nested
-                job_id = resp.get("id") or resp.get("job_id") or resp.get("task_id")
-                if not job_id:
-                    # Some APIs return status+url immediately if fast
-                    if resp.get("status") == "completed" and resp.get("url"):
-                        # Synthetic job ID for polling bypass
-                        return f"_immediate_{resp['url']}"
-                    raise RuntimeError(f"Veo API returned no job ID: {resp}")
-                return str(job_id)
-            except RuntimeError as exc:
-                last_exc = exc
-                if attempt < max_retries:
-                    time.sleep(2)
+        chain = media_model_failover_chain("video", "openrouter", (body.get("model"), self.model))
+        for model_index, model in enumerate(chain):
+            attempt_body = dict(body)
+            attempt_body["model"] = model
+            for attempt in range(1, max_retries + 1):
+                try:
+                    resp = self._post_json(url, attempt_body)
+                    self.model = model
+                    job_id = resp.get("id") or resp.get("job_id") or resp.get("task_id")
+                    if not job_id:
+                        if resp.get("status") == "completed" and resp.get("url"):
+                            return f"_immediate_{resp['url']}"
+                        raise RuntimeError(f"Veo API returned no job ID: {resp}")
+                    return str(job_id)
+                except RuntimeError as exc:
+                    last_exc = exc
+                    if is_model_unavailable_error(exc) and model_index + 1 < len(chain):
+                        break
+                    if attempt < max_retries:
+                        time.sleep(2)
+                    else:
+                        raise RuntimeError(
+                            f"Veo job submission failed after {max_retries} attempts: {last_exc}"
+                        ) from last_exc
         raise RuntimeError(f"Veo job submission failed after {max_retries} attempts: {last_exc}") from last_exc
 
     def _poll_until_done(self, job_id: str) -> str:

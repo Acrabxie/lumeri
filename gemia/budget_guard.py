@@ -118,6 +118,15 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     # Vector motion design: create/adjust only compile SVG + patch the doc —
     # the actual html→mp4 render cost is paid later by lumen_render/seek.
     "vector_motion":            {"usd": 0.00, "eta_sec": 1.0},
+    # Creative point libraries: create/adjust only compute a deterministic
+    # recipe/scene/plan (+ kinetic_type patches the doc); render cost is paid
+    # later by lumen_render/seek. catalog is free vocabulary.
+    "grade":                    {"usd": 0.00, "eta_sec": 0.3},
+    "kinetic_type":             {"usd": 0.00, "eta_sec": 1.0},
+    "edit_grammar":             {"usd": 0.00, "eta_sec": 0.3},
+    "camera":                   {"usd": 0.00, "eta_sec": 0.3},
+    "compose":                  {"usd": 0.00, "eta_sec": 0.3},
+    "rhythm_edit":              {"usd": 0.00, "eta_sec": 0.3},
     # Multi-agent fan-out: the verb itself is near-free orchestration; the real
     # cost of children flows through per-child budget reservations (see
     # gemia/subtasks.py + docs/multi-agent-plan.md §5). The loop special-cases

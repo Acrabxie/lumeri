@@ -206,7 +206,7 @@
     lastEventId: null,
     es: null,
     reconnectTimer: null,
-    running: new Map(),  // call_id -> verb
+    running: new Map(),  // call_id -> safe, model-authored activity text
     pendingAsk: null,    // {question_id, question} while elicit awaits
   };
 
@@ -308,33 +308,16 @@
   }
 
   // ── activity overlay ───────────────────────────────────────────────
-  function activityKind(toolName) {
-    const name = String(toolName || "").toLowerCase();
-    if (name === "spawn_subtasks" || name.includes("subtask")) return "parallel";
-    if (name === "ask" || name === "elicit") return "ask";
-    if (/^(project_)?export|^export_|^render_|^lumen_render|^assemble/.test(name)) return "export";
-    if (/(delete|remove|discard|clear)/.test(name)) return "remove";
-    if (/^(get_|search_|inspect_|probe_|analyze_|read_|list_|file_list|web_search|web_open|recall_|lumen_seek)/.test(name)) return "inspect";
-    if (/^(generate_|create_|draft_|set_shotlist|paint_overlay|add_overlay|lumen_add_layer|timeline_insert_clip|timeline_add_track|vector_motion|copy_in|upload)/.test(name)) return "create";
-    if (/^(edit_|update_|adjust_|patch_|arrange_|move_|set_|transform_|trim_|cut_|lumen_|timeline_)/.test(name)) return "edit";
-    return "task";
-  }
-  function activityLabel(toolName, status) {
-    const kind = activityKind(toolName);
-    const copy = {
-      create: ["准备创建内容", "正在创建内容"], edit: ["准备编辑项目", "正在编辑项目"],
-      remove: ["准备删除内容", "正在删除内容"], inspect: ["准备查看信息", "正在查看信息"],
-      export: ["准备导出成片", "正在导出成片"], ask: ["准备向你确认", "正在整理需要确认的内容"],
-      parallel: ["准备并行处理任务", "正在并行处理任务"], task: ["准备处理任务", "正在处理任务"],
-    }[kind];
-    if (status === "done" || status === "ok") return "已完成这一步";
-    if (status === "failed" || status === "error" || status === "timeout") return "这一步暂未完成";
-    if (status === "gated" || status === "needs_user") return kind === "ask" ? "等待你的选择" : "等待你的批准";
-    return status === "pending" ? copy[0] : copy[1];
+  const ACTIVITY_TEXT_MAX_CHARS = 72;
+  const ACTIVITY_TEXT_UNSAFE_RE = /[`{}[\]<>\\]|[=;]|(?:https?|file):\/\/|(?:^|\s)(?:\/|~\/|[A-Za-z]:[\\/])|\b[\w.-]+\.(?:py|js|jsx|ts|tsx|json|md|yaml|yml|sh|bash|zsh|html|css|sql)\b|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b(?:api[_-]?key|token|password|secret|system[_ -]?prompt|reasoning|thought[_ -]?signature|asset[_ -]?id)\b|(?:代码|路径|工具名?|参数|命令|思维链|推理|内部)/i;
+  function safeActivityText(value) {
+    const text = String(value || "").trim().replace(/\s+/g, " ");
+    if (!text || text.length > ACTIVITY_TEXT_MAX_CHARS || ACTIVITY_TEXT_UNSAFE_RE.test(text)) return "";
+    return text;
   }
   function runningActivity() {
-    const toolName = state.running.values().next().value;
-    return toolName ? activityLabel(toolName, "running") : "正在处理任务";
+    const activityText = state.running.values().next().value;
+    return activityText || "正在准备下一步";
   }
   function setActivity(on, verb, msg, percent) {
     const a = $("activity");
@@ -360,26 +343,38 @@
 
   // ── SSE handlers (mirror static/v3/v3.js) ──────────────────────────
   const handlers = {
-    turn_start: () => { setActivity(true, "正在理解你的请求", "", null); },
+    turn_start: () => {
+      state.running.clear();
+      setActivity(true, "正在理解你的请求", "", null);
+    },
     model_text_delta: () => {},
     model_tool_call_start: (ev) => {
-      state.running.set(ev.call_id, ev.tool_name || "tool");
-      setActivity(true, activityLabel(ev.tool_name, "pending"), "", null);
+      state.running.set(ev.call_id, "正在准备下一步");
+      setActivity(true, "正在准备下一步", "", null);
     },
-    model_tool_call_ready: () => {},
+    model_tool_call_ready: (ev) => {
+      if (!state.running.has(ev.call_id)) return;
+      const activityText = safeActivityText(ev.activity_text) || "正在准备下一步";
+      state.running.set(ev.call_id, activityText);
+      setActivity(true, activityText, "", null);
+    },
     tool_exec_start: (ev) => {
-      setActivity(true, activityLabel(state.running.get(ev.call_id), "running"), "", null);
+      if (ev.agent_id) return;
+      setActivity(true, state.running.get(ev.call_id) || "正在准备下一步", "", null);
     },
     tool_exec_progress: (ev) => {
-      setActivity(true, activityLabel(state.running.get(ev.call_id), "running"), "", typeof ev.percent === "number" ? ev.percent : null);
+      if (ev.agent_id) return;
+      setActivity(true, state.running.get(ev.call_id) || "正在准备下一步", "", typeof ev.percent === "number" ? ev.percent : null);
     },
     tool_exec_result: (ev) => {
+      if (ev.agent_id) return;
       const r = ev.result || {};
       if (r.asset_id) addAsset(r.asset_id, r.kind, r.summary);
       state.running.delete(ev.call_id);
       setActivity(state.running.size > 0, runningActivity(), "", null);
     },
     tool_exec_error: (ev) => {
+      if (ev.agent_id) return;
       state.running.delete(ev.call_id);
       toast("有一步暂未完成", "err");
       setActivity(state.running.size > 0, runningActivity(), "", null);
