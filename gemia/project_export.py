@@ -18,6 +18,7 @@ no video clip carrying a real, unmuted audio stream) keeps the silent
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -91,6 +92,15 @@ def export_project(
         )
 
     project = normalize_project(store.load(project_id))
+
+    # Pass 0 — comp_ref freshness (docs/timeline-canonical-plan.md §3.3): comp
+    # clips are LIVE references, so a stale lumenframe doc hash triggers a
+    # re-render + asset re-point (itself an undoable patch) before pass 1 reads
+    # any source file. Zero comp clips → zero overhead (no lumenframe import).
+    comp_refreshed = _refresh_comp_assets(store, project_id, project)
+    if comp_refreshed:
+        project = normalize_project(store.load(project_id))
+
     meta = store.load_meta(project_id)
     patch_seq = int(meta.get("patch_seq") or 0)
 
@@ -227,11 +237,171 @@ def export_project(
         ),
         "transitions": transition_records,
         "dropped_fields": dropped_fields,
+        # Pass 0 honesty: every comp_ref asset that was re-rendered (or whose
+        # source document went missing) on this export, with old/new hashes.
+        "comp_refreshed": comp_refreshed,
     }
     manifest_path = store.renders_dir(project_id) / f"{export_id}.manifest.json"
     _write_json(manifest_path, manifest)
     manifest["manifest_path"] = str(manifest_path)
     return manifest
+
+
+# ── pass 0: comp_ref freshness ───────────────────────────────────────────────
+
+
+def _comp_ref_of(asset: dict[str, Any]) -> dict[str, Any] | None:
+    metadata = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
+    ref = metadata.get("comp_ref")
+    return ref if isinstance(ref, dict) else None
+
+
+def _refresh_comp_assets(
+    store: ProjectStore,
+    project_id: str,
+    project: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Re-render stale ``comp_ref`` assets before pass 1 reads their files.
+
+    Freshness = sha256 of the current ``lumenframe.json`` BYTES vs the
+    ``comp_ref.doc_hash`` recorded at render time (hash decides; no mtime
+    fast-path — one file hash per export is negligible). A stale window is
+    re-rendered to a NEW content-addressed cache path and the asset re-pointed
+    via ONE ``upsert_asset`` patch (undoable; old cache files stay in place).
+
+    A comp that no longer covers ``comp_ref.t_out`` fails the export with
+    ``ProjectExportError("comp_shrunk", …)`` naming the clip — silently
+    changing ``clip.duration`` would ripple into the overlap/duration
+    invariants and pass-3 audio positions (contract §3.3 shrink guard).
+    """
+    asset_map = {
+        str(a.get("id")): a
+        for a in project.get("assets") or []
+        if isinstance(a, dict)
+    }
+    timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
+    comp_clips: dict[str, list[str]] = {}
+    for clip in timeline.get("clips") or []:
+        if not isinstance(clip, dict) or not bool(clip.get("enabled", True)):
+            continue
+        asset = asset_map.get(str(clip.get("asset_id") or ""))
+        if asset is None or _comp_ref_of(asset) is None:
+            continue
+        comp_clips.setdefault(str(asset.get("id")), []).append(str(clip.get("id") or ""))
+    if not comp_clips:
+        return []
+
+    records: list[dict[str, Any]] = []
+    doc_file = store.project_dir(project_id) / "lumenframe.json"
+    if not doc_file.exists():
+        # The comp document is gone: the cached render still exports, but the
+        # live reference has degraded to a snapshot. Record honestly, don't fail.
+        for asset_id, clip_ids in comp_clips.items():
+            records.append({
+                "asset_id": asset_id,
+                "clip_ids": clip_ids,
+                "status": "skipped",
+                "reason": "doc_missing",
+            })
+        return records
+
+    current_hash = "sha256:" + hashlib.sha256(doc_file.read_bytes()).hexdigest()
+    stale = {
+        asset_id: asset_map[asset_id]
+        for asset_id in comp_clips
+        if str((_comp_ref_of(asset_map[asset_id]) or {}).get("doc_hash")) != current_hash
+    }
+    if not stale:
+        return []
+
+    # Lazy imports: only a stale comp asset pays for lumenframe.
+    try:
+        from lumenframe.model import normalize_doc
+        from lumenframe.compile import compile_to_layer_stack
+        from lumenframe.render_range import export_range
+        from lumenframe import timebase
+    except ImportError as e:  # pragma: no cover - lumenframe ships with gemia
+        raise ProjectExportError(
+            "comp_refresh_failed",
+            f"lumenframe modules unavailable for comp refresh: {e}",
+        )
+
+    try:
+        doc = normalize_doc(json.loads(doc_file.read_text(encoding="utf-8")))
+        stack = compile_to_layer_stack(doc, strict=False)
+        fps = float(stack.fps)
+        total_frames = int(stack.total_frames)
+    except Exception as e:
+        raise ProjectExportError(
+            "comp_refresh_failed",
+            f"cannot compile lumenframe doc for comp refresh: {e}",
+        )
+
+    renders_dir = store.renders_dir(project_id)
+    renders_dir.mkdir(parents=True, exist_ok=True)
+    ops: list[dict[str, Any]] = []
+    for asset_id, asset in stale.items():
+        ref = dict(_comp_ref_of(asset) or {})
+        t_in = float(ref.get("t_in") or 0.0)
+        t_out = float(ref.get("t_out") or 0.0)
+        clip_ids = comp_clips[asset_id]
+        if int(timebase.to_frame(t_out, fps)) > total_frames:
+            raise ProjectExportError(
+                "comp_shrunk",
+                f"composition no longer covers [{t_in:g}, {t_out:g}) needed by "
+                f"clip(s) {', '.join(clip_ids)}; trim the clip or re-window "
+                "with lumen_comp_to_timeline",
+                detail=clip_ids[0],
+            )
+        in_ms = int(round(t_in * 1000))
+        out_ms = int(round(t_out * 1000))
+        new_path = renders_dir / f"comp_{current_hash[7:19]}_{in_ms}_{out_ms}.mp4"
+        if not (new_path.exists() and new_path.stat().st_size > 0):
+            try:
+                export_range(doc, t_in, t_out, str(new_path))
+            except ValueError as e:
+                raise ProjectExportError(
+                    "comp_shrunk",
+                    f"comp window [{t_in:g}, {t_out:g}) of clip(s) "
+                    f"{', '.join(clip_ids)} is empty after the composition changed: {e}",
+                    detail=clip_ids[0],
+                )
+            except Exception as e:
+                raise ProjectExportError(
+                    "comp_refresh_failed",
+                    f"re-render of comp asset {asset_id} failed: {e}",
+                    detail=asset_id,
+                )
+        old_hash = str(ref.get("doc_hash") or "")
+        ref["doc_hash"] = current_hash
+        ref["doc_hash_source"] = "file"
+        ref["rendered_at"] = datetime.now(timezone.utc).isoformat()
+        metadata = dict(asset.get("metadata") or {})
+        metadata["comp_ref"] = ref
+        # _upsert_asset merges {**existing, **asset}: only re-point the path and
+        # provenance; duration/media_kind/etc. survive from the existing asset.
+        ops.append({
+            "op": "upsert_asset",
+            "asset": {"id": asset_id, "source_path": str(new_path), "metadata": metadata},
+        })
+        records.append({
+            "asset_id": asset_id,
+            "clip_ids": clip_ids,
+            "old_hash": old_hash,
+            "new_hash": current_hash,
+            "source_path": str(new_path),
+            "status": "refreshed",
+        })
+
+    # One patch for the whole refresh = one undoable step; undo re-points
+    # source_path at the OLD cache file, which still exists (append-only cache).
+    store.apply_patches(
+        project_id,
+        [{"version": 1, "ops": ops}],
+        session_id="export-pass0",
+        script_hash="export-pass0",
+    )
+    return records
 
 
 # ── pass 1: base video ───────────────────────────────────────────────────────

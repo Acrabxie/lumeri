@@ -309,6 +309,27 @@ def _ripple_shift(
             clip["start"] = round(max(_as_float(clip.get("start")) + delta, 0.0), 6)
 
 
+def _clear_stale_transitions(project: dict[str, Any], track_ids: set[str]) -> None:
+    """Positional re-validation of ``transition_after`` after move/delete.
+
+    A stored transition means "blend into the NEXT butt-joined clip on this
+    track". When a move/delete breaks that adjacency the stored field is stale:
+    export already degrades it at render time (runtime re-checks in
+    ``_plan_transitions``), but clearing at write time keeps the stored state
+    honest (timeline-canonical-plan §5.2 Phase 2 cleanup). A clip that ends up
+    butt-joined to a NEW neighbour keeps its transition — same positional
+    semantics the export renders.
+    """
+    for track_id in track_ids:
+        clips = _track_clips(project, str(track_id))
+        for index, clip in enumerate(clips):
+            if not isinstance(clip.get("transition_after"), dict):
+                continue
+            nxt = clips[index + 1] if index + 1 < len(clips) else None
+            if nxt is None or abs(_clip_end(clip) - _as_float(nxt.get("start"))) > EPSILON:
+                clip["transition_after"] = None
+
+
 def _stamp_provenance(op: dict[str, Any], *clips: dict[str, Any]) -> None:
     provenance = op.get("provenance") if isinstance(op.get("provenance"), dict) else None
     if provenance is None:
@@ -428,6 +449,7 @@ def _op_delete_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
             _as_float(clip.get("start")),
             -_as_float(clip.get("duration")),
         )
+    _clear_stale_transitions(project, {str(clip.get("track_id") or "")})
 
 
 def _op_move_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
@@ -453,6 +475,7 @@ def _op_move_clip(project: dict[str, Any], op: dict[str, Any]) -> None:
     _ensure_no_overlap(project, new_track_id, new_start, duration, exclude=clip)
     clip["track_id"] = new_track_id
     clip["start"] = round(new_start, 6)
+    _clear_stale_transitions(project, {old_track_id, new_track_id})
     _stamp_provenance(op, clip)
 
 

@@ -59,6 +59,7 @@ from gemia.tools import generate_image as _generate_image
 from gemia.tools import generate_video as _generate_video
 from gemia.tools import inspect_timeline as _inspect_timeline
 from gemia.tools import layer as _layer
+from gemia.tools import lumen_comp_to_timeline as _lumen_comp_to_timeline
 from gemia.tools import lumen_render_range as _lumen_render_range
 from gemia.tools import lumen_seek as _lumen_seek
 from gemia.tools import lottie as _lottie
@@ -157,6 +158,7 @@ _REAL: dict[str, Dispatcher] = {
     "list_dir":                  _files.dispatch_list_dir,
     "log_note":                  _log_note.dispatch,
     "lumen_add_layer":           _layer.dispatch_lumen_add_layer,
+    "lumen_comp_to_timeline":    _lumen_comp_to_timeline.dispatch,
     "lumen_delete_layer":        _layer.dispatch_lumen_delete_layer,
     "lumen_key":                 _layer.dispatch_lumen_key,
     "lumen_merge_compositions":  _layer.dispatch_lumen_merge_compositions,

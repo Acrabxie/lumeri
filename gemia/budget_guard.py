@@ -115,6 +115,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "lumen_render":             {"usd": 0.00, "eta_sec": 20.0},
     "lumen_seek":               {"usd": 0.00, "eta_sec": 1.0},
     "lumen_render_range":       {"usd": 0.00, "eta_sec": 5.0},
+    "lumen_comp_to_timeline":   {"usd": 0.00, "eta_sec": 10.0},
     # Vector motion design: create/adjust only compile SVG + patch the doc —
     # the actual html→mp4 render cost is paid later by lumen_render/seek.
     "vector_motion":            {"usd": 0.00, "eta_sec": 1.0},

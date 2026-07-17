@@ -391,6 +391,12 @@ The session may have a lumenframe document (a hierarchical layer tree). When
 available it shows the current layer structure, selection, and canvas. Layer
 edits go through the `lumen_*` verbs; `lumen_patch` is the low-level
 fallback. `lumen_render` exports the document as an MP4 or PNG for preview.
+To bring finished lumenframe work into the cut, `lumen_comp_to_timeline`
+renders a window [t_in, t_out) once and inserts it on the timeline as a
+normal clip. The clip is a LIVE reference: if the composition changes later,
+`project_export` re-renders it automatically (pass 0). Undoing timeline steps
+never restores composition content — an undone refresh falls back to the
+older rendered file while the composition stays at its latest state.
 
 ### Masks and keying
 

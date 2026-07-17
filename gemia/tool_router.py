@@ -88,12 +88,12 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "timeline_set_clip_time", "timeline_add_transition",
         "timeline_set_clip_effects", "timeline_add_track", "timeline_set_track",
         "timeline_undo", "inspect_timeline", "render_preview", "project_export",
-        "edit_grammar", "rhythm_edit",
+        "edit_grammar", "rhythm_edit", "lumen_comp_to_timeline",
     }),
     "lumen_core": frozenset({
         "get_lumenframe", "lumen_patch",
         "lumen_render", "lumen_seek", "lumen_render_range",
-        "vector_motion", "camera",
+        "vector_motion", "camera", "lumen_comp_to_timeline",
     }),
     "lumen_time": frozenset({
         "get_lumenframe", "lumen_patch",

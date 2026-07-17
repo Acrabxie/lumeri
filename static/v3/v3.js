@@ -135,7 +135,7 @@
     grade: "编辑", kinetic_type: "编辑", edit_grammar: "编辑",
     camera: "编辑", compose: "编辑", rhythm_edit: "编辑",
 
-    arrange_timeline: "剪辑",
+    arrange_timeline: "剪辑", lumen_comp_to_timeline: "剪辑",
     timeline_insert_clip: "剪辑", timeline_delete_clip: "剪辑",
     timeline_move_clip: "剪辑", timeline_trim_clip: "剪辑",
     timeline_split_clip: "剪辑", timeline_set_clip_time: "剪辑",
