@@ -24,11 +24,12 @@ def _load_historical_prompt_corpus() -> dict[str, object]:
 
 
 def test_catalog_exactly_covers_current_111_tool_schemas() -> None:
-    # 94 = 111 - 18 lumen_* convenience verbs - 6 session-scope file ops
+    # 95 = 111 - 18 lumen_* convenience verbs - 6 session-scope file ops
     #    + lumen_comp_to_timeline (comp_ref bridge)
-    #    + 6 quanta verbs (draft/set/update/get/refine/assemble).
-    assert len(MASTER_TOOL_NAMES) == 94
-    assert len(set(MASTER_TOOL_NAMES)) == 94
+    #    + 6 quanta verbs (draft/set/update/get/refine/assemble)
+    #    + kill_job (background task chain).
+    assert len(MASTER_TOOL_NAMES) == 95
+    assert len(set(MASTER_TOOL_NAMES)) == 95
     assert catalog_coverage() == (frozenset(), frozenset())
     # vector_motion must belong to a pack (else it only surfaces on full
     # fallback and the model falls back to hand-pushed keyframes).

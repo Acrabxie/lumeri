@@ -1,7 +1,7 @@
 """HTTP routes for Lumeri v3 sessions.
 
     POST   /sessions                            create session
-    GET    /sessions/{id}                       info (assets, latest_event_id, plan_mode, protocol_version)
+    GET    /sessions/{id}                       info (assets, tasks, latest_event_id, plan_mode, protocol_version)
     POST   /sessions/{id}/turn                  submit user message (202)
     POST   /sessions/{id}/steer                 guide the active turn (202)
     POST   /sessions/{id}/stop                  stop the active turn (202)
@@ -9,6 +9,8 @@
     POST   /sessions/{id}/assets                upload asset (raw body + X-Filename)
     GET    /sessions/{id}/assets                list session assets
     GET    /sessions/{id}/assets/{asset_id}     serve asset file (Range supported)
+    GET    /sessions/{id}/tasks                 list background shell jobs
+    POST   /sessions/{id}/tasks/{job_id}/kill   kill a background shell job
     POST   /sessions/{id}/close                 close session
     GET    /sessions/{id}/stream                SSE event stream (Last-Event-ID)
     GET    /sessions/{id}/transcript            durable NDJSON transcript (?since_seq=N; works after close)
@@ -98,6 +100,16 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _session_timeline_op(handler, runner)
 
+    # Kill a background shell job. Distinct path shape from the action verbs
+    # below (carries a job_id segment), so it matches first.
+    m = re.match(r"^/sessions/([^/]+)/tasks/([^/]+)/kill$", path)
+    if m:
+        runner = get_manager().get(m.group(1))
+        if runner is None:
+            _json_error(handler, 404, f"unknown session: {m.group(1)}")
+            return True
+        return _kill_task(handler, runner, m.group(2))
+
     m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|assets|close|ask_response|plan_mode|auto_title)$", path)
     if not m:
         return False
@@ -149,6 +161,10 @@ def _route_get(handler, path: str, query: dict, *, body: bool) -> bool:
     m = re.match(r"^/sessions/([^/]+)/assets$", path)
     if m:
         return _list_assets(handler, m.group(1))
+
+    m = re.match(r"^/sessions/([^/]+)/tasks$", path)
+    if m:
+        return _list_tasks(handler, m.group(1))
 
     m = re.match(r"^/sessions/([^/]+)$", path)
     if m:
@@ -538,6 +554,7 @@ def _session_info(handler, session_id: str) -> bool:
     _json_response(handler, 200, {
         "session_id": session_id,
         "assets": runner.list_assets(),
+        "tasks": runner.list_tasks(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
         "plan_mode": runner.plan_mode,
         "turn_in_progress": runner.turn_in_progress,
@@ -889,6 +906,33 @@ def _list_assets(handler, session_id: str) -> bool:
         _json_error(handler, 404, f"unknown session: {session_id}")
         return True
     _json_response(handler, 200, {"assets": runner.list_assets()})
+    return True
+
+
+def _list_tasks(handler, session_id: str) -> bool:
+    runner = get_manager().get(session_id)
+    if runner is None:
+        _json_error(handler, 404, f"unknown session: {session_id}")
+        return True
+    _json_response(handler, 200, {"tasks": runner.list_tasks()})
+    return True
+
+
+def _kill_task(handler, runner: SessionRunner, job_id: str) -> bool:
+    """Kill a background shell job. Idempotent: killing an already-finished
+    job returns its terminal state rather than erroring."""
+    try:
+        result = runner.kill_task(job_id)
+    except KeyError:
+        _json_error(handler, 404, f"unknown job: {job_id}")
+        return True
+    except ValueError as exc:
+        # A real job whose kind has no local process (e.g. a video LRO): a
+        # client error, not an internal fault — surface it as 400 instead of
+        # letting it escape to the generic 500 handler.
+        _json_error(handler, 400, str(exc))
+        return True
+    _json_response(handler, 200, {"session_id": runner.session_id, **result})
     return True
 
 

@@ -2154,6 +2154,17 @@ class TurnLedger:
         # requested mutation or verification is complete. Pending lifecycle
         # state is already represented in pending_jobs when a job id exists.
         if state in {"pending", "noop", "partial"}:
+            # Watching a BACKGROUND shell job IS the requested action for a
+            # generic job-watching turn — the job finishes via the watcher
+            # (notice + auto-resume), never inside this turn, so a pending
+            # poll must not leave the generic act step open forever.
+            if (
+                tool in _JOB_MANAGEMENT_TOOLS
+                and isinstance(job_id, str)
+                and job_id.startswith(_BACKGROUND_SHELL_JOB_PREFIX)
+                and "act" in self.steps
+            ):
+                self.mark_step("act", "done", call)
             return record
 
         self._resolve_successful_retry(tool, job_id, resolved_target)
@@ -2165,6 +2176,13 @@ class TurnLedger:
             self.last_mutation_seq = self.sequence
             self._invalidate_prior_verification()
             self._mark_action_done(tool, call, record.call_args, facts)
+        elif (
+            tool in _JOB_MANAGEMENT_TOOLS
+            and isinstance(job_id, str)
+            and job_id.startswith(_BACKGROUND_SHELL_JOB_PREFIX)
+        ):
+            if "act" in self.steps:
+                self.mark_step("act", "done", call)
         elif tool in _READ_ACTION_TOOLS:
             if "inspect" in self.steps:
                 self.mark_step("inspect", "done", call)
@@ -2251,6 +2269,10 @@ class TurnLedger:
 
     def _record_job_state(self, job_id: str | None, status: str, record: OutcomeRecord) -> None:
         if not job_id:
+            return
+        if job_id.startswith(_BACKGROUND_SHELL_JOB_PREFIX):
+            # Background shell jobs never gate turn completion — the session
+            # watcher owns their lifecycle (SSE update + notice + resume).
             return
         if status in PENDING_JOB_STATES:
             self.pending_jobs[job_id] = status
@@ -2652,6 +2674,12 @@ class TurnLedger:
             f"compact_history={self.compact_history[-12:]}"
         )
 
+
+# Background shell jobs (run_shell run_in_background=true) are owned by the
+# session watcher: completion arrives as a host notice + auto-resume turn,
+# never inside the submitting turn. Their lifecycle must not block a turn.
+_BACKGROUND_SHELL_JOB_PREFIX = "shell_"
+_JOB_MANAGEMENT_TOOLS = frozenset({"check_job", "wait_for_job", "kill_job"})
 
 _READ_ACTION_TOOLS = frozenset({
     "probe_media", "analyze_media", "extract_frame", "get_safe_areas",

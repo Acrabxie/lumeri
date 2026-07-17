@@ -1019,7 +1019,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "run_shell",
-        "Execute a bash command in an isolated sandbox. Workspace directory is fully readable/writable. Outside workspace: files can only be created, not modified/deleted. Credentials (~/.ssh, ~/.config/gcloud, ~/.gemia/config.json) are not readable. Network access denied. Wraps command with sandbox-exec for M1 isolation. Returns exit_code, stdout_tail, stderr_tail, timed_out, sandbox_enforced, workspace_dir.",
+        "Execute a bash command in an isolated sandbox. Workspace directory is fully readable/writable. Outside workspace: files can only be created, not modified/deleted. Credentials (~/.ssh, ~/.config/gcloud, ~/.gemia/config.json) are not readable. Network access denied. Wraps command with sandbox-exec for M1 isolation. Foreground (default) blocks the turn and returns exit_code, stdout_tail, stderr_tail, timed_out, sandbox_enforced, workspace_dir. For commands that may run longer than ~30s (broad find/grep, test suites, installs), set run_in_background=true: returns a job_id IMMEDIATELY, output streams to a log file, and you get NOTIFIED when it finishes — continue other work or end the turn instead of polling. Manage with check_job / wait_for_job / kill_job.",
         {
             "command": {
                 "type": "string",
@@ -1027,7 +1027,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
             "timeout_sec": {
                 "type": "number",
-                "description": "Timeout in seconds (default 30, max 120). Command killed if it exceeds this duration.",
+                "description": "Timeout in seconds. Foreground: default 30, max 120. Background: default 600, max 3600. Command's whole process group is killed if exceeded.",
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "Run detached and return a job_id immediately (default false). Use for anything that may exceed ~30s; completion is announced automatically, so do NOT busy-poll.",
             },
         },
         ["command"],
@@ -1071,26 +1075,41 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "check_job",
-        "Poll a pending job by job_id. Works for build jobs (status + log tails) and Veo video jobs (status → asset_id when done). Inexpensive. Use to inspect job state without blocking.",
+        "Poll a pending job by job_id. Works for build/background-shell jobs (status + log tails + next_offset) and Veo video jobs (status → asset_id when done). Inexpensive. Use to inspect job state without blocking; background completion is announced automatically, so do NOT call this in a tight loop.",
         {
             "job_id": {
                 "type": "string",
-                "description": "Job identifier returned by build or generate_video.",
+                "description": "Job identifier returned by build, run_shell (background) or generate_video.",
+            },
+            "since_offset": {
+                "type": "integer",
+                "description": "Optional (build/shell only): byte offset from a previous check_job's next_offset — returns only NEW log output since then instead of the default tail.",
             },
         },
         ["job_id"],
     ),
     _tool(
         "wait_for_job",
-        "Block until a job completes or max_wait_sec is exceeded. Works for build jobs (polls every 1s) and Veo video jobs (polls every 10s). Returns same shape as check_job plus waited_sec and timed_out flag.",
+        "Block until a job completes or max_wait_sec is exceeded. Works for build jobs (polls every 1s) and Veo video jobs (polls every 10s). Returns same shape as check_job plus waited_sec and timed_out flag. For background shell jobs the wait is capped at 60s — prefer ending the turn and letting the completion notification wake you.",
         {
             "job_id": {
                 "type": "string",
-                "description": "Job identifier returned by build or generate_video.",
+                "description": "Job identifier returned by build, run_shell (background) or generate_video.",
             },
             "max_wait_sec": {
                 "type": "number",
-                "description": "Maximum seconds to wait (default 60, clamped to (0, 300]). For Veo jobs use 300.",
+                "description": "Maximum seconds to wait (default 60, clamped to (0, 300]; shell jobs further capped at 60). For Veo jobs use 300.",
+            },
+        },
+        ["job_id"],
+    ),
+    _tool(
+        "kill_job",
+        "Stop a running build or background-shell job: SIGKILLs its whole process group. The job's final status becomes failed with error 'killed by kill_job'. Idempotent on jobs that already finished. Not applicable to remote jobs (video).",
+        {
+            "job_id": {
+                "type": "string",
+                "description": "Job identifier returned by build or run_shell (background).",
             },
         },
         ["job_id"],

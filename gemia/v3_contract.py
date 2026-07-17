@@ -46,6 +46,13 @@ EVENT_KINDS: frozenset[str] = frozenset({
     # narration (transport/sse.py invariant 1).
     "subagent_start",
     "subagent_result",
+    # Background shell task chain (docs background-tasks plan). A
+    # run_in_background=true run_shell submits a kind="shell" job; the
+    # per-session watcher emits one background_task_update per status change
+    # (running → done/failed) carrying {job_id, status, exit_code, summary,
+    # output_tail, elapsed_sec}. Emitted only from agent_loop_v3.py
+    # (emit_background_update), which is already in the tests' EMIT_FILES.
+    "background_task_update",
     "timeline_op",
     "budget_gate",
     "plan_gate",

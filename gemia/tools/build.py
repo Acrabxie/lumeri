@@ -16,20 +16,28 @@ Four dispatchers:
    - Block (with async.sleep) until job done or max_wait_sec exceeded.
    - Same return shape as check_job + waited_sec, timed_out.
 
-4. dispatch_save_skill (verb `save_skill`):
+4. dispatch_kill (verb `kill_job`):
+   - SIGKILL the whole process group of a running build/shell job.
+   - Registry maps result to failed + error="killed by kill_job".
+
+5. dispatch_save_skill (verb `save_skill`):
    - Host-side only: copy source to skills dir, write JSON metadata.
    - Validates path containment, slugifies name, prevents overwrite.
    - Returns skill, path, summary.
 
-Module-level `_PROCESSES` dict tracks (Popen, deadline_monotonic) for
-each job_id. Limits: max 3 pending build jobs.
+Module-level `_PROCESSES` dict tracks (Popen, deadline_monotonic) for each
+job_id — build verb AND background run_shell jobs share it (check/wait/kill
+work uniformly), with per-family pending caps keyed on the job_id prefix.
+Limits: max 3 pending build jobs, max 3 pending shell jobs.
 """
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import os
 import re
+import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -41,8 +49,35 @@ from gemia.tools._context import ToolContext
 from gemia.tools.run_shell import _minimal_env
 
 
-# Module-level process tracking: job_id -> (Popen, deadline_monotonic)
+# Module-level process tracking: job_id -> (Popen, deadline_monotonic).
+# Shared by the build verb AND background run_shell jobs (job_id prefixes
+# "build_" / "shell_" keep the per-family pending caps separate).
 _PROCESSES: dict[str, tuple[subprocess.Popen[str], float]] = {}
+
+# Log reading limits (see _read_log_slice). The cap kills runaway jobs whose
+# output would otherwise grow without bound.
+_LOG_TAIL_BYTES = 4000
+_LOG_SLICE_MAX_BYTES = 16384
+_LOG_CAP_BYTES = 10 * 1024 * 1024
+
+
+def _kill_all_tracked_processes() -> None:
+    """Interpreter-exit backstop: SIGKILL every process group still tracked.
+
+    SessionRunner.close() does the polite per-session SIGTERM→SIGKILL sweep;
+    this only matters when the whole server dies with jobs running, so
+    background children never outlive the host as orphans.
+    """
+    for _job_id, (proc, _deadline) in list(_PROCESSES.items()):
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+    _PROCESSES.clear()
+
+
+atexit.register(_kill_all_tracked_processes)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -119,8 +154,15 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         # Default to first line of code or first 60 chars
         note = (code.split("\n")[0][:60]) if code else "Python build"
 
-    # Check pending limit: max 3 concurrent builds
-    pending_count = len([p for p, _ in _PROCESSES.values() if p.poll() is None])
+    # Check pending limit: max 3 concurrent builds. _PROCESSES also holds
+    # background shell jobs — count only this family's, by job_id prefix.
+    # Snapshot before polling: proc.poll() releases the GIL (os.waitpid), so a
+    # concurrent pop from another session's watcher thread would raise
+    # "dictionary changed size during iteration" against the live view.
+    pending_count = len([
+        jid for jid, (p, _) in list(_PROCESSES.items())
+        if jid.startswith("build_") and p.poll() is None
+    ])
     if pending_count >= 3:
         raise ValueError(
             f"Too many pending builds (max 3). Currently pending: {pending_count}"
@@ -218,94 +260,297 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def _check_job_impl(job_id: str, ctx: ToolContext) -> dict[str, Any]:
-    """Synchronous job check logic (reused by both check_job and wait_for_job)."""
+def _read_log_slice(path: Path, since_offset: int | None) -> tuple[str, int, bool]:
+    """Read an incremental slice of a log without loading the whole file.
+
+    Returns (text, next_offset, truncated). With no offset: the last
+    _LOG_TAIL_BYTES bytes (truncated=True means earlier output was skipped).
+    With an offset: up to _LOG_SLICE_MAX_BYTES from there (truncated=True
+    means more bytes remain past next_offset — call again with it).
+    """
+    if not path.exists():
+        return "", 0, False
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        if since_offset is None:
+            start = max(0, size - _LOG_TAIL_BYTES)
+            f.seek(start)
+            data = f.read(size - start)
+            return data.decode("utf-8", errors="replace"), size, start > 0
+        start = min(max(0, int(since_offset)), size)
+        f.seek(start)
+        data = f.read(min(size - start, _LOG_SLICE_MAX_BYTES))
+        next_offset = start + len(data)
+        return data.decode("utf-8", errors="replace"), next_offset, next_offset < size
+
+
+def _job_log_paths(record: Any, ctx: ToolContext) -> tuple[Path, Path | None]:
+    """(primary log, separate stderr log or None) for a job by kind."""
+    if record.kind == "shell":
+        # Background run_shell merges stdout+stderr into one file.
+        return Path(ctx.output_dir) / "tasks" / f"{record.job_id}.log", None
+    job_dir = Path(ctx.output_dir) / "builds" / record.job_id
+    return job_dir / "stdout.log", job_dir / "stderr.log"
+
+
+def _check_job_impl(
+    job_id: str,
+    ctx: ToolContext,
+    since_offset: int | None = None,
+    *,
+    mark_announced: bool = True,
+) -> dict[str, Any]:
+    """Synchronous job check logic for build and shell jobs.
+
+    Shared by check_job, wait_for_job AND the session background watcher.
+    mark_announced=True (model-facing polls) records that the model has
+    seen a terminal state, so the watcher won't notify it again; the
+    watcher itself passes False.
+    """
     record = ctx.jobs.get(job_id)  # Raises KeyError if not found
-    job_dir = Path(ctx.output_dir) / "builds" / job_id
+    is_shell = record.kind == "shell"
+    primary_log, stderr_log = _job_log_paths(record, ctx)
 
-    stdout_log = job_dir / "stdout.log"
-    stderr_log = job_dir / "stderr.log"
-
-    stdout_tail = ""
-    stderr_tail = ""
     exit_code = None
     status = record.last_polled_status
 
-    # Read tails if logs exist
-    if stdout_log.exists():
-        with open(stdout_log) as f:
-            content = f.read()
-            stdout_tail = content[-4000:] if len(content) > 4000 else content
-
-    if stderr_log.exists():
-        with open(stderr_log) as f:
-            content = f.read()
-            stderr_tail = content[-4000:] if len(content) > 4000 else content
-
-    # Poll process if still tracked
+    # Poll process if still tracked (do this BEFORE reading log slices so a
+    # just-finished job's final output is included in this response).
     if job_id in _PROCESSES:
         proc, deadline = _PROCESSES[job_id]
         rc = proc.poll()
 
         if rc is None:
-            # Still running
             now = time.monotonic()
-            if now > deadline:
-                # Timeout: kill process group
+            log_size = primary_log.stat().st_size if primary_log.exists() else 0
+            # Build jobs write stdout/stderr to two files; a runaway stream on
+            # stderr must count toward the cap too (shell jobs merge into one
+            # file, so stderr_log is None there and this is a no-op).
+            if stderr_log is not None and stderr_log.exists():
+                log_size += stderr_log.stat().st_size
+            if now > deadline or log_size > _LOG_CAP_BYTES:
+                # Timeout or runaway output: kill the whole process group.
                 try:
-                    os.killpg(os.getpgid(proc.pid), 9)
+                    os.killpg(proc.pid, signal.SIGKILL)
                 except OSError:
                     pass  # Already gone
-                exit_code = proc.wait(timeout=1)
-                timeout_sec = record.estimated_eta_sec
-                ctx.jobs.update_from_poll(
-                    job_id,
-                    "failed",
-                    error=f"timeout after {int(timeout_sec)}s",
-                )
+                try:
+                    exit_code = proc.wait(timeout=1)
+                except Exception:
+                    # A SIGKILL'd child can be momentarily unreapable (D-state on
+                    # slow I/O). Finalize the job as failed anyway — leaving it
+                    # non-terminal here would strand it (the watcher's except
+                    # handler would keep polling, but never resolve it).
+                    exit_code = None
+                if log_size > _LOG_CAP_BYTES:
+                    error = f"log exceeded {_LOG_CAP_BYTES // (1024 * 1024)}MB cap"
+                else:
+                    error = f"timeout after {int(record.estimated_eta_sec)}s"
+                ctx.jobs.update_from_poll(job_id, "failed", error=error)
                 status = "failed"
                 _PROCESSES.pop(job_id, None)
             else:
                 status = "running"
                 ctx.jobs.update_from_poll(job_id, "running")
         elif rc == 0:
-            # Success
             status = "done"
             exit_code = rc
-            # The job dir's single script is the durable artifact; fall back
-            # to the stdout log if the model named the file unconventionally.
-            scripts = sorted(job_dir.glob("*.py"))
-            final = scripts[0] if scripts else stdout_log
+            if is_shell:
+                final = primary_log
+            else:
+                # The job dir's single script is the durable artifact; fall
+                # back to the stdout log if the model named the file
+                # unconventionally. Skip exFAT AppleDouble "._*" sidecars.
+                job_dir = primary_log.parent
+                scripts = sorted(
+                    p for p in job_dir.glob("*.py") if not p.name.startswith("._")
+                )
+                final = scripts[0] if scripts else primary_log
             ctx.jobs.update_from_poll(job_id, "done", final_path=final)
             _PROCESSES.pop(job_id, None)
         else:
-            # Failure
             status = "failed"
             exit_code = rc
             error_msg = f"exit code {rc}"
-            if stderr_tail:
-                error_msg += f"; last stderr: {stderr_tail[-200:]}"
+            err_source = stderr_log if stderr_log is not None else primary_log
+            err_tail, _, _ = _read_log_slice(err_source, None)
+            if err_tail:
+                error_msg += f"; last output: {err_tail[-200:]}"
             ctx.jobs.update_from_poll(job_id, "failed", error=error_msg)
             _PROCESSES.pop(job_id, None)
 
-    return {
+    stdout_tail, next_offset, truncated = _read_log_slice(primary_log, since_offset)
+    stderr_tail = ""
+    if stderr_log is not None:
+        stderr_tail, _, _ = _read_log_slice(stderr_log, None)
+
+    if mark_announced and status in ("done", "failed"):
+        record.announced = True
+
+    result = {
         "job_id": job_id,
         "status": status,
         "stdout_tail": stdout_tail,
         "stderr_tail": stderr_tail,
         "exit_code": exit_code,
         "summary": record.summary,
+        "next_offset": next_offset,
+        "truncated": truncated,
+    }
+    if is_shell:
+        result["log_path"] = str(primary_log)
+        if record.final_error:
+            result["error"] = record.final_error
+    return result
+
+
+# ── restart reconciliation for background shell jobs ─────────────────────────
+# After a process restart the Popen handles in _PROCESSES are gone, but the
+# persisted registry (jobs.json) still lists shell jobs that were mid-flight.
+# We can no longer manage those OS processes (no handle; re-adoption is a later
+# batch), so on load we reconcile them to an honest terminal state. The one hard
+# rule: reconcile NEVER kills — a reused pid would point at an unrelated process,
+# and a verified-live orphan is left to finish on its own.
+
+# A still-running orphan's start time matches started_epoch within a few seconds
+# (spawn latency + `ps` 1s resolution); a reused pid started much later. This
+# tolerance only sharpens the error MESSAGE — reconcile never kills either way.
+_RECONCILE_IDENTITY_TOLERANCE_SEC = 5.0
+_RECONCILE_TAIL_CHARS = 2000
+
+
+def _process_alive(pid: int) -> bool:
+    """True if `pid` maps to a live process. signal 0 probes without delivering:
+    ESRCH → gone, EPERM → alive but owned by someone else."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _parse_ps_etime(s: str) -> float | None:
+    """Parse `ps -o etime` elapsed time — `[[dd-]hh:]mm:ss` — into seconds.
+    Portable across BSD (macOS) and GNU ps, both of which support etime (the
+    GNU-only `etimes` raw-seconds column is not available on macOS)."""
+    s = s.strip()
+    if not s:
+        return None
+    days = 0
+    if "-" in s:
+        d, _, s = s.partition("-")
+        try:
+            days = int(d)
+        except ValueError:
+            return None
+    try:
+        nums = [float(p) for p in s.split(":")]
+    except ValueError:
+        return None
+    sec = 0.0
+    for n in nums:  # mm:ss or hh:mm:ss, most-significant first
+        sec = sec * 60 + n
+    return days * 86400 + sec
+
+
+def _process_start_epoch(pid: int) -> float | None:
+    """Best-effort wall-clock epoch when `pid` started, via `ps -o etime=`
+    (elapsed since start). None when ps is unavailable or the pid is gone. Used
+    only for the pid-reuse identity check; a None result degrades to a
+    conservative 'could not verify' outcome — never a kill."""
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "etime="],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        return None
+    if out.returncode != 0:
+        return None
+    elapsed = _parse_ps_etime(out.stdout or "")
+    if elapsed is None:
+        return None
+    return time.time() - elapsed
+
+
+def shell_job_output_tail(record: Any, ctx: ToolContext, *, limit: int = _RECONCILE_TAIL_CHARS) -> str:
+    """The tail of a shell job's merged log — for rebuilding a completion notice
+    on restart (an already-terminal job the model never got to see)."""
+    primary_log, _ = _job_log_paths(record, ctx)
+    tail, _, _ = _read_log_slice(primary_log, None)
+    return tail[-limit:]
+
+
+def reconcile_orphan_shell_job(record: Any, ctx: ToolContext) -> dict[str, Any]:
+    """Resolve a background shell job that outlived its session's process.
+
+    Called on session load for a shell job whose persisted status was still
+    non-terminal. The Popen handle is gone; classify by pid liveness + a
+    start-time identity check and mark the job failed with an honest reason.
+    NEVER kills: a reused pid belongs to an unrelated process, and a verified
+    live orphan is left running (re-adoption is a later batch).
+
+    Returns a notice-shaped dict so the caller can disclose the job's fate to
+    the model on the next turn.
+    """
+    tail = shell_job_output_tail(record, ctx)
+    pid = record.pid
+
+    if not pid:
+        error = "lost across restart (no pid recorded)"
+    elif not _process_alive(pid):
+        error = "process ended during restart; final state unknown"
+    else:
+        start = _process_start_epoch(pid)
+        if start is None:
+            error = (
+                f"still-running pid {pid} across restart; identity unverifiable "
+                "— left running, not re-adopted"
+            )
+        elif (
+            record.started_epoch is not None
+            and abs(start - record.started_epoch) <= _RECONCILE_IDENTITY_TOLERANCE_SEC
+        ):
+            error = (
+                f"orphaned across restart — pid {pid} may still be running; not "
+                "re-adopted (its result will not be collected)"
+            )
+        else:
+            error = f"identity lost — pid {pid} was reused across restart"
+
+    ctx.jobs.update_from_poll(record.job_id, "failed", error=error)
+    elapsed = None
+    if record.started_epoch is not None:
+        elapsed = max(0.0, time.time() - record.started_epoch)
+    return {
+        "job_id": record.job_id,
+        "status": "failed",
+        "exit_code": None,
+        "summary": record.summary,
+        "error": error,
+        "elapsed_sec": elapsed,
+        "output_tail": tail,
     }
 
 
 async def dispatch_check(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """Poll a pending job by job_id (build or Veo video job).
+    """Poll a pending job by job_id (build, background shell, or Veo video job).
 
     Args:
-        job_id: required, job identifier returned by build or generate_video
+        job_id: required, job identifier returned by build/run_shell/generate_video
+        since_offset: optional int (build/shell only) — byte offset from a
+            previous check_job's next_offset; returns only NEW log output
+            since then instead of the default tail
 
-    Returns for build jobs:
-        { job_id, status, stdout_tail, stderr_tail, exit_code, summary }
+    Returns for build/shell jobs:
+        { job_id, status, stdout_tail, stderr_tail, exit_code, summary,
+          next_offset, truncated }
     Returns for video jobs:
         { job_id, status, summary } + asset_id/metadata when done
 
@@ -316,6 +561,17 @@ async def dispatch_check(args: dict[str, Any], ctx: ToolContext) -> dict[str, An
     if not job_id:
         raise ValueError("check_job requires 'job_id' argument")
 
+    since_offset = args.get("since_offset")
+    if since_offset is not None:
+        try:
+            since_offset = int(since_offset)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"since_offset must be an integer, got {since_offset!r}"
+            ) from None
+        if since_offset < 0:
+            since_offset = 0
+
     # Dispatch by job kind: video jobs use Veo LRO polling via JobRegistry.
     try:
         record = ctx.jobs.get(job_id)
@@ -325,7 +581,7 @@ async def dispatch_check(args: dict[str, Any], ctx: ToolContext) -> dict[str, An
     except KeyError:
         pass  # Not a JobRegistry job; fall through to build/_PROCESSES path.
 
-    return _check_job_impl(job_id, ctx)
+    return _check_job_impl(job_id, ctx, since_offset)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -377,6 +633,11 @@ async def dispatch_wait(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
                     result["timed_out"] = True
                     return result
                 await asyncio.sleep(10.0)  # Veo operations change slowly
+        if record.kind == "shell":
+            # A long blocking wait on a shell job re-creates the stuck-loop
+            # problem backgrounding exists to solve; the watcher notifies on
+            # completion, so cap the busy-wait and let the model move on.
+            max_wait_sec = min(max_wait_sec, 60.0)
     except KeyError:
         pass  # Not a JobRegistry job; fall through to build/_PROCESSES path.
 
@@ -396,6 +657,81 @@ async def dispatch_wait(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any
             return result
 
         await asyncio.sleep(1)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# verb `kill_job` — stop a running background job
+# ────────────────────────────────────────────────────────────────────────────
+
+
+async def dispatch_kill(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    """Kill a running build/shell job by job_id (verb `kill_job`).
+
+    SIGKILLs the whole process group (grandchildren included) using the pgid
+    persisted at spawn — getpgid() on a dead group leader would raise. The
+    registry maps the result to failed + error="killed by kill_job" (v1 has
+    no separate "killed" status: list_pending only treats done/failed as
+    terminal, so a new status would pend forever). Idempotent on jobs that
+    already finished.
+
+    Returns:
+        { job_id, status, killed, summary } (+ already_finished when a no-op)
+
+    Raises:
+        KeyError: if job_id not found
+        ValueError: for job kinds without a local process (e.g. video LROs)
+    """
+    job_id = str(args.get("job_id") or "").strip()
+    if not job_id:
+        raise ValueError("kill_job requires 'job_id' argument")
+
+    record = ctx.jobs.get(job_id)  # Raises KeyError if not found
+    if record.kind not in ("build", "shell"):
+        raise ValueError(
+            f"kill_job only supports build/shell jobs; {job_id} is kind "
+            f"{record.kind!r} (a remote operation that cannot be killed locally)"
+        )
+
+    if record.last_polled_status in ("done", "failed"):
+        return {
+            "job_id": job_id,
+            "status": record.last_polled_status,
+            "killed": False,
+            "already_finished": True,
+            "summary": record.summary,
+        }
+
+    entry = _PROCESSES.get(job_id)
+    proc = entry[0] if entry is not None else None
+    # If we still hold a handle but the OS process already exited (e.g. reaped by
+    # a cap-count poll before the watcher marked it terminal), do NOT killpg its
+    # pgid — the OS may have recycled it onto an unrelated process group. Reap the
+    # handle and record the terminal state instead.
+    already_exited = proc is not None and proc.poll() is not None
+    pgid = record.pgid or (proc.pid if proc is not None else None)
+    killed = False
+    if pgid and not already_exited:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+            killed = True
+        except (ProcessLookupError, PermissionError):
+            killed = False  # already dead (or pid identity lost) — still mark terminal
+    if proc is not None:
+        try:
+            proc.wait(timeout=2)  # reap so no zombie lingers
+        except Exception:
+            pass
+        _PROCESSES.pop(job_id, None)
+    record.announced = True  # the model initiated this; no notification needed
+    ctx.jobs.update_from_poll(job_id, "failed", error="killed by kill_job")
+
+    return {
+        "job_id": job_id,
+        "status": "failed",
+        "killed": killed,
+        "error": "killed by kill_job",
+        "summary": record.summary,
+    }
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -502,5 +838,6 @@ __all__ = [
     "dispatch",
     "dispatch_check",
     "dispatch_wait",
+    "dispatch_kill",
     "dispatch_save_skill",
 ]

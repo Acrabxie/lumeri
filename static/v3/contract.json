@@ -26,6 +26,7 @@
   ],
   "event_kinds": [
     "ask_question",
+    "background_task_update",
     "budget_gate",
     "completion_check",
     "model_text_delta",

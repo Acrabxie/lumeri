@@ -129,7 +129,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
     "memory_skills": frozenset({
         "save_skill", "recall_skills", "remember", "log_note",
     }),
-    "jobs": frozenset({"check_job", "wait_for_job"}),
+    "jobs": frozenset({"check_job", "wait_for_job", "kill_job"}),
     "interchange": frozenset({
         "get_timeline", "project_export", "project_export_otio",
         "project_import_otio",

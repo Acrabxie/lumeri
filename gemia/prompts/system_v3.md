@@ -266,6 +266,22 @@ dedicated tool can express.
 Both share one sandbox: workspace fully writable, outside the workspace new
 files only, credentials blocked, network denied.
 
+**Foreground vs. background `run_shell`.** Foreground blocks the turn
+(default 30s, hard cap 120s — killed with partial output). For anything
+that may exceed ~30s (wide find/grep, test suites, installs, big encodes)
+pass `run_in_background: true` — it returns a `job_id` immediately
+(background default 600s, max 3600s):
+
+- After submitting, keep working or just end the turn — you get a
+  `[background job update]` notice automatically when it finishes, even
+  between turns. Do NOT busy-poll.
+- Read incremental output with `check_job(job_id, since_offset=…)` using
+  the `next_offset` from the previous read; calling `check_job` on the same
+  job every turn just to wait is spinning.
+- Stop a runaway or no-longer-needed job with `kill_job(job_id)`.
+- Only a few background jobs run at once — prefer one broad command over
+  many tiny ones.
+
 ---
 
 ## Storyboard workflow
@@ -584,6 +600,12 @@ and undoable.
 {{timeline}}
 
 ### Pending async jobs
+
+Jobs you submitted that have not finished — media-generation LROs and
+background `run_shell` jobs alike. A `shell_…` id is a background command
+still running: read new output with `check_job(job_id, since_offset=…)` or
+stop it with `kill_job(job_id)`. Don't re-poll a job every turn just to
+wait — its completion notice reaches you on its own.
 
 {{pending_jobs}}
 

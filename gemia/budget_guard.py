@@ -79,6 +79,7 @@ _TOOL_COSTS: dict[str, dict[str, float]] = {
     "build":              {"usd": 0.00, "eta_sec": 15.0},    # Async Python sandbox submit
     "check_job":          {"usd": 0.00, "eta_sec": 0.5},     # Job status poll
     "wait_for_job":       {"usd": 0.00, "eta_sec": 30.0},    # Blocking job wait
+    "kill_job":           {"usd": 0.00, "eta_sec": 0.5},     # Kill a running background job
     "save_skill":         {"usd": 0.00, "eta_sec": 0.5},     # Skill file copy + metadata
     # Timeline v1 verbs (document mutation = pure in-process patch; near-free).
     "get_timeline":             {"usd": 0.00, "eta_sec": 0.2},

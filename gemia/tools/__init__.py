@@ -162,6 +162,7 @@ _REAL: dict[str, Dispatcher] = {
     "get_timeline":              _timeline.dispatch_get,
     "inspect_lottie":            _lottie.dispatch_inspect,
     "inspect_timeline":          _inspect_timeline.dispatch,
+    "kill_job":                  _build.dispatch_kill,
     "list_dir":                  _files.dispatch_list_dir,
     "log_note":                  _log_note.dispatch,
     "lumen_add_layer":           _layer.dispatch_lumen_add_layer,

@@ -358,6 +358,57 @@ def test_kind_build_accepted() -> None:
     assert registry.get("build_python_01").kind == "build"
 
 
+def test_kind_shell_with_process_fields_roundtrips(tmp_path: Path) -> None:
+    """A background shell job carries pid/pgid/started_epoch/announced (the
+    fields kill_job and the restart-reconcile path depend on). They must
+    survive a save/load roundtrip so a job can be reconciled after a restart —
+    submitted_mono is intentionally NOT persisted (it's a fresh monotonic
+    anchor on load)."""
+    registry = JobRegistry()
+    record = registry.submit(
+        kind="shell",
+        provider="local:bash-sandbox",
+        operation_name="pending",
+        pending_asset_id="-",
+        estimated_eta_sec=600.0,
+        summary="find ~ -name '*.mov'",
+        job_id="shell_a1b2c3d4",
+    )
+    assert record.kind == "shell"
+    # Defaults before a process is attached.
+    assert record.pid is None
+    assert record.pgid is None
+    assert record.started_epoch is None
+    assert record.announced is False
+
+    # The run_shell dispatcher stamps these at spawn.
+    record.pid = 44444
+    record.pgid = 44444
+    record.started_epoch = 1_700_000_000.5
+    record.announced = True
+
+    d = record.to_dict()
+    assert d["pid"] == 44444
+    assert d["pgid"] == 44444
+    assert d["started_epoch"] == 1_700_000_000.5
+    assert d["announced"] is True
+    assert "submitted_mono" not in d  # runtime-only, never persisted
+
+    jobs_file = tmp_path / "jobs.json"
+    registry.save(jobs_file)
+    reloaded = JobRegistry.load(jobs_file)
+
+    got = reloaded.get("shell_a1b2c3d4")
+    assert got.kind == "shell"
+    assert got.pid == 44444
+    assert got.pgid == 44444
+    assert got.started_epoch == 1_700_000_000.5
+    assert got.announced is True
+    # A pending shell job is still pending after reload.
+    assert got.last_polled_status == "submitted"
+    assert "shell_a1b2c3d4" in {r.job_id for r in reloaded.list_pending()}
+
+
 def test_to_dict_skips_submitted_mono() -> None:
     """Test to_dict excludes submitted_mono field."""
     record = JobRecord(

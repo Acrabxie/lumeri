@@ -90,6 +90,10 @@
     sessionTitle: null,         // auto-generated title
     userMessageCount: 0,        // user message counter for auto-title triggers
     stopPending: false,
+    // Background shell jobs (run_shell run_in_background=true), keyed by
+    // job_id: {job_id, status, summary, exit_code, elapsed_sec, output_tail,
+    // _killing}. Fed by background_task_update SSE + GET /sessions/{id} tasks.
+    backgroundTasks: new Map(),
   };
 
   function newTurn(userMessage) {
@@ -171,6 +175,7 @@
 
     elicit: "交互",
     spawn_subtasks: "执行", check_job: "执行", wait_for_job: "执行",
+    kill_job: "执行",
   };
 
   const CATEGORY_DEFAULTS = {
@@ -1000,6 +1005,25 @@
       // Timeline patch landed: refresh the project timeline panel immediately
       // rather than waiting for the next poll interval.
       fetchProjectTimeline({ force: true });
+    },
+    background_task_update: (ev) => {
+      // Background shell job status change (running → done/failed). Arrives
+      // mid-turn AND between turns; authoritative, so it clears any
+      // optimistic _killing flag.
+      if (!ev.job_id) return;
+      const prev = state.backgroundTasks.get(ev.job_id) || {};
+      state.backgroundTasks.set(ev.job_id, {
+        ...prev,
+        job_id: ev.job_id,
+        status: ev.status || prev.status || "running",
+        summary: ev.summary ?? prev.summary ?? "",
+        exit_code: ev.exit_code ?? prev.exit_code ?? null,
+        elapsed_sec: ev.elapsed_sec ?? prev.elapsed_sec ?? null,
+        output_tail: ev.output_tail ?? prev.output_tail ?? "",
+        _killing: false,
+      });
+      if (ev.status === "running" && !bgActive) { bgActive = true; renderStageTabs(); }
+      scheduleTasksPanelRefresh();
     },
     protocol_hello: (ev) => {
       // Per-connection id-less frame at the top of every stream. The web
@@ -2365,6 +2389,25 @@
     if (typeof data.turn_in_progress === "boolean") {
       state.turnInProgress = data.turn_in_progress;
       if (!state.turnInProgress) state.stopPending = false;
+    }
+    if (Array.isArray(data.tasks)) {
+      // Server snapshot is authoritative after SSE ring-buffer gaps, but the
+      // REST list omits exit_code/output_tail — preserve what SSE taught us.
+      const next = new Map();
+      for (const t of data.tasks) {
+        if (!t.job_id) continue;
+        const prev = state.backgroundTasks.get(t.job_id) || {};
+        next.set(t.job_id, {
+          ...prev,
+          job_id: t.job_id,
+          status: t.status || prev.status || "running",
+          summary: t.summary ?? prev.summary ?? "",
+          elapsed_sec: t.elapsed_sec ?? prev.elapsed_sec ?? null,
+          error: t.error ?? prev.error ?? null,
+        });
+      }
+      state.backgroundTasks = next;
+      scheduleTasksPanelRefresh();
     }
   }
 
@@ -3810,6 +3853,14 @@
     else if (view === "tasks") renderTasksPanel(body);
     else if (view === "files") renderFilesPanel(body);
   }
+  let tasksPanelRefreshTimer = null;
+  function scheduleTasksPanelRefresh() {
+    if (tasksPanelRefreshTimer) return;
+    tasksPanelRefreshTimer = setTimeout(() => {
+      tasksPanelRefreshTimer = null;
+      refreshPanel("tasks");
+    }, 150);
+  }
   function refreshVisibleModules() {
     stageTabs.filter((k) => PANEL_MODULES.has(k)).forEach(refreshPanel);
   }
@@ -4145,6 +4196,7 @@
         active = sessions.some((s) => s.turn_in_progress || (s.pending_jobs || []).length > 0);
       }
     } catch {}
+    active = active || [...state.backgroundTasks.values()].some((t) => t.status === "running");
     if (active !== bgActive) { bgActive = active; renderStageTabs(); }
   }
   pollBgTasks();
@@ -4230,6 +4282,7 @@
             <span class="task-sub">${escapeHTML([j.provider, j.last_polled_status].filter(Boolean).join(" · "))}</span>
           </span>
         </div>`).join("");
+      const shellJobs = mine ? renderShellJobRows() : "";
       return `
         <div class="task-row" title="${escapeHTML(s.session_id)}">
           <span class="task-dot ${cls}"></span>
@@ -4237,9 +4290,57 @@
             <span class="task-name">${escapeHTML(s.session_id)}${mine ? " · 当前" : ""}</span>
             <span class="task-sub">${stateTxt}${s.plan_mode ? " · 计划模式" : ""} · ${fmtAgo(s.last_used_at)}</span>
           </span>
-        </div>${jobs}`;
+        </div>${jobs}${shellJobs}`;
     }).join("");
   }
+
+  // Current session's background shell jobs (run_shell run_in_background),
+  // rendered inside the tasks module with a per-running-row kill button.
+  function renderShellJobRows() {
+    if (!state.backgroundTasks.size) return "";
+    const statusText = (t) => {
+      if (t._killing) return "停止中…";
+      if (t.status === "running") return "运行中";
+      if (t.status === "done") return t.exit_code === 0 || t.exit_code == null ? "完成" : `完成 (退出码 ${t.exit_code})`;
+      if (t.status === "failed") return t.error === "killed by kill_job" ? "已停止" : "失败";
+      return t.status || "";
+    };
+    return [...state.backgroundTasks.values()].map((t) => `
+      <div class="task-row task-job" data-job-id="${escapeHTML(t.job_id)}">
+        <span class="task-dot ${t.status === "failed" ? "failed" : t.status === "done" ? "done" : "running"}"></span>
+        <span class="task-main">
+          <span class="task-name">${escapeHTML(t.summary || t.job_id)}</span>
+          <span class="task-sub">${escapeHTML(statusText(t))}${t.elapsed_sec != null ? ` · ${Math.round(t.elapsed_sec)}s` : ""}</span>
+        </span>
+        ${t.status === "running" && !t._killing
+          ? `<button type="button" class="task-kill" data-task-kill="${escapeHTML(t.job_id)}">停止</button>`
+          : ""}
+      </div>`).join("");
+  }
+
+  async function killBackgroundTask(jobId) {
+    const t = state.backgroundTasks.get(jobId);
+    if (!t || !state.sessionId) return;
+    t._killing = true;
+    scheduleTasksPanelRefresh();
+    try {
+      const r = await fetch(
+        `/sessions/${state.sessionId}/tasks/${encodeURIComponent(jobId)}/kill`,
+        { method: "POST" },
+      );
+      if (!r.ok) throw new Error(`kill failed: ${r.status}`);
+    } catch (err) {
+      t._killing = false;
+      state.errors.push(`停止后台任务失败: ${err.message}`);
+      scheduleTasksPanelRefresh();
+      render();
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-task-kill]");
+    if (btn) killBackgroundTask(btn.getAttribute("data-task-kill"));
+  });
 
   // ── session history drawer (right-side hamburger) ─────────────────────
   let historyDrawerOpen = false;
