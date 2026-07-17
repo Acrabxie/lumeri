@@ -156,6 +156,9 @@
     assemble_shotlist: "脚本", draft_shotlist: "脚本", set_shotlist: "脚本",
     update_shot: "脚本", get_shotlist: "脚本", refine_shot: "脚本",
 
+    draft_quanta: "演示", set_quanta: "演示", update_quantum: "演示",
+    get_quanta: "演示", assemble_quanta: "演示", refine_quantum: "演示",
+
     export: "导出", project_export: "导出",
     project_export_otio: "导出", project_import_otio: "导出",
 
@@ -177,6 +180,7 @@
     搜索: { running: "正在查找资源", done: "查找完成" },
     分析: { running: "正在检视素材", done: "检视完成" },
     脚本: { running: "正在整理拍摄方案", done: "方案已更新" },
+    演示: { running: "正在编排演示", done: "演示已更新" },
     导出: { running: "正在导出成片", done: "成片已导出" },
     文件: { running: "正在处理文件", done: "文件已处理" },
     记忆: { running: "正在记录", done: "已记录" },
@@ -191,6 +195,7 @@
     搜索: "i-search",
     分析: "i-eye",
     脚本: "i-clapperboard",
+    演示: "i-clapperboard",
     导出: "i-export",
     文件: "i-folder",
     记忆: "i-brain",
@@ -604,15 +609,33 @@
     });
   }
 
+  // Quanta pager links are the ONE user entry point surfaced from a tool
+  // result. Security boundary: same-origin, exact pathname, no free-form
+  // URLs from the model ever reach an href.
+  function safeQuantaPagerUrl(value) {
+    if (typeof value !== "string" || !value) return null;
+    try {
+      const parsed = new URL(value, window.location.origin);
+      if (parsed.origin !== window.location.origin) return null;
+      if (parsed.pathname !== "/video/quanta.html") return null;
+      return `${parsed.pathname}${parsed.search}`;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function renderToolCall(tc) {
     const label = activityLabel(tc);
     const phase = activityPhase(tc.status);
     const category = toolCategory(tc.tool_name);
     const iconId = CATEGORY_ICON[category] || "i-gear";
+    const pagerHtml = tc.pagerUrl
+      ? ` <a class="activity-link" href="${escapeHTML(tc.pagerUrl)}" target="_blank" rel="noopener">打开演示 ↗</a>`
+      : "";
     return `
       <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(label)}">
         <svg class="activity-icon" aria-hidden="true"><use href="#${iconId}"/></svg>
-        <span class="activity-desc">${escapeHTML(label)}</span>
+        <span class="activity-desc">${escapeHTML(label)}${pagerHtml}</span>
       </div>
     `;
   }
@@ -877,6 +900,10 @@
       const tc = t?.toolCalls.get(ev.call_id);
       if (!tc) return;
       tc.status = "done";
+      const pagerUrl = safeQuantaPagerUrl(
+        ev.result?.pager_url ?? ev.result?.first_state_pager_url
+      );
+      if (pagerUrl) tc.pagerUrl = pagerUrl;
       const assetId = ev.result?.asset_id;
       if (assetId) {
         state.assets.push({

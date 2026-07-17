@@ -677,6 +677,12 @@ del { opacity: 0.6; }
 }
 .activity-line--complete { opacity: 0.78; }
 .activity-line--attention { color: var(--m3-on-surface-variant); opacity: 0.68; }
+.activity-link {
+  color: var(--m3-primary);
+  text-decoration: none;
+  margin-left: 6px;
+}
+.activity-link:hover { text-decoration: underline; }
 .activity-line--waiting .activity-icon { color: var(--m3-outline); }
 @keyframes activity-pulse { 50% { opacity: 0.28; transform: scale(0.82); } }
 

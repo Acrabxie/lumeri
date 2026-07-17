@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; img-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
+  />
+  <title>Lumeri Quanta</title>
+  <link rel="stylesheet" href="quanta.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="wordmark" aria-label="Lumeri Quanta">
+      <span class="spark" aria-hidden="true">✦</span>
+      <span>LUMERI</span>
+      <span class="product">QUANTA</span>
+    </div>
+    <div class="progress" id="progress" aria-live="polite">
+      <span id="slide-progress">Slide —</span>
+      <span class="divider" aria-hidden="true"></span>
+      <span id="build-progress">Build —</span>
+      <span class="divider" aria-hidden="true"></span>
+      <span id="frame-progress">Frame —</span>
+    </div>
+  </header>
+
+  <main class="viewer">
+    <div
+      class="stage"
+      id="stage"
+      role="button"
+      tabindex="0"
+      aria-label="Advance to the next quanta frame"
+      aria-describedby="keyboard-hint"
+    >
+      <img id="frame-image" alt="" referrerpolicy="no-referrer" decoding="async" hidden />
+      <section class="state-panel" id="state-panel" aria-live="polite">
+        <p class="state-kicker" id="state-kicker">LUMERI QUANTA</p>
+        <h1 id="state-title">Preparing quanta</h1>
+        <p id="state-detail">Validating the playback manifest…</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="controls">
+    <button type="button" id="previous-button" aria-label="Previous frame">←</button>
+    <p id="keyboard-hint">Space or click to advance · Arrow keys to navigate · Home / End to jump</p>
+    <button type="button" id="next-button" aria-label="Next frame">→</button>
+  </footer>
+
+  <script src="quanta.js" defer></script>
+</body>
+</html>

@@ -72,10 +72,37 @@ def test_apply_ops_emits_timeline_op_event_and_updates_prompt(tmp_path: Path) ->
     assert timeline_events[0]["ops"] == ["insert_clip"]
     assert timeline_events[0]["clip_count"] == 1
     assert timeline_events[0]["seq"] == 1
+    assert timeline_events[0]["state_scope"] == "timeline"
 
     system = loop.render_messages()[0]["content"]
     assert "clip_m2a" in system
     assert "clips=1" in system
+
+
+def test_quanta_patch_event_declares_quanta_state_scope(tmp_path: Path) -> None:
+    events: list[dict[str, Any]] = []
+    loop = _make_loop(tmp_path, events)
+
+    loop.project.apply_ops(
+        [{
+            "op": "set_quanta",
+            "quanta": {
+                "slides": [{
+                    "id": "s1",
+                    "layout": "content",
+                    "title": "Scoped",
+                    "blocks": [],
+                }],
+                "default_path": ["s1"],
+            },
+        }],
+        label="quanta-op",
+    )
+
+    timeline_events = [event for event in events if event.get("kind") == "timeline_op"]
+    assert len(timeline_events) == 1
+    assert timeline_events[0]["ops"] == ["set_quanta"]
+    assert timeline_events[0]["state_scope"] == "quanta"
 
 
 def test_undo_rewinds_last_patch(tmp_path: Path) -> None:

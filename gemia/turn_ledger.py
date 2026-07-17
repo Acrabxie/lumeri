@@ -66,6 +66,8 @@ MUTATION_TOOLS = frozenset({
     "lumen_retime_segment", "lumen_reverse", "lumen_time_remap",
     "lumen_speed_ramp", "lumen_ripple_delete", "lumen_merge_compositions",
     "lumen_set_work_area", "lumen_comp_to_timeline",
+    "draft_quanta", "set_quanta", "update_quantum", "refine_quantum",
+    "assemble_quanta",
     "timeline_insert_clip", "timeline_delete_clip",
     "timeline_move_clip", "timeline_trim_clip", "timeline_split_clip",
     "timeline_set_clip_time", "timeline_add_transition",

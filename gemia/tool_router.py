@@ -82,6 +82,12 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "search_frames", "generate_image", "generate_video", "check_job",
         "wait_for_job", "inspect_timeline", "project_export",
     }),
+    "quanta": frozenset({
+        "draft_quanta", "set_quanta", "update_quantum", "get_quanta",
+        "refine_quantum", "assemble_quanta", "search_library", "search_media",
+        "search_frames", "generate_image", "check_job", "wait_for_job",
+        "inspect_timeline", "project_export",
+    }),
     "timeline": frozenset({
         "get_timeline", "timeline_insert_clip", "timeline_delete_clip",
         "timeline_move_clip", "timeline_trim_clip", "timeline_split_clip",
@@ -137,6 +143,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
 
 WORKFLOW_ORDER: tuple[str, ...] = (
     "storyboard",
+    "quanta",
     "motion_graphics",
     "video_generation",
     "video_edit",
@@ -161,6 +168,10 @@ WORKFLOW_KEYWORDS: dict[str, tuple[str, ...]] = {
     "storyboard": (
         "分镜", "镜头", "脚本", "大纲", "多镜头", "宣传片", "storyboard",
         "shotlist", "script", "rough cut", "成片",
+    ),
+    "quanta": (
+        "演示", "幻灯片", "讲稿", "离散视频", "汇报", "课件", "quanta",
+        "slide", "slides", "deck", "presentation", "pitch deck", "ppt",
     ),
     "motion_graphics": (
         "logo", "标志", "片头", "开场动画", "矢量", "动效", "动画", "blender",
@@ -237,6 +248,7 @@ ADJACENT_PACKS: dict[str, tuple[str, ...]] = {
     "video_generation": ("video_edit", "timeline"),
     "video_edit": ("timeline", "audio"),
     "storyboard": ("timeline", "audio"),
+    "quanta": ("storyboard", "timeline"),
     "timeline": ("video_edit", "lumen_core"),
     "lumen_core": ("lumen_time", "lumen_mask"),
     "lumen_time": ("lumen_mask", "timeline"),

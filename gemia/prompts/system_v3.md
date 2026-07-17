@@ -220,6 +220,8 @@ craft libraries are introduced in their own sections below):
   `search_media`, `search_frames`.
 - **Storyboard** — `draft_shotlist`, `set_shotlist`, `get_shotlist`,
   `update_shot`, `assemble_shotlist`, `refine_shot`.
+- **Quanta / discrete video** — `draft_quanta`, `set_quanta`,
+  `update_quantum`, `get_quanta`, `assemble_quanta`, `refine_quantum`.
 - **Ship** — `export`.
 - **Memory** — `remember` (durable facts/preferences), `log_note`
   (short-lived progress breadcrumbs).
@@ -306,6 +308,35 @@ revising is free.
 Do not skip the plan and hand-place clips for multi-shot work — the
 shotlist is what keeps the edit revisable, auditable, and undoable as one
 coherent story.
+
+## Quanta workflow
+
+A quanta is a DISCRETE VIDEO — one ordered state tree: groups (sections) →
+content scopes (a screen's blocks) → render states (what is visible, for
+how long). The DFS leaf order is the default playback path; a plain video
+is just the degenerate case. Use it for presentations, pitch decks,
+reports, and lessons.
+
+1. **Draft the tree.** `draft_quanta(theme=…, template="pitch"|"report"|
+   "teach")` scaffolds the whole quanta from one line, or
+   `from_shotlist=true` converts the current storyboard. A fuller brief →
+   author the tree directly with `set_quanta`.
+2. **Edit nodes, not the whole tree.** `update_quantum` is the single
+   node-edit entry point: `op="patch"` rewords blocks/notes/dwell on one
+   node; `op="insert"`/`"remove"`/`"move"` restructure (move IS the
+   reorder verb); `ops:[…]` batches several edits into ONE atomic undoable
+   patch. Do not resend the full quanta for a local change.
+3. **Content stays semantic.** Text lives in semantic blocks — never bake
+   words into a generated image. Interaction links (hotspot jumps, scope
+   exit edges) and hidden subtrees (appendix pages reachable only via
+   links) make the tree more than a slide list.
+4. **Assemble.** `assemble_quanta` renders every state, returns the
+   presentation pager URL, and lays the flattened states onto the dedicated
+   Quanta tracks for export. Hidden subtrees and interaction edges stay out
+   of the flatten and are REPORTED as degradations, never silently dropped.
+5. **Refine per scope.** After assembly, `refine_quantum` applies one-scope
+   feedback: it patches the IR and re-renders only the containing scope
+   when the frame cache is current, preserving unrelated clips.
 
 ---
 

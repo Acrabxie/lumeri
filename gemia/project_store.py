@@ -284,6 +284,30 @@ class ProjectStore:
         tmp.replace(path)
 
 
+_QUANTA_PATCH_OPS = frozenset({
+    "set_quanta",
+    "patch_quantum",
+    "insert_quantum",
+    "remove_quantum",
+    "move_quantum",
+})
+_SHOTLIST_PATCH_OPS = frozenset({"set_shotlist", "update_shot"})
+
+
+def _patch_state_scope(ops: list[dict[str, Any]]) -> str:
+    """Classify an applied patch for additive ``timeline_op`` consumers."""
+    scopes: set[str] = set()
+    for op in ops:
+        name = str(op.get("op") or "") if isinstance(op, dict) else ""
+        if name in _QUANTA_PATCH_OPS:
+            scopes.add("quanta")
+        elif name in _SHOTLIST_PATCH_OPS:
+            scopes.add("shotlist")
+        else:
+            scopes.add("timeline")
+    return next(iter(scopes)) if len(scopes) == 1 else "project"
+
+
 class ProjectHandle:
     """Session-scoped binding of one project to the v3 agent loop.
 
@@ -345,6 +369,7 @@ class ProjectHandle:
                 "seq": result.get("patch_seq_end"),
                 "ops": [str(op.get("op") or "") for op in ops if isinstance(op, dict)],
                 "label": label,
+                "state_scope": _patch_state_scope(ops),
                 "duration": timeline.get("duration"),
                 "clip_count": len(timeline.get("clips") or []),
             }

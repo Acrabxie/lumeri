@@ -42,6 +42,7 @@ from gemia.tools import detect_beats as _detect_beats
 from gemia.tools import analyze_media as _analyze_media
 from gemia.tools import animate_captions as _animate_captions
 from gemia.tools import arrange_timeline as _arrange_timeline
+from gemia.tools import assemble_quanta as _assemble_quanta
 from gemia.tools import assemble_shotlist as _assemble_shotlist
 from gemia.tools import build as _build
 from gemia.tools import color_grade as _color_grade
@@ -82,7 +83,10 @@ from gemia.tools import camera as _camera
 from gemia.tools import compose as _compose
 from gemia.tools import rhythm_edit as _rhythm_edit
 from gemia.tools import search_media as _search_media
+from gemia.tools import draft_quanta as _draft_quanta
 from gemia.tools import draft_shotlist as _draft_shotlist
+from gemia.tools import quanta as _quanta
+from gemia.tools import refine_quantum as _refine_quantum
 from gemia.tools import refine_shot as _refine_shot
 from gemia.tools import search_frames as _search_frames
 from gemia.tools import shotlist as _shotlist
@@ -124,6 +128,7 @@ _REAL: dict[str, Dispatcher] = {
     "animate_captions":          _animate_captions.dispatch,
     "annotate_media":            _media_annotations.dispatch_annotate,
     "arrange_timeline":          _arrange_timeline.dispatch,
+    "assemble_quanta":           _assemble_quanta.dispatch,
     "assemble_shotlist":         _assemble_shotlist.dispatch,
     "build":                     _build.dispatch,
     "check_job":                 _build.dispatch_check,
@@ -131,6 +136,7 @@ _REAL: dict[str, Dispatcher] = {
     "composite":                 _composite.dispatch,
     "copy_in":                   _files.dispatch_copy_in,
     "detect_beats":              _detect_beats.dispatch,
+    "draft_quanta":              _draft_quanta.dispatch,
     "draft_shotlist":            _draft_shotlist.dispatch,
     "edit_audio":                _edit_audio.dispatch,
     "edit_image":                _edit_image.dispatch,
@@ -151,6 +157,7 @@ _REAL: dict[str, Dispatcher] = {
     "get_lumenframe":            _layer.dispatch_get_lumenframe,
     "get_media_annotations":     _media_annotations.dispatch_get,
     "get_safe_areas":            _safe_areas.dispatch,
+    "get_quanta":                _quanta.dispatch_get,
     "get_shotlist":              _shotlist.dispatch_get,
     "get_timeline":              _timeline.dispatch_get,
     "inspect_lottie":            _lottie.dispatch_inspect,
@@ -199,6 +206,7 @@ _REAL: dict[str, Dispatcher] = {
     "project_import_otio":       _timeline.dispatch_import_otio,
     "read_file":                 _files.dispatch_read_file,
     "recall_skills":             _save_skill.dispatch_recall_skills,
+    "refine_quantum":            _refine_quantum.dispatch,
     "refine_shot":               _refine_shot.dispatch,
     "remember":                  _remember.dispatch,
     "render_preview":            _timeline.dispatch_render_preview,
@@ -207,6 +215,7 @@ _REAL: dict[str, Dispatcher] = {
     "search_frames":             _search_frames.dispatch,
     "search_library":            _search_library.dispatch,
     "search_media":              _search_media.dispatch,
+    "set_quanta":                _quanta.dispatch_set,
     "set_shotlist":              _shotlist.dispatch_set,
     "smart_reframe":             _smart_reframe.dispatch,
     "spawn_subtasks":            _spawn_subtasks_dispatch,
@@ -223,6 +232,7 @@ _REAL: dict[str, Dispatcher] = {
     "timeline_trim_clip":        _timeline.dispatch_trim,
     "timeline_undo":             _timeline.dispatch_undo,
     "transform_geometry":        _transform_geometry.dispatch,
+    "update_quantum":            _quanta.dispatch_update_quantum,
     "update_shot":               _shotlist.dispatch_update_shot,
     "wait_for_job":              _build.dispatch_wait,
     "web_open":                  _web_search.dispatch_open,

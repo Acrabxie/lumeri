@@ -677,6 +677,168 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         ["shot_id"],
     ),
     _tool(
+        "draft_quanta",
+        "Draft a COMPLETE quanta (a discrete video: an ordered tree of content scopes and render states) in one call — the START of any quanta task. Two modes: (1) give a ONE-LINE 'theme' and a structure template — 'pitch' (Hook→Problem→Solution→Highlights→Numbers→CTA), 'report' (conclusions-first analysis), 'teach' (lesson arc); (2) from_shotlist=true converts the CURRENT storyboard into scopes (narration→speaker notes, on-screen text→title block, footage→image blocks, shot durations→state dwell). Drafted blocks have stable ids; bullets/cards are separate grouped leaves with explicit cumulative state visibility. It REPLACES the current quanta (replace=false previews without persisting). A scaffold — refine per node with update_quantum after.",
+        {
+            "theme": {"type": "string", "description": "One line describing the quanta, e.g. 'Lumeri 产品介绍' or 'Q3 growth review'. Required unless from_shotlist=true."},
+            "template": {"type": "string", "enum": ["pitch", "report", "teach"], "description": "Structure for theme mode. Default 'pitch'."},
+            "from_shotlist": {"type": "boolean", "description": "true = build the quanta from the current shotlist instead of a theme (video→quanta migration)."},
+            "language": {"type": "string", "enum": ["zh", "en"], "description": "Language of the drafted text. Auto-detected if omitted."},
+            "replace": {"type": "boolean", "description": "Replace the current quanta (default true). false = return the draft without persisting."},
+        },
+        [],
+    ),
+    _tool(
+        "set_quanta",
+        "Set or replace the WHOLE quanta — a DISCRETE VIDEO: one ordered state tree. For a fresh scaffold prefer draft_quanta; for node edits prefer update_quantum. Two accepted shapes: (a) flat authoring sugar {slides:[…]} (below) — lifts deterministically into the tree, slide→content scope, builds→state children, default_path orders scopes then disappears (DFS leaf order IS the default path); (b) the full tree {root:{children:[…]}} with group nodes (title+children, may nest), content scopes (blocks+state children), and states ({visible_block_ids, dwell_sec, advance:'wait'|'auto', hidden}). Content truth lives in semantic blocks (text/stat/image/shape/group — never pixels). Each state is a FULL cumulative snapshot in visible_block_ids (leaf ids only): monotonic, final state exactly covers every leaf. Any node takes hidden:true — outside the default walk and mp4, reachable only via explicit links (appendix pattern). STRICTLY validated (E_BAD_ARG): duplicate quantum/block ids, nested content scopes, invalid visibility, links mounted on groups, hotspot blocks outside their scope, dangling link targets (every edge enumerated), dwell_sec <= 0. Persisted + undoable.",
+        {
+            "quanta": {
+                "type": "object",
+                "description": "The quanta plan.",
+                "properties": {
+                    "version": {"type": "integer", "description": "IR version (optional; backfilled — stored canonical form is the v2 tree)."},
+                    "theme": {
+                        "type": "object",
+                        "description": "Quanta-level look: one mood for the WHOLE quanta (per-slide moods read as collage).",
+                        "properties": {
+                            "tokens": {"type": "object", "description": "Design-token overrides (optional)."},
+                            "mood": {"type": "string", "description": "Quanta-wide tone, e.g. 'calm-tech', 'confident'."},
+                            "aspect": {"type": "string", "description": "Canvas aspect, default '16:9'."},
+                        },
+                    },
+                    "slides": {
+                        "type": "array",
+                        "description": "Flat authoring sugar: ordered content scopes (each lifts to a tree node; builds lift to state children with document-unique prefixed ids like s1_b1).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "Stable quantum id you will reference in update_quantum/links (optional; auto-filled)."},
+                                "layout": {"type": "string", "description": "Layout template name, e.g. 'title', 'content', 'stat', 'full-bleed'."},
+                                "title": {"type": "string", "description": "Slide heading."},
+                                "blocks": {
+                                    "type": "array",
+                                    "description": "Semantic content blocks — the content truth. kind='text' (text and/or bullets), 'stat' (value+label big number), 'image' (asset_id or query+source), 'shape' (accent shape), 'group' (children: homogeneous sub-blocks, e.g. 3 feature cards).",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "string", "description": "Stable id within this slide. Optional input; deterministically backfilled as blk_1 / blk_1_1 by source path."},
+                                            "kind": {"type": "string", "enum": ["text", "stat", "image", "shape", "group"]},
+                                            "role": {"type": "string", "description": "Slot hint, e.g. 'title', 'body', 'hero', 'cta', 'card'."},
+                                            "text": {"type": "string"},
+                                            "bullets": {"type": "array", "items": {"type": "string"}},
+                                            "style_token": {"type": "string"},
+                                            "value": {"type": "string", "description": "stat: the big number, e.g. '97'."},
+                                            "label": {"type": "string", "description": "stat: what the number means."},
+                                            "asset_id": {"type": "string", "description": "image: a registered asset."},
+                                            "source": {"type": "string", "description": "image: how to fill it ('search'/'generate')."},
+                                            "query": {"type": "string", "description": "image: search query when not yet filled."},
+                                            "shape": {"type": "string", "description": "shape: e.g. 'rect'."},
+                                            "fill_token": {"type": "string"},
+                                            "children": {"type": "array", "description": "group: nested semantic blocks. Every child also has a stable id; builds reference renderable non-group leaves, never the group id.", "items": {"type": "object"}},
+                                        },
+                                    },
+                                },
+                                "notes": {"type": "string", "description": "Speaker notes (the shotlist narration's descendant)."},
+                                "builds": {
+                                    "type": "array",
+                                    "description": "Ordered render states (the discrete video's frames-of-meaning). visible_block_ids is the FULL cumulative leaf-id snapshot for that state (not a delta); it may start empty, must only grow, and the final state must exactly cover every renderable leaf. Missing/wrong-type visibility on legacy input backfills all leaves. dwell_sec (> 0) is the autoplay/mp4 hold; advance 'wait' (default) holds at this state until interaction in presentation mode, 'auto' advances after dwell.",
+                                    "items": {"type": "object", "properties": {
+                                        "id": {"type": "string"},
+                                        "dwell_sec": {"type": "number"},
+                                        "advance": {"type": "string", "enum": ["wait", "auto"], "description": "Presentation semantics: wait = hold until interaction (default), auto = advance after dwell."},
+                                        "visible_block_ids": {"type": "array", "items": {"type": "string"}, "description": "Unique ids of every leaf visible at this state. Group ids are invalid."}}},
+                                },
+                                "links": {
+                                    "type": "array",
+                                    "description": "Interaction out-edges (跃迁); omit for the implicit advance. Mount on content scopes (applies to all its states; advance = the scope's EXIT edge) or on a state (overrides itself). target: 'next', 'quantum:<id>', or 'url:<https url>'. hotspot blocks must exist in this scope.",
+                                    "items": {"type": "object", "properties": {
+                                        "trigger": {"type": "string", "description": "'advance' or 'hotspot:<leaf block id>'."},
+                                        "target": {"type": "string"}}},
+                                },
+                                "transition": {
+                                    "type": "object",
+                                    "description": "Transition into this slide. v1: 'cut' (default) or 'fade'.",
+                                    "properties": {"kind": {"type": "string", "enum": ["cut", "fade"]}},
+                                },
+                            },
+                        },
+                    },
+                    "default_path": {"type": "array", "items": {"type": "string"}, "description": "Flat-sugar only: orders the lifted scopes, then disappears — in the tree, DFS leaf order IS the default path; reorder with update_quantum op='move'."},
+                    "root": {"type": "object", "description": "Tree shape (alternative to slides): {id:'root', children:[group|content nodes]}. group={id,title,hidden,children}; content={id,layout,title,blocks,notes,links,transition,hidden,children:[states]}; state={id,visible_block_ids,dwell_sec,advance,hidden}."},
+                },
+            },
+        },
+        ["quanta"],
+    ),
+    _tool(
+        "update_quantum",
+        "The EDIT TREE's single entry point: revise any node of the quanta state tree by document-unique id, one op or an atomic batch. op='patch' (default) merges 'fields' into one node — reword blocks/title/notes, retune state visibility/dwell/advance, change links/layout/transition/hidden; a content node's fields.builds replaces its states wholesale (v1 sugar); 'id'/'children' cannot be patched. op='insert' adds a whole subtree ('quantum') under 'parent_id' at 'index' (states under content scopes; groups/content under groups or root). op='remove' detaches a subtree — if other links point into it the batch is rejected with EVERY dangling edge enumerated; retarget them in the SAME call via 'ops'. op='move' reorders/reparents ('quantum_id' → 'parent_id' + 'index') — this is how you reorder the default path (DFS leaf order). 'ops' runs several edits as ONE atomic undoable patch, order-independent for reference integrity. Persisted + undoable.",
+        {
+            "op": {"type": "string", "enum": ["patch", "insert", "remove", "move"], "description": "Single-op mode. Default 'patch'."},
+            "quantum_id": {"type": "string", "description": "Target node id (patch/remove/move). From get_quanta."},
+            "fields": {
+                "type": "object",
+                "description": "patch: fields to merge, e.g. {title, blocks, notes, builds, links, layout, transition, mood_override, hidden} on a content scope; {visible_block_ids, dwell_sec, advance, hidden} on a state; {title, hidden} on a group.",
+                "properties": {
+                    "layout": {"type": "string"},
+                    "title": {"type": "string"},
+                    "blocks": {"type": "array", "items": {"type": "object"}},
+                    "notes": {"type": "string"},
+                    "mood_override": {"type": "string"},
+                    "builds": {"type": "array", "items": {"type": "object"}, "description": "Content scopes: replace the state children wholesale (v1 sugar)."},
+                    "links": {"type": "array", "items": {"type": "object"}},
+                    "transition": {"type": "object"},
+                    "hidden": {"type": "boolean"},
+                    "visible_block_ids": {"type": "array", "items": {"type": "string"}},
+                    "dwell_sec": {"type": "number"},
+                    "advance": {"type": "string", "enum": ["wait", "auto"]},
+                },
+            },
+            "parent_id": {"type": "string", "description": "insert/move: destination parent ('root' or a group id; a content scope id when inserting/moving states)."},
+            "index": {"type": "integer", "description": "insert/move: position among the parent's children (default: end)."},
+            "quantum": {"type": "object", "description": "insert: the new subtree — a state ({visible_block_ids,dwell_sec,advance}), a content scope ({blocks,…,children:[states]}), or a group ({title,children})."},
+            "ops": {"type": "array", "items": {"type": "object"}, "description": "Atomic batch: [{op, …}, …] applied as one undoable patch (e.g. remove a quantum AND retarget its in-edges together)."},
+        },
+        [],
+    ),
+    _tool(
+        "get_quanta",
+        "Read the current quanta state tree: groups as indented sections, each content scope's id, layout, block kinds, state count/dwell, title, notes, non-default links and hidden marks, plus the full tree IR. Call before revising so you use the right quantum ids.",
+        {},
+        [],
+    ),
+    _tool(
+        "refine_quantum",
+        "Revise ONE quantum (a content scope or one of its states) in an assembled quanta and immediately refresh the presentation pager + dedicated Quanta timeline. Rematerialization is subtree-granular: with a current frame cache it rerenders only the containing content scope and reuses every unchanged scope's frames; if the quanta was not assembled or the cache is stale, it safely materializes the whole quanta. Use update_quantum instead while still planning. Unrelated timeline clips survive.",
+        {
+            "quantum_id": {"type": "string", "description": "The quantum id (content scope or state) from get_quanta."},
+            "fields": {
+                "type": "object",
+                "description": "Fields to merge into this quantum: layout, title, blocks, notes, mood_override, builds, links, transition (content scope) or visible_block_ids, dwell_sec, advance (state).",
+                "properties": {
+                    "layout": {"type": "string"},
+                    "title": {"type": "string"},
+                    "blocks": {"type": "array", "items": {"type": "object"}},
+                    "notes": {"type": "string"},
+                    "mood_override": {"type": "string"},
+                    "builds": {"type": "array", "items": {"type": "object"}},
+                    "links": {"type": "array", "items": {"type": "object"}},
+                    "transition": {"type": "object"},
+                },
+            },
+            "fail_on_overflow": {"type": "boolean", "description": "When true, leave the valid IR edit in place but refuse timeline refresh if any scope still overflows."},
+        },
+        ["quantum_id", "fields"],
+    ),
+    _tool(
+        "assemble_quanta",
+        "Materialize the current quanta into every render-state PNG, register those frames, return a same-origin presentation pager URL, and atomically rebuild dedicated Quanta timeline tracks in DFS leaf order using each state's dwell_sec. Hidden subtrees stay out of the flatten (they are interaction-only). Re-running the same quanta reuses the frame cache and replaces only the dedicated Quanta tracks; unrelated timeline clips survive. MP4 flattening never follows interaction edges: authored fades and discarded interaction links are reported as explicit degradations (fade_to_cut, interaction_flattened).",
+        {
+            "fail_on_overflow": {"type": "boolean", "description": "When true, refuse to assemble if any text still overflows after the two allowed autofit steps. Default false returns overflow details for refine_quantum."},
+        },
+        [],
+    ),
+    _tool(
         "annotate_media",
         "Create persistent Gemini-style annotations for media-library assets. Use this for long videos or bulk footage triage before searching, cutting, or assembling. Writes asset-level tags plus timecoded review markers.",
         {

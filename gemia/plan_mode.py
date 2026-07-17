@@ -55,6 +55,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "search_frames",       # probes existing footage; surfaces (no new derived media)
     "search_library",
     "search_media",
+    "get_quanta",           # read the quanta plan
     "get_shotlist",         # read the storyboard plan
     "wait_for_job",         # waits on an already-submitted job
     "web_open",
@@ -65,8 +66,9 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
     "add_overlay", "adjust_media", "animate_captions", "annotate_media",
-    "arrange_timeline", "assemble_shotlist",
-    "build", "color_grade", "composite", "copy_in", "draft_shotlist",
+    "arrange_timeline", "assemble_quanta", "assemble_shotlist",
+    "build", "color_grade", "composite", "copy_in",
+    "draft_quanta", "draft_shotlist",
     "edit_audio", "edit_image", "edit_video", "export",
     "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
     "file_write", "generate_audio", "generate_image", "generate_video",
@@ -85,14 +87,15 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "mix_audio", "move_file", "organize_files",
     "paint_mask_effect", "paint_overlay",
     "project_export", "project_export_otio", "project_import_otio",
-    "narrate", "refine_shot", "remember", "render_preview", "run_shell",
-    "save_skill", "set_shotlist", "smart_reframe", "spawn_subtasks",
-    "subtitle",
+    "narrate", "refine_quantum", "refine_shot", "remember", "render_preview",
+    "run_shell", "save_skill", "set_quanta", "set_shotlist", "smart_reframe",
+    "spawn_subtasks", "subtitle",
     "timeline_add_track", "timeline_add_transition", "timeline_delete_clip",
     "timeline_insert_clip", "timeline_move_clip", "timeline_set_clip_effects",
     "timeline_set_clip_time", "timeline_set_track", "timeline_split_clip",
     "timeline_trim_clip", "timeline_undo",
-    "transform_geometry", "update_shot", "write_file", "write_media_annotation",
+    "transform_geometry", "update_quantum", "update_shot", "write_file",
+    "write_media_annotation",
 })
 
 # A turn that keeps hammering blocked tools is not planning — it is stuck.
