@@ -24,9 +24,9 @@ def _load_historical_prompt_corpus() -> dict[str, object]:
 
 
 def test_catalog_exactly_covers_current_111_tool_schemas() -> None:
-    # 111 = 104 + vector_motion + six dedicated creative-library verbs.
-    assert len(MASTER_TOOL_NAMES) == 111
-    assert len(set(MASTER_TOOL_NAMES)) == 111
+    # 87 = 111 - 18 lumen_* convenience verbs - 6 session-scope file ops.
+    assert len(MASTER_TOOL_NAMES) == 87
+    assert len(set(MASTER_TOOL_NAMES)) == 87
     assert catalog_coverage() == (frozenset(), frozenset())
     # vector_motion must belong to a pack (else it only surfaces on full
     # fallback and the model falls back to hand-pushed keyframes).

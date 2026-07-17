@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from gemia.compat import ffmpeg_path, ffprobe_path
 from gemia.project_model import IMAGE_DURATION, normalize_project
 try:
     from gemia.video.fonts import resolve_font_path as _resolve_font_path
@@ -177,7 +178,7 @@ def export_project(
         else:
             # No overlays, no audio — copy the base video to final location.
             _run_ffmpeg(
-                ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
                  "-i", str(base_video),
                  "-c", "copy",
                  "-movflags", "+faststart",
@@ -365,7 +366,7 @@ def _render_video_segment(
     vf = _video_filter(width=width, height=height, fps=fps) + vf_extra
     
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
     ]
     
     if media_kind == "image":
@@ -405,7 +406,7 @@ def _render_black_segment(
     timeout_sec: int,
 ) -> None:
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
         "-f", "lavfi",
         "-i", f"color=c=black:s={width}x{height}:r={fps}:d={max(duration, 0.1):.6f}",
         "-an",
@@ -425,7 +426,7 @@ def _concat_segments(segments: list[Path], output: Path, *, timeout_sec: int) ->
         encoding="utf-8",
     )
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0",
         "-i", str(list_path),
         "-c", "copy",
@@ -621,7 +622,7 @@ def _render_xfade_window(
     d = _pos(window.get("duration"), 0.0)
     vf = _video_filter(width=width, height=height, fps=fps)
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
         "-ss", f"{_pos(window.get('a_in'), 0.0):.6f}", "-t", f"{d:.6f}", "-i", str(a_source),
         "-ss", f"{_pos(window.get('b_in'), 0.0):.6f}", "-t", f"{d:.6f}", "-i", str(b_source),
         "-filter_complex",
@@ -657,7 +658,7 @@ def _apply_overlays(
 ) -> None:
     """Composite overlay (image, Lottie, and text) clips onto the base video."""
     profile = _QUALITY_PROFILES[quality]
-    cmd: list[str] = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
+    cmd: list[str] = [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error"]
     # Always first input: base video
     cmd += ["-i", str(base)]
 
@@ -969,7 +970,7 @@ def _mux_audio_onto_video(
     (``sidechaincompress``, mirroring gemia/tools/mix_audio.py duck mode), then
     all track submixes are amix'd. Video is stream-copied; audio is AAC.
     """
-    cmd: list[str] = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video)]
+    cmd: list[str] = [ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video)]
     for src in audio_sources:
         cmd += ["-i", str(src["path"])]
 
@@ -1193,7 +1194,7 @@ def _run_ffmpeg(cmd: list[str], output: Path, *, timeout_sec: int) -> None:
 
 def _ffprobe(path: Path) -> dict[str, Any]:
     proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-print_format", "json",
+        [ffprobe_path(), "-v", "error", "-print_format", "json",
          "-show_format", "-show_streams", str(path)],
         capture_output=True, text=True, timeout=30,
     )

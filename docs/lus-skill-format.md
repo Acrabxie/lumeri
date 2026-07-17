@@ -2,7 +2,7 @@
 
 Status: 定稿（locked design, pending implementation — see §11 work packages)
 Date: 2026-07-06
-Scope: `/Volumes/Extreme SSD/gemia` (backend + web v3) and `~/Code/lumeri-cli` (TUI client)
+Scope: `/Volumes/Extreme SSD/lumeri` (backend + web v3; directory renamed from `gemia` 2026-07-17) and `~/Code/lumeri-cli` (TUI client)
 Audience: a parser/validator author. This document is the complete reference; no other
 document is required to implement `.lus` reading, writing, validation, or migration.
 
@@ -277,6 +277,12 @@ Rules:
    layout is broken on every other machine and leaks private structure.
 3. **Size** — total file ≤ 64 KiB (`E_LUS_TOO_LARGE`, §2). There is no separate body
    limit; the file bound is the bound.
+4. **No library-closed craft recipes** — `E_LUS_CRAFT_NUMBERS` (added by the §12
+   addendum, 2026-07-17; charter §14 S1). Scope differs from items 1-2: the scan
+   covers the **body only, outside fenced code blocks** (metadata carries recall
+   signals, not steps; a Pitfalls section may quote an anti-example in a fence).
+   Save: typed rejection, nothing written. Load: the file is **quarantined from
+   recall with a WARNING log**, never silently dropped (see §12.2).
 
 **中文小结（正文）**：正文是模型执行的 markdown 手册。必需章节 `## When to use`、
 `## Steps`（至少一条编号步骤，步骤用反引号写精确工具名+关键参数），可选 `## Pitfalls`、
@@ -378,6 +384,7 @@ recomputes `checksum` and enforces §2 rules on its own output).
 | `E_LUS_BODY_FENCE` | Unbalanced code fences: the count of lines matching `` ^``` `` is odd. |
 | `E_LUS_SECRET` | Any §4.2 secret pattern matches anywhere in the file (meta or body). Message includes the pattern class, never the matched text (do not echo secrets). |
 | `E_LUS_ABS_PATH` | Any §4.2 absolute-user-path pattern matches anywhere in the file. |
+| `E_LUS_CRAFT_NUMBERS` | Any `CRAFT_CLOSED_DOMAINS` pattern matches anywhere in the file — a raw-number craft recipe for a domain closed by an installed point-library (charter §14 S1). Message names the domain and the closing library verb. *(16th code, added by the §12 addendum, 2026-07-17.)* |
 | `E_LUS_CHECKSUM` | Strict mode only (`strict=True`): `checksum` present, well-formed, and ≠ SHA-256 of the actual body bytes. |
 
 ### 6.2 Warnings (never abort)
@@ -392,9 +399,9 @@ recomputes `checksum` and enforces §2 rules on its own output).
 
 **中文小结（校验契约）**：`gemia/lus.py` 里 `validate_lus(text, known_tools, strict) ->
 (meta, body, warnings)`，按固定顺序做检查、第一个失败即抛带 `code`/`field`/`line` 的
-`LusValidationError`；15 个错误码覆盖编码、大小、magic、版本、元数据围栏/解析/字段、
-正文章节/围栏、密钥、绝对路径、严格模式校验和；5 个警告码覆盖未知工具、未知字段、
-校验和缺失/过期、文件名不一致。
+`LusValidationError`；16 个错误码覆盖编码、大小、magic、版本、元数据围栏/解析/字段、
+正文章节/围栏、密钥、绝对路径、手艺数字（`E_LUS_CRAFT_NUMBERS`，§12 addendum）、
+严格模式校验和；5 个警告码覆盖未知工具、未知字段、校验和缺失/过期、文件名不一致。
 
 ---
 
@@ -504,9 +511,13 @@ Observed live: 2 files (`audio_ducking_setup.json`, `batch_rough_cut.json`).
   to migration time (and noted in the report).
 - `version` starts at `1.0.0`. `domain`=`video`, `language` auto-detected,
   `safety.*`/`tools_used` derived per §7.1.
-- Bodies that fail §4.2 prohibitions (a legacy skill containing an absolute path or
-  secret-looking text) are NOT silently rewritten: the file is skipped, reported, and
+- Bodies that fail §4.2 prohibitions (a legacy skill containing an absolute path,
+  secret-looking text, or — since the §12 addendum — a library-closed craft recipe,
+  `E_LUS_CRAFT_NUMBERS`) are NOT silently rewritten: the file is skipped, reported, and
   left un-renamed for manual review. Migration must not launder policy violations.
+  A craft-violating legacy JSON that stays unmigrated does not keep flowing to the
+  model either: the dual-read path runs the same craft scan and quarantines it from
+  recall with a WARNING log (charter §14 S1 applies to both formats).
 
 ### 8.3 Migrator behavior
 
@@ -794,6 +805,75 @@ WP5 可选的一行提示词摘要。全程不碰 SSE 契约。
 
 ---
 
+## 12. Charter arbitration addendum — skill/library boundary (2026-07-17)
+
+Status: RATIFIED alongside point-library charter v1.3 §14 (user-approved
+2026-07-17). This addendum extends the locked design of §2–§7 without
+changing any prior decision; it adds one validation check and records the
+arbitration between this spec and the charter.
+
+### 12.1 Where skills sit (arbitration)
+
+The point-library charter (`gemia/docs/point-library-charter.md`, RATIFIED)
+is the authority on **which layer knowledge may live in**; this spec is the
+authority on **how a .lus file is written**. Where the two documents'
+worldviews conflict, **charter §14 wins**. The division it fixes:
+
+- **Craft (taste) belongs to point libraries** — colour recipes, curve
+  control points, easing/choreography numbers. A skill MUST NOT carry a
+  domain's craft as raw numbers once an installed library closes that domain
+  (charter §14 rule S1; anti-pattern AP34).
+- **Process belongs to skills** — cross-domain workflows, external-service
+  usage, per-machine preference, pitfalls. These are the legal long-term
+  residents of `~/.gemia/skills/` (charter §14 rule S2) and the reason this
+  format exists.
+- When a skill references a library-closed domain it speaks the library's
+  creative language (verb + look/archetype words + 0..1 semantic axes),
+  never numeric recipes (charter §14 rule S3).
+
+### 12.2 E_LUS_CRAFT_NUMBERS — the 16th error code
+
+`validate_lus` gains check **14b** (after `E_LUS_ABS_PATH`, before checksum):
+the **body, outside fenced code blocks,** is scanned line-by-line
+(`gemia/lus.py::find_craft_leak`) against `CRAFT_CLOSED_DOMAINS` — a registry
+of `(domain, closing tool verb, recipe patterns)` for domains closed by an
+**installed** point-library (currently `grading`/`grade` and
+`motion`/`vector_motion`; the bounded pending list
+`CRAFT_GUARD_PENDING_VERBS` names installed creative verbs not yet covered,
+and `tests/test_charter_integrity.py` pins closed ∪ pending == the installed
+reference set). Metadata is exempt (it carries recall signals, not steps);
+fences are exempt (quoting an anti-example in Pitfalls is legal). A match
+raises typed `E_LUS_CRAFT_NUMBERS` — save is rejected, nothing is written.
+
+**Load-side semantics (retroactivity):** a pre-existing file that trips the
+check is **quarantined from recall with a WARNING log** (file stays on disk,
+excluded from `list_distilled`/recall until fixed) — never silently dropped.
+The legacy-JSON dual-read path runs the same scan.
+
+The guard matches recipe **shape**, not keywords alone (adversarially
+reviewed 2026-07-17): bracketed lists (`shadows=[0.02, 0, -0.02]`,
+`tone_curve: [...]`, also via backtick/bold/`to [` wrappers), per-channel
+Chinese offsets (`阴影 RGB 各 +0.02`), `cubic-bezier(0.4, …)`, unit-less
+control-point decimals (`stagger=0.08`), and same-line `lift`+`gamma`+`gain`
+triple assignments. It MUST NOT match the libraries' own semantic axes
+(`warmth: 0.7`, `lift: 0.3`, `stagger_spread: 0.6`), archetype names,
+placement/timing quantities (`x=120`, "trim to 3s", "fade easing: 0.3s",
+"duck by -12dB"), or everyday editing prose ("highlights: 3 best moments",
+timestamps `0:32`, "高光时刻", "drop shadows: 0.15 opacity"). Free-form prose
+paraphrases of a recipe are deliberately out of regex scope (charter §14.3) —
+the recall-side filter and review are the backstop. Test gate:
+`tests/test_lus_format.py` (reject/reject/pass + fence + check-order) +
+`tests/test_skill_distill.py` (save rejection + two quarantine tests).
+
+**中文小结（仲裁）**：宪章 §14 管"什么知识住哪层"，本规范管"文件怎么写"；冲突以宪章
+§14 为准。品味归库、流程归技能；技能提到已关闭域只说创作语言。新增第 16 个错误码
+`E_LUS_CRAFT_NUMBERS`（检查 14b）：已安装库关闭的域，其手艺**配方形状**（中英文括号
+配方、逐通道偏移、无单位控制点小数、LGG 三连）在保存时 typed 拒存、零写盘；只扫正文
+且豁免围栏与元数据；读侧命中=隔离+WARNING 日志，绝不静默；守卫宁窄勿宽，绝不误杀
+语义轴、放置量与日常剪辑词汇（"highlights: 3"、"高光时刻"）。
+
+---
+
 ## Appendix A — quick reference card
 
 ```
@@ -809,7 +889,7 @@ errors    = E_LUS_ENCODING E_LUS_TOO_LARGE E_LUS_MAGIC E_LUS_VERSION
             E_LUS_META_OPEN E_LUS_META_TOO_LARGE E_LUS_META_UNTERMINATED
             E_LUS_META_PARSE E_LUS_META_FIELD E_LUS_BODY_EMPTY
             E_LUS_BODY_SECTION E_LUS_BODY_FENCE E_LUS_SECRET E_LUS_ABS_PATH
-            E_LUS_CHECKSUM(strict)
+            E_LUS_CRAFT_NUMBERS E_LUS_CHECKSUM(strict)
 warnings  = W_LUS_UNKNOWN_TOOL W_LUS_UNKNOWN_FIELD W_LUS_CHECKSUM_MISSING
             W_LUS_CHECKSUM_STALE W_LUS_NAME_MISMATCH
 store     = ~/.gemia/skills/<name>.lus (GEMIA_SKILL_STORE_DIR override)

@@ -14,6 +14,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Sequence
 
+from gemia.compat import ffmpeg_path, ffprobe_path
+
 from .project_model import DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from .project_render import ffprobe_media
 
@@ -196,7 +198,7 @@ def render_hyperframes_clip(
             "lint": lint_cmd,
             "snapshot": snapshot_cmd,
             "render": render_cmd,
-            "ffprobe": ["ffprobe", str(render_path.resolve())],
+            "ffprobe": [ffprobe_path(), str(render_path.resolve())],
         },
     }
     manifest = {
@@ -248,8 +250,8 @@ def _render_local_fallback_clip(
     safe_name: str,
     context: HyperFramesContext,
 ) -> dict[str, Any]:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
+    ffmpeg = ffmpeg_path()
+    if not shutil.which(ffmpeg) and not Path(ffmpeg).is_file():
         raise HyperFramesRenderError(
             "hyperframes_not_found",
             "HyperFrames CLI is not installed, and local FFmpeg fallback is unavailable.",
@@ -306,7 +308,7 @@ def _render_local_fallback_clip(
         "fallback_renderer": "ffmpeg",
         "commands": {
             "render": render_cmd,
-            "ffprobe": ["ffprobe", str(render_path.resolve())],
+            "ffprobe": [ffprobe_path(), str(render_path.resolve())],
         },
     }
     manifest = {
@@ -476,7 +478,9 @@ def _validate_local_only_html(stage_html: str) -> None:
     lowered = stage_html.lower()
     if any(token in lowered for token in ("<html", "<head", "<body")):
         raise HyperFramesRenderError("unsafe_stage_html", "stage_html must be an inner fragment, not a full HTML document")
-    if _REMOTE_RE.search(stage_html):
+    # The SVG xmlns is the one legitimate URI; strip it before the remote check.
+    sanitised = re.sub(r'xmlns="http://www\.w3\.org/2000/svg"', "", stage_html, flags=re.IGNORECASE)
+    if _REMOTE_RE.search(sanitised):
         raise HyperFramesRenderError("remote_asset_blocked", "HyperFrames v1 does not allow URL/CDN references")
     if _JS_NETWORK_RE.search(stage_html):
         raise HyperFramesRenderError("remote_asset_blocked", "HyperFrames v1 blocks browser network APIs in inline scripts")

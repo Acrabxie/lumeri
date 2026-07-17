@@ -24,7 +24,7 @@
 
   // Inline the icon sprite once so every <use href="#i-*"> resolves, including
   // ones rendered before the fetch lands (SVG <use> re-resolves on DOM insert).
-  fetch("/v3/icons.svg")
+  fetch("/video/icons.svg")
     .then((r) => (r.ok ? r.text() : ""))
     .then((t) => {
       if (!t) return;
@@ -51,13 +51,15 @@
     voiceInputBtn: $("#voice-input-btn"),
     voiceInputStatus: $("#voice-input-status"),
     sendBtn: $("#send-btn"),
-    stopBtn: $("#session-stop-btn"),
     inputShell: $("#input-shell"),
     sandboxBtn: $("#sandbox-toggle-btn"),
     planBtn: $("#plan-toggle-btn"),
     planBar: $("#plan-bar"),
     askDock: $("#ask-dock"),
     slashMenu: $("#slash-menu"),
+    historyToggleBtn: $("#history-toggle-btn"),
+    historyDrawer: $("#history-drawer"),
+    historyDrawerBody: $("#history-drawer-body"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -120,6 +122,86 @@
   const PROGRESS_REPORT_MAX_CHARS = 240;
   const ACTIVITY_TEXT_UNSAFE_RE = /[`{}[\]<>\\]|[=;]|(?:https?|file):\/\/|(?:^|\s)(?:\/|~\/|[A-Za-z]:[\\/])|\b[\w.-]+\.(?:py|js|jsx|ts|tsx|json|md|yaml|yml|sh|bash|zsh|html|css|sql)\b|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b(?:api[_-]?key|token|password|secret|system[_ -]?prompt|reasoning|thought[_ -]?signature|asset[_ -]?id)\b|(?:代码|路径|工具名?|参数|命令|思维链|推理|内部)/i;
 
+  const TOOL_CATEGORY = {
+    generate_image: "创建", generate_video: "创建", generate_audio: "创建",
+    narrate: "创建", build: "创建",
+    lumen_render: "创建", lumen_render_range: "创建", vector_motion: "创建",
+
+    edit_image: "编辑", edit_video: "编辑", edit_audio: "编辑",
+    composite: "编辑", color_grade: "编辑", adjust_media: "编辑",
+    paint_overlay: "编辑", paint_mask_effect: "编辑", add_overlay: "编辑",
+    transform_geometry: "编辑", smart_reframe: "编辑",
+    subtitle: "编辑", animate_captions: "编辑", lumen_patch: "编辑",
+    grade: "编辑", kinetic_type: "编辑", edit_grammar: "编辑",
+    camera: "编辑", compose: "编辑", rhythm_edit: "编辑",
+
+    arrange_timeline: "剪辑",
+    timeline_insert_clip: "剪辑", timeline_delete_clip: "剪辑",
+    timeline_move_clip: "剪辑", timeline_trim_clip: "剪辑",
+    timeline_split_clip: "剪辑", timeline_set_clip_time: "剪辑",
+    timeline_add_transition: "剪辑", timeline_set_clip_effects: "剪辑",
+    timeline_add_track: "剪辑", timeline_set_track: "剪辑",
+    timeline_undo: "剪辑", inspect_timeline: "剪辑", get_timeline: "剪辑",
+    mix_audio: "剪辑", align_audio: "剪辑", detect_beats: "剪辑",
+
+    search_library: "搜索", search_media: "搜索", search_frames: "搜索",
+    web_search: "搜索", web_open: "搜索", fetch: "搜索",
+
+    extract_frame: "分析", probe_media: "分析", analyze_media: "分析",
+    get_safe_areas: "分析", inspect_lottie: "分析",
+    annotate_media: "分析", get_media_annotations: "分析",
+    write_media_annotation: "分析",
+    get_lumenframe: "分析", lumen_seek: "分析", render_preview: "分析",
+
+    assemble_shotlist: "脚本", draft_shotlist: "脚本", set_shotlist: "脚本",
+    update_shot: "脚本", get_shotlist: "脚本", refine_shot: "脚本",
+
+    export: "导出", project_export: "导出",
+    project_export_otio: "导出", project_import_otio: "导出",
+
+    read_file: "文件", write_file: "文件", copy_in: "文件",
+    list_dir: "文件", move_file: "文件", organize_files: "文件",
+    run_shell: "文件",
+
+    save_skill: "记忆", recall_skills: "记忆",
+    remember: "记忆", log_note: "记忆",
+
+    elicit: "交互",
+    spawn_subtasks: "执行", check_job: "执行", wait_for_job: "执行",
+  };
+
+  const CATEGORY_DEFAULTS = {
+    创建: { running: "正在生成素材", done: "素材已生成" },
+    编辑: { running: "正在调整素材", done: "素材已调整" },
+    剪辑: { running: "正在编排时间线", done: "时间线已更新" },
+    搜索: { running: "正在查找资源", done: "查找完成" },
+    分析: { running: "正在检视素材", done: "检视完成" },
+    脚本: { running: "正在整理拍摄方案", done: "方案已更新" },
+    导出: { running: "正在导出成片", done: "成片已导出" },
+    文件: { running: "正在处理文件", done: "文件已处理" },
+    记忆: { running: "正在记录", done: "已记录" },
+    交互: { running: "等待你的选择", done: "已确认" },
+    执行: { running: "正在执行", done: "执行完成" },
+  };
+
+  const CATEGORY_ICON = {
+    创建: "i-spark",
+    编辑: "i-sliders",
+    剪辑: "i-scissors",
+    搜索: "i-search",
+    分析: "i-eye",
+    脚本: "i-clapperboard",
+    导出: "i-export",
+    文件: "i-folder",
+    记忆: "i-brain",
+    交互: "i-chat-q",
+    执行: "i-gear",
+  };
+
+  function toolCategory(name) {
+    return TOOL_CATEGORY[name] || "执行";
+  }
+
   function safeActivityText(value) {
     const text = String(value || "").trim().replace(/\s+/g, " ");
     if (!text || text.length > ACTIVITY_TEXT_MAX_CHARS || ACTIVITY_TEXT_UNSAFE_RE.test(text)) {
@@ -147,17 +229,19 @@
 
   function activityLabel(tc) {
     const activityText = safeActivityText(tc.activityText);
+    const cat = toolCategory(tc.tool_name);
+    const defaults = CATEGORY_DEFAULTS[cat] || CATEGORY_DEFAULTS["执行"];
     if (tc.status === "done" || tc.status === "ok") {
-      return activityText || "这一步已完成";
+      return activityText || defaults.done;
     }
     if (tc.status === "failed" || tc.status === "error" || tc.status === "timeout") {
-      return "这一步暂未完成";
+      return "未能完成";
     }
     if (tc.status === "gated" || tc.status === "needs_user") {
       return tc.status === "needs_user" ? "等待你的选择" : "等待你的批准";
     }
-    if (tc.status === "cancelled") return "已取消此步骤";
-    return activityText || "正在准备下一步";
+    if (tc.status === "cancelled") return "已取消";
+    return activityText || defaults.running;
   }
 
   function activityPhase(status) {
@@ -259,6 +343,16 @@
     let r = escapeHTML(s);
     // Inline code (must come before bold/italic to avoid conflicts)
     r = r.replace(/`([^`\n]+?)`/g, '<code class="md-inline-code">$1</code>');
+    // Entity references — before bold/italic so underscore-delimited IDs
+    // (v_001, s0_shot0) are not consumed by emphasis rules.
+    r = r.replace(/\b(v_\d+|img_\d+|aud_\d+|lot_\d+)\b/g,
+      '<span class="md-entity" data-entity-kind="asset" data-entity-id="$1" role="link" tabindex="0">$1</span>');
+    r = r.replace(/\b(clip_[a-f0-9]{8,16})\b/g,
+      '<span class="md-entity" data-entity-kind="clip" data-entity-id="$1" role="link" tabindex="0">$1</span>');
+    r = r.replace(/\b(s\d+_shot\d+)\b/g,
+      '<span class="md-entity" data-entity-kind="shot" data-entity-id="$1" role="link" tabindex="0">$1</span>');
+    r = r.replace(/\b(scene\d+)\b/g,
+      '<span class="md-entity" data-entity-kind="scene" data-entity-id="$1" role="link" tabindex="0">$1</span>');
     // Images
     r = r.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img class="md-img" alt="$1" src="$2">');
     // Links
@@ -355,12 +449,20 @@
     const busy = !state.sessionId || state.turnInProgress;
     els.sendBtn.disabled = !state.sessionId;
     els.uploadBtn.disabled = busy;
-    els.stopBtn.hidden = !state.turnInProgress;
-    els.stopBtn.disabled = state.stopPending;
     els.inputShell.classList.toggle("is-steering", state.turnInProgress);
-    els.promptInput.placeholder = state.turnInProgress
-      ? "输入引导，让 Lumeri 调整当前方向…"
-      : "描述你想要的视频，或输入 / 唤起命令…";
+    els.inputShell.classList.toggle("is-working", state.turnInProgress);
+    if (state.turnInProgress && !voiceInput.listening) {
+      els.voiceInputBtn.querySelector("use")?.setAttribute("href", "#i-pause");
+      els.voiceInputBtn.setAttribute("aria-label", "停止当前执行");
+      els.voiceInputBtn.title = "停止当前执行";
+      els.voiceInputBtn.disabled = state.stopPending;
+    } else if (!state.turnInProgress && !voiceInput.listening) {
+      els.voiceInputBtn.querySelector("use")?.setAttribute("href", "#i-mic");
+      els.voiceInputBtn.setAttribute("aria-label", "语音输入");
+      els.voiceInputBtn.title = "语音输入";
+      els.voiceInputBtn.disabled = false;
+    }
+    els.promptInput.placeholder = "描述你想要的视频，或输入 / 唤起命令…";
     els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
     els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
@@ -431,8 +533,19 @@
     const guidanceHtml = (turn.guidance || []).map((text) =>
       `<div class="turn-guidance"><span class="turn-guidance-label">引导</span>${escapeHTML(text)}</div>`
     ).join("");
-    const assistantHtml = (turn.assistantText || turn.streaming)
+    const hasAssistant = turn.assistantText || turn.streaming;
+    const assistantHtml = hasAssistant
       ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${renderMarkdown(turn.assistantText)}</div>`
+      : "";
+    const actionsHtml = (hasAssistant && turn.assistantText && !turn.streaming)
+      ? `<div class="assistant-actions">
+          <button type="button" class="assistant-action-btn" data-copy-assistant="${idx}" title="复制">
+            <svg aria-hidden="true"><use href="#i-copy"/></svg>
+          </button>
+          <button type="button" class="assistant-action-btn" data-speak-assistant="${idx}" title="朗读">
+            <svg aria-hidden="true"><use href="#i-volume"/></svg>
+          </button>
+        </div>`
       : "";
     return `
       ${idx ? '<div class="turn-divider" role="separator"></div>' : ""}
@@ -441,6 +554,7 @@
       ${callsHtml}
       ${bannersHtml}
       ${assistantHtml}
+      ${actionsHtml}
     `;
   }
 
@@ -459,14 +573,16 @@
   function buildCallGroups(turn) {
     const groups = [];
     for (const tc of turn.orderedCallIds.map((cid) => turn.toolCalls.get(cid)).filter(Boolean)) {
+      const category = toolCategory(tc.tool_name);
       const activityText = safeActivityText(tc.activityText);
       const progressReport = safeProgressReport(tc.progressReport);
       const previous = groups[groups.length - 1];
-      if (activityText && previous?.activityText === activityText) {
+      if (previous?.category === category) {
         previous.calls.push(tc);
         if (!previous.progressReport && progressReport) previous.progressReport = progressReport;
+        if (!previous.activityText && activityText) previous.activityText = activityText;
       } else {
-        groups.push({ calls: [tc], activityText, progressReport });
+        groups.push({ calls: [tc], category, activityText, progressReport });
       }
     }
     return groups;
@@ -491,10 +607,13 @@
   function renderToolCall(tc) {
     const label = activityLabel(tc);
     const phase = activityPhase(tc.status);
+    const category = toolCategory(tc.tool_name);
+    const iconId = CATEGORY_ICON[category] || "i-gear";
     return `
-      <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(label)}">
-        <span class="activity-indicator" aria-hidden="true"></span>
-        <span>${escapeHTML(label)}</span>
+      <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(category + ' ' + label)}">
+        <svg class="activity-icon" aria-hidden="true"><use href="#${iconId}"/></svg>
+        <span class="activity-category">${escapeHTML(category)}</span>
+        <span class="activity-desc">${escapeHTML(label)}</span>
       </div>
     `;
   }
@@ -535,7 +654,7 @@
           ? `<audio src="${url}" controls preload="metadata"></audio>`
           : `<video src="${url}" controls preload="metadata"${a.final ? " autoplay muted" : ""}></video>`;
       return `
-        <div class="asset-card${a.final ? " final" : ""}">
+        <div class="asset-card${a.final ? " final" : ""}" data-asset-id="${a.asset_id}">
           ${playerHtml}
           <div class="asset-meta">
             ${a.final ? `<svg class="asset-final" viewBox="0 0 24 24" role="img" aria-label="最终成片"><use href="#i-check-circle"/></svg>` : ""}
@@ -762,21 +881,23 @@
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
       if (tc) tc.status = "gated";
-      t?.banners.push({
-        kind: "budget",
-        text: "当前任务已暂停",
-      });
+      if (t && !t.banners.some((b) => b.kind === "budget")) {
+        t.banners.push({
+          kind: "budget",
+          text: "当前任务已暂停",
+        });
+      }
     },
     plan_gate: (ev) => {
-      // A mutating tool was blocked by plan mode. Same card treatment as a
-      // budget gate; one compact banner per gated tool.
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
       if (tc) tc.status = "gated";
-      t?.banners.push({
-        kind: "plan",
-        text: "计划模式下等待你的批准",
-      });
+      if (t && !t.banners.some((b) => b.kind === "plan")) {
+        t.banners.push({
+          kind: "plan",
+          text: "计划模式下等待你的批准",
+        });
+      }
     },
     plan_mode_changed: (ev) => {
       state.planMode = !!ev.enabled;
@@ -1750,6 +1871,37 @@
     updateEditHint();
   }
 
+  function focusEntity(kind, id) {
+    if (kind === "clip") {
+      toggleDrawer(true);
+      setActiveTab("timeline");
+      selectClip(id);
+      const el = document.querySelector(`#ptl-content .ptl-clip[data-clip-id="${CSS.escape(id)}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    } else if (kind === "asset") {
+      const card = document.querySelector(`.asset-card[data-asset-id="${CSS.escape(id)}"]`);
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        card.classList.add("flash");
+        setTimeout(() => card.classList.remove("flash"), 1200);
+      }
+    } else if (kind === "shot" || kind === "scene") {
+      if (!stageTabs.includes("outline")) { stageTabs.push("outline"); saveStageTabs(); }
+      setActiveTab("outline");
+      const sel = kind === "shot"
+        ? `.outline-row[data-shot-id="${CSS.escape(id)}"]`
+        : `.outline-scene[data-scene-id="${CSS.escape(id)}"]`;
+      requestAnimationFrame(() => {
+        const el = document.querySelector(sel);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          el.classList.add("flash");
+          setTimeout(() => el.classList.remove("flash"), 1200);
+        }
+      });
+    }
+  }
+
   function selectedClip() {
     const tl = state.projectTimeline;
     if (!tl || !state.selectedClipId) return null;
@@ -2090,7 +2242,7 @@
     return /[\u4e00-\u9fff]/.test(els.promptInput?.value || "") ? "zh" : "en";
   }
 
-  async function uploadFile(file) {
+  async function uploadFile(file, retryExpiredSession = true) {
     if (!state.sessionId) throw new Error("no session");
     setUploadStatus(`uploading ${file.name}…`);
     const r = await fetch(`/sessions/${state.sessionId}/assets`, {
@@ -2101,6 +2253,16 @@
       },
       body: file,
     });
+    // The local runtime keeps active sessions in memory.  A safe auto-sync
+    // restart can therefore leave an already-open browser tab holding a stale
+    // session id.  Preserve its transcript, open a fresh runtime session and
+    // retry the user's upload once instead of surfacing an unexplained 404.
+    if (r.status === 404 && retryExpiredSession) {
+      setUploadStatus("会话已更新，正在恢复后重新上传…");
+      await autoSaveSession();
+      await createSession();
+      return uploadFile(file, false);
+    }
     if (!r.ok) {
       setUploadStatus(`upload failed (${r.status})`);
       throw new Error(`upload failed: ${r.status}`);
@@ -2224,7 +2386,55 @@
     });
   });
 
+  let _speakingUtterance = null;
+
   document.addEventListener("click", (e) => {
+    // ── Entity reference click → navigate ──
+    const entity = e.target.closest(".md-entity[data-entity-kind]");
+    if (entity) {
+      focusEntity(entity.dataset.entityKind, entity.dataset.entityId);
+      return;
+    }
+
+    // ── Copy assistant text ──
+    const copyBtn = e.target.closest("[data-copy-assistant]");
+    if (copyBtn) {
+      const turnIdx = Number(copyBtn.dataset.copyAssistant);
+      const turn = state.turns[turnIdx];
+      if (turn?.assistantText) {
+        navigator.clipboard.writeText(turn.assistantText).then(() => {
+          const svg = copyBtn.querySelector("svg use");
+          if (svg) { svg.setAttribute("href", "#i-check"); setTimeout(() => svg.setAttribute("href", "#i-copy"), 1200); }
+        });
+      }
+      return;
+    }
+
+    // ── Speak assistant text ──
+    const speakBtn = e.target.closest("[data-speak-assistant]");
+    if (speakBtn) {
+      if (_speakingUtterance && speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        _speakingUtterance = null;
+        const svg = speakBtn.querySelector("svg use");
+        if (svg) svg.setAttribute("href", "#i-volume");
+        return;
+      }
+      const turnIdx = Number(speakBtn.dataset.speakAssistant);
+      const turn = state.turns[turnIdx];
+      if (turn?.assistantText && window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance(turn.assistantText);
+        u.lang = "zh-CN";
+        const svg = speakBtn.querySelector("svg use");
+        if (svg) svg.setAttribute("href", "#i-stop");
+        u.onend = () => { _speakingUtterance = null; if (svg) svg.setAttribute("href", "#i-volume"); };
+        u.onerror = u.onend;
+        _speakingUtterance = u;
+        speechSynthesis.speak(u);
+      }
+      return;
+    }
+
     const annotateBtn = e.target.closest("[data-library-annotate]");
     if (annotateBtn) {
       const assetId = annotateBtn.dataset.libraryAnnotate;
@@ -3032,8 +3242,6 @@
                      render();
                    });
   });
-  els.stopBtn.addEventListener("click", stopCurrentTurn);
-
   els.promptInput.addEventListener("keydown", (e) => {
     // Slash menu gets first crack at arrows/enter/tab/esc.
     if (slashKeydown(e)) return;
@@ -3225,7 +3433,10 @@
     els.voiceInputBtn.setAttribute("aria-disabled", "true");
     els.voiceInputBtn.title = "当前浏览器不支持语音输入";
   }
-  els.voiceInputBtn.addEventListener("click", startVoiceInput);
+  els.voiceInputBtn.addEventListener("click", () => {
+    if (state.turnInProgress) stopCurrentTurn();
+    else startVoiceInput();
+  });
 
   // Starter suggestion chips (rail empty state): click fills the composer.
   document.getElementById("rail-empty")?.addEventListener("click", (e) => {
@@ -3310,7 +3521,6 @@
   const STAGE_VIEWS = {
     timeline: { label: "时间线", ico: '<path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/>' },
     outline:  { label: "大纲", ico: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 10h6M7 13.5h9.5"/>' },
-    history:  { label: "会话", ico: '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 12a9 9 0 0 1 9-9"/>' },
     tasks:    { label: "后台任务", ico: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>' },
     files:    { label: "文件", ico: '<path d="M3.5 6.5c0-1.1.9-2 2-2h3.6c.5 0 .9.2 1.2.6l1.4 1.9H18.5c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2z"/>' },
   };
@@ -3326,8 +3536,8 @@
   let bgActive = false;   // any session running / has pending jobs → tasks tab badge
   let didMigrateModules = false;
   const DEFAULT_MODULES = ["timeline", "outline", "tasks"];
-  const PANEL_MODULES = new Set(["outline", "tasks", "files", "history"]);
-  const ALL_WORKSPACE_MODULES = ["preview", "outline", "tasks", "timeline", "files", "history"];
+  const PANEL_MODULES = new Set(["outline", "tasks", "files"]);
+  const ALL_WORKSPACE_MODULES = ["preview", "outline", "tasks", "timeline", "files"];
   const WORKSPACE_ORDER_KEY = "lumeri:v3:workspace-order";
   const WORKSPACE_SIZES_KEY = "lumeri:v3:workspace-sizes";
   let workspaceOrder = [...ALL_WORKSPACE_MODULES];
@@ -3380,14 +3590,23 @@
   function applyWorkspaceLayout() {
     if (!workspaceBoard || !WorkspaceLayout) return;
     const ids = visibleWorkspaceIds();
-    const packed = WorkspaceLayout.packModules(ids.map((id) => ({ id, ...WorkspaceLayout.clampSize(id, workspaceSizes[id]) })));
-    workspaceBoard.style.setProperty("--workspace-rows", String(packed.rows));
+    const inset = 8;
+    const bounds = {
+      width: Math.max(1, workspaceBoard.clientWidth - inset * 2),
+      height: Math.max(1, workspaceBoard.clientHeight - inset * 2),
+      gap: 8,
+    };
+    const packed = WorkspaceLayout.flowModules(
+      ids.map((id) => ({ id, ...WorkspaceLayout.clampSize(id, workspaceSizes[id]) })),
+      bounds,
+    );
     workspaceBoard.querySelectorAll("[data-workspace-module]").forEach((module) => {
       const place = packed.placements[module.dataset.workspaceModule];
       module.hidden = !place;
       if (!place) return;
-      module.style.gridColumn = `${place.col} / span ${place.cols}`;
-      module.style.gridRow = `${place.row} / span ${place.rows}`;
+      module.style.transform = `translate3d(${place.x + inset}px, ${place.y + inset}px, 0)`;
+      module.style.width = `${place.width}px`;
+      module.style.height = `${place.height}px`;
     });
   }
   function hideWorkspaceModule(id) {
@@ -3414,7 +3633,6 @@
     if (view === "outline") renderOutlinePanel(body);
     else if (view === "tasks") renderTasksPanel(body);
     else if (view === "files") renderFilesPanel(body);
-    else if (view === "history") renderHistoryPanel(body);
   }
   function refreshVisibleModules() {
     stageTabs.filter((k) => PANEL_MODULES.has(k)).forEach(refreshPanel);
@@ -3431,16 +3649,17 @@
           <div class="workspace-module-head" data-module-drag="${k}" draggable="true">
             <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
             <span class="workspace-module-title" id="workspace-${k}-title">
-              <svg viewBox="0 0 24 24" aria-hidden="true">${STAGE_VIEWS[k].ico}</svg>${STAGE_VIEWS[k].label}
+              <svg viewBox="0 0 24 24" aria-hidden="true">${STAGE_VIEWS[k].ico}</svg><span class="label">${STAGE_VIEWS[k].label}</span>
             </span>
             ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行"></span>` : ""}
-            <span class="workspace-module-meta">${k === "outline" ? "镜头结构" : k === "tasks" ? "运行状态" : k === "files" ? "只读浏览" : "历史记录"}</span>
-            ${k !== "history" ? `<button type="button" class="workspace-module-refresh" data-module-refresh="${k}" title="刷新${STAGE_VIEWS[k].label}" aria-label="刷新${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg></button>` : ""}
+            <span class="workspace-module-meta">${k === "outline" ? "镜头结构" : k === "tasks" ? "运行状态" : "只读浏览"}</span>
+            <button type="button" class="workspace-module-refresh" data-module-refresh="${k}" title="刷新${STAGE_VIEWS[k].label}" aria-label="刷新${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg></button>
             <button type="button" class="workspace-module-close" data-module-close="${k}" title="隐藏${STAGE_VIEWS[k].label}" aria-label="隐藏${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
           </div>
           <div class="panel-tray-body" data-panel-body="${k}"><p class="placeholder">加载中…</p></div>
           <div class="module-resize-edge module-resize-edge-x" data-module-resize="${k}" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整${STAGE_VIEWS[k].label}宽度"></div>
           <div class="module-resize-edge module-resize-edge-y" data-module-resize="${k}" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整${STAGE_VIEWS[k].label}高度"></div>
+          <div class="module-resize-edge module-resize-corner" data-module-resize="${k}" data-resize-axis="both" role="separator" tabindex="0" aria-label="同时调整${STAGE_VIEWS[k].label}宽度和高度"></div>
         </section>`).join("");
       window.queueMicrotask(refreshVisibleModules);
     }
@@ -3453,7 +3672,7 @@
   function renderStageTabs() {
     if (!stageTabList) return;
     const tabHtml = (k, label, ico, closable) => `
-      <button type="button" class="stage-tab is-visible${activeTab === k ? " active" : ""}" data-stage-tab="${k}" role="tab" aria-selected="${activeTab === k}">
+      <button type="button" class="stage-tab is-visible${activeTab === k ? " active" : ""}" data-stage-tab="${k}" role="tab" aria-selected="${activeTab === k}"${closable ? ` draggable="true" data-tab-drag="${k}"` : ""}>
         <svg viewBox="0 0 24 24" aria-hidden="true">${ico}</svg><span>${label}</span>
         ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行" aria-label="有后台任务在运行"></span>` : ""}
         ${closable ? `<span class="stage-tab-x" data-stage-remove="${k}" role="button" title="移除" aria-label="移除${label}">
@@ -3509,7 +3728,7 @@
 
   // Overflow "⋮": secondary actions (refresh the active view) tucked off the bar.
   function renderStageOverflow() {
-    const canRefresh = PANEL_MODULES.has(activeTab) && activeTab !== "history";
+    const canRefresh = PANEL_MODULES.has(activeTab);
     stageOverflowMenu.innerHTML = `
       <button type="button" class="plus-item" role="menuitem" data-overflow="refresh"${canRefresh ? "" : " disabled"}>
         <svg class="plus-ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
@@ -3553,12 +3772,34 @@
   });
   if (stageTabs.includes("timeline")) previewStage.classList.add("drawer-open");
   renderStageTabs();
+  if ("ResizeObserver" in window && workspaceBoard) {
+    new ResizeObserver(() => applyWorkspaceLayout()).observe(workspaceBoard);
+  } else {
+    window.addEventListener("resize", applyWorkspaceLayout);
+  }
 
-  // Dragging changes only module order; the deterministic packer then finds
-  // the first free rectangle for every module, so modules can never overlap.
+  // A horizontal drop means "put us side by side": cap both width weights under
+  // the full-width (own-row) regime and scale the pair into one row's budget,
+  // so e.g. timeline can sit next to preview instead of always owning a row.
+  function ensureSideBySide(aId, bId) {
+    if (!WorkspaceLayout) return;
+    const rowLimit = (WorkspaceLayout.ROW_FILL_LIMIT ?? 136) - 0.5;
+    const sideCap = (WorkspaceLayout.FULL_WIDTH_THRESHOLD ?? 78) - 1;
+    const pair = [aId, bId].map((id) => ({ id, size: WorkspaceLayout.clampSize(id, workspaceSizes[id]) }));
+    let widths = pair.map((item) => Math.min(item.size.width, sideCap));
+    const sum = widths[0] + widths[1];
+    if (sum > rowLimit) widths = widths.map((value) => value * rowLimit / sum);
+    pair.forEach((item, index) => {
+      workspaceSizes[item.id] = WorkspaceLayout.clampSize(item.id, { ...item.size, width: widths[index] });
+    });
+  }
+
+  // Dragging changes only module order; justified flow then re-tiles the desk
+  // edge-to-edge without disturbing module contents.
   let draggedModule = null;
   let dropTarget = null;
   let dropAfter = false;
+  let dropHorizontal = false;
   const clearDropState = () => {
     workspaceBoard?.querySelectorAll(".is-drop-before, .is-drop-after").forEach((el) =>
       el.classList.remove("is-drop-before", "is-drop-after"));
@@ -3582,7 +3823,8 @@
     const rect = target.getBoundingClientRect();
     const dx = (e.clientX - (rect.left + rect.width / 2)) / Math.max(1, rect.width);
     const dy = (e.clientY - (rect.top + rect.height / 2)) / Math.max(1, rect.height);
-    dropAfter = Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
+    dropHorizontal = Math.abs(dx) > Math.abs(dy);
+    dropAfter = dropHorizontal ? dx > 0 : dy > 0;
     target.classList.add(dropAfter ? "is-drop-after" : "is-drop-before");
   });
   workspaceBoard?.addEventListener("drop", (e) => {
@@ -3591,6 +3833,7 @@
     workspaceOrder = workspaceOrder.filter((id) => id !== draggedModule);
     const targetIndex = workspaceOrder.indexOf(dropTarget);
     workspaceOrder.splice(Math.max(0, targetIndex + (dropAfter ? 1 : 0)), 0, draggedModule);
+    if (dropHorizontal) ensureSideBySide(draggedModule, dropTarget);
     stageTabs = orderedStageTabs();
     saveStageTabs();
     saveWorkspaceLayout();
@@ -3605,8 +3848,53 @@
     draggedModule = null;
   });
 
-  // Right and bottom edges resize in whole grid cells; repacking after every
-  // step keeps the same no-overlap invariant as module dragging.
+  // The tab strip mirrors module drag: dragging a tab reorders workspaceOrder,
+  // and the justified flow re-tiles the desk. Preview stays pinned first.
+  let draggedTab = null;
+  const clearTabDropState = () => {
+    stageTabList?.querySelectorAll(".is-drop-before, .is-drop-after").forEach((el) =>
+      el.classList.remove("is-drop-before", "is-drop-after"));
+  };
+  stageTabList?.addEventListener("dragstart", (e) => {
+    const tab = e.target.closest("[data-tab-drag]");
+    if (!tab) { e.preventDefault(); return; }
+    draggedTab = tab.dataset.tabDrag;
+    tab.classList.add("is-dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", draggedTab);
+  });
+  stageTabList?.addEventListener("dragover", (e) => {
+    if (!draggedTab) return;
+    const target = e.target.closest("[data-tab-drag]");
+    if (!target || target.dataset.tabDrag === draggedTab) return;
+    e.preventDefault();
+    clearTabDropState();
+    const rect = target.getBoundingClientRect();
+    target.classList.add(e.clientX > rect.left + rect.width / 2 ? "is-drop-after" : "is-drop-before");
+  });
+  stageTabList?.addEventListener("drop", (e) => {
+    const target = e.target.closest("[data-tab-drag]");
+    if (!draggedTab || !target || target.dataset.tabDrag === draggedTab) return;
+    e.preventDefault();
+    const rect = target.getBoundingClientRect();
+    const after = e.clientX > rect.left + rect.width / 2;
+    workspaceOrder = workspaceOrder.filter((id) => id !== draggedTab);
+    const targetIndex = workspaceOrder.indexOf(target.dataset.tabDrag);
+    workspaceOrder.splice(Math.max(0, targetIndex + (after ? 1 : 0)), 0, draggedTab);
+    stageTabs = orderedStageTabs();
+    saveStageTabs();
+    saveWorkspaceLayout();
+    draggedTab = null;
+    renderStageTabs();
+  });
+  stageTabList?.addEventListener("dragend", () => {
+    clearTabDropState();
+    stageTabList.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+    draggedTab = null;
+  });
+
+  // Edges resize in continuous percentages. The justified flow immediately
+  // gives the released space to neighbours, keeping the desk fully tiled.
   let resizeState = null;
   workspaceBoard?.addEventListener("pointerdown", (e) => {
     const edge = e.target.closest("[data-module-resize]");
@@ -3616,39 +3904,46 @@
     edge.focus({ preventScroll: true });
     const id = edge.dataset.moduleResize;
     const size = WorkspaceLayout.clampSize(id, workspaceSizes[id]);
-    const rows = Math.max(1, Number(workspaceBoard.style.getPropertyValue("--workspace-rows")) || 1);
     resizeState = {
       id, axis: edge.dataset.resizeAxis, startX: e.clientX, startY: e.clientY, size,
-      colPx: Math.max(1, (workspaceBoard.clientWidth - 26) / 12),
-      rowPx: Math.max(1, (workspaceBoard.scrollHeight - 2 * (rows - 1) - 4) / rows),
+      boardWidth: Math.max(1, workspaceBoard.clientWidth - 16),
+      boardHeight: Math.max(1, workspaceBoard.clientHeight - 16),
     };
+    workspaceBoard.classList.add("is-resizing");
     edge.closest("[data-workspace-module]")?.classList.add("is-resizing");
     edge.setPointerCapture?.(e.pointerId);
   });
   document.addEventListener("pointermove", (e) => {
     if (!resizeState || !WorkspaceLayout) return;
     const next = { ...resizeState.size };
-    if (resizeState.axis === "x") next.cols += Math.round((e.clientX - resizeState.startX) / resizeState.colPx);
-    else next.rows += Math.round((e.clientY - resizeState.startY) / resizeState.rowPx);
+    if (resizeState.axis === "x" || resizeState.axis === "both") {
+      next.width += (e.clientX - resizeState.startX) / resizeState.boardWidth * 100;
+    }
+    if (resizeState.axis === "y" || resizeState.axis === "both") {
+      next.height += (e.clientY - resizeState.startY) / resizeState.boardHeight * 100;
+    }
     workspaceSizes[resizeState.id] = WorkspaceLayout.clampSize(resizeState.id, next);
     applyWorkspaceLayout();
   });
   document.addEventListener("pointerup", () => {
     if (!resizeState) return;
     workspaceBoard?.querySelector(`[data-workspace-module="${resizeState.id}"]`)?.classList.remove("is-resizing");
+    workspaceBoard?.classList.remove("is-resizing");
     resizeState = null;
     saveWorkspaceLayout();
   });
   workspaceBoard?.addEventListener("keydown", (e) => {
     const edge = e.target.closest("[data-module-resize]");
     if (!edge || !WorkspaceLayout || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
-    const horizontal = edge.dataset.resizeAxis === "x";
-    if ((horizontal && !["ArrowLeft", "ArrowRight"].includes(e.key)) || (!horizontal && !["ArrowUp", "ArrowDown"].includes(e.key))) return;
+    const axis = edge.dataset.resizeAxis;
+    const horizontalKey = ["ArrowLeft", "ArrowRight"].includes(e.key);
+    if ((horizontalKey && axis === "y") || (!horizontalKey && axis === "x")) return;
     e.preventDefault();
     const id = edge.dataset.moduleResize;
     const size = WorkspaceLayout.clampSize(id, workspaceSizes[id]);
-    if (horizontal) size.cols += e.key === "ArrowRight" ? 1 : -1;
-    else size.rows += e.key === "ArrowDown" ? 1 : -1;
+    const step = e.shiftKey ? 5 : 2;
+    if (horizontalKey) size.width += e.key === "ArrowRight" ? step : -step;
+    else size.height += e.key === "ArrowDown" ? step : -step;
     workspaceSizes[id] = WorkspaceLayout.clampSize(id, size);
     saveWorkspaceLayout();
     applyWorkspaceLayout();
@@ -3713,7 +4008,7 @@
     if (sl.logline) html += `<p class="outline-logline">${escapeHTML(sl.logline)}</p>`;
     let no = 0;
     for (const sc of scenes) {
-      if (sc.title) html += `<div class="outline-scene">${escapeHTML(sc.title)}</div>`;
+      if (sc.title) html += `<div class="outline-scene" data-scene-id="${escapeHTML(sc.id)}">${escapeHTML(sc.title)}</div>`;
       for (const shot of (sc.shots || [])) {
         no += 1;
         const st = SHOT_STATUS[shot.status] || SHOT_STATUS.draft;
@@ -3724,7 +4019,7 @@
           shot.mood || "",
         ].filter(Boolean).join(" · ");
         html += `
-          <div class="outline-row">
+          <div class="outline-row" data-shot-id="${escapeHTML(shot.id)}">
             <span class="outline-no ${st[1]}" title="${st[0]}">${no}</span>
             <span class="outline-main">
               <span class="outline-beat">${escapeHTML(shot.description || "(未命名镜头)")}</span>
@@ -3770,23 +4065,47 @@
     }).join("");
   }
 
-  // ── session history panel ─────────────────────────────────────────────
-  async function renderHistoryPanel(body) {
+  // ── session history drawer (right-side hamburger) ─────────────────────
+  let historyDrawerOpen = false;
+  function toggleHistoryDrawer(force) {
+    const open = force ?? !historyDrawerOpen;
+    if (open === historyDrawerOpen) return;
+    historyDrawerOpen = open;
+    els.historyToggleBtn.setAttribute("aria-expanded", String(open));
+    if (open) {
+      els.historyDrawer.hidden = false;
+      els.historyDrawer.classList.remove("closing");
+      renderHistoryDrawer();
+    } else {
+      els.historyDrawer.classList.add("closing");
+      els.historyDrawer.addEventListener("animationend", () => {
+        if (!historyDrawerOpen) {
+          els.historyDrawer.hidden = true;
+          els.historyDrawer.classList.remove("closing");
+        }
+      }, { once: true });
+    }
+  }
+  els.historyToggleBtn.addEventListener("click", () => toggleHistoryDrawer());
+
+  async function renderHistoryDrawer() {
+    const body = els.historyDrawerBody;
     if (!body) return;
+    body.innerHTML = `<p class="placeholder">加载中…</p>`;
     let sessions = null;
     try {
       const r = await fetch("/session-history/list?limit=50");
       if (r.ok) sessions = (await r.json()).sessions;
     } catch {}
-    if (!body.isConnected || !stageTabs.includes("history")) return;
+    if (!historyDrawerOpen) return;
     if (!Array.isArray(sessions)) { body.innerHTML = `<p class="placeholder">读取失败</p>`; return; }
     if (!sessions.length) { body.innerHTML = `<p class="placeholder">暂无历史会话</p>`; return; }
     body.innerHTML = sessions.map((s) => {
-      const title = s.title || "Gemia Session";
+      const title = s.title || "Lumeri Session";
       const time = s.updated_at ? fmtAgo(new Date(s.updated_at).getTime() / 1000) : "";
       const msgs = s.message_count || 0;
       return `
-        <button type="button" class="task-row history-row" data-snapshot-id="${escapeHTML(s.id)}">
+        <button type="button" class="history-row" data-snapshot-id="${escapeHTML(s.id)}">
           <span class="task-main">
             <span class="task-name">${escapeHTML(title)}</span>
             <span class="task-sub">${msgs} 条消息${time ? " · " + time : ""}</span>
@@ -3799,6 +4118,7 @@
         const id = btn.dataset.snapshotId;
         if (!id) return;
         loadHistorySession(id);
+        toggleHistoryDrawer(false);
       });
     });
   }

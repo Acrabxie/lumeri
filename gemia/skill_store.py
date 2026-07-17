@@ -26,6 +26,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -34,6 +35,8 @@ from pathlib import Path
 from typing import Any
 
 from gemia import lus as _lus
+
+_LOG = logging.getLogger(__name__)
 
 
 def distilled_skills_dir() -> Path:
@@ -435,6 +438,12 @@ class DistilledSkillStore:
             try:
                 meta, body, warnings = _lus.validate_lus(
                     p.read_text(encoding="utf-8"), filename=p.name)
+            except _lus.LusValidationError as exc:
+                # Quarantine, never silently (charter §14): the skill stays
+                # on disk but is excluded from recall until fixed.
+                _LOG.warning("skill %s quarantined from recall: %s: %s",
+                             p.name, exc.code, exc.message)
+                continue
             except Exception:
                 continue
             skills.append(_lus_record(meta, body, warnings, p))
@@ -464,6 +473,18 @@ class DistilledSkillStore:
             legacy_name = str(data.get("name") or "")
             if legacy_name in exclude_titles or _lus.derive_name(legacy_name) in exclude_machine:
                 continue  # D9: same name in both formats → .lus wins
+            # Charter §14 S1 applies to the legacy dual-read path too: a
+            # craft-recipe JSON must not reach the model via recall.
+            legacy_text = "\n".join(
+                str(v) for v in (data.get("when_to_use"), data.get("notes"),
+                                 *(data.get("steps") or [])) if v)
+            leak = _lus.find_craft_leak(legacy_text)
+            if leak is not None:
+                _LOG.warning(
+                    "legacy skill %s quarantined from recall: raw %s craft "
+                    "numbers (closed by `%s`, charter §14)",
+                    p.name, leak[0], leak[1])
+                continue
             data.setdefault("source", "distilled")
             data["file"] = str(p)
             out.append(data)
@@ -657,6 +678,10 @@ def _materialize_recall_view(skill: dict[str, Any]) -> dict[str, Any] | None:
     try:
         meta, body, warnings = _lus.validate_lus(
             path.read_text(encoding="utf-8"), filename=path.name)
+    except _lus.LusValidationError as exc:
+        _LOG.warning("skill %s quarantined from recall: %s: %s",
+                     path.name, exc.code, exc.message)
+        return None
     except Exception:
         return None
     return _recall_view(_lus_record(meta, body, warnings, path))

@@ -372,6 +372,17 @@ def test_v3_frontend_persists_last_event_id_and_handles_replay_gap() -> None:
     assert "scheduleReconnect" in source
 
 
+def test_v3_frontend_recovers_an_expired_session_before_retrying_upload() -> None:
+    """A runtime reload must not leave an open browser tab unable to upload."""
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert "async function uploadFile(file, retryExpiredSession = true)" in source
+    assert "r.status === 404 && retryExpiredSession" in source
+    assert "await autoSaveSession();" in source
+    assert "await createSession();" in source
+    assert "return uploadFile(file, false);" in source
+
+
 def test_v3_frontend_uses_only_model_authored_activity_copy() -> None:
     """The activity UI must not infer user copy from a tool name or payload."""
     source = Path("static/v3/v3.js").read_text(encoding="utf-8")

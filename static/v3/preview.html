@@ -4,7 +4,7 @@
 
   Additive companion to the v3 web UI (does NOT touch v3.html/v3.js/v3.css).
   Opened by the `lumeri` terminal client as:
-      /v3/preview.html?session=<session_id>
+      /video/preview.html?session=<session_id>
   It ATTACHES to the session the CLI already created (it never creates one) and
   renders a read-only preview: the latest produced asset on a cinema stage, a
   filmstrip of all assets, and live turn activity. There is no chat input — the
@@ -317,7 +317,7 @@
   }
   function runningActivity() {
     const activityText = state.running.values().next().value;
-    return activityText || "正在准备下一步";
+    return activityText || "正在执行";
   }
   function setActivity(on, verb, msg, percent) {
     const a = $("activity");
@@ -349,22 +349,22 @@
     },
     model_text_delta: () => {},
     model_tool_call_start: (ev) => {
-      state.running.set(ev.call_id, "正在准备下一步");
-      setActivity(true, "正在准备下一步", "", null);
+      state.running.set(ev.call_id, "正在执行");
+      setActivity(true, "正在执行", "", null);
     },
     model_tool_call_ready: (ev) => {
       if (!state.running.has(ev.call_id)) return;
-      const activityText = safeActivityText(ev.activity_text) || "正在准备下一步";
+      const activityText = safeActivityText(ev.activity_text) || "正在执行";
       state.running.set(ev.call_id, activityText);
       setActivity(true, activityText, "", null);
     },
     tool_exec_start: (ev) => {
       if (ev.agent_id) return;
-      setActivity(true, state.running.get(ev.call_id) || "正在准备下一步", "", null);
+      setActivity(true, state.running.get(ev.call_id) || "正在执行", "", null);
     },
     tool_exec_progress: (ev) => {
       if (ev.agent_id) return;
-      setActivity(true, state.running.get(ev.call_id) || "正在准备下一步", "", typeof ev.percent === "number" ? ev.percent : null);
+      setActivity(true, state.running.get(ev.call_id) || "正在执行", "", typeof ev.percent === "number" ? ev.percent : null);
     },
     tool_exec_result: (ev) => {
       if (ev.agent_id) return;
@@ -376,7 +376,7 @@
     tool_exec_error: (ev) => {
       if (ev.agent_id) return;
       state.running.delete(ev.call_id);
-      toast("有一步暂未完成", "err");
+      toast("未能完成", "err");
       setActivity(state.running.size > 0, runningActivity(), "", null);
     },
     budget_gate: (ev) => {

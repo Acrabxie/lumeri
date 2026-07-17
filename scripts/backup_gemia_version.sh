@@ -5,9 +5,9 @@ repo_root="${GEMIA_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 if [[ -n "${GEMIA_BACKUP_ROOT:-}" ]]; then
   backup_root="$GEMIA_BACKUP_ROOT"
 elif [[ -d "/Volumes/Extreme SSD" ]]; then
-  backup_root="/Volumes/Extreme SSD/GemiaBackups"
+  backup_root="/Volumes/Extreme SSD/LumeriBackups"
 else
-  backup_root="/Volumes/ExtremeSSD/GemiaBackups"
+  backup_root="/Volumes/ExtremeSSD/LumeriBackups"
 fi
 label="manual"
 

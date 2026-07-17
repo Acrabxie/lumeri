@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lumeri-v3",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["server.py"],
+      "port": 7790,
+      "autoPort": false,
+      "env": {
+        "LUMERI_PORT": "7790"
+      }
+    }
+  ]
+}

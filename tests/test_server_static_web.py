@@ -9,23 +9,34 @@ def make_request(method, path, headers=None, body=None):
     return response["status"], response["headers"].get("cache-control", ""), response["body"]
 
 
-def test_root_serves_v3_frontend() -> None:
-    """The default page is the Lumeri v3 frontend (tauri UI was retired 2026-07-06)."""
+def test_root_is_intentionally_blank() -> None:
+    """Root is reserved for the future Lumeri family portal; Video lives at /video."""
     response = run_server_handler(server._Handler, create_raw_request("GET", "/"))
 
     assert response["status"] == 200
     html = response["body"].decode("utf-8")
-    assert "/v3/v3.js" in html
-    assert "/v3/v3.css" in html
+    assert "v3.js" not in html
+    assert "<body></body>" in html
 
 
-def test_root_and_v3_serve_same_index() -> None:
-    root = run_server_handler(server._Handler, create_raw_request("GET", "/"))
-    v3 = run_server_handler(server._Handler, create_raw_request("GET", "/v3/"))
+def test_video_serves_frontend() -> None:
+    """The Lumeri Video UI (static/v3/ on disk) is served under /video."""
+    video = run_server_handler(server._Handler, create_raw_request("GET", "/video/"))
 
-    assert root["status"] == 200
-    assert v3["status"] == 200
-    assert root["body"] == v3["body"]
+    assert video["status"] == 200
+    html = video["body"].decode("utf-8")
+    assert "/video/v3.js" in html
+    assert "/video/v3.css" in html
+
+
+def test_legacy_v3_redirects_to_video() -> None:
+    index = run_server_handler(server._Handler, create_raw_request("GET", "/v3/"))
+    assert index["status"] == 301
+    assert index["headers"].get("location") == "/video"
+
+    asset = run_server_handler(server._Handler, create_raw_request("GET", "/v3/v3.js"))
+    assert asset["status"] == 301
+    assert asset["headers"].get("location") == "/video/v3.js"
 
 
 def test_retired_tauri_routes_are_gone() -> None:
@@ -74,8 +85,8 @@ def test_favicon_request_is_not_a_browser_console_404() -> None:
     assert raw == b""
 
 
-def test_v3_asset_responses_close_connections() -> None:
-    response = run_server_handler(server._Handler, create_raw_request("GET", "/v3/v3.js"))
+def test_video_asset_responses_close_connections() -> None:
+    response = run_server_handler(server._Handler, create_raw_request("GET", "/video/v3.js"))
 
     assert response["status"] == 200
     assert response["headers"].get("connection") == "close"

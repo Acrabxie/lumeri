@@ -47,7 +47,7 @@ CONTROL_TOOLS = frozenset({"elicit"})
 TOOL_PACKS: dict[str, frozenset[str]] = {
     "general": frozenset({
         "probe_media", "analyze_media", "extract_frame", "search_library",
-        "copy_in", "file_list",
+        "copy_in", "list_dir",
     }),
     "media_inspect": frozenset({
         "probe_media", "analyze_media", "extract_frame", "get_safe_areas",
@@ -91,34 +91,28 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "edit_grammar", "rhythm_edit",
     }),
     "lumen_core": frozenset({
-        "get_lumenframe", "lumen_patch", "lumen_add_layer",
-        "lumen_set_transform", "lumen_set_opacity", "lumen_delete_layer",
-        "lumen_move_layer", "lumen_set_visibility", "lumen_select",
+        "get_lumenframe", "lumen_patch",
         "lumen_render", "lumen_seek", "lumen_render_range",
         "vector_motion", "camera",
     }),
     "lumen_time": frozenset({
-        "get_lumenframe", "lumen_set_range", "lumen_set_lane",
-        "lumen_retime_segment", "lumen_reverse", "lumen_time_remap",
-        "lumen_speed_ramp", "lumen_ripple_delete",
-        "lumen_merge_compositions", "lumen_set_work_area", "lumen_render",
-        "lumen_render_range",
+        "get_lumenframe", "lumen_patch",
+        "lumen_render", "lumen_render_range",
     }),
     "lumen_mask": frozenset({
-        "get_lumenframe", "lumen_set_mask", "lumen_key", "lumen_render",
+        "get_lumenframe", "lumen_patch", "lumen_render",
         "lumen_seek", "lumen_render_range",
     }),
     "motion_graphics": frozenset({
-        "build", "run_shell", "copy_in", "file_list", "file_read",
-        "file_write", "check_job", "wait_for_job", "probe_media",
+        "build", "run_shell", "copy_in", "list_dir", "read_file",
+        "write_file", "check_job", "wait_for_job", "probe_media",
         "analyze_media", "extract_frame", "search_library", "search_media",
         "search_frames", "get_lumenframe", "lumen_patch",
-        "lumen_add_layer", "lumen_set_transform", "lumen_render", "lumen_seek",
+        "lumen_render", "lumen_seek",
         "vector_motion", "kinetic_type",
     }),
     "files": frozenset({
-        "file_list", "file_read", "file_write", "file_copy", "file_move",
-        "file_delete", "read_file", "write_file", "copy_in", "list_dir",
+        "read_file", "write_file", "copy_in", "list_dir",
         "move_file", "organize_files",
     }),
     "web": frozenset({"web_search", "web_open", "fetch"}),

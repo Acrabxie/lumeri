@@ -197,7 +197,7 @@ class SmokeError(RuntimeError):
 
 
 def _default_workdir(repo_root: Path) -> Path:
-    external = Path("/Volumes/Extreme SSD/GemiaTemp")
+    external = Path("/Volumes/Extreme SSD/LumeriTemp")
     base = external if external.exists() else repo_root / "temp"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return base / "lumeri-runtime-kernel-smoke" / stamp

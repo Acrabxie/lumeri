@@ -13,39 +13,65 @@ def run_node(expression: str):
     return json.loads(completed.stdout)
 
 
-def test_default_layout_is_deterministic_and_non_overlapping() -> None:
-    expression = "(() => { const items=['preview','outline','tasks','timeline'].map(id=>({id,...L.DEFAULT_SIZES[id]})); const a=L.packModules(items); const b=L.packModules(items); return {a,b,overlap:L.hasOverlap(a.placements)}; })()"
+def test_default_layout_is_deterministic_filled_and_non_overlapping() -> None:
+    expression = """(() => {
+      const ids=['preview','outline','tasks','timeline'];
+      const items=ids.map(id=>({id,...L.DEFAULT_SIZES[id]}));
+      const a=L.flowModules(items,{width:1200,height:760,gap:8});
+      const b=L.flowModules(items,{width:1200,height:760,gap:8});
+      const rowChecks=a.rows.map(row=>{
+        const p=row.ids.map(id=>a.placements[id]);
+        return {
+          left:p[0].x,
+          right:p[p.length-1].x+p[p.length-1].width,
+          aligned:p.every(x=>x.y===p[0].y&&x.height===p[0].height),
+        };
+      });
+      const last=a.rows[a.rows.length-1];
+      return {same:JSON.stringify(a)===JSON.stringify(b),overlap:L.hasOverlap(a.placements),rowChecks,bottom:last.y+last.height,rows:a.rows.map(r=>r.ids)};
+    })()"""
     result = run_node(expression)
 
-    assert result["a"] == result["b"]
-    assert result["overlap"] is False
-    assert result["a"]["placements"] == {
-        "preview": {"col": 1, "row": 1, "cols": 8, "rows": 6},
-        "outline": {"col": 9, "row": 1, "cols": 4, "rows": 3},
-        "tasks": {"col": 9, "row": 4, "cols": 4, "rows": 3},
-        "timeline": {"col": 1, "row": 7, "cols": 12, "rows": 4},
+    assert result == {
+        "same": True,
+        "overlap": False,
+        "rowChecks": [
+            {"left": 0, "right": 1200, "aligned": True},
+            {"left": 0, "right": 1200, "aligned": True},
+        ],
+        "bottom": 760,
+        "rows": [["preview", "outline", "tasks"], ["timeline"]],
     }
 
 
-def test_many_drag_orders_and_sizes_never_overlap() -> None:
+def test_many_orders_and_continuous_sizes_fill_every_row_without_overlap() -> None:
     expression = """(() => {
       let seed=117; const ids=['preview','outline','tasks','timeline','files','history'];
       const rnd=()=>((seed=(seed*48271)%2147483647)/2147483647);
-      for(let n=0;n<300;n++) {
+      for(let n=0;n<500;n++) {
         const order=[...ids].sort(()=>rnd()-.5);
-        const items=order.map(id=>({id,cols:1+Math.floor(rnd()*15),rows:1+Math.floor(rnd()*12)}));
-        const packed=L.packModules(items);
-        if(L.hasOverlap(packed.placements)) return {ok:false,n,packed};
+        const items=order.map(id=>({id,width:8+rnd()*104,height:8+rnd()*104}));
+        const width=420+rnd()*1380, height=360+rnd()*740, gap=rnd()*14;
+        const flow=L.flowModules(items,{width,height,gap});
+        if(L.hasOverlap(flow.placements)) return {ok:false,reason:'overlap',n};
+        for(const row of flow.rows) {
+          const p=row.ids.map(id=>flow.placements[id]);
+          if(Math.abs(p[0].x)>0.01 || Math.abs(p[p.length-1].x+p[p.length-1].width-width)>0.01)
+            return {ok:false,reason:'horizontal-gap',n,row};
+        }
+        const last=flow.rows[flow.rows.length-1];
+        if(Math.abs(last.y+last.height-height)>0.01) return {ok:false,reason:'vertical-gap',n};
       }
       return {ok:true};
     })()"""
     assert run_node(expression) == {"ok": True}
 
 
-def test_sizes_are_clamped_to_module_limits() -> None:
-    result = run_node("({preview:L.clampSize('preview',{cols:1,rows:99}),timeline:L.clampSize('timeline',{cols:99,rows:1}),panel:L.clampSize('files',{cols:1,rows:99})})")
+def test_sizes_are_continuous_clamped_and_legacy_grid_values_migrate() -> None:
+    result = run_node("({preview:L.clampSize('preview',{width:12.375,height:120}),timeline:L.clampSize('timeline',{width:120,height:4}),panel:L.clampSize('files',{width:4,height:120}),legacy:L.clampSize('outline',{cols:4,rows:3})})")
     assert result == {
-        "preview": {"cols": 4, "rows": 10},
-        "timeline": {"cols": 12, "rows": 2},
-        "panel": {"cols": 3, "rows": 8},
+        "preview": {"width": 30, "height": 100},
+        "timeline": {"width": 100, "height": 18},
+        "panel": {"width": 16, "height": 100},
+        "legacy": {"width": 33.333, "height": 30},
     }

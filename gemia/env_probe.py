@@ -179,12 +179,13 @@ def probe_environment() -> dict[str, Any]:
         except Exception:
             packages[probe_key] = None
 
+    from gemia.compat import ffmpeg_path, ffprobe_path
     try:
-        ffmpeg_version = _tool_version("ffmpeg")
+        ffmpeg_version = _tool_version(ffmpeg_path())
     except Exception:
         ffmpeg_version = None
     try:
-        ffprobe_present = shutil.which("ffprobe") is not None
+        ffprobe_present = Path(ffprobe_path()).is_file() or shutil.which(ffprobe_path()) is not None
     except Exception:
         ffprobe_present = False
 

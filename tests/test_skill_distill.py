@@ -298,6 +298,84 @@ def test_save_skill_with_secret_fails_typed_and_writes_nothing(
     assert _real_files(store_dir, "*.json") == []
 
 
+def test_save_skill_with_craft_numbers_fails_typed_and_writes_nothing(
+        store_dir: Path, ctx: ToolContext) -> None:
+    """Charter §14 S1: a skill may not smuggle library-closed craft as raw
+    numbers past the taste floor (the skills_v2/电影调色.json failure mode)."""
+    from gemia.lus import LusValidationError
+    from gemia.tools import save_skill
+
+    with pytest.raises(LusValidationError) as excinfo:
+        _run(save_skill.dispatch_save_skill(
+            {
+                "name": "Cinematic grade",
+                "when_to_use": "when the user wants a film look",
+                "steps": ["call color_grade with shadows=[0.02, 0.0, -0.02] "
+                          "and highlights=[-0.02, 0.0, 0.02]"],
+            },
+            ctx,
+        ))
+    assert excinfo.value.code == "E_LUS_CRAFT_NUMBERS"
+    assert "grade" in excinfo.value.message
+    assert _real_lus(store_dir) == [], "nothing may be written on rejection"
+    assert _real_files(store_dir, "*.json") == []
+
+
+def test_craft_lus_on_disk_is_quarantined_with_signal(
+        store_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Charter §14: a pre-existing .lus that carries closed-domain craft is
+    excluded from recall — but never silently (a warning names the file)."""
+    from gemia.skill_store import DistilledSkillStore
+
+    store_dir.mkdir(parents=True, exist_ok=True)
+    (store_dir / "old-grade-recipe.lus").write_text(
+        "#!lus/1\n---\n"
+        'name: "old-grade-recipe"\nversion: "1.0.0"\nlus_version: 1\n'
+        'title: "旧调色配方"\n'
+        'description: "When the user wants the old film look, run the steps."\n'
+        'triggers: ["film look"]\ndomain: "general"\ntools_used: []\n'
+        'parameters: {"type": "object", "properties": {}}\n'
+        'author: "lumeri-agent"\n'
+        'created_at: "2026-07-01T08:00:00+00:00"\n'
+        'updated_at: "2026-07-01T08:00:00+00:00"\n'
+        'language: "zh"\n'
+        'safety: {"requires_paid_generation": false, "mutates_project": false}\n'
+        "---\n"
+        "\n## When to use\n想要电影感时。\n"
+        "\n## Steps\n1. call color_grade with shadows=[0.02, 0.0, -0.02]\n",
+        encoding="utf-8")
+
+    with caplog.at_level("WARNING", logger="gemia.skill_store"):
+        skills = DistilledSkillStore().list_distilled()
+    assert [s for s in skills if s.get("name") == "old-grade-recipe"] == []
+    assert any("quarantined" in r.message and "old-grade-recipe.lus" in r.message
+               for r in caplog.records), "quarantine must leave a visible signal"
+
+
+def test_craft_legacy_json_is_quarantined_with_signal(
+        store_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The legacy dual-read path must not smuggle craft past the guard
+    (charter §14 S1 applies to both formats)."""
+    from gemia.skill_store import DistilledSkillStore
+
+    store_dir.mkdir(parents=True, exist_ok=True)
+    (store_dir / "legacy_grade.json").write_text(json.dumps({
+        "name": "legacy 电影调色",
+        "source": "distilled",
+        "when_to_use": "film look",
+        "steps": ["call color_grade with shadows=[0.02, 0.0, -0.02]"],
+        "notes": "", "tags": [],
+        "created_at": "2026-04-05T00:00:00+00:00",
+        "updated_at": "2026-04-05T00:00:00+00:00",
+    }, ensure_ascii=False), encoding="utf-8")
+
+    with caplog.at_level("WARNING", logger="gemia.skill_store"):
+        skills = DistilledSkillStore().list_distilled()
+    assert [s for s in skills if "电影调色" in str(s.get("name"))] == []
+    assert any("quarantined" in r.message and "legacy_grade.json" in r.message
+               for r in caplog.records)
+
+
 def test_save_skill_with_absolute_path_fails_typed(store_dir: Path, ctx: ToolContext) -> None:
     from gemia.lus import LusValidationError
     from gemia.tools import save_skill

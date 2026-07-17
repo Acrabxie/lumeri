@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .compat import ffmpeg_path, ffprobe_path
 from .project_model import normalize_project
 from .project_store import ProjectStore
 
@@ -158,7 +159,7 @@ def ffprobe_media(path: str | Path) -> dict[str, Any]:
     media_path = Path(path)
     proc = subprocess.run(
         [
-            "ffprobe",
+            ffprobe_path(),
             "-v",
             "error",
             "-print_format",
@@ -280,7 +281,7 @@ def _render_video_segment(
     
     # For image sources, use -loop 1 to hold the frame
     cmd = [
-        "ffmpeg",
+        ffmpeg_path(),
         "-y",
         "-hide_banner",
         "-loglevel",
@@ -336,7 +337,7 @@ def _render_black_segment(
     timeout_sec: int,
 ) -> None:
     cmd = [
-        "ffmpeg",
+        ffmpeg_path(),
         "-y",
         "-hide_banner",
         "-loglevel",
@@ -367,7 +368,7 @@ def _concat_segments(segments: list[Path], output: Path, *, timeout_sec: int) ->
         encoding="utf-8",
     )
     cmd = [
-        "ffmpeg",
+        ffmpeg_path(),
         "-y",
         "-hide_banner",
         "-loglevel",

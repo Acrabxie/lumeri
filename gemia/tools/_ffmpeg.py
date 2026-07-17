@@ -37,6 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from gemia.compat import ffmpeg_path, ffprobe_path
 from gemia.tools._context import ProgressCallback, ProgressUpdate
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 def ffprobe_metadata(path: Path) -> dict[str, Any]:
     """Return parsed ffprobe JSON for the given media file."""
     cmd = [
-        "ffprobe", "-v", "error",
+        ffprobe_path(), "-v", "error",
         "-print_format", "json",
         "-show_format", "-show_streams",
         str(path),
@@ -193,7 +194,7 @@ def detect_supported_encoders() -> frozenset[str]:
     """
     try:
         proc = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
+            [ffmpeg_path(), "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=15,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -346,8 +347,11 @@ async def _run_ffmpeg_once(
     """Run ``ffmpeg`` once, forwarding real progress. Raises RuntimeError on
     non-zero exit with the stderr tail in the message."""
     full = list(cmd)
-    if full[0] != "ffmpeg":
-        raise ValueError("cmd[0] must be 'ffmpeg'")
+    # Accept both bare "ffmpeg" and a resolved absolute path to the binary.
+    if not (full[0] == "ffmpeg" or Path(full[0]).stem == "ffmpeg"):
+        raise ValueError("cmd[0] must be 'ffmpeg' or a path to ffmpeg")
+    if full[0] == "ffmpeg":
+        full[0] = ffmpeg_path()
     if "-loglevel" not in full:
         full[1:1] = ["-loglevel", "error"]
     if "-progress" not in full:

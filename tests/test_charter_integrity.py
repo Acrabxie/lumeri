@@ -50,3 +50,59 @@ def test_charter_referenced_tests_exist() -> None:
         "the charter marks these test files 【已存在】 but they do not exist — "
         f"fix the charter (mark 【待落地】) or create them: {liars}"
     )
+
+
+# ── skill/library boundary (charter §14) ─────────────────────────────────
+
+_LUS_SPEC = _REPO / "docs" / "lus-skill-format.md"
+
+
+def test_skill_boundary_docs_cross_reference() -> None:
+    """Charter §14 arbitrates the two rulebooks' worldviews; each must cite
+    the other, and the three boundary rules must exist as section anchors —
+    deleting or renaming the section body (not just the header mention)
+    turns this red."""
+    charter = _CHARTER.read_text(encoding="utf-8")
+    spec = _LUS_SPEC.read_text(encoding="utf-8")
+    assert "## §14 技能层" in charter, "charter §14 (skill boundary) section missing"
+    for anchor in ("S1 · 品味归库", "S2 · 流程归技能", "S3 · 技能引用库的创作语言",
+                   "§14.3 手艺信号"):
+        assert anchor in charter, f"charter §14 anchor missing: {anchor}"
+    assert "lus-skill-format.md" in charter, "charter must cite the .lus spec"
+    assert "point-library-charter.md" in spec, "the .lus spec must cite the charter"
+    assert "E_LUS_CRAFT_NUMBERS" in charter, "charter §14 must name its guard code"
+    assert "E_LUS_CRAFT_NUMBERS" in spec, "spec addendum must document the guard code"
+
+
+def test_craft_guard_registry_matches_installed_tools() -> None:
+    """Build==install (P11) applied to the guard itself: a domain may be
+    listed as closed only while the library's tool verb is actually live,
+    and every installed creative verb must be either guarded or on the
+    bounded pending list — no silent gaps in either direction (§14.1)."""
+    from gemia.lus import CRAFT_CLOSED_DOMAINS, CRAFT_GUARD_PENDING_VERBS
+    from gemia.tools._schema import TOOL_NAMES
+
+    closed = {verb for _domain, verb, _patterns in CRAFT_CLOSED_DOMAINS}
+    for domain, verb, patterns in CRAFT_CLOSED_DOMAINS:
+        assert verb in TOOL_NAMES, (
+            f"CRAFT_CLOSED_DOMAINS claims {domain!r} is closed by {verb!r}, "
+            "but that tool verb is not installed — remove the domain or "
+            "install the library (charter §14/P11)"
+        )
+        assert patterns, f"domain {domain!r} lists no guard patterns"
+
+    # Reference set = the charter's installed creative point-library verbs.
+    # A new creative verb must be added here AND either guarded or explicitly
+    # pending in the same PR (charter §14.1 扩表义务).
+    reference = {"grade", "vector_motion",
+                 "kinetic_type", "camera", "compose", "edit_grammar",
+                 "rhythm_edit"}
+    assert reference <= set(TOOL_NAMES), "reference creative verbs must be installed"
+    assert closed | CRAFT_GUARD_PENDING_VERBS == reference, (
+        "installed creative verbs must be exactly partitioned into "
+        f"guarded ∪ pending; got closed={sorted(closed)}, "
+        f"pending={sorted(CRAFT_GUARD_PENDING_VERBS)}"
+    )
+    assert not (closed & CRAFT_GUARD_PENDING_VERBS), (
+        "a verb cannot be both guarded and pending"
+    )

@@ -4,13 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lumeri Video</title>
-<link rel="icon" type="image/svg+xml" href="/v3/lumeri-favicon.svg" />
-<link rel="stylesheet" href="/v3/v3.css" />
+<link rel="icon" type="image/svg+xml" href="/video/lumeri-favicon.svg" />
+<link rel="stylesheet" href="/video/v3.css" />
 </head>
 <body>
 <header class="app-header">
   <span class="brand">
-    <img class="brand-logo" src="/v3/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
+    <img class="brand-logo" src="/video/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
     <h1>Lumeri Video</h1>
   </span>
 </header>
@@ -37,13 +37,13 @@
           <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
           <span class="workspace-module-title" id="preview-module-title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2.5"/><path d="M10.4 8.6l3.8 2.4-3.8 2.4z"/></svg>
-            预览
+            <span class="label">预览</span>
           </span>
           <span class="workspace-module-meta">实时画布</span>
         </div>
 
         <div class="empty-state" id="empty-state">
-          <img class="empty-mark" src="/v3/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
+          <img class="empty-mark" src="/video/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
           <h2 class="empty-title">开始创作</h2>
           <p class="empty-sub">在右侧描述你想要的视频</p>
         </div>
@@ -53,6 +53,7 @@
         </div>
         <div class="module-resize-edge module-resize-edge-x" data-module-resize="preview" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整预览宽度"></div>
         <div class="module-resize-edge module-resize-edge-y" data-module-resize="preview" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整预览高度"></div>
+        <div class="module-resize-edge module-resize-corner" data-module-resize="preview" data-resize-axis="both" role="separator" tabindex="0" aria-label="同时调整预览宽度和高度"></div>
       </section>
 
       <!-- outline / tasks / files / history are rendered here simultaneously -->
@@ -64,7 +65,7 @@
           <svg class="module-drag-grip" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-grip"/></svg>
           <span class="workspace-module-title" id="timeline-module-title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/></svg>
-            时间线
+            <span class="label">时间线</span>
           </span>
           <span class="workspace-module-meta">轨道编辑</span>
           <button type="button" class="workspace-module-close" data-module-close="timeline" title="隐藏时间线" aria-label="隐藏时间线"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
@@ -72,6 +73,7 @@
         <div class="timeline-module-body"><section id="project-timeline-panel" class="ptl"></section></div>
         <div class="module-resize-edge module-resize-edge-x" data-module-resize="timeline" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整时间线宽度"></div>
         <div class="module-resize-edge module-resize-edge-y" data-module-resize="timeline" data-resize-axis="y" role="separator" tabindex="0" aria-label="调整时间线高度"></div>
+        <div class="module-resize-edge module-resize-corner" data-module-resize="timeline" data-resize-axis="both" role="separator" tabindex="0" aria-label="同时调整时间线宽度和高度"></div>
       </section>
     </div>
   </section>
@@ -85,6 +87,14 @@
       <span class="rail-head-spacer"></span>
       <button type="button" id="new-session-btn" class="rail-btn icon-btn" title="新会话" aria-label="新会话"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-new-chat"/></svg></button>
       <button type="button" id="account-btn" class="account-btn rail-btn icon-btn" title="登录 / 账户" aria-label="登录 / 账户"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg></button>
+      <button type="button" id="history-toggle-btn" class="rail-btn icon-btn" title="会话历史" aria-label="会话历史" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    </div>
+
+    <!-- session history drawer: slides in from the right edge -->
+    <div id="history-drawer" class="history-drawer" hidden>
+      <div class="history-drawer-body" id="history-drawer-body">
+        <p class="placeholder">加载中…</p>
+      </div>
     </div>
 
     <div class="rail-history" id="rail-history">
@@ -152,9 +162,6 @@
         placeholder="描述你想要的视频，或输入 / 唤起命令…"
       ></textarea>
       <div class="composer-actions">
-        <button type="button" id="session-stop-btn" class="session-stop-btn" aria-label="停止当前执行" title="停止当前执行" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-stop"/></svg>
-        </button>
         <button type="button" id="voice-input-btn" class="voice-input-btn" aria-label="语音输入" title="语音输入">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"/></svg>
         </button>
@@ -193,7 +200,7 @@
     <!-- Signed-out view -->
     <div class="auth-view" id="auth-view-signin">
       <div class="auth-brand">
-        <img src="/v3/lumeri-mark.svg" alt="" width="40" height="29" />
+        <img src="/video/lumeri-mark.svg" alt="" width="40" height="29" />
         <h2 id="auth-title">登录 Lumeri Video</h2>
       </div>
 
@@ -244,7 +251,7 @@
   </div>
 </div>
 
-<script src="/v3/workspace-layout.js" defer></script>
-<script src="/v3/v3.js" defer></script>
+<script src="/video/workspace-layout.js" defer></script>
+<script src="/video/v3.js" defer></script>
 </body>
 </html>

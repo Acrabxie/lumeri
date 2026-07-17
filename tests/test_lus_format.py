@@ -5,7 +5,7 @@ Spec: docs/lus-skill-format.md (WP1 test gate, §11). Covers:
 (a) round-trip — ``serialize_lus(*parse_lus(t)) == t`` byte-exactly for BOTH
     §9 reference fixtures, plus a generated matrix (CJK, flow-style YAML
     metadata, JSON-object metadata);
-(b) one red case per typed error code (all 15 ``E_LUS_*``), with ``field``
+(b) one red case per typed error code (all 16 ``E_LUS_*``), with ``field``
     assertions for representative ``E_LUS_META_FIELD`` shapes, plus
     check-order tests;
 (c) all five ``W_LUS_*`` warning codes;
@@ -445,6 +445,101 @@ def test_e_lus_abs_path() -> None:
         expect_error(build_lus(
             body=f"\n## When to use\n{payload}\n\n## Steps\n1. Do.\n"),
             "E_LUS_ABS_PATH")
+
+
+def test_e_lus_craft_numbers_grading_recipes_rejected() -> None:
+    """Charter §14 S1: raw grading craft belongs in the `grade` library."""
+    for payload in (
+        "call color_grade with shadows=[0.02, 0.0, -0.02]",
+        "set highlights: (-0.02, 0.0, 0.02) for the film look",
+        "tone_curve = [0.1, 0.25, 0.8]",
+        "apply lift_gamma_gain: 0.95",
+        "load lut: [0.1, 0.2]",
+        'pass {"shadows": [0.02, 0.0, -0.02]} to the tool',
+        "Set `shadows`: [0.02, 0.0, -0.02] on the clip",       # backtick key
+        "**shadows**: [0.02, 0.0, -0.02]",                      # bold key
+        "push the shadows to [0.02, 0.0, -0.02]",               # prose 'to ['
+        "lift: 0.95, gamma: 1.10, gain: 0.90",                  # split LGG recipe
+        "调色时把阴影 RGB 各 +0.02、高光各 -0.02，即得蓝橙感",     # 中文逐通道配方
+        "设置 高光（-0.02, 0.0, 0.02）",                          # 中文+全角括号
+    ):
+        err = expect_error(build_lus(
+            body=f"\n## When to use\nGrading.\n\n## Steps\n1. {payload}\n"),
+            "E_LUS_CRAFT_NUMBERS")
+        assert "grade" in err.message
+        assert "catalog" in err.message  # points to the vocabulary, not the regex
+
+
+def test_e_lus_craft_numbers_motion_recipes_rejected() -> None:
+    """Charter §14 S1: hand-tuned motion craft belongs in `vector_motion`."""
+    for payload in (
+        "animate with cubic-bezier(0.4, 0.0, 0.2, 1)",
+        "set easing: [0.42, 0, 0.58, 1] per element",
+        "use stagger=0.08 between letters",
+    ):
+        err = expect_error(build_lus(
+            body=f"\n## When to use\nMotion.\n\n## Steps\n1. {payload}\n"),
+            "E_LUS_CRAFT_NUMBERS")
+        assert "vector_motion" in err.message
+
+
+def test_craft_creative_language_and_placement_pass() -> None:
+    """The libraries' own creative language and placement/timing quantities
+    are legal skill content — the guard must not overreach (charter §14)."""
+    body = (
+        "\n## When to use\n"
+        "Cinematic pass over a rough cut.\n"
+        "\n## Steps\n"
+        "1. Call `grade` op create with look teal_orange, warmth: 0.7, lift: 0.3.\n"
+        "2. Call `vector_motion` with energy 0.8, stagger_spread: 0.6, easing: snappy.\n"
+        "3. Place the overlay at x=120, y=-40 and trim the clip to 3s.\n"
+        "4. Duck the music by -12dB while speech plays.\n"
+    )
+    meta, _body, _warnings = validate_lus(build_lus(body=body))  # must not raise
+    assert meta.name == "demo-skill"
+
+
+def test_craft_everyday_editing_prose_passes() -> None:
+    """Adversarial-review false positives, pinned: everyday editing prose,
+    highlight reels, timestamps, UI styling, fade durations, and metadata
+    recall signals must all save fine (charter §14.1 守卫边界)."""
+    for payload in (
+        "Ask the user to pick the highlights: 3 to 5 clips work best.",
+        "Jump to the match highlights: 0:32, 1:15 and 2:40.",
+        "Add soft drop shadows: 0.15 opacity works for thumbnails.",
+        "Fade easing: 0.3s in and out on the music bed.",
+        "Set the crossfade easing: 2s for the outro.",
+        "挑出高光时刻 3 个做成集锦。",
+        "Set adjust_image gamma: 1.1 and saturation: 0.9 for the correction.",
+    ):
+        meta, _body, _warnings = validate_lus(build_lus(
+            body=f"\n## When to use\nEditing.\n\n## Steps\n1. {payload}\n"))
+        assert meta.name == "demo-skill"
+    # metadata carries recall signals, not steps — exempt from the guard
+    meta, _body, _warnings = validate_lus(build_lus(
+        description="Build the week's highlights: 5 clips max, then export."))
+    assert meta.name == "demo-skill"
+
+
+def test_craft_fenced_anti_example_passes() -> None:
+    """A Pitfalls section may QUOTE a craft anti-example inside a code fence
+    ('never write this') — quoting the disease is not having it."""
+    body = (
+        "\n## When to use\nGrading guidance.\n"
+        "\n## Steps\n1. Call `grade` op create with look film.\n"
+        "\n## Pitfalls\nNever hand-roll grading numbers:\n"
+        "```\nshadows=[0.02, 0.0, -0.02]   # BAD — use grade instead\n```\n"
+    )
+    meta, _body, _warnings = validate_lus(build_lus(body=body))
+    assert meta.name == "demo-skill"
+
+
+def test_craft_check_runs_after_abs_path() -> None:
+    """Check order (§6.1): E_LUS_ABS_PATH fires before 14b when both apply."""
+    expect_error(build_lus(
+        body="\n## When to use\nBoth.\n\n## Steps\n"
+             "1. read /Users/alice/x then shadows=[0.02, 0.0, -0.02]\n"),
+        "E_LUS_ABS_PATH")
 
 
 def test_e_lus_checksum_strict_and_stale_nonstrict() -> None:

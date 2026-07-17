@@ -114,7 +114,8 @@ function createServer({ staticRoot }) {
 
     let rel = url.pathname;
     if (rel === '/' || rel === '') rel = '/v3/index.html';
-    if (rel === '/v3' || rel === '/v3/') rel = '/v3/index.html';
+    if (rel === '/video' || rel === '/video/') rel = '/v3/index.html';
+    if (rel.startsWith('/video/')) rel = '/v3/' + rel.slice('/video/'.length);
 
     const safe = path.normalize(rel).replace(/^(\.\.[\/\\])+/, '');
     const filePath = path.join(staticRoot, safe.replace(/^\/+/, ''));

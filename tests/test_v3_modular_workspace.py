@@ -26,16 +26,25 @@ def test_default_modules_are_simultaneous_and_persisted() -> None:
     assert 'if (panelView !==' not in source
 
 
-def test_modular_layout_uses_draggable_non_overlapping_grid() -> None:
+def test_modular_layout_uses_continuous_auto_filling_flow() -> None:
     css = (ROOT / "static/v3/v3.css").read_text(encoding="utf-8")
     source = (ROOT / "static/v3/v3.js").read_text(encoding="utf-8")
 
-    assert 'grid-template-columns: repeat(12, minmax(0, 1fr))' in css
-    assert 'repeat(var(--workspace-rows, 10), minmax(52px, 1fr))' in css
+    assert 'position: relative; display: block' in css
+    assert 'position: absolute; top: 0; left: 0' in css
+    assert 'transition: transform 0.22s' in css
     assert '.module-resize-edge-x' in css
     assert '.module-resize-edge-y' in css
+    assert '.module-resize-corner' in css
     assert '.workspace-side-module.is-focused' in css
-    assert 'WorkspaceLayout.packModules' in source
+    assert 'WorkspaceLayout.flowModules' in source
+    assert 'new ResizeObserver(() => applyWorkspaceLayout())' in source
+    assert 'workspaceBoard.classList.add("is-resizing")' in source
+    assert 'workspaceBoard?.classList.remove("is-resizing")' in source
+    assert 'next.width += (e.clientX - resizeState.startX)' in source
+    assert 'next.height += (e.clientY - resizeState.startY)' in source
+    assert 'Math.round((e.clientX - resizeState.startX)' not in source
     assert 'data-module-drag="${k}"' in source
+    assert 'data-resize-axis="both"' in source
     assert 'lumeri:v3:workspace-order' in source
     assert 'lumeri:v3:workspace-sizes' in source

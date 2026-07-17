@@ -1,8 +1,8 @@
 """Minimal local HTTP server for Gemia MVP.
 
 Endpoints:
-  GET  /                        → Lumeri v3 web UI (static/v3/index.html)
-  GET  /v3/<rel-path>           → Lumeri v3 frontend assets (static/v3/)
+  GET  /                        → intentionally blank (reserved for the Lumeri family portal)
+  GET  /video/<rel-path>        → Lumeri Video web UI (static/v3/ on disk); /v3 → 301 /video
   GET  /sessions, POST /sessions/… → Lumeri v3 session surface (gemia/v3_routes.py)
   GET  /file/<rel-path>         → serve project files from approved media roots
   GET  /config                  → {"has_key": bool}
@@ -664,9 +664,22 @@ class _Handler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = unquote(parsed_url.path).rstrip("/") or "/"
 
-        # Web UI — default page serves the Lumeri v3 frontend (static/v3/).
+        # Root: remote visitors go straight to Video; local stays blank
+        # (reserved for a future Lumeri family portal).
         if path == "/":
-            _file_response(self, _STATIC_DIR / "v3" / "index.html", body=body)
+            if self.headers.get("X-Lumeri-Remote"):
+                self.send_response(302)
+                self.send_header("Location", "/video")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            _html_response(
+                self,
+                200,
+                '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                "<title>Lumeri</title></head><body></body></html>",
+                body=body,
+            )
             return
 
         if path == "/favicon.ico":
@@ -705,15 +718,24 @@ class _Handler(BaseHTTPRequestHandler):
             _file_response(self, target, body=body)
             return
 
-        # Lumeri v3 frontend (vanilla HTML/JS at static/v3/).
-        if path == "/v3" or path == "/v3/" or path.startswith("/v3/"):
-            rel = "index.html" if path in ("/v3", "/v3/") else path[len("/v3/"):]
+        # Lumeri Video frontend (vanilla HTML/JS, on disk at static/v3/).
+        if path == "/video" or path == "/video/" or path.startswith("/video/"):
+            rel = "index.html" if path in ("/video", "/video/") else path[len("/video/"):]
             v3_root = (Path(__file__).resolve().parent / "static" / "v3").resolve()
             target = _safe_child_path(v3_root, rel)
             if target is None:
-                _json_response(self, 404, {"error": "v3 asset not found"})
+                _json_response(self, 404, {"error": "video asset not found"})
                 return
             _file_response(self, target, body=body)
+            return
+
+        # Legacy /v3 URLs — permanently moved to /video (old links keep working).
+        if path == "/v3" or path == "/v3/" or path.startswith("/v3/"):
+            suffix = "" if path in ("/v3", "/v3/") else "/" + path[len("/v3/"):]
+            self.send_response(301)
+            self.send_header("Location", "/video" + suffix)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
             return
 
         # Config status (for first-run key check). Network topology fields

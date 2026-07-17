@@ -70,8 +70,8 @@ async function main() {
   page.on('console', m => consoleLog.push(`[${m.type()}] ${m.text()}`));
   page.on('pageerror', e => consoleLog.push(`[pageerror] ${e.message}`));
 
-  console.log('navigating to', serverUrl + '/v3');
-  await page.goto(serverUrl + '/v3', { waitUntil: 'load' });
+  console.log('navigating to', serverUrl + '/video');
+  await page.goto(serverUrl + '/video', { waitUntil: 'load' });
 
   await page.waitForFunction(() => {
     const lbl = document.querySelector('#session-id-label');

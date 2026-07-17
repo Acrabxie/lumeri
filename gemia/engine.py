@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 
+from gemia.compat import ffmpeg_path
 from gemia.errors import UserInputError
 from gemia.plan_contract import normalize_plan_for_execution
 from gemia.registry import get_info, resolve
@@ -339,7 +340,7 @@ class PlanEngine:
     def _image_to_video_for_concat(self, source: Path, output: Path, *, duration_sec: float = 3.0) -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_path(), "-y",
             "-loop", "1",
             "-t", str(duration_sec),
             "-i", str(source),
