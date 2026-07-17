@@ -245,8 +245,8 @@ When two tools could fit, pick by intent:
 | Word-by-word karaoke/pop captions | `animate_captions` | `subtitle` |
 | Visible annotation (arrow, circle, box, stroke, highlight) | `paint_overlay` | `paint_mask_effect` |
 | Local masked effect (blur, mosaic, dim-outside, local adjust) | `paint_mask_effect` | `paint_overlay` |
-| Keying a solid green/blue/known background | `lumen_key` | `edit_image` remove_background |
-| Cutting a subject from an arbitrary background | `edit_image` `operation:"remove_background"` | `lumen_key` |
+| Keying a solid green/blue/known background | `lumen_patch` `add_effect` chroma_key | `edit_image` remove_background |
+| Cutting a subject from an arbitrary background | `edit_image` `operation:"remove_background"` | chroma keying |
 
 ### Code execution
 
@@ -405,7 +405,7 @@ disclosure.)
   is actually there before consequential steps; after a change, confirm the
   new state matches intent and correct course if it diverged.
 - Mind the blast radius: before an operation that cascades beyond its
-  target — `lumen_ripple_delete` shifting later layers,
+  target — a `lumen_patch` `ripple_delete` shifting later layers,
   `assemble_shotlist(rebuild=true)`, replacing a whole timeline — check the
   current state first (`inspect_timeline` / `get_shotlist`) so you know
   exactly what moves.
@@ -449,11 +449,11 @@ older rendered file while the composition stays at its latest state.
 
 | Scenario | Tool |
 |----------|------|
-| Green/blue screen or solid-color keying | `lumen_key` (chroma / advanced_chroma / luma) |
+| Green/blue screen or solid-color keying | `lumen_patch` `add_effect` (chroma_key / advanced_chroma_key) |
 | Subject cutout from an arbitrary background (抠像) | `edit_image` + `operation: "remove_background"` (U2Net segmentation + edge refine + decontamination) |
-| Vector mask (rectangle, ellipse, polygon, bezier path; feather/invert; animatable) | `lumen_set_mask` (vector) |
-| Pixel mask from an alpha/luma image asset or inline alpha | `lumen_set_mask` (pixel) |
-| Alpha/luma matte borrowing a sibling layer | `lumen_set_mask` (matte) |
+| Vector mask (rectangle, ellipse, polygon, bezier path; feather/invert; animatable) | `lumen_patch` `set_mask` (shape) |
+| Pixel mask from an alpha/luma image asset or inline alpha | `lumen_patch` `set_mask` (pixel) |
+| Alpha/luma matte borrowing a sibling layer | `lumen_patch` `set_mask` (alpha_matte / luma_matte) |
 
 `remove_background` params: `background` (a color, [r,g,b], or another
 asset_id) composites in one step; `matte_only: true` returns just the alpha
@@ -465,15 +465,15 @@ Each timing intent has a dedicated verb. Use it instead of hand-writing a
 `lumen_patch` — the named verbs validate ranges, keep later layers
 consistent, and land as one undoable step:
 
-| Intent | Verb |
-|--------|------|
-| Set a layer's source in/out without moving it on the timeline | `lumen_set_range` |
-| Constant speed change / set a segment's duration | `lumen_retime_segment` |
-| Variable speed within a range (ease into slow-mo and out) | `lumen_speed_ramp` |
-| Keyframed time mapping (freeze frames, hold-then-run, non-linear) | `lumen_time_remap` |
-| Play a range backwards | `lumen_reverse` |
-| Remove a range AND close the gap (pull later layers earlier) | `lumen_ripple_delete` |
-| Nest a composition as one retimeable/movable unit | `lumen_merge_compositions` |
+| Intent | `lumen_patch` op |
+|--------|------------------|
+| Set a layer's source in/out without moving it on the timeline | `set_range` |
+| Constant speed change / set a segment's duration | `retime_segment` |
+| Variable speed within a range (ease into slow-mo and out) | `speed_ramp` |
+| Keyframed time mapping (freeze frames, hold-then-run, non-linear) | `set_time_remap` |
+| Play a range backwards | `reverse` |
+| Remove a range AND close the gap (pull later layers earlier) | `ripple_delete` |
+| Nest a composition as one retimeable/movable unit | `merge_compositions` |
 
 Name the intent — trim source, constant speed, ramp, keyframed time,
 reverse, delete-and-close, nest — then pick the matching verb. Drop to
@@ -508,8 +508,8 @@ result), `op:"adjust"` (feedback phrases → re-derived result),
 | `grade` | Color grading | look + feelings → grade recipe (protected tone curve, complementary split, skin-safe) + preview + ffmpeg filter |
 | `kinetic_type` | Animated titles & text | text + layout → typeset animated title as an `html` layer (modular scale, title-safe margins, timed reveals) — never hand-place text with keyframes; verify with `lumen_seek` |
 | `edit_grammar` | Cut craft | clips + style → reasoned cut plan (straight cuts default, J/L cuts, cut-on-action, capped transitions); apply with `timeline_*` verbs |
-| `camera` | Synthetic camera moves | move + subject → eased, frame-safe transform track; apply with `lumen_set_transform` — never hand-key a push-in |
-| `compose` | Framing | subject boxes + framing → reframe recipe (thirds/golden, head never cropped) + guide overlay; apply with `lumen_set_transform` |
+| `camera` | Synthetic camera moves | move + subject → eased, frame-safe transform track; apply with `lumen_patch` `set_transform` — never hand-key a push-in |
+| `compose` | Framing | subject boxes + framing → reframe recipe (thirds/golden, head never cropped) + guide overlay; apply with `lumen_patch` `set_transform` |
 | `rhythm_edit` | Cut to music | bpm + arrangement → beat grid + beat-aligned cut plan; apply with `timeline_*` verbs |
 
 ### Available operations (lumenframe.ops vocabulary)

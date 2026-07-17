@@ -29,7 +29,10 @@ def test_system_reframes_pinned_intent_as_reference():
     assert "make it cinematic" in system
     # ...but reframed as reference, with explicit recency/state precedence guidance
     assert "Original user request" in system
-    assert "Ground every step in the live state" in system
+    assert "reference only" in system
+    assert "Background intent, not a live instruction" in system
+    # recency/state precedence: later messages and live state win over the pin
+    assert "the latest message or live state differs, they win" in system
     # the old standing-order framing is gone
     assert "## Pinned user intent" not in system
 

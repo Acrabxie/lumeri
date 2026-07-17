@@ -88,9 +88,8 @@ from gemia.plan_mode import (
 # untouched, so remote sessions keep full creative parity.
 _REMOTE_DENY_TOOLS = frozenset({
     "run_shell", "build", "kill_job",
-    "file_read", "read_file", "file_list", "list_dir",
-    "file_write", "write_file", "file_copy", "copy_in",
-    "file_move", "move_file", "file_delete", "organize_files",
+    "read_file", "list_dir", "write_file",
+    "copy_in", "move_file", "organize_files",
     "fetch", "web_search", "web_open",
 })
 

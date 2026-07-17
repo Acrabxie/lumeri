@@ -427,36 +427,60 @@ def test_lumen_patch_missing_args(tmp_session: ToolContext) -> None:
     assert "error_code" in result
 
 
+# The slimmed model-facing lumenframe surface: everything layer-editing goes
+# through lumen_patch ops; the 18 lumen_* convenience verbs were removed from
+# the schema (their dispatchers remain in _REAL for internal use only).
+CURRENT_LUMEN_SURFACE = [
+    "get_lumenframe",
+    "lumen_patch",
+    "lumen_comp_to_timeline",
+    "lumen_render",
+    "lumen_render_range",
+    "lumen_seek",
+]
+
+# Representative removed convenience verbs — must NOT be model-facing anymore.
+REMOVED_LUMEN_VERBS = [
+    "lumen_add_layer",
+    "lumen_set_transform",
+    "lumen_set_opacity",
+    "lumen_delete_layer",
+    "lumen_move_layer",
+    "lumen_set_visibility",
+    "lumen_select",
+]
+
+
 def test_tool_registration_in_dispatcher() -> None:
-    """Verify lumenframe tools are registered in DISPATCHER."""
+    """Verify the current lumenframe surface is registered in DISPATCHER and
+    the removed convenience verbs are no longer exposed."""
     from gemia.tools import DISPATCHER
 
-    assert "get_lumenframe" in DISPATCHER
-    assert "lumen_patch" in DISPATCHER
-    assert "lumen_add_layer" in DISPATCHER
-    assert "lumen_set_transform" in DISPATCHER
-    assert "lumen_set_opacity" in DISPATCHER
-    assert "lumen_delete_layer" in DISPATCHER
-    assert "lumen_move_layer" in DISPATCHER
-    assert "lumen_set_visibility" in DISPATCHER
-    assert "lumen_select" in DISPATCHER
+    for name in CURRENT_LUMEN_SURFACE:
+        assert name in DISPATCHER, f"{name} missing from DISPATCHER"
+
+    for name in REMOVED_LUMEN_VERBS:
+        assert name not in DISPATCHER, (
+            f"{name} was removed from the model-facing surface but is still "
+            "in DISPATCHER"
+        )
 
 
 def test_tool_schemas_in_registry() -> None:
-    """Verify lumenframe tool schemas are in TOOL_SCHEMAS."""
+    """Verify the current lumenframe tool schemas are in TOOL_SCHEMAS and the
+    removed convenience-verb schemas are gone."""
     from gemia.tools import TOOL_SCHEMAS
 
     tool_names = [t["function"]["name"] for t in TOOL_SCHEMAS]
 
-    assert "get_lumenframe" in tool_names
-    assert "lumen_patch" in tool_names
-    assert "lumen_add_layer" in tool_names
-    assert "lumen_set_transform" in tool_names
-    assert "lumen_set_opacity" in tool_names
-    assert "lumen_delete_layer" in tool_names
-    assert "lumen_move_layer" in tool_names
-    assert "lumen_set_visibility" in tool_names
-    assert "lumen_select" in tool_names
+    for name in CURRENT_LUMEN_SURFACE:
+        assert name in tool_names, f"{name} missing from TOOL_SCHEMAS"
+
+    for name in REMOVED_LUMEN_VERBS:
+        assert name not in tool_names, (
+            f"{name} was removed from the model-facing surface but still has "
+            "a schema in TOOL_SCHEMAS"
+        )
 
 
 def test_lumenframe_doc_persistence_across_calls(tmp_session: ToolContext) -> None:

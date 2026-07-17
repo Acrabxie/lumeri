@@ -12,8 +12,8 @@ implementation, not from tool names. Notably, several "inspection" tools are
 BLOCKED because they register user-visible session assets as a side effect
 (``inspect_timeline`` renders a draft export + frame assets, ``extract_frame``
 / ``render_preview`` / ``lumen_render`` / ``lumen_render_range`` /
-``lumen_seek`` register derived media, ``lumen_select`` saves the layer doc),
-and ``remember`` / ``log_note`` write durable memory files. ``spawn_subtasks``
+``lumen_seek`` register derived media), and ``remember`` / ``log_note`` write
+durable memory files. ``spawn_subtasks``
 is BLOCKED because it reserves budget, launches model-driven children whose
 profiles include mutating tools (``annotate_media`` / ``write_media_annotation``)
 and register derived assets (``extract_frame``) — three independently
@@ -36,8 +36,6 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "check_job",            # polls an already-submitted job
     "detect_beats",         # audio analysis; detects beats/onsets
     "elicit",               # ask the user; no state written
-    "file_list",
-    "file_read",
     "grade",               # deterministic recipe only; does not mutate media/doc
     "get_shotlist",
     "get_lumenframe",
@@ -70,16 +68,14 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "build", "color_grade", "composite", "copy_in",
     "draft_quanta", "draft_shotlist",
     "edit_audio", "edit_image", "edit_video", "export",
-    "extract_frame", "fetch", "file_copy", "file_delete", "file_move",
-    "file_write", "generate_audio", "generate_image", "generate_video",
+    "extract_frame", "fetch",
+    "generate_audio", "generate_image", "generate_video",
     "inspect_lottie", "inspect_timeline", "kill_job", "log_note",
-    "lumen_add_layer", "lumen_comp_to_timeline", "lumen_delete_layer", "lumen_key",
-    "lumen_merge_compositions", "lumen_move_layer", "lumen_patch",
-    "lumen_render", "lumen_render_range", "lumen_retime_segment",
-    "lumen_reverse", "lumen_ripple_delete", "lumen_seek", "lumen_select",
-    "lumen_set_lane", "lumen_set_mask", "lumen_set_opacity",
-    "lumen_set_range", "lumen_set_transform", "lumen_set_visibility",
-    "lumen_set_work_area", "lumen_speed_ramp", "lumen_time_remap",
+    # lumen_patch is the single mutating entry point for layer-doc edits (the
+    # old lumen_* convenience verbs are now ops of it); render/seek register
+    # derived media assets, comp_to_timeline writes the timeline doc.
+    "lumen_comp_to_timeline", "lumen_patch",
+    "lumen_render", "lumen_render_range", "lumen_seek",
     "vector_motion",  # create/adjust write the lumenframe doc (catalog rides along)
     "kinetic_type",   # create/adjust add/rebuild an html title layer in the doc
     # grade/camera/compose/edit_grammar/rhythm_edit compute a recipe/plan only

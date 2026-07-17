@@ -13,10 +13,9 @@ def _schema(name: str) -> dict:
 
 def test_deny_set_covers_host_reaching_tools():
     for name in [
-        "run_shell", "build",
-        "file_read", "read_file", "file_list", "list_dir",
-        "file_write", "write_file", "file_copy", "copy_in",
-        "file_move", "move_file", "file_delete", "organize_files",
+        "run_shell", "build", "kill_job",
+        "read_file", "list_dir", "write_file",
+        "copy_in", "move_file", "organize_files",
         "fetch", "web_search", "web_open",
     ]:
         assert name in _REMOTE_DENY_TOOLS, name
@@ -24,16 +23,18 @@ def test_deny_set_covers_host_reaching_tools():
 
 def test_strip_removes_denied_keeps_creative():
     names = [
-        "run_shell", "file_read", "list_dir", "fetch", "web_search", "web_open",
-        "generate_video", "edit_video", "lumen_add_layer", "vector_motion",
+        "run_shell", "read_file", "list_dir", "write_file", "organize_files",
+        "fetch", "web_search", "web_open",
+        "generate_video", "edit_video", "lumen_patch", "vector_motion",
         "timeline_split_clip", "probe_media",
     ]
     kept = {s["function"]["name"] for s in _strip_remote_denied([_schema(n) for n in names])}
     # host-reaching tools gone
-    for gone in ("run_shell", "file_read", "list_dir", "fetch", "web_search", "web_open"):
+    for gone in ("run_shell", "read_file", "list_dir", "write_file",
+                 "organize_files", "fetch", "web_search", "web_open"):
         assert gone not in kept, gone
     # creative tools untouched
-    for stay in ("generate_video", "edit_video", "lumen_add_layer",
+    for stay in ("generate_video", "edit_video", "lumen_patch",
                  "vector_motion", "timeline_split_clip", "probe_media"):
         assert stay in kept, stay
 

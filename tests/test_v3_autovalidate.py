@@ -10,9 +10,10 @@ tool's tool_result text the model reads next.
 Three things are pinned, all driven through the real ``_drive_turn`` success
 path with a fake streaming client (same pattern as the other v3 loop tests):
 
-  * a mutating lumen verb (``lumen_add_layer``, real dispatcher) → its recorded
-    tool_result now CONTAINS the post-state digest (the layer-tree summary text
-    + the validate line);
+  * a mutating lumen verb (``lumen_patch`` with a real ``add_layer`` op — the
+    canonical mutating verb since the lumen_* convenience verbs were removed
+    from the schema surface) → its recorded tool_result now CONTAINS the
+    post-state digest (the layer-tree summary text + the validate line);
   * a NON-lumen tool's recorded tool_result is UNCHANGED (no digest leaks onto
     tools the feature must not touch);
   * an exception raised inside the digest path does NOT break the turn — the
@@ -79,9 +80,13 @@ def _tool_result_for(loop: AgentLoopV3, call_id: str) -> str:
 
 
 def test_mutating_lumen_edit_appends_post_state_digest(tmp_path: Path) -> None:
-    """A successful ``lumen_add_layer`` (real dispatcher) appends the post-state
-    digest — layer-tree summary + validate line — into its tool_result text."""
-    client = _CallsOneToolThenStops("lumen_add_layer", '{"type": "text", "name": "Title"}')
+    """A successful ``lumen_patch`` add_layer op (real dispatcher) appends the
+    post-state digest — layer-tree summary + validate line — into its
+    tool_result text."""
+    client = _CallsOneToolThenStops(
+        "lumen_patch",
+        '{"ops": [{"op": "add_layer", "type": "text", "name": "Title"}]}',
+    )
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
         session_id="lumen_edit",
@@ -182,7 +187,10 @@ def test_digest_exception_does_not_break_turn(tmp_path: Path, monkeypatch) -> No
     # the turn must survive and the edit's tool_result must remain valid.
     monkeypatch.setattr(AgentLoopV3, "_lumen_post_state_digest", _boom)
 
-    client = _CallsOneToolThenStops("lumen_add_layer", '{"type": "text", "name": "Boom"}')
+    client = _CallsOneToolThenStops(
+        "lumen_patch",
+        '{"ops": [{"op": "add_layer", "type": "text", "name": "Boom"}]}',
+    )
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
         session_id="digest_boom",

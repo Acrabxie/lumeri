@@ -74,7 +74,12 @@ PROFILE_PROBE = frozenset({
 # the active profile and this set.
 FORBIDDEN_IN_ANY_PROFILE = frozenset({
     "spawn_subtasks", "elicit", "remember", "log_note", "save_skill",
-    "file_delete", "run_shell", "build", "export", "project_export",
+    "run_shell", "build", "export", "project_export",
+    # Machine-scope file ops: child agents must never touch host files. (The
+    # session-scope file_* verbs — including file_delete, formerly listed
+    # here — were removed from the schema in favour of these equivalents.)
+    "read_file", "list_dir", "write_file",
+    "copy_in", "move_file", "organize_files",
 })
 
 # tool_profile enum → frozenset. Kept in one place so the schema enum, the

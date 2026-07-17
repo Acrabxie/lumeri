@@ -9,7 +9,7 @@ Coverage:
   - append_daily_entry appends a line to the day file (and creates it).
   - the log_note tool appends to today's log.
   - the remember tool persists via the dispatcher.
-  - the step-narration directive text is present in system_v3.md.
+  - the activity-reporting protocol text is present in system_v3.md.
   - the new tools are registered in TOOL_NAMES + DISPATCHER + the schema list.
 
 All filesystem state is redirected to ``tmp_path`` by monkeypatching
@@ -80,13 +80,14 @@ def test_v3_prompt_injects_memory_and_has_no_leftover_placeholder(
         output_dir=tmp_path / "outputs",
         budget_max_usd=1.0,
         budget_max_seconds=60.0,
+        gemini_client=object(),  # stub — prompt assembly must not need creds
     )
     msgs = loop.render_messages()
     system = msgs[0]["content"]
 
     assert "{{memory}}" not in system  # placeholder fully replaced
     assert marker in system  # planted memory is injected
-    assert "## What you remember" in system  # the section header is present
+    assert "### Memory" in system  # the section header is present
 
 
 # ── remember (function + tool) + secret rejection ─────────────────────
@@ -182,19 +183,27 @@ def test_log_note_tool_appends(mem_root: Path) -> None:
     assert "breadcrumb from the agent" in path.read_text(encoding="utf-8")
 
 
-# ── narration directive present in the prompt ─────────────────────────
+# ── activity-reporting protocol present in the prompt ─────────────────
 
 
 def test_narration_directive_present_in_prompt() -> None:
+    """The rewritten prompt must keep the announce-before-acting guarantee.
+
+    The old 'Narrate before you act' directive became the Activity reporting
+    protocol: one <activity> line before each meaningful batch of tool calls.
+    """
     tpl = (
         Path(__file__).resolve().parent.parent
         / "gemia"
         / "prompts"
         / "system_v3.md"
     ).read_text(encoding="utf-8")
-    assert "Narrate before you act" in tpl
-    # The single-line constraint is part of the directive.
-    assert "one line" in tpl.lower()
+    assert "## Activity reporting protocol" in tpl
+    # The announce-before-acting + single-line constraint is load-bearing.
+    assert "emit exactly one line" in tpl
+    assert "Before each meaningful batch of tool calls" in tpl
+    # The tag format the host parses.
+    assert "<activity>" in tpl
 
 
 # ── new tools registered ──────────────────────────────────────────────

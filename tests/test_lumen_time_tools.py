@@ -1,9 +1,18 @@
-"""Tests for the lumenframe TIME tools: lumen_seek + lumen_render_range.
+"""Tests for the lumenframe TIME tools: lumen_seek + lumen_render_range,
+plus the time-edit vocabulary reached through ``lumen_patch``.
 
-These expose ``lumenframe.seek`` and ``lumenframe.render_range`` to the agent.
-The tools read the session's current lumenframe doc (via ``layer._lumendoc``),
-compute state / render frames, and register outputs as session assets — the same
-asset path ``lumen_render`` uses.
+lumen_seek / lumen_render_range expose ``lumenframe.seek`` and
+``lumenframe.render_range`` to the agent. The tools read the session's current
+lumenframe doc (via ``layer._lumendoc``), compute state / render frames, and
+register outputs as session assets — the same asset path ``lumen_render`` uses.
+
+The former first-class convenience verbs (lumen_set_range, lumen_set_lane,
+lumen_retime_segment, lumen_reverse, lumen_time_remap, lumen_speed_ramp,
+lumen_ripple_delete, lumen_merge_compositions) were removed from the
+model-facing schema surface; their behaviours are exercised here through
+``lumen_patch`` with the corresponding LayerPatch ops. ``lumen_set_work_area``
+has no LayerPatch op; its behaviour lives in ``layer.dispatch_set_work_area``
+(kept off-schema) and is covered directly.
 
 Docs are small synthetic solids (no media, no network, no keys), mirroring the
 fixture pattern in ``test_lumenframe_seek.py`` / ``test_lumenframe_render_range.py``.
@@ -66,6 +75,39 @@ def _seed_doc(ctx: ToolContext) -> dict:
     return doc
 
 
+def _lumen_patch(ops, ctx):
+    """Apply LayerPatch ops through the model-facing lumen_patch verb."""
+    from gemia.tools import DISPATCHER
+
+    return asyncio.run(DISPATCHER["lumen_patch"]({"ops": list(ops)}, ctx))
+
+
+#: Convenience time verbs removed from the model-facing schema surface.
+_REMOVED_TIME_VERBS = (
+    "lumen_set_range",
+    "lumen_set_lane",
+    "lumen_retime_segment",
+    "lumen_reverse",
+    "lumen_time_remap",
+    "lumen_speed_ramp",
+    "lumen_ripple_delete",
+    "lumen_merge_compositions",
+    "lumen_set_work_area",
+)
+
+#: LayerPatch ops that replace those verbs via lumen_patch.
+_REPLACEMENT_TIME_OPS = (
+    "set_range",
+    "set_lane",
+    "retime_segment",
+    "reverse",
+    "set_time_remap",
+    "speed_ramp",
+    "ripple_delete",
+    "merge_compositions",
+)
+
+
 # ════════════════════════════════════════════════════════════════════════
 # lumen_seek
 # ════════════════════════════════════════════════════════════════════════
@@ -125,11 +167,17 @@ def test_lumen_seek_requires_a_locator(tmp_session):
     assert result["error_code"] == "E_ARG"
 
 
-def test_lumen_seek_rejects_both_locators(tmp_session):
+def test_lumen_seek_prefers_seconds_when_both_locators(tmp_session):
+    """Both locators are tolerated (models often send both): seconds wins.
+
+    seconds=1.5 -> frame 15 (green active); frame=5 would be red. The result
+    must follow the seconds locator.
+    """
     _seed_doc(tmp_session)
-    result = asyncio.run(seek_tool.dispatch({"seconds": 0.5, "frame": 5}, tmp_session))
-    assert result["applied"] is False
-    assert result["error_code"] == "E_ARG"
+    result = asyncio.run(seek_tool.dispatch({"seconds": 1.5, "frame": 5}, tmp_session))
+    assert result["applied"] is True, result
+    assert result["frame"] == 15
+    assert result["state"]["active_layer_ids"] == ["green"]
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -222,20 +270,19 @@ def test_time_tools_registered_in_dispatcher_and_names():
 
     for name in (
         "adjust_media",
+        "lumen_patch",
+        "lumen_render",
         "lumen_seek",
         "lumen_render_range",
-        "lumen_set_range",
-        "lumen_set_lane",
-        "lumen_retime_segment",
-        "lumen_reverse",
-        "lumen_time_remap",
-        "lumen_speed_ramp",
-        "lumen_ripple_delete",
-        "lumen_merge_compositions",
-        "lumen_set_work_area",
     ):
         assert name in TOOL_NAMES
         assert name in DISPATCHER
+
+    # The convenience time verbs are gone from the model-facing surface
+    # (schema slimming); their behaviours live on as lumen_patch ops.
+    for name in _REMOVED_TIME_VERBS:
+        assert name not in TOOL_NAMES
+        assert name not in DISPATCHER
 
 
 def test_time_tools_have_schemas():
@@ -252,87 +299,93 @@ def test_time_tools_have_schemas():
     assert "t_in" in range_required and "t_out" in range_required
     seek_props = by_name["lumen_seek"]["function"]["parameters"]["properties"]
     assert "seconds" in seek_props and "frame" in seek_props
-    for name in (
-        "lumen_set_range",
-        "lumen_set_lane",
-        "lumen_retime_segment",
-        "lumen_reverse",
-        "lumen_time_remap",
-        "lumen_speed_ramp",
-        "lumen_ripple_delete",
-        "lumen_merge_compositions",
-        "lumen_set_work_area",
-    ):
-        assert name in by_name
+
+    # lumen_patch is the replacement surface for the removed time verbs and
+    # must require the raw ops list.
+    patch_required = by_name["lumen_patch"]["function"]["parameters"]["required"]
+    assert "ops" in patch_required
+
+    for name in _REMOVED_TIME_VERBS:
+        assert name not in by_name
 
 
-def test_first_class_time_edit_tools_patch_the_lumen_doc(tmp_session):
-    from gemia.tools import DISPATCHER
+def test_replacement_time_ops_registered_and_documented():
+    """Every removed time verb maps to a LayerPatch op that is dispatchable
+    (registry) and documented in the catalogue the agent prompt is built from."""
+    from lumenframe.catalog import op_catalog
+    from lumenframe.registry import list_ops
 
+    registered = set(list_ops())
+    documented = {entry["op"] for entry in op_catalog()}
+    for op_name in _REPLACEMENT_TIME_OPS:
+        assert op_name in registered, op_name
+        assert op_name in documented, op_name
+
+
+def test_time_edit_ops_patch_the_lumen_doc(tmp_session):
     _seed_doc(tmp_session)
 
-    out = asyncio.run(DISPATCHER["lumen_set_range"](
-        {"layer_id": "red", "frame_in": 5, "frame_out": 15}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "set_range", "layer_id": "red", "frame_in": 5, "frame_out": 15}],
+        tmp_session,
+    )
     assert out["applied"] is True, out
     red = layer_module._lumendoc(tmp_session)["root"]["children"][0]
     assert red["start"] == pytest.approx(0.5)
     assert red["duration"] == pytest.approx(1.0)
 
-    out = asyncio.run(DISPATCHER["lumen_set_lane"](
-        {"layer_id": "red", "lane": 2}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "set_lane", "layer_id": "red", "lane": 2}], tmp_session
+    )
     assert out["applied"] is True, out
     assert layer_module._lumendoc(tmp_session)["root"]["children"][0]["lane"] == 2
 
-    out = asyncio.run(DISPATCHER["lumen_time_remap"](
-        {
+    out = _lumen_patch(
+        [{
+            "op": "set_time_remap",
             "layer_id": "red",
             "keyframes": [
                 {"t": 0.0, "value": 1.0},
                 {"t": 1.0, "value": 0.0},
             ],
-        },
+        }],
         tmp_session,
-    ))
+    )
     assert out["applied"] is True, out
     red = layer_module._lumendoc(tmp_session)["root"]["children"][0]
     assert red["time_remap"]["keyframes"][0]["value"] == 1.0
 
 
-def test_first_class_segment_tools_retime_reverse_and_ripple(tmp_session):
-    from gemia.tools import DISPATCHER
-
+def test_segment_ops_retime_reverse_and_ripple(tmp_session):
     doc = empty_doc(width=64, height=48, fps=10)
     doc = _add_solid(doc, "clip", "#ff0000", start=0.0, duration=4.0, source_in=0.0, source_out=4.0)
     doc = _add_solid(doc, "tail", "#00ff00", start=4.0, duration=1.0, source_in=0.0, source_out=1.0)
     layer_module._save_lumendoc(tmp_session, doc)
 
-    out = asyncio.run(DISPATCHER["lumen_retime_segment"](
-        {"layer_id": "clip", "t0": 1.0, "t1": 3.0, "speed": 2.0}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "retime_segment", "layer_id": "clip", "t0": 1.0, "t1": 3.0, "speed": 2.0}],
+        tmp_session,
+    )
     assert out["applied"] is True, out
     kids = layer_module._lumendoc(tmp_session)["root"]["children"]
     assert any(child["speed"] == 2.0 for child in kids)
 
     middle = next(child for child in kids if child["speed"] == 2.0)
-    out = asyncio.run(DISPATCHER["lumen_reverse"](
-        {"layer_id": middle["id"]}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "reverse", "layer_id": middle["id"]}], tmp_session
+    )
     assert out["applied"] is True, out
     assert layer_module._lumendoc(tmp_session)["root"]["children"][1].get("time_remap")
 
-    out = asyncio.run(DISPATCHER["lumen_ripple_delete"](
-        {"layer_id": "clip"}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "ripple_delete", "layer_id": "clip"}], tmp_session
+    )
     assert out["applied"] is True, out
     remaining_ids = [child["id"] for child in layer_module._lumendoc(tmp_session)["root"]["children"]]
     assert "clip" not in remaining_ids
 
 
-def test_first_class_speed_ramp_merge_and_work_area(tmp_session):
-    from gemia.tools import DISPATCHER
-
+def test_speed_ramp_merge_and_work_area(tmp_session):
     doc = empty_doc(width=64, height=48, fps=10)
     doc = apply_layer_patch(doc, _patch(
         {
@@ -356,28 +409,34 @@ def test_first_class_speed_ramp_merge_and_work_area(tmp_session):
     ))
     layer_module._save_lumendoc(tmp_session, doc)
 
-    out = asyncio.run(DISPATCHER["lumen_merge_compositions"](
-        {"source_ids": ["B"], "into_id": "A", "mode": "append"}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "merge_compositions", "source_ids": ["B"], "into_id": "A", "mode": "append"}],
+        tmp_session,
+    )
     assert out["applied"] is True, out
     merged = next(child for child in layer_module._lumendoc(tmp_session)["root"]["children"] if child["id"] == "A")
     assert len(merged["children"]) == 2
 
     child_id = merged["children"][0]["id"]
-    out = asyncio.run(DISPATCHER["lumen_speed_ramp"](
-        {"layer_id": child_id, "preset": "hero"}, tmp_session
-    ))
+    out = _lumen_patch(
+        [{"op": "speed_ramp", "layer_id": child_id, "preset": "hero"}], tmp_session
+    )
     assert out["applied"] is True, out
     assert next(c for c in layer_module._lumendoc(tmp_session)["root"]["children"] if c["id"] == "A")["children"][0].get("time_remap")
 
-    out = asyncio.run(DISPATCHER["lumen_set_work_area"](
+    # set_work_area has no LayerPatch op; the behaviour lives on in
+    # layer.dispatch_set_work_area (off-schema, still routed via _REAL).
+    out = asyncio.run(layer_module.dispatch_set_work_area(
         {"t_in": 0.25, "t_out": 1.25}, tmp_session
     ))
     assert out["applied"] is True, out
     assert out["work_area"] == {"in": 0.25, "out": 1.25}
+    # ...and it persists into the session doc's canvas.
+    assert layer_module._lumendoc(tmp_session)["canvas"]["work_area"] == {"in": 0.25, "out": 1.25}
 
-    out = asyncio.run(DISPATCHER["lumen_set_work_area"](
+    out = asyncio.run(layer_module.dispatch_set_work_area(
         {"clear": True}, tmp_session
     ))
     assert out["applied"] is True, out
     assert out["work_area"] is None
+    assert "work_area" not in layer_module._lumendoc(tmp_session)["canvas"]
