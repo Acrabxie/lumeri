@@ -610,9 +610,8 @@
     const category = toolCategory(tc.tool_name);
     const iconId = CATEGORY_ICON[category] || "i-gear";
     return `
-      <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(category + ' ' + label)}">
+      <div class="activity-line activity-line--${phase}" aria-label="${escapeHTML(label)}">
         <svg class="activity-icon" aria-hidden="true"><use href="#${iconId}"/></svg>
-        <span class="activity-category">${escapeHTML(category)}</span>
         <span class="activity-desc">${escapeHTML(label)}</span>
       </div>
     `;
@@ -652,7 +651,9 @@
         ? `<img src="${url}" alt="${a.asset_id}" />`
         : a.kind === "audio"
           ? `<audio src="${url}" controls preload="metadata"></audio>`
-          : `<video src="${url}" controls preload="metadata"${a.final ? " autoplay muted" : ""}></video>`;
+          : `<div class="asset-player"><video src="${url}" controls preload="metadata"${a.final ? " autoplay muted" : ""}></video>`
+            + `<button class="asset-play" type="button" aria-label="播放" title="播放">`
+            + `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg></button></div>`;
       return `
         <div class="asset-card${a.final ? " final" : ""}" data-asset-id="${a.asset_id}">
           ${playerHtml}
@@ -664,6 +665,28 @@
       `;
     }).join("");
   }
+
+  // Centre play toggle on video cards. Delegated once — it survives the
+  // innerHTML swaps renderAssets does. Native controls stay for scrubbing.
+  els.assetGrid.addEventListener("click", (e) => {
+    const btn = e.target.closest(".asset-play");
+    if (!btn) return;
+    const video = btn.parentElement.querySelector("video");
+    if (!video) return;
+    if (video.paused || video.ended) { video.muted = false; video.play().catch(() => {}); }
+    else video.pause();
+  });
+  // media events don't bubble — capture phase keeps the overlay in sync
+  ["play", "pause", "ended"].forEach((ev) => {
+    els.assetGrid.addEventListener(ev, (e) => {
+      const wrap = e.target.closest ? e.target.closest(".asset-player") : null;
+      if (!wrap) return;
+      const playing = ev === "play";
+      wrap.classList.toggle("playing", playing);
+      const b = wrap.querySelector(".asset-play");
+      if (b) { b.setAttribute("aria-label", playing ? "暂停" : "播放"); b.title = playing ? "暂停" : "播放"; }
+    }, true);
+  });
 
   function renderMediaLibrary() {
     if (!els.mediaLibraryGrid) return;
@@ -1314,7 +1337,8 @@
 
   // ── Project timeline (CapCut-style editor) ──────────────────────────
   // A px/second timeline: adaptive ruler, wheel/key zoom, multi video+audio
-  // tracks, per-clip filmstrip + waveform (when the clip exposes asset_id),
+  // tracks, zoom-adaptive per-clip filmstrip + waveform (when the clip
+  // exposes asset_id),
   // draggable playhead, client-side markers, and drag/move/trim/split/delete
   // wired to the SAME /sessions/{id}/timeline/op endpoint as the model verbs.
 
@@ -1329,8 +1353,10 @@
     built: false,
     model: null,
     rulerCtx: null,
-    filmstrip: new Map(),   // key -> string[] (data URLs)
-    filmstripBusy: new Set(),
+    frames: new Map(),      // assetId|time → frame dataURL, shared across zoom levels
+    frameFail: new Set(),   // assetIds whose extraction failed → solid clips, no retry
+    frameRigs: new Map(),   // assetId → {video,dur,aspect,queue,running,tick} persistent extractor
+    _rigTick: 0,
     wave: new Map(),        // assetId -> number[] peaks
     waveBusy: new Set(),
     audioCtx: null,
@@ -1452,9 +1478,15 @@
     document.getElementById("ptl-zoom-out").onclick = () => setPps(TL.pps / 1.25);
 
     const scroll = tlScroll();
+    let hydrateQueued = false;
     scroll.addEventListener("scroll", () => {
       drawRuler();
       tlHeaders().style.transform = `translateY(${-scroll.scrollTop}px)`;
+      // clips scrolled into view lazily extract their frames (rAF-throttled)
+      if (!hydrateQueued) {
+        hydrateQueued = true;
+        requestAnimationFrame(() => { hydrateQueued = false; hydrateMedia(); });
+      }
     });
     // Mouse wheel = zoom anchored at the cursor (like 剪映). Shift-wheel or a
     // horizontal-dominant wheel = pan. ⌘/ctrl also zoom (trackpad pinch).
@@ -1630,57 +1662,171 @@
   }
   function hydrateMedia() {
     const content = tlContent(); if (!content) return;
+    const [vLo, vHi] = fsViewport();
     content.querySelectorAll(".ptl-clip").forEach((el) => {
       const assetId = el.dataset.assetId;
       if (!assetId) return;                       // no source → solid color (graceful)
+      const x0 = parseFloat(el.style.left) || 0;
+      const x1 = x0 + (parseFloat(el.style.width) || 0);
+      if (x1 < vLo || x0 > vHi) return;           // off-screen → the scroll handler hydrates later
       if (el.dataset.mediaKind === "audio") ensureWaveform(el, assetId);
-      else if (el.dataset.mediaKind === "video") ensureFilmstrip(el, assetId);
+      else if (el.dataset.mediaKind === "video") paintFilmstrip(el, assetId);
+      else if (el.dataset.mediaKind === "image") paintImageStrip(el, assetId);
     });
   }
-  function ensureFilmstrip(el, assetId) {
-    const w = el.clientWidth || timeToX(+el.dataset.duration);
-    const tiles = Math.max(1, Math.min(16, Math.round(w / 88)));
-    const inS = +el.dataset.sourceIn, outS = +el.dataset.sourceOut;
-    const key = `${assetId}|${inS.toFixed(2)}|${outS.toFixed(2)}|${tiles}`;
-    const media = el.querySelector(".ptl-clip-media");
-    const paint = (urls) => { if (media) media.innerHTML = urls.map((u) => `<div class="fs-tile" style="background-image:url(${u})"></div>`).join(""); };
-    const cached = TL.filmstrip.get(key);
-    if (cached) { paint(cached); return; }              // cached (incl. empty) → no re-extract
-    if (TL.filmstripBusy.has(key)) return;
-    TL.filmstripBusy.add(key);
-    extractFilmstrip(assetId, inS, outS, tiles).then((urls) => {
-      TL.filmstripBusy.delete(key);
-      TL.filmstrip.set(key, urls || []);                // negative-cache failures: stops the retry storm
-      if (document.body.contains(el)) paint(urls || []);
-    }).catch(() => TL.filmstripBusy.delete(key));
+
+  // Filmstrip = frames sampled on a per-zoom source-time grid (剪映-style).
+  // The interval ladder is powers of two so a frame cached at one zoom level
+  // is reused at every other level (each 0.8s-grid frame also sits on the
+  // 0.4s grid); tile count follows TL.pps with no hard cap — zooming in
+  // simply reveals more frames. Tiles are pinned to source time, and each
+  // asset keeps one persistent <video> so zooming never re-downloads media.
+  const FS_IVS = [0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2];
+  const FS_TILE_H = 46, FS_VIEW_MARGIN = 1.0;   // extract only ±1 screen around the viewport
+  const fsKey = (assetId, t) => `${assetId}|${t.toFixed(2)}`;
+
+  function fsViewport(marginFactor = FS_VIEW_MARGIN) {
+    const scroll = tlScroll();
+    if (!scroll) return [-Infinity, Infinity];
+    const m = scroll.clientWidth * marginFactor;
+    return [scroll.scrollLeft - m, scroll.scrollLeft + scroll.clientWidth + m];
   }
-  function extractFilmstrip(assetId, inS, outS, tiles) {
-    return new Promise((resolve) => {
-      const url = `/sessions/${state.sessionId}/assets/${assetId}`;
+
+  function fsPlan(el, assetId) {
+    const inS = +el.dataset.sourceIn || 0;
+    let outS = +el.dataset.sourceOut || 0;
+    if (!(outS > inS)) outS = inS + Math.max(+el.dataset.duration || 0, 0.05);
+    const rig = TL.frameRigs.get(assetId);
+    const aspect = (rig && rig.aspect) || 16 / 9;
+    const spt = (FS_TILE_H * aspect) / TL.pps;    // seconds an uncropped tile spans
+    const iv = FS_IVS.find((v) => v >= spt) || FS_IVS[FS_IVS.length - 1];
+    const tiles = [];
+    for (let k = Math.floor(inS / iv); k * iv < outS; k++) {
+      const t0 = Math.max(k * iv, inS), t1 = Math.min((k + 1) * iv, outS);
+      if (t1 - t0 < 0.01) continue;
+      // Sample at the cell's LEFT edge (k*iv, like NLEs), not its centre:
+      // edges of the 2× coarser grid are a subset of this grid's edges, so
+      // frames cached at one zoom level are reused at every other level.
+      tiles.push({ x: (t0 - inS) * TL.pps, w: (t1 - t0) * TL.pps, t: +(k * iv).toFixed(2) });
+    }
+    return { iv, inS, outS, tiles };
+  }
+
+  function paintFilmstrip(el, assetId) {
+    const media = el.querySelector(".ptl-clip-media");
+    if (!media) return;
+    if (TL.frameFail.has(assetId)) { media.innerHTML = ""; media.dataset.sig = "fail"; return; }
+    const plan = fsPlan(el, assetId);
+    const sig = `${plan.iv}|${TL.pps.toFixed(2)}|${plan.inS}|${plan.outS}`;
+    if (media.dataset.sig !== sig) {
+      media.dataset.sig = sig;
+      media.innerHTML = plan.tiles.map((tile) => {
+        const u = TL.frames.get(fsKey(assetId, tile.t));
+        return `<div class="fs-tile" data-ft="${tile.t.toFixed(2)}"${u ? ` data-done="1"` : ""}`
+          + ` style="left:${tile.x.toFixed(1)}px;width:${(tile.w + 0.5).toFixed(1)}px;${u ? `background-image:url(${u})` : ""}"></div>`;
+      }).join("");
+    } else {
+      // same layout → only fill tiles whose frame landed since the last paint
+      media.querySelectorAll(".fs-tile:not([data-done])").forEach((tile) => {
+        const u = TL.frames.get(fsKey(assetId, +tile.dataset.ft));
+        if (u) { tile.style.backgroundImage = `url(${u})`; tile.dataset.done = "1"; }
+      });
+    }
+    const clipX = parseFloat(el.style.left) || 0;
+    const [vLo, vHi] = fsViewport();
+    const want = plan.tiles
+      .filter((tile) => !TL.frames.has(fsKey(assetId, tile.t)))
+      .filter((tile) => clipX + tile.x + tile.w >= vLo && clipX + tile.x <= vHi)
+      .map((tile) => tile.t);
+    if (want.length) requestFrames(assetId, want);
+  }
+
+  function paintImageStrip(el, assetId) {
+    // Image clips repeat the still across the clip, filmstrip-style.
+    const media = el.querySelector(".ptl-clip-media");
+    if (!media || media.dataset.sig === "img") return;
+    media.dataset.sig = "img";
+    media.innerHTML = "";
+    media.style.background = `url("/sessions/${state.sessionId}/assets/${assetId}") left center / auto 100% repeat-x`;
+  }
+
+  function requestFrames(assetId, times) {
+    let rig = TL.frameRigs.get(assetId);
+    if (!rig) { rig = { video: null, dur: 0, aspect: 0, queue: new Set(), running: false, tick: 0 }; TL.frameRigs.set(assetId, rig); }
+    rig.tick = ++TL._rigTick;
+    times.forEach((t) => rig.queue.add(+(+t).toFixed(2)));
+    if (!rig.running) runRig(assetId, rig);
+  }
+
+  async function runRig(assetId, rig) {
+    if (rig.running) return;
+    rig.running = true;
+    try {
+      if (!rig.video) {
+        await fsOpenVideo(assetId, rig);
+        fsEvictRigs(assetId);
+        repaintAsset(assetId, true);   // real aspect known → tile geometry may change
+      }
+      const tw = Math.max(8, Math.round(FS_TILE_H * (rig.aspect || 16 / 9)));
+      const canvas = document.createElement("canvas");
+      canvas.width = tw; canvas.height = FS_TILE_H;
+      const ctx = canvas.getContext("2d");
+      while (rig.queue.size) {
+        const t = Math.min(...rig.queue);
+        rig.queue.delete(t);
+        const key = fsKey(assetId, t);
+        if (TL.frames.has(key)) continue;
+        const dur = rig.dur || t + 1;
+        await seekVideo(rig.video, Math.min(Math.max(0, t), Math.max(0, dur - 0.02)));
+        try { ctx.drawImage(rig.video, 0, 0, tw, FS_TILE_H); TL.frames.set(key, canvas.toDataURL("image/jpeg", 0.55)); }
+        catch { TL.frameFail.add(assetId); rig.queue.clear(); break; }   // tainted/undrawable → give up, no retry loop
+        repaintAsset(assetId, false);
+      }
+    } catch {
+      TL.frameFail.add(assetId);       // not a decodable video → solid clip, never retry
+      rig.queue.clear();
+      repaintAsset(assetId, true);
+    } finally {
+      rig.running = false;
+      if (rig.queue.size) runRig(assetId, rig);
+    }
+  }
+
+  function fsOpenVideo(assetId, rig) {
+    return new Promise((resolve, reject) => {
       const video = document.createElement("video");
       video.muted = true; video.preload = "auto"; video.crossOrigin = "anonymous";
-      const out = [];
-      let done = false;
-      const teardown = () => { try { video.pause(); video.removeAttribute("src"); video.load(); } catch {} };
-      const finishUp = () => { if (!done) { done = true; clearTimeout(timer); teardown(); resolve(out); } };
-      const timer = setTimeout(finishUp, 12000);
-      video.addEventListener("error", finishUp, { once: true });
-      video.addEventListener("loadedmetadata", async () => {
-        const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : (outS || 1);
-        const a = inS || 0, b = (outS && outS > a) ? outS : dur;
-        const span = Math.max(0.05, b - a);
-        const th = 46, tw = Math.round(th * ((video.videoWidth / Math.max(1, video.videoHeight)) || 1.7));
-        const canvas = document.createElement("canvas");
-        canvas.width = tw; canvas.height = th;
-        const ctx = canvas.getContext("2d");
-        for (let i = 0; i < tiles && !done; i++) {
-          const t = Math.min(a + span * ((i + 0.5) / tiles), dur - 0.02);
-          await seekVideo(video, Math.max(0, t));
-          try { ctx.drawImage(video, 0, 0, tw, th); out.push(canvas.toDataURL("image/jpeg", 0.55)); } catch { break; }
-        }
-        finishUp();
+      const timer = setTimeout(() => reject(new Error("fs open timeout")), 12000);
+      video.addEventListener("error", () => { clearTimeout(timer); reject(new Error("fs load error")); }, { once: true });
+      video.addEventListener("loadedmetadata", () => {
+        clearTimeout(timer);
+        rig.dur = isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        rig.aspect = (video.videoWidth / Math.max(1, video.videoHeight)) || 16 / 9;
+        rig.video = video;
+        resolve();
       }, { once: true });
-      video.src = url;   // set src last, after listeners are attached
+      video.src = `/sessions/${state.sessionId}/assets/${assetId}`;   // set src last, after listeners
+    });
+  }
+
+  function fsEvictRigs(keepId, cap = 4) {
+    // Keep at most `cap` decoders open; cached frames survive eviction and the
+    // rig transparently reopens if a new zoom level needs more frames.
+    const open = [...TL.frameRigs.entries()].filter(([id, r]) => r.video && id !== keepId && !r.running);
+    open.sort((a, b) => a[1].tick - b[1].tick);
+    while (open.length > cap - 1) {
+      const [, r] = open.shift();
+      try { r.video.removeAttribute("src"); r.video.load(); } catch {}
+      r.video = null;
+    }
+  }
+
+  function repaintAsset(assetId, replan) {
+    const content = tlContent(); if (!content) return;
+    content.querySelectorAll(`.ptl-clip[data-asset-id="${CSS.escape(assetId)}"]`).forEach((el) => {
+      if (el.dataset.mediaKind !== "video") return;
+      if (replan) { const m = el.querySelector(".ptl-clip-media"); if (m) delete m.dataset.sig; }
+      paintFilmstrip(el, assetId);
     });
   }
   function seekVideo(video, t) {
@@ -2092,6 +2238,9 @@
     loadMarkers();              // markers are per-session (localStorage); reload under the real key
     TL.extraTracks = [];        // client-added display lanes
     TL.playhead = 0;
+    TL.frames.clear(); TL.frameFail.clear();   // asset ids can repeat across sessions
+    TL.frameRigs.forEach((r) => { try { if (r.video) { r.video.removeAttribute("src"); r.video.load(); } } catch {} });
+    TL.frameRigs.clear();
     state.selectedClipId = null;
     state.turns = [];
     state.currentTurn = null;
