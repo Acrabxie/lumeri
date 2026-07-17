@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "lumeri-v3",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": ".venv/bin/python",
       "runtimeArgs": ["server.py"],
       "port": 7790,
       "autoPort": false,
