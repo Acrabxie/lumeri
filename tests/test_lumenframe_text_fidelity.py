@@ -30,9 +30,13 @@ it).  In practice every supported host ships at least one scalable face.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
+from PIL import Image, ImageDraw
 
+import lumenframe.resolve as resolve_module
 from lumenframe.compile import ResolveContext
 from lumenframe.resolve import default_resolver, _resolve_font
 
@@ -143,6 +147,188 @@ class TestFontSizeScalesGlyphHeight:
 # Text must stay within canvas bounds.
 # --------------------------------------------------------------------------- #
 class TestTextWithinCanvas:
+    def test_positive_bbox_top_does_not_clip_latin_glyphs(self):
+        """Latin fonts with a positive top bearing retain every glyph pixel."""
+        font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
+        if not font_path.is_file():
+            pytest.skip("macOS Helvetica Neue collection unavailable")
+        text = "Lumeri Video"
+        font, _source, _is_tt = _resolve_font(font_path, 76, 500)
+        probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        bbox = ImageDraw.Draw(probe).textbbox((0, 0), text, font=font)
+        if bbox[1] <= 0:
+            pytest.skip(f"fixture font has no positive bbox top: {bbox}")
+
+        padding = 2
+        reference = Image.new(
+            "RGBA",
+            (bbox[2] - bbox[0] + 2 * padding, bbox[3] - bbox[1] + 2 * padding),
+            (0, 0, 0, 0),
+        )
+        ImageDraw.Draw(reference).text(
+            (padding - bbox[0], padding - bbox[1]),
+            text,
+            font=font,
+            fill=(255, 255, 255, 255),
+        )
+        reference_alpha = np.asarray(reference)[:, :, 3]
+        ref_rows = np.where(reference_alpha.sum(axis=1) > 0)[0]
+        expected_height = int(ref_rows[-1] - ref_rows[0] + 1)
+        expected_coverage = int(np.sum(reference_alpha > 0))
+
+        ctx = ResolveContext(width=900, height=300, fps=30, total_frames=1, assets=[])
+        frame = _render({
+            "text": text,
+            "font": str(font_path),
+            "font_size": 76,
+            "weight": 500,
+            "color": "#FFFFFF",
+        }, ctx)
+        actual_bbox = _alpha_bbox(frame)
+        assert actual_bbox is not None
+        actual_height = actual_bbox[1] - actual_bbox[0] + 1
+        actual_coverage = int(np.sum(frame[:, :, 3] > 0))
+        assert actual_height == expected_height
+        assert actual_coverage >= expected_coverage * 0.85
+
+    def test_heterogeneous_multiline_spacing_preserves_last_line(self):
+        """A tall first line cannot make a short final line fall off-canvas."""
+        font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
+        if not font_path.is_file():
+            pytest.skip("macOS Helvetica Neue collection unavailable")
+        lines = ["ÅÉ", "."]
+        line_spacing = 1.5
+        font, _source, _is_tt = _resolve_font(font_path, 76, 500)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1, 1), (0, 0, 0, 0)))
+        boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
+        heights = [box[3] - box[1] for box in boxes]
+        assert heights[0] > heights[1] * 2, heights
+
+        padding = 2
+        width = max(box[2] - box[0] for box in boxes) + 2 * padding
+        height = int(heights[0] * line_spacing + heights[1] + 2 * padding)
+        reference = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        reference_draw = ImageDraw.Draw(reference)
+        top = float(padding)
+        for index, line in enumerate(lines):
+            box = boxes[index]
+            reference_draw.text(
+                ((width - (box[2] - box[0])) / 2.0, top - box[1]),
+                line,
+                font=font,
+                fill=(255, 255, 255, 255),
+            )
+            top += heights[index] * line_spacing
+
+        expected_alpha = np.asarray(reference)[:, :, 3]
+        expected_coverage = int(np.sum(expected_alpha > 0))
+        expected_rows = np.where(expected_alpha.sum(axis=1) > 0)[0]
+        expected_height = int(expected_rows[-1] - expected_rows[0] + 1)
+
+        ctx = ResolveContext(width=500, height=300, fps=30, total_frames=1, assets=[])
+        frame = _render({
+            "text": "\n".join(lines),
+            "font": str(font_path),
+            "font_size": 76,
+            "weight": 500,
+            "line_spacing": line_spacing,
+            "color": "#FFFFFF",
+        }, ctx)
+        actual_bbox = _alpha_bbox(frame)
+        assert actual_bbox is not None
+        assert actual_bbox[1] - actual_bbox[0] + 1 == expected_height
+        assert int(np.sum(frame[:, :, 3] > 0)) >= expected_coverage * 0.85
+
+    def test_tight_multiline_spacing_preserves_tall_earlier_line(self):
+        """Spacing below 1 cannot size the block only from the short final line."""
+        font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
+        if not font_path.is_file():
+            pytest.skip("macOS Helvetica Neue collection unavailable")
+        lines = ["ÅÉ", "."]
+        line_spacing = 0.8
+        font, _source, _is_tt = _resolve_font(font_path, 76, 500)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1, 1), (0, 0, 0, 0)))
+        boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
+        heights = [box[3] - box[1] for box in boxes]
+        offsets = [0.0, heights[0] * line_spacing]
+        assert offsets[1] + heights[1] < heights[0], (offsets, heights)
+
+        padding = 2
+        width = max(box[2] - box[0] for box in boxes) + 2 * padding
+        content_height = max(offset + height for offset, height in zip(offsets, heights))
+        reference = Image.new(
+            "RGBA",
+            (width, int(np.ceil(content_height + 2 * padding))),
+            (0, 0, 0, 0),
+        )
+        reference_draw = ImageDraw.Draw(reference)
+        for index, line in enumerate(lines):
+            box = boxes[index]
+            reference_draw.text(
+                (
+                    (width - (box[2] - box[0])) / 2.0,
+                    padding + offsets[index] - box[1],
+                ),
+                line,
+                font=font,
+                fill=(255, 255, 255, 255),
+            )
+        reference_alpha = np.asarray(reference)[:, :, 3]
+        expected_rows = np.where(reference_alpha.sum(axis=1) > 0)[0]
+        expected_height = int(expected_rows[-1] - expected_rows[0] + 1)
+        expected_coverage = int(np.sum(reference_alpha > 0))
+
+        ctx = ResolveContext(width=500, height=300, fps=30, total_frames=1, assets=[])
+        frame = _render({
+            "text": "\n".join(lines),
+            "font": str(font_path),
+            "font_size": 76,
+            "weight": 500,
+            "line_spacing": line_spacing,
+            "color": "#FFFFFF",
+        }, ctx)
+        actual_bbox = _alpha_bbox(frame)
+        assert actual_bbox is not None
+        assert actual_bbox[1] - actual_bbox[0] + 1 == expected_height
+        assert int(np.sum(frame[:, :, 3] > 0)) >= expected_coverage * 0.85
+
+    def test_tracking_shadow_glow_and_core_share_bbox_corrected_y(self, monkeypatch):
+        """Every tracked-text draw path uses the same bbox-top correction."""
+        font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
+        if not font_path.is_file():
+            pytest.skip("macOS Helvetica Neue collection unavailable")
+        text = "Track"
+        font, _source, _is_tt = _resolve_font(font_path, 76, 500)
+        bbox = ImageDraw.Draw(Image.new("RGBA", (1, 1))).textbbox((0, 0), text, font=font)
+        assert bbox[1] > 0, bbox
+
+        calls: list[tuple[float, float]] = []
+        original = resolve_module._draw_line_spaced
+
+        def spy(draw, xy, *args, **kwargs):
+            calls.append((float(xy[0]), float(xy[1])))
+            return original(draw, xy, *args, **kwargs)
+
+        monkeypatch.setattr(resolve_module, "_draw_line_spaced", spy)
+        glow_radius = 4.0
+        shadow_dy = 7.0
+        _render({
+            "text": text,
+            "font": str(font_path),
+            "font_size": 76,
+            "weight": 500,
+            "letter_spacing": 1.5,
+            "color": "#FFFFFF",
+            "shadow": {"dx": 3.0, "dy": shadow_dy, "color": "#FF00FF", "blur": 0.0},
+            "glow": {"radius": glow_radius, "color": "#00FFFF", "intensity": 1.0},
+        })
+        assert len(calls) == 3, calls
+        padding = 2 + int(glow_radius) * 2 + 2
+        corrected_y = padding - bbox[1]
+        assert calls[0][1] == pytest.approx(corrected_y + shadow_dy)
+        assert calls[1][1] == pytest.approx(corrected_y)
+        assert calls[2][1] == pytest.approx(corrected_y)
+
     def test_rendered_text_within_canvas(self):
         """Glyph alpha never spills outside the canvas array bounds."""
         frame = _render({"text": "Hello World", "font_size": 96, "color": "#FFFFFF"})
@@ -192,6 +378,31 @@ class TestWeightProp:
         cov_reg = int(np.sum(regular[:, :, 3] > 0.5))
         cov_bold = int(np.sum(bold[:, :, 3] > 0.5))
         assert cov_bold >= cov_reg, (cov_reg, cov_bold)
+
+    def test_explicit_hiragino_collection_uses_w6_for_bold(self):
+        """An explicit macOS CJK TTC must not pin bold text to face zero/W3."""
+        hiragino = Path("/System/Library/Fonts/Hiragino Sans GB.ttc")
+        if not hiragino.is_file():
+            pytest.skip("macOS Hiragino Sans GB collection unavailable")
+        regular, regular_source, _ = _resolve_font(hiragino, 96, 500)
+        bold, bold_source, _ = _resolve_font(hiragino, 96, 900)
+        assert regular.getname()[1] == "W3"
+        assert bold.getname()[1] == "W6"
+        assert regular_source == str(hiragino)
+        assert bold_source == f"{hiragino}#index=2"
+
+        ctx = ResolveContext(width=1280, height=320, fps=30, total_frames=1, assets=[])
+        regular_frame = _render({
+            "text": "理解时间线", "font": str(hiragino), "font_size": 96,
+            "color": "#FFFFFF", "weight": 500,
+        }, ctx)
+        bold_frame = _render({
+            "text": "理解时间线", "font": str(hiragino), "font_size": 96,
+            "color": "#FFFFFF", "weight": 900,
+        }, ctx)
+        regular_coverage = int(np.sum(regular_frame[:, :, 3] > 0.5))
+        bold_coverage = int(np.sum(bold_frame[:, :, 3] > 0.5))
+        assert bold_coverage > regular_coverage * 1.25
 
 
 # --------------------------------------------------------------------------- #

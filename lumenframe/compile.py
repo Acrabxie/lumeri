@@ -36,7 +36,7 @@ box.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -59,6 +59,10 @@ class ResolveContext:
     fps: float
     total_frames: int
     assets: list[dict[str, Any]]
+    # Shared by every resolver context created during one compile.  A value of
+    # ``None`` records a failed probe as well, so repeated layers referencing
+    # the same unreadable path do not repeatedly open it for metadata.
+    video_fps_cache: dict[str, float | None] = field(default_factory=dict, repr=False)
 
     def asset(self, asset_id: str | None) -> dict[str, Any] | None:
         if not asset_id:
@@ -308,7 +312,14 @@ def _composition_content(layer: dict[str, Any], ctx: ResolveContext, resolver, s
     dur = model._as_float(layer.get("duration"))
     sub_total = max(1, int(round(dur * ctx.fps)))
     sub = LayerStack(width=ctx.width, height=ctx.height, fps=ctx.fps, total_frames=sub_total)
-    sub_ctx = ResolveContext(ctx.width, ctx.height, ctx.fps, sub_total, ctx.assets)
+    sub_ctx = ResolveContext(
+        ctx.width,
+        ctx.height,
+        ctx.fps,
+        sub_total,
+        ctx.assets,
+        ctx.video_fps_cache,
+    )
     _populate_stack(sub, layer, sub_ctx, resolver, strict)
 
     def content_fn(local_frame: int):
