@@ -110,7 +110,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _kill_task(handler, runner, m.group(2))
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|assets|close|ask_response|plan_mode|auto_title)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|retract|assets|close|ask_response|plan_mode|auto_title)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -125,6 +125,8 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _steer_turn(handler, runner)
     if action == "stop":
         return _stop_turn(handler, runner)
+    if action == "retract":
+        return _retract_turn(handler, runner)
     if action == "assets":
         return _upload_asset(handler, runner)
     if action == "close":
@@ -251,6 +253,35 @@ def _stop_turn(handler, runner: SessionRunner) -> bool:
         "session_id": runner.session_id,
         "accepted": True,
         "mode": "stop",
+    })
+    return True
+
+
+def _retract_turn(handler, runner: SessionRunner) -> bool:
+    """Retract the last completed user turn. The body's optional
+    ``expected_message`` is the frontend's view of that turn's text; the
+    runner refuses on mismatch so a stale UI can never delete the wrong turn."""
+    body = _read_json_body(handler)
+    if body is None:
+        return True
+    expected = body.get("expected_message")
+    if expected is not None and not isinstance(expected, str):
+        _json_error(handler, 400, "'expected_message' must be a string when present")
+        return True
+    result = runner.retract_turn(expected)
+    if not result.get("ok"):
+        reason = result.get("reason", "nothing_to_retract")
+        message = (
+            "a turn is still running — stop it before retracting"
+            if reason == "turn_in_progress"
+            else "no retractable turn (already retracted, rewritten, or the session moved on)"
+        )
+        _json_error(handler, 409, message, code=reason)
+        return True
+    _json_response(handler, 200, {
+        "session_id": runner.session_id,
+        "retracted": True,
+        "message": result["message"],
     })
     return True
 
@@ -663,11 +694,9 @@ def _timeline_payload_dict(session_id: str, project_id: str, project: dict, meta
         kinds = {str(c.get("media_kind") or "") for c in clips if isinstance(c, dict)}
         if "audio" in kinds:
             kind = "audio"
-        elif "image" in kinds or "text" in kinds or tid.startswith("OV"):
-            kind = "overlay"
         else:
             kind = "video"
-        label = {"audio": "Audio", "overlay": "Overlay"}.get(kind, "Video")
+        label = {"audio": "Audio"}.get(kind, "Video")
         tracks.append({
             "id": tid,
             "kind": kind,

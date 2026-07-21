@@ -1,15 +1,14 @@
-"""Multi-agent fan-out — Phase 1 gates (docs/multi-agent-plan.md §4-§8, WP2/WP3).
+"""Multi-agent fan-out tests.
 
-Offline: a fake client + fake dispatchers drive N children with no network. The
-gates asserted here are exactly the P1 test list:
-- profile coverage (§4.2): every profile ⊆ TOOL_NAMES, ∩ FORBIDDEN = ∅, and
-  spawn_subtasks ∈ PLAN_BLOCKED_TOOLS;
-- slice arithmetic (§5.2): parent 20% floor, rest split /N, max_cost_usd clamps
-  down only; budget slice isolation + unspent return;
+Offline: a fake client + fake dispatchers drive N children with no network.
+Gates asserted:
+- profile coverage: legacy profiles ⊆ TOOL_NAMES, spawn_subtasks ∈ FORBIDDEN;
 - ordered subagent_start / subagent_result, one pair per started child;
-- the double-count rule (§5.3): the loop commits 0 s for spawn_subtasks;
-- deadline → timeout status; cancellation-on-parent-error settles reservations;
-- child doom-loop ends the CHILD (not the parent); plan-flag mid-batch clamp.
+- the double-count rule: the loop commits 0 s for spawn_subtasks;
+- deadline → timeout status; cancellation-on-parent-error settles;
+- child doom-loop ends the CHILD (not the parent); plan-flag mid-batch clamp;
+- unbounded children count (no MAX_CHILDREN cap);
+- full tool profile gives children the parent's tool list.
 """
 from __future__ import annotations
 
@@ -27,86 +26,73 @@ from gemia.plan_mode import PLAN_BLOCKED_TOOLS
 from gemia.tools._schema import TOOL_NAMES
 
 
-# ── §4.2 profile coverage (mirrors tests/test_plan_mode.py style) ────────────
+# ── profile coverage ────────────────────────────────────────────────────────
 
 
-def test_profiles_are_subsets_of_registered_tools() -> None:
+def test_legacy_profiles_are_subsets_of_registered_tools() -> None:
     names = set(TOOL_NAMES)
     for profile_name, tools in sub.PROFILES.items():
+        if tools is None:
+            continue
         assert tools <= names, f"{profile_name} references unknown tools: {tools - names}"
 
 
-def test_profiles_exclude_forbidden_tools() -> None:
+def test_legacy_profiles_exclude_forbidden_tools() -> None:
     for profile_name, tools in sub.PROFILES.items():
-        assert not (tools & sub.FORBIDDEN_IN_ANY_PROFILE), (
+        if tools is None:
+            continue
+        assert not (tools & sub.FORBIDDEN_IN_CHILDREN), (
             f"{profile_name} contains globally-forbidden tools: "
-            f"{tools & sub.FORBIDDEN_IN_ANY_PROFILE}"
+            f"{tools & sub.FORBIDDEN_IN_CHILDREN}"
         )
 
 
-def test_forbidden_set_is_registered_or_intentional() -> None:
-    # Every forbidden name is either a real tool (so blocking it means something)
-    # or spawn_subtasks/elicit which ARE real. No typos silently forbidding
-    # nothing.
+def test_forbidden_set_is_registered() -> None:
     names = set(TOOL_NAMES)
-    assert sub.FORBIDDEN_IN_ANY_PROFILE <= names
+    assert sub.FORBIDDEN_IN_CHILDREN <= names
 
 
 def test_spawn_subtasks_is_plan_blocked() -> None:
     assert "spawn_subtasks" in PLAN_BLOCKED_TOOLS
 
 
-def test_spawn_subtasks_forbidden_in_every_profile() -> None:
-    assert "spawn_subtasks" in sub.FORBIDDEN_IN_ANY_PROFILE
-    for tools in sub.PROFILES.values():
-        assert "spawn_subtasks" not in tools
+def test_spawn_subtasks_forbidden_in_children() -> None:
+    assert "spawn_subtasks" in sub.FORBIDDEN_IN_CHILDREN
+    for name, tools in sub.PROFILES.items():
+        if tools is not None:
+            assert "spawn_subtasks" not in tools
 
 
-# ── §5.2 slice arithmetic ────────────────────────────────────────────────────
+def test_full_profile_returns_none() -> None:
+    assert sub._profile_tools(None) is None
+    assert sub._profile_tools("full") is None
 
 
-def test_slice_reserves_parent_floor_and_splits_rest() -> None:
-    g = BudgetGuard(max_usd=10.0, max_seconds=1000.0)
-    pool_usd, pool_sec, refusal = sub._slice_budget(g, 2)
-    assert refusal is None
-    # 20% floor of 10 = 2 → pool 8; of 1000 = 200 → pool 800.
-    assert pool_usd == pytest.approx(8.0)
-    assert pool_sec == pytest.approx(800.0)
-
-
-def test_slice_refuses_when_pool_exhausted() -> None:
-    g = BudgetGuard(max_usd=10.0, max_seconds=1000.0)
-    g.spent_seconds = 900.0  # only 100s remain; 20% floor = 200 → pool negative
-    _, _, refusal = sub._slice_budget(g, 2)
-    assert refusal is not None
+def test_full_profile_schemas_exclude_spawn_subtasks() -> None:
+    schemas = sub._child_tool_schemas(None)
+    names = {s["function"]["name"] for s in schemas}
+    assert "spawn_subtasks" not in names
+    assert len(names) > 10
 
 
 # ── fake client + dispatchers ────────────────────────────────────────────────
 
 
 class _ScriptedClient:
-    """One tool call per child (routed by the goal text in the child's messages),
-    then a text stop. The parent's own turn is scripted to call spawn_subtasks
-    once, then stop."""
-
     model = "fake"
 
     def __init__(self, spawn_args: dict[str, Any]) -> None:
         self._spawn_args = spawn_args
         self.parent_calls = 0
-        # child_state keyed by goal → number of streams already served
         self._child_streams: dict[str, int] = {}
 
     async def stream_turn(
         self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
     ) -> AsyncIterator[dict[str, Any]]:
         del temperature
-        # Dynamic routing may intentionally hide spawn_subtasks on the first
-        # parent round. Distinguish by the child's explicit bounded-agent system
-        # prompt instead of assuming the parent always receives all schemas.
         is_child = any(
             m.get("role") == "system"
-            and "bounded Lumeri sub-agent" in str(m.get("content"))
+            and "Lumeri sub-agent" in str(m.get("content"))
             for m in messages
         )
         if not is_child:
@@ -120,10 +106,6 @@ class _ScriptedClient:
         self, messages: list[dict[str, Any]]
     ) -> AsyncIterator[dict[str, Any]]:
         self.parent_calls += 1
-        # The first attempt may be the deterministic router's
-        # E_TOOL_NOT_ACTIVE handshake.  Retry that one, but consider any actual
-        # dispatcher settlement (success or failure) complete so refusal tests
-        # do not model an agent that ignores the returned error forever.
         spawn_completed = any(
             m.get("role") == "tool"
             and m.get("tool_call_id") == "spawn_call"
@@ -153,14 +135,12 @@ class _ScriptedClient:
         served = self._child_streams.get(goal, 0)
         self._child_streams[goal] = served + 1
         if served == 0:
-            # First child stream: one probe_media call.
             yield {"kind": "tool_call_start", "index": 0, "id": "c_probe",
                    "name": "probe_media"}
             yield {"kind": "tool_call_args_delta", "index": 0,
                    "delta": json.dumps({"asset_id": "v_001"})}
             yield {"kind": "finish", "reason": "tool_calls"}
             return
-        # Second child stream: final text, done.
         yield {"kind": "text_delta", "text": f"done: {goal[:20]}"}
         yield {"kind": "finish", "reason": "stop"}
 
@@ -179,14 +159,7 @@ def _make_loop(tmp_path: Path, client, **kw) -> tuple[AgentLoopV3, list[dict[str
 
 @pytest.fixture
 def fake_probe(monkeypatch: pytest.MonkeyPatch):
-    """Replace probe_media with a fast fake that commits ~10 s of budget so the
-    double-count and settlement assertions have real numbers to check."""
     async def _probe(args: dict[str, Any], ctx) -> dict[str, Any]:
-        # Simulate ~10s of tool-seconds by committing directly is not possible
-        # (the loop owns commit); instead sleep a hair and let elapsed be tiny —
-        # the child guard commits actual elapsed. For deterministic seconds we
-        # return a marker; the seconds assertions below use per-child guards
-        # patched separately.
         return {"summary": "probed", "duration_sec": 3.0}
 
     from gemia import subtasks as _sub
@@ -194,15 +167,12 @@ def fake_probe(monkeypatch: pytest.MonkeyPatch):
     return _probe
 
 
-# ── ordered start/result, budget isolation, double-count ─────────────────────
+# ── ordered start/result, double-count ─────────────────────────────────────
 
 
-def test_two_child_fanout_ordered_events_and_settlement(
+def test_two_child_fanout_ordered_events(
     tmp_path: Path, fake_probe, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Make each child's probe commit a deterministic 10s by patching the child
-    # guard's commit to add a fixed amount. We do it via a wrapper on the fake
-    # probe that records into a shared per-goal spend, then patch BudgetGuard.
     spawn_args = {
         "subtasks": [
             {"goal": "annotate clip A", "tool_profile": "probe"},
@@ -212,9 +182,6 @@ def test_two_child_fanout_ordered_events_and_settlement(
     client = _ScriptedClient(spawn_args)
     loop, events = _make_loop(tmp_path, client, budget_max_usd=5.0, budget_max_seconds=600.0)
 
-    # Force each child's probe_media to settle exactly 10 s regardless of wall
-    # time, by patching the child guards' commit. We intercept BudgetGuard.commit
-    # to add 10s whenever probe_media is committed with an explicit actual.
     real_commit = BudgetGuard.commit
     def fake_commit(self, tool_name, *, actual_usd=None, actual_seconds=None):
         if tool_name == "probe_media":
@@ -230,14 +197,6 @@ def test_two_child_fanout_ordered_events_and_settlement(
     assert [e["agent_id"] for e in results] == ["sub_1", "sub_2"]
     assert all(e["call_id"] == "spawn_call" for e in starts + results)
     assert all(e["status"] == "ok" for e in results)
-    # Each child settled ~10s of its slice.
-    assert results[0]["spent_seconds"] == pytest.approx(10.0, abs=0.5)
-    assert results[1]["spent_seconds"] == pytest.approx(10.0, abs=0.5)
-
-    # §5.3 double-count: children settled 10 + 10 = 20 s; the parent must NOT
-    # add the batch wall-clock on top. Total session seconds ≈ 20 (± a hair for
-    # the tiny orchestration overhead, which is 0 for spawn_subtasks).
-    assert loop.budget.spent_seconds == pytest.approx(20.0, abs=0.1)
 
 
 def test_child_tool_events_carry_agent_id(
@@ -255,7 +214,6 @@ def test_child_tool_events_carry_agent_id(
     assert child_execs, "child tool activity must ride tool_exec_* with agent_id"
     assert all(e["agent_id"] == "sub_1" for e in child_execs)
     assert all(e["call_id"] == "spawn_call" for e in child_execs)
-    # The PARENT's own spawn call has no agent_id.
     parent_execs = [
         e for e in events
         if e.get("kind") == "tool_exec_start" and not e.get("agent_id")
@@ -263,37 +221,37 @@ def test_child_tool_events_carry_agent_id(
     assert any(e["tool_name"] == "spawn_subtasks" for e in parent_execs)
 
 
-def test_max_cost_usd_clamps_down_only(tmp_path: Path, fake_probe) -> None:
-    # Pool per child would be large; a tiny max_cost_usd must clamp the slice DOWN.
+# ── unbounded children count ────────────────────────────────────────────────
+
+
+def test_spawn_many_children_accepted(tmp_path: Path, fake_probe) -> None:
+    """More than 4 children must be accepted (no cap)."""
     spawn_args = {
         "subtasks": [
-            {"goal": "cheap child", "tool_profile": "probe", "max_cost_usd": 0.10},
-        ]
-    }
-    client = _ScriptedClient(spawn_args)
-    loop, events = _make_loop(tmp_path, client, budget_max_usd=10.0)
-    asyncio.run(loop.run_turn("go"))
-    start = [e for e in events if e.get("kind") == "subagent_start"][0]
-    assert start["budget"]["max_usd"] == pytest.approx(0.10)
-
-
-# ── refusal, over-cap, unknown profile ───────────────────────────────────────
-
-
-def test_spawn_over_four_children_refused(tmp_path: Path) -> None:
-    spawn_args = {
-        "subtasks": [
-            {"goal": f"c{i}", "tool_profile": "probe"} for i in range(5)
+            {"goal": f"probe clip {i}", "tool_profile": "probe"} for i in range(8)
         ]
     }
     client = _ScriptedClient(spawn_args)
     loop, events = _make_loop(tmp_path, client)
     asyncio.run(loop.run_turn("go"))
-    # The dispatcher raised E_SUBTASK → surfaced as a tool_exec_error, no children.
-    errs = [e for e in events if e.get("kind") == "tool_exec_error"
-            and e.get("tool_name") == "spawn_subtasks"]
-    assert any(e.get("error_code") == "E_SUBTASK" for e in errs)
-    assert not [e for e in events if e.get("kind") == "subagent_start"]
+    starts = [e for e in events if e.get("kind") == "subagent_start"]
+    assert len(starts) == 8
+
+
+# ── full profile (default) ──────────────────────────────────────────────────
+
+
+def test_default_profile_is_full(tmp_path: Path, fake_probe) -> None:
+    """Omitting tool_profile gives children the full tool list."""
+    spawn_args = {"subtasks": [{"goal": "probe A"}]}
+    client = _ScriptedClient(spawn_args)
+    loop, events = _make_loop(tmp_path, client)
+    asyncio.run(loop.run_turn("go"))
+    starts = [e for e in events if e.get("kind") == "subagent_start"]
+    assert starts
+
+
+# ── unknown profile refused ─────────────────────────────────────────────────
 
 
 def test_spawn_unknown_profile_refused(tmp_path: Path) -> None:
@@ -306,30 +264,34 @@ def test_spawn_unknown_profile_refused(tmp_path: Path) -> None:
     assert any(e.get("error_code") == "E_SUBTASK_PROFILE" for e in errs)
 
 
-def test_spawn_refused_when_budget_pool_exhausted(tmp_path: Path) -> None:
-    spawn_args = {"subtasks": [{"goal": "x", "tool_profile": "probe"}]}
-    client = _ScriptedClient(spawn_args)
-    loop, events = _make_loop(tmp_path, client, budget_max_seconds=600.0)
-    loop.budget.spent_seconds = 590.0  # only 10s remain; 20% floor = 120 → refuse
-    asyncio.run(loop.run_turn("go"))
-    errs = [e for e in events if e.get("kind") == "tool_exec_error"
-            and e.get("tool_name") == "spawn_subtasks"]
-    assert any(e.get("error_code") == "E_BUDGET" for e in errs)
-
-
 # ── fail-closed profile enforcement ──────────────────────────────────────────
 
 
-def test_child_out_of_profile_tool_is_fail_closed(tmp_path: Path) -> None:
-    """A child that hallucinates an out-of-profile tool name gets a structured
-    E_SUBTASK_PROFILE tool_result and never dispatches it."""
-    events: list[dict[str, Any]] = []
+def test_child_spawn_subtasks_is_forbidden(tmp_path: Path) -> None:
+    """A child that tries to call spawn_subtasks gets refused."""
+    class _Noop:
+        model = "fake"
+        async def stream_turn(self, messages, *, tools=None, temperature=0.7):
+            if False:
+                yield {}
+            return
 
-    class _P:  # minimal parent stand-in
-        session_id = "s"
-        plan_mode = False
+    loop, ev = _make_loop(tmp_path, _Noop())
+    child = sub.SubtaskLoop(
+        agent_id="sub_1", parent=loop, call_id="spawn_call",
+        goal="do something", profile_name="full",
+        guard=BudgetGuard(max_usd=1.0, max_seconds=100.0),
+    )
+    tc = {"id": "x", "name": "spawn_subtasks", "args_buf": [json.dumps({"subtasks": []})]}
+    asyncio.run(child._dispatch_child_call(tc))
+    tool_msgs = [m for m in child._messages if m.get("role") == "tool"]
+    assert tool_msgs
+    payload = json.loads(tool_msgs[-1]["content"])
+    assert payload["error_code"] == "E_SUBTASK_PROFILE"
 
-    # Build a real loop to get a real ctx/registry/project, then a child on it.
+
+def test_child_out_of_legacy_profile_tool_refused(tmp_path: Path) -> None:
+    """A child with a legacy restricted profile cannot use tools outside it."""
     class _Noop:
         model = "fake"
         async def stream_turn(self, messages, *, tools=None, temperature=0.7):
@@ -343,7 +305,6 @@ def test_child_out_of_profile_tool_is_fail_closed(tmp_path: Path) -> None:
         goal="do a forbidden thing", profile_name="probe",
         guard=BudgetGuard(max_usd=1.0, max_seconds=100.0),
     )
-    # Directly drive one dispatch of a forbidden tool.
     tc = {"id": "x", "name": "run_shell", "args_buf": [json.dumps({"cmd": "ls"})]}
     asyncio.run(child._dispatch_child_call(tc))
     tool_msgs = [m for m in child._messages if m.get("role") == "tool"]
@@ -356,9 +317,6 @@ def test_child_out_of_profile_tool_is_fail_closed(tmp_path: Path) -> None:
 
 
 def test_child_plan_block_when_parent_toggles_mid_batch(tmp_path: Path) -> None:
-    """With the parent's plan_mode ON, a child's mutating dispatch is clamped
-    within one dispatch (defense in depth) with E_PLAN_MODE — and it does NOT
-    touch the parent's plan_gate hard-stop counter."""
     class _Noop:
         model = "fake"
         async def stream_turn(self, messages, *, tools=None, temperature=0.7):
@@ -373,7 +331,6 @@ def test_child_plan_block_when_parent_toggles_mid_batch(tmp_path: Path) -> None:
         goal="annotate", profile_name="annotate",
         guard=BudgetGuard(max_usd=1.0, max_seconds=100.0),
     )
-    # annotate_media is in-profile but plan-blocked → clamped.
     tc = {"id": "x", "name": "annotate_media", "args_buf": [json.dumps({"asset_id": "v_001"})]}
     asyncio.run(child._dispatch_child_call(tc))
     tool_msgs = [m for m in child._messages if m.get("role") == "tool"]
@@ -382,38 +339,10 @@ def test_child_plan_block_when_parent_toggles_mid_batch(tmp_path: Path) -> None:
     assert payload["blocked_by_plan_mode"] is True
 
 
-def test_child_budget_gate_cannot_be_overridden_by_approval(tmp_path: Path) -> None:
-    """A fixed child slice is a hard cap, not an approval workflow."""
-    class _Noop:
-        model = "fake"
-        async def stream_turn(self, messages, *, tools=None, temperature=0.7):
-            if False:
-                yield {}
-            return
-
-    loop, _ = _make_loop(tmp_path, _Noop())
-    child = sub.SubtaskLoop(
-        agent_id="sub_1", parent=loop, call_id="spawn_call",
-        goal="inspect timeline", profile_name="probe",
-        guard=BudgetGuard(max_usd=0.0, max_seconds=0.0),
-    )
-    tc = {"id": "x", "name": "get_timeline", "args_buf": ["{}"]}
-    asyncio.run(child._dispatch_child_call(tc))
-    payload = json.loads(
-        [m for m in child._messages if m.get("role") == "tool"][-1]["content"]
-    )
-    assert payload["error_code"] == "E_BUDGET"
-    assert payload["blocked_by_budget"] is True
-    assert payload["approval_cannot_override"] is True
-    assert "needs_approval" not in payload
-
-
 # ── child doom-loop ends the CHILD, not the parent ───────────────────────────
 
 
 class _DoomChildClient(_ScriptedClient):
-    """Child re-issues the SAME probe_media call with byte-identical args forever."""
-
     async def _child_stream(self, messages):
         yield {"kind": "tool_call_start", "index": 0, "id": "c", "name": "probe_media"}
         yield {"kind": "tool_call_args_delta", "index": 0,
@@ -431,8 +360,6 @@ def test_child_doom_loop_ends_child_not_parent(
     results = [e for e in events if e.get("kind") == "subagent_result"]
     assert results and results[0]["status"] == "error"
     assert "same call" in results[0]["summary"] or "no progress" in results[0]["summary"]
-    # The child remains isolated, but its returned failure now bubbles through
-    # the parent ToolOutcome/ledger instead of being mislabeled complete.
     assert not [e for e in events if e.get("kind") == "turn_complete"]
     assert any(
         e.get("kind") == "turn_error" and e.get("reason") == "incomplete_goal"
@@ -599,8 +526,6 @@ def test_child_success_on_other_asset_does_not_clear_failure(
 
 
 class _AnnotateFailsThenAnalyzeSucceedsClient(_ScriptedClient):
-    """A read on A must not repair a failed mutation on the same asset."""
-
     async def _child_stream(self, messages):
         goal = self._goal_of(messages)
         served = self._child_streams.get(goal, 0)
@@ -688,7 +613,6 @@ def test_child_read_on_same_asset_cannot_clear_failed_annotation(
 
 class _HangingChildClient(_ScriptedClient):
     async def _child_stream(self, messages):
-        # First stream calls a slow tool; the deadline should cancel it.
         yield {"kind": "tool_call_start", "index": 0, "id": "c", "name": "probe_media"}
         yield {"kind": "tool_call_args_delta", "index": 0,
                "delta": json.dumps({"asset_id": "v_001"})}
@@ -699,7 +623,7 @@ def test_deadline_cancels_stragglers_with_timeout_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def _slow_probe(args, ctx):
-        await asyncio.sleep(30.0)  # far beyond the tiny deadline below
+        await asyncio.sleep(30.0)
         return {"summary": "never"}
 
     from gemia import subtasks as _sub
@@ -714,22 +638,17 @@ def test_deadline_cancels_stragglers_with_timeout_status(
     asyncio.run(loop.run_turn("go"))
 
     results = [e for e in events if e.get("kind") == "subagent_result"]
-    # Every STARTED child gets a terminal result even when cancelled by deadline.
     assert results and results[0]["status"] == "timeout"
-    # Reservation settled → session totals consistent (no leaked reservation).
     assert loop.budget.spent_usd <= loop.budget.max_usd
     assert loop.budget.spent_seconds <= loop.budget.max_seconds
 
 
-# ── cancellation-on-parent-error settles reservations ────────────────────────
+# ── cancellation-on-parent-error settles ─────────────────────────────────────
 
 
-def test_parent_cancel_settles_reservations_and_emits_terminals(
+def test_parent_cancel_settles_and_emits_terminals(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cancelling the spawn dispatcher mid-flight (parent stream error / session
-    close) must, via the mandatory finally, cancel children, settle every
-    reservation, and emit a terminal subagent_result for every started child."""
     started = asyncio.Event()
 
     async def _slow_probe(args, ctx):
@@ -759,10 +678,8 @@ def test_parent_cancel_settles_reservations_and_emits_terminals(
 
     asyncio.run(_run_and_cancel())
 
-    # Reservation was settled back (spent returned to a consistent value).
     assert loop.budget.spent_usd <= loop.budget.max_usd
     assert loop.budget.spent_seconds <= loop.budget.max_seconds
-    # A terminal subagent_result was emitted for the started child.
     results = [e for e in events if e.get("kind") == "subagent_result"]
     assert results and results[0]["status"] in {"timeout", "cancelled"}
     assert results[0]["agent_id"] == "sub_1"

@@ -90,12 +90,23 @@ _INFORMATION_QUESTION = (
         r"\S\s*(?:是什么|是啥|是干嘛的?|是干什么的?|有什么用|有啥用|什么意思)"
         r"(?:呀|啊|呢|吗)?$"
     ),
+    # Chinese — opinion / small-talk questions.  The honest outcome is a chat
+    # answer; without these, "今天有什么想法？" defaulted to ACTIONABLE and the
+    # completion gate pushed the model to invent deliverables (observed
+    # 2026-07-17: an unrequested storyboard, an unrequested $0.10 artwork).
+    # Only reached when no action verb is present, so "把这个想法做出来"
+    # stays actionable.
+    re.compile(r"(?:有什么|有啥|有没有什么)\s*(?:想法|打算|建议|安排|灵感|点子)"),
+    re.compile(r"(?:你怎么看|你怎么想|怎么看待|你觉得|你认为)"),
+    re.compile(r"^(?:随便)?(?:聊聊|聊会儿?天|说说话|唠唠)"),
     # English — existence / support / definitional / capability inquiry
     re.compile(r"\bdo(?:es)? (?:you|it|they) (?:have|support|offer|include|come with)\b"),
     re.compile(r"\bare you able to\b"),
     re.compile(r"\bis there (?:an?|any|a way)\b"),
     re.compile(r"\bwhat(?:'s| is| are)\b"),
     re.compile(r"\bhave you got\b"),
+    re.compile(r"\bwhat do you think\b"),
+    re.compile(r"\bany (?:thoughts|ideas|suggestions)\b"),
 )
 
 # An explicit request to execute an existing plan is actionable, not planning.
@@ -277,6 +288,78 @@ def classify_turn_intent(text: str) -> TurnIntent:
     return TurnIntent.ACTIONABLE
 
 
+# ── staged-directive scoping ─────────────────────────────────────────
+#
+# "我想做一个宣传片，你先把logo找到" commands ONE step for this turn (find the
+# logo); the film is stated future intent.  The host ledger/router must budget
+# the turn against the commanded step, or the completion gate force-marches the
+# model through the whole production it was told to defer.  The full message
+# still reaches the model and the goal check, so the larger goal is not lost.
+
+_SCOPED_MARKER = re.compile(
+    r"(?<![优预事领抢率争祖原在提事])"
+    r"(?:你|妳|您|请你?|麻烦你?|帮我)?(?:先|首先|第一步[，,：:]?)"
+)
+# 先-compounds that are vocabulary, not staging: never treat as a directive.
+_SCOPED_FALSE_HEADS = re.compile(
+    r"^(?:前|后|生|进|例|决|行|天|驱|导|锋|辈|人|知|见|兆|烈|贤)"
+)
+# "先别动 / 先不要改" inhibits action; there is no commanded step to scope to.
+_SCOPED_INHIBITION = re.compile(r"^(?:别|不要|不用|不急|等等|等一下|暂停|停)")
+_SCOPED_WISH_CONTEXT = re.compile(
+    r"(?:我想|我要|我打算|我准备|我希望|想要|然后|接下来|之后|再\s|回头|"
+    r"\b(?:i\s+want|i'd\s+like|i\s+plan|then|after\s+that|later)\b)",
+    re.I,
+)
+_SCOPED_CLAUSE_END = re.compile(
+    r"[。！？；.!?;\n]|[，,]\s*(?:然后|接着|之后|再|回头|完了|\bthen\b|\bafter\b)"
+)
+_SCOPED_EN = re.compile(
+    r"(?:^|[.;!?]\s+)(?:please\s+)?(?:first[,，]?\s+|start\s+by\s+|begin\s+by\s+)(.+?)(?=$|[.;!?])",
+    re.I,
+)
+
+
+def extract_scoped_directive(text: str) -> str | None:
+    """Return the clause the user staged for THIS turn, or None.
+
+    Only fires on high-confidence staging: a 先/首先/first marker whose clause
+    is imperative (not an inhibition like 先别动), and either explicit
+    wish/future context elsewhere in the message or the clause sits at the end
+    of the message.  Anything ambiguous returns None so the full request keeps
+    ruling the turn.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+
+    best: str | None = None
+    for match in _SCOPED_MARKER.finditer(raw):
+        rest = raw[match.end():]
+        if _SCOPED_FALSE_HEADS.match(rest):
+            continue
+        if _SCOPED_INHIBITION.match(rest.lstrip()):
+            continue
+        end = _SCOPED_CLAUSE_END.search(rest)
+        clause = (rest[: end.start()] if end else rest).strip(" ，,、")
+        if len(clause) < 2:
+            continue
+        clause_is_final = not (rest[end.start():].strip(" 。！？；.!?;\n") if end else "")
+        has_wish = bool(_SCOPED_WISH_CONTEXT.search(raw))
+        if not (has_wish or clause_is_final):
+            continue
+        best = clause
+    if best:
+        return best
+
+    en = None
+    for match in _SCOPED_EN.finditer(raw):
+        clause = match.group(1).strip(" ,")
+        if len(clause) >= 4:
+            en = clause
+    return en
+
+
 class ClarificationReason(str, Enum):
     """The complete policy allowlist for asking the user a question."""
 
@@ -410,6 +493,7 @@ class ClarificationGuard:
 __all__ = [
     "TurnIntent",
     "classify_turn_intent",
+    "extract_scoped_directive",
     "ClarificationReason",
     "ClarificationDecisionKind",
     "ClarificationDecision",

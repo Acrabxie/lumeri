@@ -66,7 +66,7 @@ def test_insert_video_appends_and_returns_summary(sample_video_path: str, tmp_pa
     assert timeline["timeline"]["clip_count"] == 1
 
 
-def test_insert_text_autocreates_overlay_track(tmp_path: Path) -> None:
+def test_insert_text_defaults_to_primary_visual_track(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
 
     out = _call(
@@ -75,7 +75,7 @@ def test_insert_text_autocreates_overlay_track(tmp_path: Path) -> None:
         ctx,
     )
 
-    assert out["track_id"] == "OV1"
+    assert out["track_id"] == "V1"
     clips = _clips(ctx)
     assert len(clips) == 1
     clip = clips[0]
@@ -83,7 +83,7 @@ def test_insert_text_autocreates_overlay_track(tmp_path: Path) -> None:
     assert clip["text_config"]["content"] == "Hello"
     assert clip["duration"] == 2.5
     tracks = {t["id"]: t for t in ctx.project.load()["timeline"]["tracks"]}
-    assert "OV1" in tracks and tracks["OV1"]["kind"] == "overlay"
+    assert "V1" in tracks and tracks["V1"]["kind"] == "video"
 
 
 def test_insert_audio_asset_lands_on_audio_track(tmp_path: Path) -> None:

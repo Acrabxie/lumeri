@@ -45,8 +45,8 @@ PROVIDERS: list[dict[str, Any]] = [
     {
         "id": "claude",
         "label": "Anthropic Claude",
-        "hint": "ANTHROPIC_API_KEY（api.anthropic.com）",
-        "fields": ["model"],
+        "hint": "ANTHROPIC_API_KEY；可选自定义 Messages API 地址，接 Anthropic 兼容网关",
+        "fields": ["model", "anthropic_base_url", "anthropic_betas"],
         "key_field": "anthropic_api_key",
         "model_presets": ["claude-opus-4-8", "claude-sonnet-5", "claude-fable-5"],
     },
@@ -84,6 +84,8 @@ _STR_FIELDS = {
     "vertex_project": ("vertex_project", "VERTEX_PROJECT"),
     "vertex_location": ("vertex_location", "VERTEX_LOCATION"),
     "base_url": ("lumeri_openai_base_url", "LUMERI_OPENAI_BASE_URL"),
+    "anthropic_base_url": ("lumeri_anthropic_base_url", "LUMERI_ANTHROPIC_BASE_URL"),
+    "anthropic_betas": ("lumeri_anthropic_betas", "LUMERI_ANTHROPIC_BETAS"),
 }
 # 密钥字段：仅当非空才覆盖（避免留空表单误清已存 key）。
 _KEY_FIELDS = {
@@ -109,6 +111,8 @@ def read_status(config: dict) -> dict[str, Any]:
         "vertex_project": config.get("vertex_project") or "",
         "vertex_location": config.get("vertex_location") or "",
         "base_url": config.get("lumeri_openai_base_url") or "",
+        "anthropic_base_url": config.get("lumeri_anthropic_base_url") or "",
+        "anthropic_betas": config.get("lumeri_anthropic_betas") or "",
         "has_key": {
             "openrouter": _has(config, "openrouter_api_key"),
             "gemini": _has(config, "gemini_api_key"),

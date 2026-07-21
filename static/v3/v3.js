@@ -21,6 +21,13 @@
   "use strict";
 
   const $ = (sel) => document.querySelector(sel);
+  const pageParams = new URLSearchParams(location.search || "");
+  const cliPreviewSessionId = pageParams.get("mode") === "cli-preview"
+    ? (pageParams.get("session") || "").trim()
+    : "";
+  const isCliPreview = !!cliPreviewSessionId;
+  document.documentElement.classList.toggle("cli-preview", isCliPreview);
+  if (isCliPreview) document.title = "Lumeri Video · CLI Preview";
 
   // Inline the icon sprite once so every <use href="#i-*"> resolves, including
   // ones rendered before the fetch lands (SVG <use> re-resolves on DOM insert).
@@ -48,7 +55,6 @@
     uploadInput: $("#upload-input"),
     uploadBtn: $("#upload-btn"),
     promptInput: $("#prompt-input"),
-    voiceInputBtn: $("#voice-input-btn"),
     voiceInputStatus: $("#voice-input-status"),
     sendBtn: $("#send-btn"),
     inputShell: $("#input-shell"),
@@ -60,6 +66,9 @@
     historyToggleBtn: $("#history-toggle-btn"),
     historyDrawer: $("#history-drawer"),
     historyDrawerBody: $("#history-drawer-body"),
+    historyDrawerClose: $("#history-drawer-close"),
+    appMain: $("#app-main"),
+    railHistory: $("#rail-history"),
   };
 
   /** @typedef {{ asset_id: string, kind: string, summary: string, source: "user"|"tool", final?: boolean }} AssetEntry */
@@ -84,6 +93,7 @@
     mediaLibrary: [],
     mediaAnnotations: new Map(), // media-library asset_id -> annotations[]
     mediaLibraryStatus: "idle",
+    _justSubmitted: false,      // true after submit → force scroll to bottom
     planMode: false,            // mirrors the backend per-session flag
     planReady: false,           // a turn completed while planning → offer approval
     pendingAsk: null,           // {question_id, question} while elicit awaits
@@ -99,6 +109,8 @@
   function newTurn(userMessage) {
     return {
       userMessage,
+      startedAt: Date.now(),
+      completedAt: null,
       assistantText: "",
       pendingAssistantText: "", // held until the host knows it is a final reply
       streaming: false,
@@ -457,26 +469,39 @@
   function render() {
     els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
     const busy = !state.sessionId || state.turnInProgress;
-    els.sendBtn.disabled = !state.sessionId;
+    const hasText = els.promptInput.value.trim().length > 0;
+    els.sendBtn.disabled = !state.sessionId || state.stopPending;
     els.uploadBtn.disabled = busy;
     els.inputShell.classList.toggle("is-steering", state.turnInProgress);
     els.inputShell.classList.toggle("is-working", state.turnInProgress);
+    els.sendBtn.classList.toggle("is-voice", !state.turnInProgress && !voiceInput.listening && !hasText);
+    els.sendBtn.classList.toggle("is-stop", state.turnInProgress);
+    els.sendBtn.classList.toggle("is-listening", !!voiceInput.listening);
     if (state.turnInProgress && !voiceInput.listening) {
-      els.voiceInputBtn.querySelector("use")?.setAttribute("href", "#i-pause");
-      els.voiceInputBtn.setAttribute("aria-label", "停止当前执行");
-      els.voiceInputBtn.title = "停止当前执行";
-      els.voiceInputBtn.disabled = state.stopPending;
-    } else if (!state.turnInProgress && !voiceInput.listening) {
-      els.voiceInputBtn.querySelector("use")?.setAttribute("href", "#i-mic");
-      els.voiceInputBtn.setAttribute("aria-label", "语音输入");
-      els.voiceInputBtn.title = "语音输入";
-      els.voiceInputBtn.disabled = false;
+      els.sendBtn.querySelector("use")?.setAttribute("href", "#i-stop-solid");
+      els.sendBtn.setAttribute("aria-label", "停止当前执行");
+      els.sendBtn.title = "停止当前执行";
+      els.sendBtn.disabled = state.stopPending;
+    } else if (voiceInput.listening) {
+      els.sendBtn.querySelector("use")?.setAttribute("href", "#i-mic");
+      els.sendBtn.setAttribute("aria-label", "停止语音输入");
+      els.sendBtn.title = "停止语音输入";
+      els.sendBtn.disabled = false;
+    } else if (hasText) {
+      els.sendBtn.querySelector("use")?.setAttribute("href", "#i-send");
+      els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
+      els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
+    } else {
+      els.sendBtn.querySelector("use")?.setAttribute("href", "#i-mic");
+      els.sendBtn.setAttribute("aria-label", "语音输入");
+      els.sendBtn.title = "语音输入";
     }
     els.promptInput.placeholder = "描述你想要的视频，或输入 / 唤起命令…";
     els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
     els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
     updateEditHint();   // selection-aware split/delete rule wins over the blanket disable above
+    syncTimelineSkillWidgets();
 
     const railEmpty = document.getElementById("rail-empty");
     if (!state.turns.length) {
@@ -499,6 +524,7 @@
     renderAssets();
     renderMediaLibrary();
     renderPlanUi();
+    autoScrollChat();
   }
 
   // Plan-mode toggle button + hint/approval bar. Signature-guarded like
@@ -547,6 +573,15 @@
     const assistantHtml = hasAssistant
       ? `<div class="assistant-bubble${turn.streaming ? " streaming" : ""}">${renderMarkdown(turn.assistantText)}</div>`
       : "";
+    const isActiveTurn = state.turnInProgress && turn === state.currentTurn;
+    const shouldShowMark = isActiveTurn || hasAssistant;
+    const workElapsed = formatWorkElapsed(turn, isActiveTurn);
+    const assistantMarkHtml = shouldShowMark
+      ? `<div class="assistant-workmark${isActiveTurn ? " is-active" : " is-static"}"${isActiveTurn ? ' role="status" aria-live="polite" aria-label="Lumeri 正在生成"' : ' aria-hidden="true"'}>
+          <img src="/video/${isActiveTurn ? "lumeri-working.svg" : "lumeri-working-static.svg"}" alt="" aria-hidden="true" />
+          ${isActiveTurn ? "Working" : ""}${workElapsed ? ` <span>${escapeHTML(workElapsed)}</span>` : ""}
+        </div>`
+      : "";
     const actionsHtml = (hasAssistant && turn.assistantText && !turn.streaming)
       ? `<div class="assistant-actions">
           <button type="button" class="assistant-action-btn" data-copy-assistant="${idx}" title="复制">
@@ -557,13 +592,26 @@
           </button>
         </div>`
       : "";
+    // Retract only makes sense for the newest settled turn: the backend
+    // anchors on its last real user message, so older bubbles can't match.
+    const canRetract = idx === state.turns.length - 1 && !state.turnInProgress;
+    const userActionsHtml = `<div class="user-actions">
+          <button type="button" class="assistant-action-btn" data-copy-user="${idx}" title="复制">
+            <svg aria-hidden="true"><use href="#i-copy"/></svg>
+          </button>
+          ${canRetract ? `<button type="button" class="assistant-action-btn" data-retract-user="${idx}" title="撤回">
+            <svg aria-hidden="true"><use href="#i-undo"/></svg>
+          </button>` : ""}
+        </div>`;
     return `
       ${idx ? '<div class="turn-divider" role="separator"></div>' : ""}
       <div class="user-bubble">${renderMarkdown(turn.userMessage)}</div>
+      ${userActionsHtml}
       ${guidanceHtml}
       ${callsHtml}
       ${bannersHtml}
       ${assistantHtml}
+      ${assistantMarkHtml}
       ${actionsHtml}
     `;
   }
@@ -603,7 +651,6 @@
     const progressReport = safeProgressReport(group.progressReport);
     const reportHtml = progressReport
       ? `<div class="midturn-report" aria-label="Lumeri 阶段汇报">
-          <span class="midturn-report-label">Lumeri</span>
           <div>${renderMarkdown(progressReport)}</div>
         </div>`
       : "";
@@ -821,7 +868,26 @@
     return `${n.toFixed(1)}s`;
   }
 
+  function formatWorkElapsed(turn, active) {
+    if (!turn?.startedAt) return "";
+    const end = active ? Date.now() : turn.completedAt;
+    if (!end) return "";
+    const seconds = Math.max(0, Math.floor((end - turn.startedAt) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return `${minutes}m${String(rest).padStart(2, "0")}s`;
+  }
+
   // ── event handlers (one per kind, no silent drop) ──────────────────
+  function autoScrollChat() {
+    const rail = els.railHistory;
+    if (!rail) return;
+    const isNearBottom = rail.scrollHeight - rail.scrollTop - rail.clientHeight < 120;
+    if (state._justSubmitted || state.turnInProgress && isNearBottom) {
+      rail.scrollTop = rail.scrollHeight;
+    }
+  }
 
   const handlers = {
     turn_start: () => {
@@ -846,6 +912,7 @@
       state.stopPending = false;
       const t = state.currentTurn;
       if (!t) return;
+      t.completedAt = Date.now();
       for (const tc of t.toolCalls.values()) {
         if (tc.status === "pending" || tc.status === "running") tc.status = "cancelled";
       }
@@ -982,12 +1049,13 @@
       state.turnInProgress = false;
       state.stopPending = false;
       if (!t) return;
+      t.completedAt = Date.now();
       const modelReport = ev.reason === "incomplete_goal"
         ? stripActivityMarkup(t.pendingAssistantText).trim()
         : "";
       const fallbackReport = String(ev.message || "").trim();
       t.assistantText = modelReport || fallbackReport
-        || "我先停在这里。当前进度已经保留；你让我继续，我会从这里接着处理。";
+        || "这轮没有完整结束，具体原因没有成功返回。";
       t.pendingAssistantText = "";
       t.streaming = false;
       t.complete = true;
@@ -1059,6 +1127,7 @@
       state.turnInProgress = false;
       state.stopPending = false;
       if (!t) return;
+      t.completedAt = Date.now();
       t.assistantText = stripActivityMarkup(t.pendingAssistantText);
       t.pendingAssistantText = "";
       t.streaming = false;
@@ -1088,6 +1157,7 @@
       state.stopPending = false;
       const t = state.currentTurn;
       if (t) {
+        t.completedAt = Date.now();
         t.streaming = false;
         t.complete = true;
         // An "incomplete_goal" stop is not a failure — the model has already
@@ -1133,6 +1203,62 @@
     }
   }
 
+  function _askChoiceAspect(option) {
+    const text = `${option?.value ?? ""} ${option?.label ?? ""}`.toLowerCase();
+    const ratio = text.match(/(?:^|[^0-9])(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)(?:[^0-9]|$)/);
+    if (ratio) return `${Number(ratio[1])} / ${Number(ratio[2])}`;
+    if (/横屏|landscape|horizontal/.test(text)) return "16 / 9";
+    if (/竖屏|portrait|vertical/.test(text)) return "9 / 16";
+    if (/方形|square/.test(text)) return "1 / 1";
+    return "";
+  }
+
+  function _askSliderPrecision(step) {
+    const text = String(step);
+    if (/e-/i.test(text)) return Math.min(6, Number(text.split(/e-/i)[1]) || 0);
+    return Math.min(6, (text.split(".")[1] || "").length);
+  }
+
+  function _formatAskSliderValue(value, step, fluid = false) {
+    if (!Number.isFinite(value)) return "";
+    const precision = fluid ? Math.max(1, _askSliderPrecision(step)) : _askSliderPrecision(step);
+    return value.toFixed(precision).replace(/\.?0+$/, "");
+  }
+
+  function _positionAskSlider(wrap, range, bubble, value, fluid = false) {
+    const min = Number(range.min);
+    const max = Number(range.max);
+    const safeValue = Math.min(max, Math.max(min, Number(value)));
+    const progress = max === min ? 0 : (safeValue - min) / (max - min);
+    wrap.style.setProperty("--ask-slider-progress", String(progress));
+    bubble.textContent = _formatAskSliderValue(safeValue, Number(range.dataset.snapStep), fluid);
+  }
+
+  function _settleAskSlider(wrap, range, bubble) {
+    const min = Number(range.min);
+    const max = Number(range.max);
+    const step = Number(range.dataset.snapStep) || 1;
+    const raw = Number(range.value);
+    const snapped = Math.min(max, Math.max(min, min + Math.round((raw - min) / step) * step));
+    const needsSnap = Math.abs(raw - snapped) > Math.max(1e-9, step * 1e-9);
+
+    if (!needsSnap) {
+      wrap.classList.remove("is-dragging");
+      range.value = snapped.toFixed(_askSliderPrecision(step));
+      _positionAskSlider(wrap, range, bubble, snapped);
+      return;
+    }
+
+    wrap.classList.remove("is-dragging", "is-snapping");
+    range.value = snapped.toFixed(_askSliderPrecision(step));
+    // Keep the continuous pointer position for one frame, then spring the
+    // visible bubble to the nearest valid value.
+    void wrap.offsetWidth;
+    wrap.classList.add("is-snapping");
+    requestAnimationFrame(() => _positionAskSlider(wrap, range, bubble, snapped));
+    window.setTimeout(() => wrap.classList.remove("is-snapping"), 440);
+  }
+
   function _askControlDom(key, ctrl) {
     const wrap = document.createElement("div");
     wrap.className = "ask-field";
@@ -1150,15 +1276,33 @@
     if (type === "select") {
       const group = document.createElement("div");
       group.className = "ask-radio-group";
-      for (const opt of (ctrl.options || [])) {
+      const options = ctrl.options || [];
+      const aspects = options.map(_askChoiceAspect);
+      if (aspects.length && aspects.every(Boolean)) group.classList.add("has-aspect-options");
+      for (const [index, opt] of options.entries()) {
         const lbl = document.createElement("label");
+        lbl.className = "ask-choice";
         const radio = document.createElement("input");
         radio.type = "radio";
+        radio.className = "ask-choice-input";
         radio.name = `ask-${key}`;
         radio.value = opt.value;
         if (ctrl.default != null && opt.value === ctrl.default) radio.checked = true;
+        const content = document.createElement("span");
+        content.className = "ask-choice-content";
+        if (aspects[index]) {
+          const shape = document.createElement("span");
+          shape.className = "ask-choice-shape";
+          shape.style.aspectRatio = aspects[index];
+          shape.setAttribute("aria-hidden", "true");
+          content.appendChild(shape);
+        }
+        const text = document.createElement("span");
+        text.className = "ask-choice-text";
+        text.textContent = opt.label;
+        content.appendChild(text);
         lbl.appendChild(radio);
-        lbl.appendChild(document.createTextNode(opt.label));
+        lbl.appendChild(content);
         group.appendChild(lbl);
       }
       wrap.appendChild(group);
@@ -1187,19 +1331,40 @@
     } else if (type === "slider") {
       const sw = document.createElement("div");
       sw.className = "ask-slider-wrap";
+      const line = document.createElement("span");
+      line.className = "ask-slider-line";
+      line.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("span");
+      fill.className = "ask-slider-fill";
+      line.appendChild(fill);
       const range = document.createElement("input");
       range.type = "range";
+      range.className = "ask-slider-input";
       range.name = `ask-${key}`;
       range.min = ctrl.min ?? 0;
       range.max = ctrl.max ?? 100;
-      range.step = ctrl.step ?? 1;
+      range.step = "any";
+      range.dataset.snapStep = ctrl.step ?? 1;
       range.value = ctrl.default ?? ctrl.min ?? 0;
-      const valSpan = document.createElement("span");
-      valSpan.className = "ask-slider-val";
-      valSpan.textContent = range.value;
-      range.addEventListener("input", () => { valSpan.textContent = range.value; });
+      range.setAttribute("aria-label", key);
+      const valSpan = document.createElement("output");
+      valSpan.className = "ask-slider-bubble";
+      valSpan.htmlFor = range.name;
+      range.addEventListener("pointerdown", () => {
+        sw.classList.remove("is-snapping");
+        sw.classList.add("is-dragging");
+      });
+      range.addEventListener("input", () => {
+        sw.classList.remove("is-snapping");
+        _positionAskSlider(sw, range, valSpan, Number(range.value), true);
+      });
+      range.addEventListener("change", () => _settleAskSlider(sw, range, valSpan));
+      range.addEventListener("pointercancel", () => _settleAskSlider(sw, range, valSpan));
+      range.addEventListener("blur", () => _settleAskSlider(sw, range, valSpan));
+      sw.appendChild(line);
       sw.appendChild(range);
       sw.appendChild(valSpan);
+      _positionAskSlider(sw, range, valSpan, Number(range.value));
       wrap.appendChild(sw);
     } else if (type === "panel") {
       const pg = document.createElement("div");
@@ -1442,7 +1607,7 @@
 
   function trackCompatible(mediaKind, trackKind) {
     if (mediaKind === "audio") return trackKind === "audio";
-    return trackKind === "video" || trackKind === "overlay" || trackKind === "text";
+    return trackKind === "video" || trackKind === "text";
   }
 
   // Build the model the editor lays out: real tracks if present, else default
@@ -1457,7 +1622,7 @@
         { id: "A1", kind: "audio", name: "音频", clips: [] },
       ];
     }
-    const rank = (k) => (k === "audio" ? 2 : k === "overlay" || k === "text" ? 0 : 1);
+    const rank = (k) => (k === "audio" ? 1 : 0);
     tracks = tracks.map((t, i) => ({ ...t, _i: i })).sort((a, b) => rank(a.kind) - rank(b.kind) || a._i - b._i);
     let lastEnd = 0;
     for (const t of tracks) for (const c of (t.clips || [])) lastEnd = Math.max(lastEnd, (c.start || 0) + (c.duration || 0));
@@ -1475,16 +1640,16 @@
       <div class="ptl-toolbar">
         <div class="ptl-tgroup">
           <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-undo" title="撤销 (⌘Z)"><svg viewBox="0 0 16 16"><path d="M6.5 4 3.5 7l3 3"/><path d="M3.5 7H10a3.5 3.5 0 0 1 0 7H7.5"/></svg></button>
-          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-redo" title="重做"><svg viewBox="0 0 16 16"><path d="M9.5 4l3 3-3 3"/><path d="M12.5 7H6a3.5 3.5 0 0 0 0 7h2.5"/></svg></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-redo" data-timeline-component="redo" title="重做" aria-label="重做"><svg viewBox="0 0 16 16"><path d="M9.5 4l3 3-3 3"/><path d="M12.5 7H6a3.5 3.5 0 0 0 0 7h2.5"/></svg></button>
         </div>
         <div class="ptl-sep"></div>
         <div class="ptl-tgroup">
           <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-split" title="在指针处分割 (S)" aria-label="分割"><svg viewBox="0 0 16 16"><path d="M8 2.5v11"/><rect x="2.6" y="5" width="3.4" height="6" rx="1.1"/><rect x="10" y="5" width="3.4" height="6" rx="1.1"/></svg></button>
           <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-delete" title="删除所选 (Del)" aria-label="删除"><svg viewBox="0 0 16 16"><path d="M3 4.5h10"/><path d="M6 4.5V3h4v1.5"/><path d="M4.6 4.5 5.1 13.3h5.8l.5-8.8"/><path d="M6.9 6.8v4.3M9.1 6.8v4.3"/></svg></button>
-          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-marker" title="在指针处加标记 (M)" aria-label="标记"><svg viewBox="0 0 16 16"><path d="M4.5 2v12"/><path d="M4.5 2.8h7.3l-1.8 2.6 1.8 2.6H4.5"/></svg></button>
+          <button class="ptl-btn ptl-ico-btn pt-edit-btn" id="ptl-marker" data-timeline-component="marker" title="在指针处加标记 (M)" aria-label="标记"><svg viewBox="0 0 16 16"><path d="M4.5 2v12"/><path d="M4.5 2.8h7.3l-1.8 2.6 1.8 2.6H4.5"/></svg></button>
         </div>
         <div class="ptl-sep"></div>
-        <button class="ptl-btn ptl-ico-btn ptl-toggle" id="ptl-snap" title="吸附对齐" aria-label="吸附对齐"><svg viewBox="0 0 16 16"><path d="M4 2.5v5a4 4 0 0 0 8 0v-5"/><path d="M4 2.5h2.4M9.6 2.5H12M4 6h2.4M9.6 6H12"/></svg></button>
+        <button class="ptl-btn ptl-ico-btn ptl-toggle" id="ptl-snap" data-timeline-component="snap" title="吸附对齐" aria-label="吸附对齐"><svg viewBox="0 0 16 16"><path d="M4 2.5v5a4 4 0 0 0 8 0v-5"/><path d="M4 2.5h2.4M9.6 2.5H12M4 6h2.4M9.6 6H12"/></svg></button>
         <div class="ptl-spacer"></div>
         <div class="ptl-tc" id="ptl-tc">00:00:00</div>
         <div class="ptl-zoom">
@@ -1504,10 +1669,10 @@
         </div>
       </div>
       <div class="pt-quick-actions" id="pt-quick-actions">
-        <button class="pt-action-btn" data-cmd="export the project at 1080p quality" title="导出 1080p"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>1080p</button>
-        <button class="pt-action-btn" data-cmd="export the project as draft quality" title="导出草稿"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg>草稿</button>
-        <button class="pt-action-btn" data-cmd="add a title overlay at the start of the timeline" title="在片头加标题"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-text"/></svg>标题</button>
-        <button class="pt-action-btn" data-cmd="get the current timeline layout" title="获取时间线布局"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg>布局</button>
+        <button class="pt-action-btn" data-timeline-component="export-1080p" data-cmd="export the project at 1080p quality" title="导出 1080p"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg><span class="pt-action-label">1080p</span></button>
+        <button class="pt-action-btn" data-timeline-component="export-draft" data-cmd="export the project as draft quality" title="导出草稿"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-export"/></svg><span class="pt-action-label">草稿</span></button>
+        <button class="pt-action-btn" data-timeline-component="add-title" data-cmd="add a title overlay at the start of the timeline" title="在片头加标题"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-text"/></svg><span class="pt-action-label">标题</span></button>
+        <button class="pt-action-btn" data-timeline-component="show-layout" data-cmd="get the current timeline layout" title="获取时间线布局"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg><span class="pt-action-label">布局</span></button>
       </div>`;
 
     TL.rulerCtx = tlRuler().getContext("2d");
@@ -1527,6 +1692,7 @@
     zoom.oninput = () => setPps(+zoom.value);
     document.getElementById("ptl-zoom-in").onclick = () => setPps(TL.pps * 1.25);
     document.getElementById("ptl-zoom-out").onclick = () => setPps(TL.pps / 1.25);
+    applyTimelineSkillComponents();
 
     const scroll = tlScroll();
     let hydrateQueued = false;
@@ -2066,6 +2232,7 @@
       el.classList.toggle("selected", el.dataset.clipId === clipId);
     });
     updateEditHint();
+    syncTimelineSkillWidgets();
   }
 
   function focusEntity(kind, id) {
@@ -2312,6 +2479,27 @@
     render();
   }
 
+  // CLI preview is the canonical Video workspace attached to the session the
+  // terminal already owns. It must never create, replace, or close that
+  // session; only the chat surfaces are removed by the .cli-preview CSS mode.
+  async function attachSession(sessionId) {
+    clearReconnectTimer();
+    stopTimelinePoll();
+    if (state.eventSource) state.eventSource.close();
+    setConnPill("opening…", "");
+    state.sessionId = sessionId;
+    state.lastEventId = null;
+    loadMarkers();
+    TL._renderedSeq = null;
+    await refreshSessionState();
+    connectSse(sessionId);
+    startTimelinePoll();
+    fetchMediaLibrary().catch(() => {});
+    const emptyHint = document.querySelector("#empty-state .empty-sub");
+    if (emptyHint) emptyHint.textContent = "在终端描述你想要的视频";
+    render();
+  }
+
   // ── session persistence (auto-save + auto-title) ────────────────────
 
   function _collectSessionMessages() {
@@ -2344,6 +2532,37 @@
         body: JSON.stringify(payload),
       });
     } catch {}
+  }
+
+  async function retractTurn(turnIdx) {
+    // Only the newest settled turn is retractable; expected_message lets the
+    // backend refuse if its history and this UI have drifted apart.
+    if (turnIdx !== state.turns.length - 1 || state.turnInProgress) return;
+    const turn = state.turns[turnIdx];
+    if (!turn || !state.sessionId) return;
+    let failText = "撤回失败，请稍后重试。";
+    try {
+      const r = await fetch(`/sessions/${encodeURIComponent(state.sessionId)}/retract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_message: turn.userMessage }),
+      });
+      if (r.ok) {
+        state.turns.pop();
+        state.currentTurn = state.turns[state.turns.length - 1] || null;
+        state.userMessageCount = Math.max(0, state.userMessageCount - 1);
+        // Hand the text back for re-editing, but never clobber a draft.
+        if (!els.promptInput.value.trim()) els.promptInput.value = turn.userMessage;
+        render();
+        autoSaveSession();
+        els.promptInput.focus();
+        return;
+      }
+      const err = await r.json().catch(() => null);
+      if (err?.error) failText = err.error;
+    } catch {}
+    turn.banners.push({ kind: "turn_error", text: failText });
+    render();
   }
 
   async function autoGenerateTitle() {
@@ -2517,7 +2736,7 @@
     label.textContent = text || "";
   }
 
-  async function submitTurn(message) {
+  async function submitTurn(message, retryExpiredSession = true) {
     if (!state.sessionId) throw new Error("no session");
     state.userMessageCount++;
     const turn = newTurn(message);
@@ -2525,12 +2744,21 @@
     state.currentTurn = turn;
     state.turnInProgress = true;
     state.planReady = false;   // a new turn supersedes any pending approval offer
+    state._justSubmitted = true;
     render();
     const r = await fetch(`/sessions/${state.sessionId}/turn`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
+    // Runtime sessions live in memory, so a safe auto-sync reload can leave an
+    // open tab holding an expired id. Preserve the prior conversation in
+    // history, open a fresh runtime session and retry the user's message once.
+    if (r.status === 404 && retryExpiredSession) {
+      await autoSaveSession();
+      await createSession();
+      return submitTurn(message, false);
+    }
     if (!r.ok && r.status !== 202) {
       turn.banners.push({ kind: "turn_error", text: "任务未能开始，请稍后重试" });
       state.turnInProgress = false;
@@ -2629,6 +2857,28 @@
       return;
     }
 
+    // ── Copy user message ──
+    const copyUserBtn = e.target.closest("[data-copy-user]");
+    if (copyUserBtn) {
+      const turnIdx = Number(copyUserBtn.dataset.copyUser);
+      const turn = state.turns[turnIdx];
+      if (turn?.userMessage) {
+        navigator.clipboard.writeText(turn.userMessage).then(() => {
+          const svg = copyUserBtn.querySelector("svg use");
+          if (svg) { svg.setAttribute("href", "#i-check"); setTimeout(() => svg.setAttribute("href", "#i-copy"), 1200); }
+        });
+      }
+      return;
+    }
+
+    // ── Retract last user turn ──
+    const retractBtn = e.target.closest("[data-retract-user]");
+    if (retractBtn) {
+      const turnIdx = Number(retractBtn.dataset.retractUser);
+      retractTurn(turnIdx);
+      return;
+    }
+
     // ── Speak assistant text ──
     const speakBtn = e.target.closest("[data-speak-assistant]");
     if (speakBtn) {
@@ -2700,39 +2950,199 @@
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.id = "model-modal";
-      overlay.className = "auth-modal";
+      overlay.className = "settings-overlay";
       overlay.hidden = true;
       overlay.innerHTML = `
-        <div class="model-backdrop" data-model-close></div>
-        <div class="auth-dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-title">
-          <button type="button" class="auth-x" data-model-close aria-label="关闭">×</button>
-          <h2 id="model-title">模型与思考强度</h2>
-          <p class="model-lock-note" id="model-lock-note" hidden></p>
-          <div class="model-list" id="model-list"></div>
-          <div class="model-add-wrap" id="model-add-wrap">
-            <button type="button" class="model-add-btn" id="model-add-btn">+ 添加模型</button>
-            <div class="model-add-dropdown" id="model-add-dropdown" hidden>
-              <div class="model-add-search-wrap">
-                <input type="text" class="model-add-search" id="model-add-search" placeholder="搜索或输入模型 ID…">
-                <span class="model-add-spinner" id="model-add-spinner" hidden></span>
-              </div>
-              <div class="model-add-list" id="model-add-list"></div>
-              <button type="button" class="model-add-custom" id="model-add-custom" hidden>添加自定义模型</button>
+        <div class="settings-page" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <aside class="settings-sidebar">
+            <div class="settings-titlebar">
+              <button type="button" class="settings-back" data-model-close aria-label="返回工作区">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chevron-l"/></svg>
+              </button>
+              <h1 id="settings-title">Settings</h1>
             </div>
-          </div>
-          <div class="model-effort-label">思考强度</div>
-          <div class="model-efforts" id="model-efforts"></div>
-          <div class="model-save-wrap" id="model-save-wrap" hidden>
-            <button type="button" class="model-save-btn" id="model-save-btn">保存</button>
-          </div>
-          <p class="auth-error" id="model-error" hidden></p>
+            <nav class="settings-nav" aria-label="设置栏目">
+              <button type="button" class="settings-nav-item active" data-settings-section="model" aria-current="page">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg>
+                <span>Model</span>
+              </button>
+              <button type="button" class="settings-nav-item" data-settings-section="safety">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-shield"/></svg>
+                <span>Safety</span>
+              </button>
+              <button type="button" class="settings-nav-item" data-settings-section="account">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg>
+                <span>Account</span>
+              </button>
+            </nav>
+          </aside>
+          <main class="settings-detail">
+            <section class="settings-panel" data-settings-panel="model" aria-labelledby="model-title">
+              <header class="settings-panel-head">
+                <h2 id="model-title">Model &amp; reasoning</h2>
+                <p>Choose the model and reasoning level used for new turns.</p>
+              </header>
+              <p class="model-lock-note" id="model-lock-note" hidden></p>
+              <div class="settings-section-label">Model priority</div>
+              <div class="model-list" id="model-list"></div>
+              <div class="model-add-wrap" id="model-add-wrap">
+                <button type="button" class="model-add-btn" id="model-add-btn">+ 添加模型</button>
+                <div class="model-add-dropdown" id="model-add-dropdown" hidden>
+                  <div class="model-add-search-wrap">
+                    <input type="text" class="model-add-search" id="model-add-search" placeholder="搜索或输入模型 ID…">
+                    <span class="model-add-spinner" id="model-add-spinner" hidden></span>
+                  </div>
+                  <div class="model-add-list" id="model-add-list"></div>
+                  <button type="button" class="model-add-custom" id="model-add-custom" hidden>添加自定义模型</button>
+                </div>
+              </div>
+              <div class="model-effort-label">Reasoning level</div>
+              <div class="model-efforts" id="model-efforts"></div>
+              <div class="model-save-wrap" id="model-save-wrap" hidden>
+                <button type="button" class="model-save-btn" id="model-save-btn">Save</button>
+              </div>
+              <p class="auth-error" id="model-error" hidden></p>
+            </section>
+
+            <section class="settings-panel" data-settings-panel="safety" aria-labelledby="settings-safety-title" hidden>
+              <header class="settings-panel-head">
+                <h2 id="settings-safety-title">Safety</h2>
+                <p>Control how Lumeri can act in the current session.</p>
+              </header>
+              <div class="settings-control-list">
+                <div class="settings-control-row">
+                  <div><strong>Sandbox</strong><span>Limit tool access to the approved workspace.</span></div>
+                  <button type="button" id="settings-sandbox-toggle" class="settings-toggle" role="switch" aria-checked="true">On</button>
+                </div>
+                <div class="settings-control-row">
+                  <div><strong>Plan mode</strong><span>Plan first and wait for approval before making changes.</span></div>
+                  <button type="button" id="settings-plan-toggle" class="settings-toggle" role="switch" aria-checked="false">Off</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel" data-settings-panel="account" aria-labelledby="settings-account-title" hidden>
+              <header class="settings-panel-head">
+                <h2 id="settings-account-title">Account</h2>
+                <p>View the account currently connected to Lumeri Video.</p>
+              </header>
+              <div id="settings-account-detail" class="settings-account-detail"><span class="model-loading">Loading…</span></div>
+              <p class="auth-error" id="settings-account-error" hidden></p>
+            </section>
+          </main>
         </div>`;
       document.body.appendChild(overlay);
+      const closeSettingsPage = () => {
+        overlay.hidden = true;
+        $(".app-header")?.removeAttribute("inert");
+        $("#app-main")?.removeAttribute("inert");
+        $("#account-btn")?.focus();
+      };
+      overlay._closeSettingsPage = closeSettingsPage;
       overlay.querySelectorAll("[data-model-close]").forEach((el) =>
-        el.addEventListener("click", () => { overlay.hidden = true; }));
+        el.addEventListener("click", closeSettingsPage));
       document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && !overlay.hidden) overlay.hidden = true;
+        if (e.key === "Escape" && !overlay.hidden) closeSettingsPage();
       });
+
+      const selectSettingsSection = (section) => {
+        overlay.querySelectorAll("[data-settings-section]").forEach((btn) => {
+          const active = btn.dataset.settingsSection === section;
+          btn.classList.toggle("active", active);
+          if (active) btn.setAttribute("aria-current", "page");
+          else btn.removeAttribute("aria-current");
+        });
+        overlay.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+          panel.hidden = panel.dataset.settingsPanel !== section;
+        });
+        if (section === "account") loadSettingsAccount();
+      };
+      overlay._selectSettingsSection = selectSettingsSection;
+      overlay.querySelector(".settings-nav")?.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-settings-section]");
+        if (btn) selectSettingsSection(btn.dataset.settingsSection);
+      });
+
+      const syncSettingsToggles = () => {
+        const sandboxOn = !els.sandboxBtn?.classList.contains("off");
+        const planOn = !!els.planBtn?.classList.contains("on");
+        const sandboxToggle = $("#settings-sandbox-toggle", overlay);
+        const planToggle = $("#settings-plan-toggle", overlay);
+        [[sandboxToggle, sandboxOn], [planToggle, planOn]].forEach(([btn, on]) => {
+          if (!btn) return;
+          btn.classList.toggle("on", on);
+          btn.setAttribute("aria-checked", String(on));
+          btn.textContent = on ? "On" : "Off";
+        });
+      };
+      $("#settings-sandbox-toggle", overlay)?.addEventListener("click", () => {
+        els.sandboxBtn?.click();
+        requestAnimationFrame(syncSettingsToggles);
+      });
+      $("#settings-plan-toggle", overlay)?.addEventListener("click", () => {
+        els.planBtn?.click();
+        requestAnimationFrame(syncSettingsToggles);
+      });
+      if (els.sandboxBtn && els.planBtn) {
+        const toggleObserver = new MutationObserver(syncSettingsToggles);
+        toggleObserver.observe(els.sandboxBtn, { attributes: true, attributeFilter: ["class"] });
+        toggleObserver.observe(els.planBtn, { attributes: true, attributeFilter: ["class"] });
+      }
+      overlay._syncSettingsToggles = syncSettingsToggles;
+
+      async function loadSettingsAccount() {
+        const detail = $("#settings-account-detail", overlay);
+        const error = $("#settings-account-error", overlay);
+        if (!detail || !error) return;
+        error.hidden = true;
+        detail.innerHTML = '<span class="model-loading">Loading…</span>';
+        try {
+          const response = await fetch("/auth/session");
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+          const account = data.account;
+          if (!account) {
+            detail.innerHTML = '<p class="settings-account-empty">Not signed in.</p>';
+            return;
+          }
+          const label = account.name || account.email || "Lumeri account";
+          const fallback = label.trim().charAt(0).toUpperCase();
+          detail.innerHTML = `
+            <div class="settings-account-avatar" aria-hidden="true">${escapeHTML(fallback)}</div>
+            <div class="settings-account-copy">
+              <strong>${escapeHTML(label)}</strong>
+              <span>${escapeHTML(account.email || "Signed in")}</span>
+            </div>
+            <button type="button" class="settings-logout">Log out</button>`;
+          if (account.picture) {
+            const avatar = detail.querySelector(".settings-account-avatar");
+            const img = document.createElement("img");
+            img.className = "account-photo";
+            img.alt = "";
+            img.referrerPolicy = "no-referrer";
+            img.src = account.picture;
+            img.onerror = () => { avatar.textContent = fallback; };
+            avatar.textContent = "";
+            avatar.appendChild(img);
+          }
+          detail.querySelector(".settings-logout")?.addEventListener("click", async () => {
+            try {
+              const response = await fetch("/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+              const nextSession = await response.json();
+              if (!response.ok) throw new Error(nextSession.error || `HTTP ${response.status}`);
+              window.dispatchEvent(new CustomEvent("lumeri-auth-session", { detail: nextSession }));
+              loadSettingsAccount();
+            } catch (logoutError) {
+              error.textContent = logoutError.message;
+              error.hidden = false;
+            }
+          });
+        } catch (accountError) {
+          detail.innerHTML = "";
+          error.textContent = accountError.message;
+          error.hidden = false;
+        }
+      }
     }
     const errEl = $("#model-error", overlay);
     const setErr = (msg) => {
@@ -2930,6 +3340,10 @@
     setErr("");
     $("#model-list", overlay).innerHTML = '<div class="model-loading">加载中…</div>';
     $("#model-efforts", overlay).innerHTML = "";
+    overlay._selectSettingsSection?.("model");
+    overlay._syncSettingsToggles?.();
+    $(".app-header")?.setAttribute("inert", "");
+    $("#app-main")?.setAttribute("inert", "");
     overlay.hidden = false;
     fetchModelInfo().then(renderInfo).catch((e) => setErr(`加载失败：${e.message}`));
   }
@@ -2989,6 +3403,8 @@
       vertex_project:  { label: "GCP 项目 ID", ph: "my-project-123" },
       vertex_location: { label: "区域", ph: "global / us-east5 / us-central1" },
       base_url:        { label: "Base URL", ph: "https://…/v1/chat/completions" },
+      anthropic_base_url: { label: "Messages API URL", ph: "https://anyrouter.top/v1/messages" },
+      anthropic_betas: { label: "Anthropic Betas", ph: "context-1m-2025-08-07（可选）" },
       key:             { label: "API Key", ph: "sk-…（留空=沿用已存）" },
     };
 
@@ -3169,6 +3585,8 @@
           if (f === "vertex_project") val = st.info.vertex_project || "";
           else if (f === "vertex_location") val = st.info.vertex_location || "";
           else if (f === "base_url") val = st.info.base_url || "";
+          else if (f === "anthropic_base_url") val = st.info.anthropic_base_url || "";
+          else if (f === "anthropic_betas") val = st.info.anthropic_betas || "";
         }
         const label = document.createElement("label");
         label.className = "setup-f";
@@ -3216,6 +3634,8 @@
       if (st.vals.model) body.model = st.vals.model;
       if (st.vals.effort) body.effort = st.vals.effort;
       if (st.vals.base_url) body.base_url = st.vals.base_url;
+      if (st.vals.anthropic_base_url) body.anthropic_base_url = st.vals.anthropic_base_url;
+      if (st.vals.anthropic_betas) body.anthropic_betas = st.vals.anthropic_betas;
       if (st.vals.vertex_project) body.vertex_project = st.vals.vertex_project;
       if (st.vals.vertex_location) body.location = st.vals.vertex_location, body.vertex_location = st.vals.vertex_location;
       if (p && p.key_field && st.vals.key) body[p.key_field] = st.vals.key;
@@ -3449,15 +3869,27 @@
   });
 
   els.sendBtn.addEventListener("click", () => {
+    if (!state.sessionId) return;
+    if (state.turnInProgress) {
+      stopCurrentTurn();
+      return;
+    }
+    if (!SpeechRecognition && !els.promptInput.value.trim()) return;
+    if (voiceInput.listening) {
+      stopVoiceInput();
+      return;
+    }
     const msg = els.promptInput.value.trim();
-    if (!msg) return;
+    if (!msg) {
+      startVoiceInput();
+      return;
+    }
     const name = parseSlashName(msg);
     if (name) { execSlash(name); return; }
-    const action = state.turnInProgress ? steerTurn(msg) : submitTurn(msg);
-    action.then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
+    submitTurn(msg).then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
                    .catch((err) => {
-                     state.errors.push(`${state.turnInProgress ? "steer" : "submit turn"} failed: ${err.message}`);
-                     state.currentTurn?.banners.push({ kind: "info", text: state.turnInProgress ? "引导未送达，请再试一次" : "任务未能开始，请稍后重试" });
+                     state.errors.push(`submit turn failed: ${err.message}`);
+                     state.currentTurn?.banners.push({ kind: "info", text: "任务未能开始，请稍后重试" });
                      render();
                    });
   });
@@ -3501,7 +3933,11 @@
     shell.classList.toggle("is-grown", grown);
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-    shell.classList.toggle("has-text", ta.value.trim().length > 0);
+    const msg = els.promptInput.value.trim();
+  const canSubmit = !!msg && !!state.sessionId;
+  const showPrimary = !!state.sessionId;
+  shell.classList.toggle("has-text", canSubmit);
+  shell.classList.toggle("show-primary", showPrimary);
   }
   els.promptInput.addEventListener("input", syncShell);
 
@@ -3539,11 +3975,11 @@
 
   function renderVoiceState() {
     shell.classList.toggle("is-listening", voiceInput.listening);
-    els.voiceInputBtn.classList.toggle("is-listening", voiceInput.listening);
-    els.voiceInputBtn.setAttribute("aria-pressed", String(voiceInput.listening));
-    els.voiceInputBtn.setAttribute("aria-label", voiceInput.listening ? "停止语音输入" : "语音输入");
-    els.voiceInputBtn.title = voiceInput.listening ? "停止语音输入" : "语音输入";
-    els.voiceInputBtn.querySelector("use")?.setAttribute("href", voiceInput.listening ? "#i-stop" : "#i-mic");
+    els.sendBtn.classList.toggle("is-listening", voiceInput.listening);
+    els.sendBtn.setAttribute("aria-pressed", String(voiceInput.listening));
+    els.sendBtn.setAttribute("aria-label", voiceInput.listening ? "停止语音输入" : "语音输入");
+    els.sendBtn.title = voiceInput.listening ? "停止语音输入" : "语音输入";
+    els.sendBtn.querySelector("use")?.setAttribute("href", voiceInput.listening ? "#i-stop" : "#i-mic");
     syncShell();
   }
 
@@ -3559,7 +3995,7 @@
       return false;
     }
     voiceInput.requesting = true;
-    els.voiceInputBtn.setAttribute("aria-busy", "true");
+    els.sendBtn.setAttribute("aria-busy", "true");
     setVoiceStatus("正在申请麦克风权限…", true);
     let stream = null;
     try {
@@ -3582,7 +4018,7 @@
       // speech recognizer can own the microphone without two active captures.
       stream?.getTracks().forEach((track) => track.stop());
       voiceInput.requesting = false;
-      els.voiceInputBtn.removeAttribute("aria-busy");
+      els.sendBtn.removeAttribute("aria-busy");
     }
   }
 
@@ -3648,23 +4084,48 @@
   }
 
   if (!SpeechRecognition) {
-    els.voiceInputBtn.classList.add("is-unavailable");
-    els.voiceInputBtn.setAttribute("aria-disabled", "true");
-    els.voiceInputBtn.title = "当前浏览器不支持语音输入";
+    els.sendBtn.classList.add("is-unavailable");
+    els.sendBtn.setAttribute("aria-disabled", "true");
   }
-  els.voiceInputBtn.addEventListener("click", () => {
-    if (state.turnInProgress) stopCurrentTurn();
-    else startVoiceInput();
-  });
 
   // Starter suggestion chips (rail empty state): click fills the composer.
-  document.getElementById("rail-empty")?.addEventListener("click", (e) => {
+  const starterRail = document.getElementById("rail-empty");
+  starterRail?.addEventListener("click", (e) => {
     const chip = e.target.closest(".suggest-chip");
     if (!chip) return;
     els.promptInput.value = chip.dataset.suggest || chip.textContent.trim();
     syncShell();
     els.promptInput.focus();
   });
+
+  function renderStarterSuggestions(suggestions) {
+    if (!starterRail || !Array.isArray(suggestions) || suggestions.length !== 4) return;
+    starterRail.querySelectorAll(".suggest-chip").forEach((chip) => chip.remove());
+    suggestions.forEach((suggestion) => {
+      const label = String(suggestion?.label || "").trim();
+      const prompt = String(suggestion?.prompt || "").trim();
+      if (!label || !prompt) return;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "suggest-chip";
+      chip.dataset.suggest = prompt;
+      chip.textContent = label;
+      starterRail.appendChild(chip);
+    });
+  }
+
+  async function refreshStarterSuggestions(attempt = 0) {
+    try {
+      const response = await fetch("/starter-recommendations", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.personalized) renderStarterSuggestions(data.suggestions);
+      if (data.status === "generating" && attempt < 40) {
+        window.setTimeout(() => refreshStarterSuggestions(attempt + 1), 1500);
+      }
+    } catch {}
+  }
+  refreshStarterSuggestions();
 
   // "+" is the single entry point. Popover opens upward from the shell.
   function openPlus()  { plusMenu.hidden = false; plusBtn.setAttribute("aria-expanded", "true"); }
@@ -3736,12 +4197,122 @@
   const workspaceBoard = $("#workspace-board");
   const timelineDrawer = $("#timeline-drawer");
   const WorkspaceLayout = window.LumeriWorkspaceLayout;
+  const skillPanelSpecs = new Map();
+  const timelineComponentSpecs = [];
+
+  const TIMELINE_HOST_ACTIONS = {
+    "undo": "ptl-undo",
+    "split-selected": "ptl-split",
+    "delete-selected": "ptl-delete",
+    "add-marker": "ptl-marker",
+    "toggle-snap": "ptl-snap",
+    "zoom-in": "ptl-zoom-in",
+    "zoom-out": "ptl-zoom-out",
+  };
+
+  function syncTimelineSkillWidgets() {
+    const busy = !state.sessionId || state.turnInProgress;
+    document.querySelectorAll(".pt-skill-widget").forEach((button) => {
+      button.disabled = busy || (button.dataset.requiresSelection === "true" && !selectedClip());
+    });
+  }
+
+  function placeTimelineComponent(element, placement, afterTails = null) {
+    const direction = placement?.before ? "before" : placement?.after ? "after" : "";
+    const targetId = placement?.[direction];
+    if (!direction || !targetId) return;
+    const tailKey = `${direction}:${targetId}`;
+    const target = direction === "after" && afterTails?.has(tailKey)
+      ? afterTails.get(tailKey)
+      : document.querySelector(`[data-timeline-component="${targetId}"]`);
+    if (!target || target === element || target.parentElement !== element.parentElement) return;
+    if (direction === "before") target.before(element);
+    else target.after(element);
+    if (afterTails) afterTails.set(tailKey, element);
+  }
+
+  function editTimelineHostComponent(edit) {
+    const element = document.querySelector(`[data-timeline-component="${edit.component}"]`);
+    if (!element) return;
+    if (typeof edit.visible === "boolean") element.hidden = !edit.visible;
+    if (edit.label) {
+      element.title = edit.label;
+      element.setAttribute("aria-label", edit.label);
+      const visibleLabel = element.querySelector(".pt-action-label");
+      if (visibleLabel) visibleLabel.textContent = edit.label;
+    }
+    if (edit.placement) placeTimelineComponent(element, edit.placement);
+  }
+
+  function buildTimelineWidgetMessage(manifest, widget) {
+    const lines = [
+      `使用 Lumeri Skill「${manifest.skill_id}」处理当前时间轴。`,
+      `小组件目标：${widget.action.intent}`,
+    ];
+    const clip = selectedClip();
+    if (clip?.id) lines.push(`当前选中片段：${clip.id}`);
+    lines.push("请通过现有 Agent 工具、权限、预算和验收流程完成，不绕过宿主编辑链。");
+    return lines.join("\n");
+  }
+
+  function createTimelineSkillWidget(manifest, widget) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pt-action-btn pt-skill-widget";
+    button.dataset.timelineComponent = `skill-${manifest.skill_id}-${widget.id}`;
+    button.dataset.requiresSelection = String(!!widget.requires_selection);
+    button.title = widget.description || widget.label;
+    button.setAttribute("aria-label", widget.label);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", `#i-${widget.icon}`);
+    svg.appendChild(use);
+    const label = document.createElement("span");
+    label.className = "pt-action-label";
+    label.textContent = widget.label;
+    button.append(svg, label);
+
+    button.addEventListener("click", async () => {
+      if (button.disabled) return;
+      if (widget.action.type === "host_action") {
+        document.getElementById(TIMELINE_HOST_ACTIONS[widget.action.name])?.click();
+        return;
+      }
+      button.disabled = true;
+      try {
+        await submitTurn(buildTimelineWidgetMessage(manifest, widget));
+      } finally {
+        syncTimelineSkillWidgets();
+      }
+    });
+    return button;
+  }
+
+  function applyTimelineSkillComponents() {
+    const quickActions = document.getElementById("pt-quick-actions");
+    if (!quickActions) return;
+    quickActions.querySelectorAll(".pt-skill-widget").forEach((item) => item.remove());
+    const afterTails = new Map();
+    for (const manifest of timelineComponentSpecs) {
+      for (const edit of manifest.edits || []) editTimelineHostComponent(edit);
+      for (const widget of manifest.widgets || []) {
+        const button = createTimelineSkillWidget(manifest, widget);
+        quickActions.appendChild(button);
+        placeTimelineComponent(button, widget.placement, afterTails);
+      }
+    }
+    syncTimelineSkillWidgets();
+  }
 
   const STAGE_VIEWS = {
     timeline: { label: "时间线", ico: '<path d="M5 10v4M9 7v10M13 9v6M17 6v12M21 10v4"/>' },
     outline:  { label: "大纲", ico: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 10h6M7 13.5h9.5"/>' },
     tasks:    { label: "后台任务", ico: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>' },
     files:    { label: "文件", ico: '<path d="M3.5 6.5c0-1.1.9-2 2-2h3.6c.5 0 .9.2 1.2.6l1.4 1.9H18.5c1.1 0 2 .9 2 2v8.5c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2z"/>' },
+    library:  { label: "素材库", ico: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
   };
   const PREVIEW_ICO = '<rect x="3.5" y="5" width="17" height="12" rx="2.5"/><path d="M10.4 8.6l3.8 2.4-3.8 2.4z"/><path d="M8.5 20h7"/>';
   const stageTabsBox = $("#stage-tabs");
@@ -3755,15 +4326,17 @@
   let bgActive = false;   // any session running / has pending jobs → tasks tab badge
   let didMigrateModules = false;
   const DEFAULT_MODULES = ["timeline", "outline", "tasks"];
-  const PANEL_MODULES = new Set(["outline", "tasks", "files"]);
-  const ALL_WORKSPACE_MODULES = ["preview", "outline", "tasks", "timeline", "files"];
+  const PANEL_MODULES = new Set(["outline", "tasks", "files", "library"]);
+  const ALL_WORKSPACE_MODULES = ["preview", "outline", "tasks", "timeline", "files", "library"];
   const WORKSPACE_ORDER_KEY = "lumeri:v3:workspace-order";
   const WORKSPACE_SIZES_KEY = "lumeri:v3:workspace-sizes";
+  const TEMPORARY_PANEL_SEEN_KEY = "lumeri:v3:temporary-panel-seen";
   let workspaceOrder = [...ALL_WORKSPACE_MODULES];
   let workspaceSizes = {};
+  let temporaryPanelSeen = new Set();
   try {
     stageTabs = JSON.parse(window.localStorage.getItem("lumeri:v3:stage-tabs") || "[]")
-      .filter((k) => STAGE_VIEWS[k]);
+      .filter((k) => STAGE_VIEWS[k] || String(k).startsWith("skill-"));
   } catch {}
   try {
     // One-time migration from exclusive tabs to the simultaneous modular desk.
@@ -3777,12 +4350,16 @@
   }
   try {
     const saved = JSON.parse(window.localStorage.getItem(WORKSPACE_ORDER_KEY) || "[]");
-    const valid = Array.isArray(saved) ? saved.filter((id, i) => ALL_WORKSPACE_MODULES.includes(id) && saved.indexOf(id) === i) : [];
+    const valid = Array.isArray(saved) ? saved.filter((id, i) => (ALL_WORKSPACE_MODULES.includes(id) || String(id).startsWith("skill-")) && saved.indexOf(id) === i) : [];
     workspaceOrder = [...valid, ...ALL_WORKSPACE_MODULES.filter((id) => !valid.includes(id))];
   } catch {}
   try {
     const saved = JSON.parse(window.localStorage.getItem(WORKSPACE_SIZES_KEY) || "{}");
     if (saved && typeof saved === "object") workspaceSizes = saved;
+  } catch {}
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TEMPORARY_PANEL_SEEN_KEY) || "[]");
+    if (Array.isArray(saved)) temporaryPanelSeen = new Set(saved.filter((item) => typeof item === "string"));
   } catch {}
 
   function saveStageTabs() {
@@ -3792,6 +4369,16 @@
     try {
       window.localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(workspaceOrder));
       window.localStorage.setItem(WORKSPACE_SIZES_KEY, JSON.stringify(workspaceSizes));
+    } catch {}
+  }
+  function temporaryPanelToken(panel) {
+    return `${panel.module_id}@${panel.revision}`;
+  }
+  function saveTemporaryPanelSeen() {
+    try {
+      const recent = [...temporaryPanelSeen].slice(-128);
+      temporaryPanelSeen = new Set(recent);
+      window.localStorage.setItem(TEMPORARY_PANEL_SEEN_KEY, JSON.stringify(recent));
     } catch {}
   }
   function orderedStageTabs() {
@@ -3829,6 +4416,11 @@
     });
   }
   function hideWorkspaceModule(id) {
+    const panel = skillPanelSpecs.get(id);
+    if (panel?.lifecycle === "temporary") {
+      temporaryPanelSeen.add(temporaryPanelToken(panel));
+      saveTemporaryPanelSeen();
+    }
     stageTabs = stageTabs.filter((key) => key !== id);
     if (id === "timeline") previewStage.classList.remove("drawer-open");
     saveStageTabs();
@@ -3840,18 +4432,254 @@
   function setActiveTab(k) {
     activeTab = k;
     if (k === "timeline") toggleDrawer(true);
-    if (PANEL_MODULES.has(k)) refreshPanel(k);
+    // Built-in read views refresh when focused. Skill forms preserve the
+    // user's in-progress values; their refresh button remains explicit.
+    if (PANEL_MODULES.has(k) && !skillPanelSpecs.has(k)) refreshPanel(k);
     renderStageTabs();
   }
   function panelBodyFor(view) {
     return stagePanel?.querySelector(`[data-panel-body="${view}"]`) || null;
   }
+  function skillPanelFieldDom(panel, field) {
+    const row = document.createElement("div");
+    row.className = "skill-panel-field";
+    row.dataset.skillFieldId = field.id;
+    row.dataset.skillFieldType = field.type;
+
+    const label = document.createElement("label");
+    label.className = "skill-panel-label";
+    label.textContent = field.label;
+    const controlId = `${panel.module_id}-${field.id}`;
+    label.htmlFor = controlId;
+    row.appendChild(label);
+    if (field.description) {
+      const description = document.createElement("p");
+      description.className = "skill-panel-field-description";
+      description.textContent = field.description;
+      row.appendChild(description);
+    }
+
+    if (field.type === "text") {
+      const input = document.createElement(field.multiline ? "textarea" : "input");
+      input.id = controlId;
+      input.className = "skill-panel-text";
+      input.value = field.default || "";
+      input.placeholder = field.placeholder || "";
+      input.maxLength = field.max_length || 240;
+      if (field.multiline) input.rows = 3;
+      row.appendChild(input);
+    } else if (field.type === "select") {
+      const select = document.createElement("select");
+      select.id = controlId;
+      select.className = "skill-panel-select";
+      if (!field.required) {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "未指定";
+        select.appendChild(empty);
+      }
+      for (const option of field.options || []) {
+        const item = document.createElement("option");
+        item.value = option.value;
+        item.textContent = option.label;
+        item.selected = option.value === field.default;
+        select.appendChild(item);
+      }
+      row.appendChild(select);
+    } else if (field.type === "multi_select") {
+      const group = document.createElement("div");
+      group.className = "skill-panel-options";
+      group.id = controlId;
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", field.label);
+      for (const option of field.options || []) {
+        const optionLabel = document.createElement("label");
+        optionLabel.className = "skill-panel-option";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = option.value;
+        checkbox.checked = (field.default || []).includes(option.value);
+        optionLabel.appendChild(checkbox);
+        optionLabel.appendChild(document.createTextNode(option.label));
+        group.appendChild(optionLabel);
+      }
+      row.appendChild(group);
+    } else if (field.type === "slider") {
+      const sliderWrap = document.createElement("div");
+      sliderWrap.className = "skill-panel-slider";
+      const slider = document.createElement("input");
+      slider.id = controlId;
+      slider.type = "range";
+      slider.min = field.min;
+      slider.max = field.max;
+      slider.step = field.step;
+      slider.value = field.default;
+      const output = document.createElement("output");
+      output.htmlFor = controlId;
+      output.textContent = slider.value;
+      slider.addEventListener("input", () => { output.textContent = slider.value; });
+      sliderWrap.appendChild(slider);
+      sliderWrap.appendChild(output);
+      row.appendChild(sliderWrap);
+    } else if (field.type === "toggle") {
+      const toggle = document.createElement("button");
+      toggle.id = controlId;
+      toggle.type = "button";
+      toggle.className = "skill-panel-toggle";
+      toggle.setAttribute("role", "switch");
+      toggle.setAttribute("aria-checked", String(!!field.default));
+      toggle.setAttribute("aria-label", field.label);
+      toggle.addEventListener("click", () => {
+        toggle.setAttribute("aria-checked", String(toggle.getAttribute("aria-checked") !== "true"));
+      });
+      row.appendChild(toggle);
+    }
+
+    const error = document.createElement("p");
+    error.className = "skill-panel-field-error";
+    error.setAttribute("aria-live", "polite");
+    row.appendChild(error);
+    return row;
+  }
+  function collectSkillPanelValues(form, panel) {
+    const values = {};
+    const displayValues = {};
+    let valid = true;
+    for (const field of panel.fields || []) {
+      const row = form.querySelector(`[data-skill-field-id="${field.id}"]`);
+      const error = row?.querySelector(".skill-panel-field-error");
+      let value = null;
+      let display = "";
+      if (field.type === "text") {
+        value = row?.querySelector(".skill-panel-text")?.value.trim() || "";
+        display = value;
+        if (value.length < field.min_length) {
+          valid = false;
+          if (error) error.textContent = `至少输入 ${field.min_length} 个字符`;
+        }
+      } else if (field.type === "select") {
+        value = row?.querySelector(".skill-panel-select")?.value || "";
+        display = (field.options || []).find((option) => option.value === value)?.label || value;
+      } else if (field.type === "multi_select") {
+        value = [...(row?.querySelectorAll('input[type="checkbox"]:checked') || [])].map((item) => item.value);
+        display = value.map((item) => (field.options || []).find((option) => option.value === item)?.label || item).join("、");
+        if (value.length < field.min || value.length > field.max) {
+          valid = false;
+          if (error) error.textContent = `请选择 ${field.min}–${field.max} 项`;
+        }
+      } else if (field.type === "slider") {
+        value = Number(row?.querySelector('input[type="range"]')?.value);
+        display = String(value);
+      } else if (field.type === "toggle") {
+        value = row?.querySelector('[role="switch"]')?.getAttribute("aria-checked") === "true";
+        display = value ? "开启" : "关闭";
+      }
+      if (error && !error.textContent) error.textContent = "";
+      if (field.required && (value == null || value === "" || (Array.isArray(value) && !value.length))) {
+        valid = false;
+        if (error) error.textContent = "这是必填项";
+      }
+      values[field.id] = value;
+      displayValues[field.id] = display || "未指定";
+    }
+    return { valid, values, displayValues };
+  }
+  function buildSkillPanelMessage(panel, displayValues) {
+    const lines = [
+      `使用 Lumeri Skill「${panel.skill_id}」处理当前工程。`,
+      `目标：${panel.intent}`,
+      "面板参数：",
+    ];
+    for (const field of panel.fields || []) {
+      lines.push(`- ${field.label}：${displayValues[field.id] || "未指定"}`);
+    }
+    return lines.join("\n");
+  }
+  function renderSkillPanel(body, panel) {
+    const form = document.createElement("form");
+    form.className = "skill-panel-form";
+    form.noValidate = true;
+    if (panel.description) {
+      const intro = document.createElement("p");
+      intro.className = "skill-panel-description";
+      intro.textContent = panel.description;
+      form.appendChild(intro);
+    }
+    for (const field of panel.fields || []) form.appendChild(skillPanelFieldDom(panel, field));
+    const status = document.createElement("p");
+    status.className = "skill-panel-status";
+    status.setAttribute("aria-live", "polite");
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "skill-panel-submit";
+    submit.textContent = panel.submit_label || "交给 Lumeri";
+    form.appendChild(status);
+    form.appendChild(submit);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      status.textContent = "";
+      form.querySelectorAll(".skill-panel-field-error").forEach((item) => { item.textContent = ""; });
+      if (!state.sessionId) { status.textContent = "暂无可用会话，请先新建会话。"; return; }
+      if (state.turnInProgress) { status.textContent = "当前任务仍在执行，完成或停止后再提交。"; return; }
+      const collected = collectSkillPanelValues(form, panel);
+      if (!collected.valid) { status.textContent = "请先修正标出的字段。"; return; }
+      submit.disabled = true;
+      try {
+        await submitTurn(buildSkillPanelMessage(panel, collected.displayValues));
+      } catch (error) {
+        status.textContent = error?.message || "提交失败，请重试。";
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    body.replaceChildren(form);
+  }
+  async function loadSkillPanels() {
+    try {
+      const response = await fetch("/skill-panels");
+      if (!response.ok) return;
+      const payload = await response.json();
+      for (const manifest of payload.timeline_components || []) {
+        if (!manifest?.skill_id || !manifest?.id) continue;
+        if (timelineComponentSpecs.some((item) => item.skill_id === manifest.skill_id && item.id === manifest.id)) continue;
+        timelineComponentSpecs.push(manifest);
+      }
+      for (const panel of payload.panels || []) {
+        if (!panel?.module_id || skillPanelSpecs.has(panel.module_id) || STAGE_VIEWS[panel.module_id]) continue;
+        skillPanelSpecs.set(panel.module_id, panel);
+        STAGE_VIEWS[panel.module_id] = {
+          label: panel.title,
+          ico: `<use href="#i-${panel.icon}"/>`,
+        };
+        PANEL_MODULES.add(panel.module_id);
+        ALL_WORKSPACE_MODULES.push(panel.module_id);
+        if (!workspaceOrder.includes(panel.module_id)) workspaceOrder.push(panel.module_id);
+        if (!workspaceSizes[panel.module_id]) workspaceSizes[panel.module_id] = panel.default_size;
+      }
+      for (const panel of skillPanelSpecs.values()) {
+        if (panel.lifecycle !== "temporary") continue;
+        const seen = temporaryPanelSeen.has(temporaryPanelToken(panel));
+        if (seen) stageTabs = stageTabs.filter((id) => id !== panel.module_id);
+        else if (!stageTabs.includes(panel.module_id)) stageTabs.push(panel.module_id);
+      }
+      stageTabs = stageTabs.filter((id) => STAGE_VIEWS[id]);
+      workspaceOrder = workspaceOrder.filter((id, index) => STAGE_VIEWS[id] && workspaceOrder.indexOf(id) === index);
+      for (const id of ALL_WORKSPACE_MODULES) if (!workspaceOrder.includes(id)) workspaceOrder.push(id);
+      saveStageTabs();
+      saveWorkspaceLayout();
+      renderStageTabs();
+      if (!stageAddMenu.hidden) renderStageAddMenu();
+      applyTimelineSkillComponents();
+    } catch {}
+  }
   function refreshPanel(view = activeTab) {
     const body = panelBodyFor(view);
     if (!body) return;
-    if (view === "outline") renderOutlinePanel(body);
+    if (skillPanelSpecs.has(view)) renderSkillPanel(body, skillPanelSpecs.get(view));
+    else if (view === "outline") renderOutlinePanel(body);
     else if (view === "tasks") renderTasksPanel(body);
     else if (view === "files") renderFilesPanel(body);
+    else if (view === "library") renderLibraryPanel(body);
   }
   let tasksPanelRefreshTimer = null;
   function scheduleTasksPanelRefresh() {
@@ -3868,7 +4696,10 @@
     if (!stagePanel) return;
     const visible = stageTabs.filter((k) => PANEL_MODULES.has(k));
     stagePanel.hidden = visible.length === 0;
-    const signature = `${visible.join("|")}|tasks:${bgActive}`;
+    // Mount modules only when the visible set changes. Background-task badge
+    // updates must not remount an interactive Skill form and discard the
+    // user's in-progress values.
+    const signature = visible.join("|");
     if (stagePanel.dataset.signature !== signature) {
       stagePanel.dataset.signature = signature;
       stagePanel.innerHTML = visible.map((k) => `
@@ -3879,9 +4710,9 @@
               <svg viewBox="0 0 24 24" aria-hidden="true">${STAGE_VIEWS[k].ico}</svg><span class="label">${STAGE_VIEWS[k].label}</span>
             </span>
             ${k === "tasks" && bgActive ? `<span class="tab-badge" title="有后台任务在运行"></span>` : ""}
-            <span class="workspace-module-meta">${k === "outline" ? "镜头结构" : k === "tasks" ? "运行状态" : "只读浏览"}</span>
+            <span class="workspace-module-meta">${skillPanelSpecs.has(k) ? (skillPanelSpecs.get(k).lifecycle === "temporary" ? "临时 · 关闭后移除" : "持久 · 可从 + 重开") : k === "outline" ? "镜头结构" : k === "tasks" ? "运行状态" : k === "library" ? "媒体素材" : "只读浏览"}</span>
             <button type="button" class="workspace-module-refresh" data-module-refresh="${k}" title="刷新${STAGE_VIEWS[k].label}" aria-label="刷新${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg></button>
-            <button type="button" class="workspace-module-close" data-module-close="${k}" title="隐藏${STAGE_VIEWS[k].label}" aria-label="隐藏${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
+            <button type="button" class="workspace-module-close" data-module-close="${k}" title="${skillPanelSpecs.get(k)?.lifecycle === "temporary" ? "关闭" : "隐藏"}${STAGE_VIEWS[k].label}" aria-label="${skillPanelSpecs.get(k)?.lifecycle === "temporary" ? "关闭" : "隐藏"}${STAGE_VIEWS[k].label}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
           </div>
           <div class="panel-tray-body" data-panel-body="${k}"><p class="placeholder">加载中…</p></div>
           <div class="module-resize-edge module-resize-edge-x" data-module-resize="${k}" data-resize-axis="x" role="separator" tabindex="0" aria-label="调整${STAGE_VIEWS[k].label}宽度"></div>
@@ -3889,6 +4720,16 @@
           <div class="module-resize-edge module-resize-corner" data-module-resize="${k}" data-resize-axis="both" role="separator" tabindex="0" aria-label="同时调整${STAGE_VIEWS[k].label}宽度和高度"></div>
         </section>`).join("");
       window.queueMicrotask(refreshVisibleModules);
+    }
+    const taskHead = stagePanel.querySelector('[data-workspace-module="tasks"] .workspace-module-head');
+    if (taskHead) {
+      const badge = taskHead.querySelector(".tab-badge");
+      if (bgActive && !badge) {
+        const nextBadge = document.createElement("span");
+        nextBadge.className = "tab-badge";
+        nextBadge.title = "有后台任务在运行";
+        taskHead.querySelector(".workspace-module-meta")?.before(nextBadge);
+      } else if (!bgActive) badge?.remove();
     }
     stagePanel.querySelectorAll("[data-workspace-module]").forEach((module) => {
       module.classList.toggle("is-focused", module.dataset.workspaceModule === activeTab);
@@ -3908,12 +4749,14 @@
       </button>`;
     stageTabList.innerHTML =
       tabHtml("preview", "预览", PREVIEW_ICO, false)
-      + orderedStageTabs().map((k) => tabHtml(k, STAGE_VIEWS[k].label, STAGE_VIEWS[k].ico, true)).join("");
+      + orderedStageTabs().filter((k) => STAGE_VIEWS[k])
+        .map((k) => tabHtml(k, STAGE_VIEWS[k].label, STAGE_VIEWS[k].ico, true)).join("");
     syncWorkspaceModules();
   }
 
   function renderStageAddMenu() {
-    const avail = Object.keys(STAGE_VIEWS).filter((k) => !stageTabs.includes(k));
+    const avail = Object.keys(STAGE_VIEWS).filter((k) =>
+      !stageTabs.includes(k) && skillPanelSpecs.get(k)?.lifecycle !== "temporary");
     stageAddMenu.innerHTML = avail.length
       ? avail.map((k) => `
           <button type="button" class="plus-item" role="menuitem" data-stage-add="${k}">
@@ -3999,6 +4842,7 @@
   });
   if (stageTabs.includes("timeline")) previewStage.classList.add("drawer-open");
   renderStageTabs();
+  loadSkillPanels();
   if ("ResizeObserver" in window && workspaceBoard) {
     new ResizeObserver(() => applyWorkspaceLayout()).observe(workspaceBoard);
   } else {
@@ -4181,7 +5025,7 @@
     const refresh = e.target.closest("[data-module-refresh]");
     if (refresh) { e.stopPropagation(); refreshPanel(refresh.dataset.moduleRefresh); return; }
     const module = e.target.closest("[data-workspace-module]");
-    if (module) setActiveTab(module.dataset.workspaceModule);
+    if (module && module.dataset.workspaceModule !== activeTab) setActiveTab(module.dataset.workspaceModule);
   });
 
   // Live badge on the 后台任务 tab: a slow, visibility-gated /sessions poll
@@ -4342,8 +5186,9 @@
     if (btn) killBackgroundTask(btn.getAttribute("data-task-kill"));
   });
 
-  // ── session history drawer (right-side hamburger) ─────────────────────
+  // ── session history panel (right-side, compresses layout) ────────────
   let historyDrawerOpen = false;
+  let activeHistorySnapshotId = null;
   function toggleHistoryDrawer(force) {
     const open = force ?? !historyDrawerOpen;
     if (open === historyDrawerOpen) return;
@@ -4351,19 +5196,19 @@
     els.historyToggleBtn.setAttribute("aria-expanded", String(open));
     if (open) {
       els.historyDrawer.hidden = false;
-      els.historyDrawer.classList.remove("closing");
+      els.appMain.classList.add("history-open");
       renderHistoryDrawer();
     } else {
-      els.historyDrawer.classList.add("closing");
-      els.historyDrawer.addEventListener("animationend", () => {
-        if (!historyDrawerOpen) {
-          els.historyDrawer.hidden = true;
-          els.historyDrawer.classList.remove("closing");
-        }
+      els.appMain.classList.remove("history-open");
+      els.appMain.addEventListener("transitionend", (e) => {
+        if (!historyDrawerOpen && e.propertyName === "grid-template-columns") els.historyDrawer.hidden = true;
       }, { once: true });
     }
   }
   els.historyToggleBtn.addEventListener("click", () => toggleHistoryDrawer());
+  if (els.historyDrawerClose) {
+    els.historyDrawerClose.addEventListener("click", () => toggleHistoryDrawer(false));
+  }
 
   async function renderHistoryDrawer() {
     const body = els.historyDrawerBody;
@@ -4381,8 +5226,9 @@
       const title = s.title || "Lumeri Session";
       const time = s.updated_at ? fmtAgo(new Date(s.updated_at).getTime() / 1000) : "";
       const msgs = s.message_count || 0;
+      const active = s.id === activeHistorySnapshotId;
       return `
-        <button type="button" class="history-row" data-snapshot-id="${escapeHTML(s.id)}">
+        <button type="button" class="history-row${active ? " is-active" : ""}" data-snapshot-id="${escapeHTML(s.id)}"${active ? ' aria-current="true"' : ""}>
           <span class="task-main">
             <span class="task-name">${escapeHTML(title)}</span>
             <span class="task-sub">${msgs} 条消息${time ? " · " + time : ""}</span>
@@ -4391,11 +5237,17 @@
     }).join("");
 
     body.querySelectorAll(".history-row").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const id = btn.dataset.snapshotId;
         if (!id) return;
-        loadHistorySession(id);
-        toggleHistoryDrawer(false);
+        if (!await loadHistorySession(id)) return;
+        activeHistorySnapshotId = id;
+        body.querySelectorAll(".history-row").forEach((row) => {
+          const selected = row.dataset.snapshotId === activeHistorySnapshotId;
+          row.classList.toggle("is-active", selected);
+          if (selected) row.setAttribute("aria-current", "true");
+          else row.removeAttribute("aria-current");
+        });
       });
     });
   }
@@ -4425,7 +5277,10 @@
         }
       }
       render();
-    } catch {}
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── files panel: whitelisted read-only browser (/files/*) ────────────
@@ -4489,7 +5344,63 @@
       ${rows || `<p class="placeholder">空目录</p>`}
       ${data.truncated ? `<p class="placeholder">（仅显示前 500 项）</p>` : ""}`;
   }
+  async function renderLibraryPanel(body) {
+    if (!body) return;
+    if (state.mediaLibraryStatus === "idle" || state.mediaLibraryStatus === "error") {
+      body.innerHTML = `<p class="placeholder">加载中…</p>`;
+      await fetchMediaLibrary();
+      if (!body.isConnected || !stageTabs.includes("library")) return;
+    }
+    if (state.mediaLibraryStatus === "loading") {
+      body.innerHTML = `<p class="placeholder">加载中…</p>`;
+      return;
+    }
+    if (state.mediaLibraryStatus === "signed-out") {
+      body.innerHTML = `<p class="placeholder">登录后可用</p>`;
+      return;
+    }
+    if (!state.mediaLibrary.length) {
+      body.innerHTML = `<p class="placeholder">暂无素材</p>`;
+      return;
+    }
+    const cards = state.mediaLibrary.map((asset) => {
+      const assetId = asset.asset_id || asset.id || "";
+      const kind = asset.media_kind || "media";
+      const kindLabel = LIBRARY_KIND_LABEL[kind] || "素材";
+      const title = libraryDisplayName(asset, kindLabel);
+      const summary = asset.annotation_summary || {};
+      const allTags = [...(summary.tags || []), ...(summary.labels || [])];
+      const shownTags = allTags.slice(0, 2);
+      const moreTags = allTags.length - shownTags.length;
+      const thumb = asset.thumbnail_src
+        ? `<img class="library-thumb" src="${escapeHTML(asset.thumbnail_src)}" alt="" loading="lazy" />`
+        : `<div class="library-thumb blank" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#${LIBRARY_KIND_ICON[kind] || "i-file"}"/></svg></div>`;
+      const tagsHtml = shownTags.length
+        ? `<div class="library-tags">${shownTags.map((t) => `<span>${escapeHTML(t)}</span>`).join("")}${moreTags > 0 ? `<span>+${moreTags}</span>` : ""}</div>`
+        : "";
+      const dur = kind !== "image" && formatMediaDuration(asset.duration);
+      return `
+        <div class="library-card" data-library-asset="${escapeHTML(assetId)}" title="${escapeHTML(asset.name || assetId)}">
+          ${thumb}
+          <div class="library-card-body">
+            <div class="library-title">${escapeHTML(title)}</div>
+            <div class="library-meta">${escapeHTML(kindLabel)}${dur ? " · " + escapeHTML(dur) : ""}</div>
+            ${tagsHtml}
+            <div class="library-card-actions">
+              <button type="button" class="library-small-btn icon-btn" title="标注" aria-label="标注" data-panel-lib-annotate="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
+              <button type="button" class="library-small-btn icon-btn" title="标记" aria-label="标记" data-panel-lib-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+    body.innerHTML = cards;
+  }
+
   stagePanel?.addEventListener("click", (e) => {
+    const libAnnotate = e.target.closest("[data-panel-lib-annotate]");
+    if (libAnnotate) { annotateLibraryAsset(libAnnotate.dataset.panelLibAnnotate).catch(() => {}); return; }
+    const libLoad = e.target.closest("[data-panel-lib-load]");
+    if (libLoad) { loadMediaAnnotations(libLoad.dataset.panelLibLoad).then(() => refreshPanel("library")).catch(() => {}); return; }
     const rootBtn = e.target.closest("[data-file-root]");
     if (rootBtn) {
       const key = rootBtn.dataset.fileRoot;
@@ -4521,6 +5432,11 @@
     if (stageTabs.includes("outline")) refreshPanel("outline");
     if (stageTabs.includes("tasks")) refreshPanel("tasks");
   }, 5000);
+
+  window.setInterval(() => {
+    if (document.visibilityState === "hidden" || !state.turnInProgress) return;
+    render();
+  }, 1000);
 
   // First-run discovery pulse on "+" (controls are hidden behind it now).
   try {
@@ -4619,6 +5535,10 @@
     const modal = $("#auth-modal");
     const accountBtn = $("#account-btn");
     if (!modal || !accountBtn) return;
+    const accountMenu = $("#account-menu");
+    const menuAvatar = $("#account-menu-avatar");
+    const menuName = $("#account-menu-name");
+    const menuEmail = $("#account-menu-email");
     const viewSignin = $("#auth-view-signin");
     const viewAccount = $("#auth-view-account");
     const googleBtn = $("#auth-google-btn");
@@ -4643,6 +5563,44 @@
 
     const showErr = (msg) => { errBox.textContent = msg || ""; errBox.hidden = !msg; };
     const clearErr = () => showErr("");
+
+    function renderMenuAvatar(acct) {
+      if (!menuAvatar) return;
+      const fallback = (acct.email || acct.name || "?").trim().charAt(0).toUpperCase();
+      menuAvatar.textContent = fallback;
+      if (!acct.picture) return;
+      menuAvatar.innerHTML = "";
+      const img = document.createElement("img");
+      img.className = "account-photo";
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      img.src = acct.picture;
+      img.onerror = () => { menuAvatar.textContent = fallback; };
+      menuAvatar.appendChild(img);
+    }
+
+    function renderAccountMenu() {
+      const acct = session && session.account;
+      if (!acct || !menuName || !menuEmail) return;
+      renderMenuAvatar(acct);
+      menuName.textContent = acct.name || (acct.email || "Lumeri account").split("@")[0];
+      menuEmail.textContent = acct.email || "Signed in";
+    }
+
+    function openAccountMenu() {
+      if (!accountMenu || !(session && session.account)) return;
+      renderAccountMenu();
+      accountMenu.hidden = false;
+      accountBtn.setAttribute("aria-expanded", "true");
+      requestAnimationFrame(() => accountMenu.querySelector('[role="menuitem"]')?.focus({ preventScroll: true }));
+    }
+
+    function closeAccountMenu({ restoreFocus = false } = {}) {
+      if (!accountMenu) return;
+      accountMenu.hidden = true;
+      accountBtn.setAttribute("aria-expanded", "false");
+      if (restoreFocus) accountBtn.focus();
+    }
 
     // Signed in = Google photo when present, else round initial badge;
     // signed out = person icon. Email lives in title.
@@ -4670,8 +5628,10 @@
         accountBtn.title = "登录 / 账户";
         accountBtn.setAttribute("aria-label", "登录 / 账户");
         accountBtn.classList.remove("signed-in");
+        closeAccountMenu();
       }
     }
+    window.addEventListener("lumeri-auth-session", (event) => applySession(event.detail));
 
     async function refreshSession() {
       try {
@@ -4770,9 +5730,60 @@
       }
     }
 
-    accountBtn.addEventListener("click", () => { modal.hidden ? openModal() : closeModal(); });
+    accountBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (session && session.account) {
+        modal.hidden = true;
+        accountMenu.hidden ? openAccountMenu() : closeAccountMenu();
+        return;
+      }
+      closeAccountMenu();
+      modal.hidden ? openModal() : closeModal();
+    });
     modal.querySelectorAll("[data-auth-close]").forEach((el) => el.addEventListener("click", closeModal));
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+    document.addEventListener("click", (e) => {
+      if (!accountMenu || accountMenu.hidden) return;
+      if (accountMenu.contains(e.target) || accountBtn.contains(e.target)) return;
+      closeAccountMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && accountMenu && !accountMenu.hidden) {
+        closeAccountMenu({ restoreFocus: true });
+        return;
+      }
+      if (e.key === "Escape" && !modal.hidden) closeModal();
+    });
+
+    accountMenu?.addEventListener("keydown", (e) => {
+      const items = [...accountMenu.querySelectorAll('[role="menuitem"]')];
+      const current = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        items[(current + step + items.length) % items.length]?.focus();
+      } else if (e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        items[e.key === "Home" ? 0 : items.length - 1]?.focus();
+      }
+    });
+
+    accountMenu?.addEventListener("click", async (e) => {
+      const item = e.target.closest("[data-account-action]");
+      if (!item) return;
+      const action = item.dataset.accountAction;
+      closeAccountMenu();
+      if (action === "settings") { openModelPicker(); return; }
+      if (action === "setup") { openSetupPanel(); return; }
+      if (action === "help") {
+        els.promptInput.value = "/";
+        slashSync();
+        els.promptInput.focus();
+        return;
+      }
+      if (action === "logout") {
+        try { applySession(await postAuth("/auth/logout", {})); } catch {}
+      }
+    });
 
     googleBtn.addEventListener("click", async () => {
       clearErr();
@@ -4831,8 +5842,10 @@
   }
   setupAuth();
 
-  // boot
-  createSession().catch((err) => {
+  // boot: the normal browser owns a fresh session; CLI preview only observes
+  // the explicit session supplied by the terminal.
+  const boot = isCliPreview ? attachSession(cliPreviewSessionId) : createSession();
+  boot.catch((err) => {
     state.errors.push(`initial session failed: ${err.message}`);
     setConnPill("failed", "failed");
     render();
@@ -4844,7 +5857,7 @@
     if (voiceInput.listening) {
       try { voiceInput.recognition?.abort(); } catch {}
     }
-    if (state.sessionId) {
+    if (state.sessionId && !isCliPreview) {
       navigator.sendBeacon?.(`/sessions/${state.sessionId}/close`);
     }
   });

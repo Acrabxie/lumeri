@@ -1795,7 +1795,10 @@ def _workflow_steps(workflow: str, request: str) -> dict[str, LedgerStep]:
     if workflow in _READ_ONLY_WORKFLOWS:
         return {"inspect": LedgerStep("inspect", "Inspect the requested source")}
     if workflow == "files" and re.search(
-        r"(?:读取|查看|列出|检查|read\b|list\b|inspect\b)", request, re.I
+        r"(?:读取|查看|列出|检查|找到|找出|找一下|查找|寻找|搜索|检索|"
+        r"read\b|list\b|inspect\b|find\b|locate\b|search\b)",
+        request,
+        re.I,
     ) and not re.search(
         r"(?:写入|创建|复制|移动|删除|整理|write\b|copy\b|move\b|delete\b|organize\b)",
         request,
@@ -1803,7 +1806,10 @@ def _workflow_steps(workflow: str, request: str) -> dict[str, LedgerStep]:
     ):
         return {"inspect": LedgerStep("inspect", "Read or inspect the requested files")}
     if workflow == "annotations" and re.search(
-        r"(?:搜索|查询|查看|获取|search\b|get\b|list\b)", request, re.I
+        r"(?:搜索|查询|查看|获取|找到|找出|找一下|查找|寻找|检索|"
+        r"search\b|get\b|list\b|find\b|locate\b)",
+        request,
+        re.I,
     ) and not re.search(
         r"(?:添加|写入|标注|更新|add\b|write\b|annotate\b|update\b)", request, re.I
     ):
@@ -2136,6 +2142,13 @@ class TurnLedger:
 
         self._record_job_state(job_id, status, record)
         if not ok:
+            # In a production turn a failed read/diagnostic call is feedback,
+            # not unfinished work: open steps, final-asset and
+            # stale-verification blockers already guard the outcome, so a
+            # bad-args inspect_timeline must not wedge the turn into an
+            # unwinnable completion state.  When the read IS the requested
+            # work (pure inspect turns), its failure still blocks.
+            read_is_requested_work = "inspect" in self.steps
             failure = FailureRecord(
                 call_id=call,
                 tool_name=tool,
@@ -2144,7 +2157,8 @@ class TurnLedger:
                 seq=self.sequence,
                 job_id=job_id,
                 target_key=resolved_target,
-                blocking=bool(blocking_failure),
+                blocking=bool(blocking_failure)
+                and (tool not in _READ_ACTION_TOOLS or read_is_requested_work),
             )
             self.unresolved_failures[call] = failure
             self._mark_action_failed(tool, call)

@@ -15,7 +15,7 @@
   </span>
 </header>
 
-<main class="app-main">
+<main class="app-main" id="app-main">
   <!-- LEFT · modular editing desk: preview + side modules + shared timeline -->
   <section class="preview-stage" id="preview-stage">
     <div class="stage-tabbar" id="stage-tabs" role="tablist" aria-label="工作区视图">
@@ -86,14 +86,34 @@
       <span class="session-id" id="session-id-label" hidden>—</span>
       <span class="rail-head-spacer"></span>
       <button type="button" id="new-session-btn" class="rail-btn icon-btn" title="新会话" aria-label="新会话"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-new-chat"/></svg></button>
-      <button type="button" id="account-btn" class="account-btn rail-btn icon-btn" title="登录 / 账户" aria-label="登录 / 账户"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg></button>
+      <button type="button" id="account-btn" class="account-btn rail-btn icon-btn" title="登录 / 账户" aria-label="登录 / 账户" aria-haspopup="menu" aria-controls="account-menu" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg></button>
       <button type="button" id="history-toggle-btn" class="rail-btn icon-btn" title="会话历史" aria-label="会话历史" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-menu"/></svg></button>
-    </div>
-
-    <!-- session history drawer: slides in from the right edge -->
-    <div id="history-drawer" class="history-drawer" hidden>
-      <div class="history-drawer-body" id="history-drawer-body">
-        <p class="placeholder">加载中…</p>
+      <div id="account-menu" class="account-menu" role="menu" aria-label="账户菜单" hidden>
+        <div class="account-menu-profile">
+          <div id="account-menu-avatar" class="account-menu-avatar" aria-hidden="true"></div>
+          <div class="account-menu-identity">
+            <span id="account-menu-name" class="account-menu-name"></span>
+            <span id="account-menu-email" class="account-menu-email"></span>
+          </div>
+        </div>
+        <div class="account-menu-divider" role="separator"></div>
+        <button type="button" class="account-menu-item" data-account-action="settings" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sliders"/></svg>
+          <span>Settings</span>
+        </button>
+        <button type="button" class="account-menu-item" data-account-action="setup" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-spark"/></svg>
+          <span>Setup</span>
+        </button>
+        <button type="button" class="account-menu-item" data-account-action="help" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-help"/></svg>
+          <span>Help &amp; commands</span>
+        </button>
+        <div class="account-menu-divider" role="separator"></div>
+        <button type="button" class="account-menu-item account-menu-logout" data-account-action="logout" role="menuitem">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-logout"/></svg>
+          <span>Log out</span>
+        </button>
       </div>
     </div>
 
@@ -162,16 +182,26 @@
         placeholder="描述你想要的视频，或输入 / 唤起命令…"
       ></textarea>
       <div class="composer-actions">
-        <button type="button" id="voice-input-btn" class="voice-input-btn" aria-label="语音输入" title="语音输入">
+        <button type="button" id="send-btn" class="send-btn" disabled aria-label="语音输入" title="语音输入">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"/></svg>
-        </button>
-        <button type="button" id="send-btn" class="send-btn" disabled aria-label="发送">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-send"/></svg>
         </button>
       </div>
       <span id="voice-input-status" class="voice-input-status" role="status" aria-live="polite" hidden></span>
     </footer>
   </aside>
+
+  <!-- session history panel: compresses layout from the right -->
+  <div id="history-drawer" class="history-drawer" hidden>
+    <div class="history-drawer-head">
+      <span class="title">会话历史</span>
+      <button type="button" id="history-drawer-close" class="icon-btn" title="关闭" aria-label="关闭">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div class="history-drawer-body" id="history-drawer-body">
+      <p class="placeholder">加载中…</p>
+    </div>
+  </div>
 </main>
 
 <!-- Assets tray: summoned media library (moved here, ids kept) -->

@@ -3,7 +3,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from gemia.gemini_client import GeminiClientV3, _parse_optional_bool
+import gemia.gemini_client as gemini_client
+from gemia.gemini_client import (
+    GeminiClientV3,
+    _claude_request_headers,
+    _normalize_anthropic_url,
+    _parse_optional_bool,
+)
 
 
 def _capture_body(
@@ -71,3 +77,40 @@ def test_tri_state_parser_rejects_invalid_without_truthiness_bug() -> None:
     assert _parse_optional_bool(0, source="test") is False
     assert _parse_optional_bool("maybe", source="test") is None
 
+
+def test_anthropic_compatible_endpoint_normalization_and_headers() -> None:
+    assert _normalize_anthropic_url("https://anyrouter.top") == "https://anyrouter.top/v1/messages"
+    assert _normalize_anthropic_url("https://anyrouter.top/v1") == "https://anyrouter.top/v1/messages"
+    assert _normalize_anthropic_url("https://anyrouter.top/v1/messages") == "https://anyrouter.top/v1/messages"
+
+    custom = _claude_request_headers(
+        "https://anyrouter.top/v1/messages",
+        "secret-value",
+        "context-1m-2025-08-07",
+    )
+    assert custom["Authorization"] == "Bearer secret-value"
+    assert custom["x-api-key"] == "secret-value"
+    assert custom["anthropic-beta"] == "context-1m-2025-08-07"
+
+    official = _claude_request_headers(
+        "https://api.anthropic.com/v1/messages",
+        "secret-value",
+    )
+    assert "Authorization" not in official
+    assert "anthropic-beta" not in official
+
+
+def test_claude_client_resolves_custom_messages_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(gemini_client, "strongest_model_lock", lambda _slot: {"enabled": False})
+    monkeypatch.setenv("LUMERI_V3_PROVIDER", "claude")
+    monkeypatch.setenv("LUMERI_V3_MODEL", "claude-fable-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("LUMERI_ANTHROPIC_BASE_URL", "https://anyrouter.top")
+    monkeypatch.setenv("LUMERI_ANTHROPIC_BETAS", "context-1m-2025-08-07")
+
+    client = GeminiClientV3(proxy="")
+
+    assert client.provider == "claude"
+    assert client.model == "claude-fable-5"
+    assert client.api_url == "https://anyrouter.top/v1/messages"
+    assert client.anthropic_betas == "context-1m-2025-08-07"

@@ -442,6 +442,31 @@ class SessionRunner:
             return False
         return bool(future.cancel())
 
+    def retract_turn(self, expected_message: str | None = None) -> dict[str, Any]:
+        """Remove the last completed user turn from the agent conversation.
+
+        Refuses while a turn is running (the user must stop it first) and hops
+        onto the session loop because ``_messages`` is only ever mutated there.
+        ``expected_message`` is the caller's view of the turn being retracted;
+        a mismatch (stale UI, snapshot replay) refuses rather than deleting
+        the wrong turn.
+        """
+        with self._state_lock:
+            if self._turn_in_progress:
+                return {"ok": False, "reason": "turn_in_progress"}
+            self.last_used_at = time.time()
+        if self._loop.is_closed():
+            raise RuntimeError("session is closed")
+
+        async def _call() -> str | None:
+            return self.agent.retract_last_turn(expected_message)
+
+        fut = asyncio.run_coroutine_threadsafe(_call(), self._loop)
+        retracted = fut.result(timeout=10)
+        if retracted is None:
+            return {"ok": False, "reason": "nothing_to_retract"}
+        return {"ok": True, "message": retracted}
+
     def run_project_edit(self, fn, *, timeout: float = 30.0) -> Any:
         """Run a project mutation on the session's event loop and return its
         result (exceptions propagate unchanged).

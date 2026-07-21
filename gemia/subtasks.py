@@ -1,33 +1,26 @@
-"""Multi-agent capability v1 — bounded sub-task fan-out (``spawn_subtasks``).
+"""Multi-agent capability — unbounded parallel sub-task fan-out (``spawn_subtasks``).
 
-Implements Phase 1 of docs/multi-agent-plan.md: one host verb, ``spawn_subtasks``,
-fans out 1-4 bounded child agents that work IN PARALLEL on independent goals and
-return structured results. Each child is a lightweight ``SubtaskLoop`` — NOT a
-second ``AgentLoopV3`` — that reuses the parent's streaming/dispatch primitives
-but runs a host-fixed tool profile, cannot ask the user, cannot spawn further
-children, and draws cost/time from the parent session's ``BudgetGuard`` via a
-reserved slice (unspent returns on settlement).
+``spawn_subtasks`` fans out an arbitrary number of child agents that work IN
+PARALLEL on independent goals and return structured results.  Children share the
+parent's full tool list (minus ``spawn_subtasks`` itself to prevent recursion)
+and the parent's budget — no slicing, no reservation, no artificial caps.
 
-Architecture (§3): children are ``asyncio`` tasks on the session's single event
-loop — no threads, ever — so ``AssetRegistry`` thread-confinement, the loop-hop
-edit discipline, and ``AskBridge`` future resolution all stay intact. A child
-shares the parent's ``GeminiClientV3`` (stateless per call), ``AssetRegistry``,
+Architecture: children are ``asyncio`` tasks on the session's single event loop
+— no threads, ever — so ``AssetRegistry`` thread-confinement, the loop-hop edit
+discipline, and ``AskBridge`` future resolution all stay intact.  A child shares
+the parent's ``GeminiClientV3`` (stateless per call), ``AssetRegistry``,
 ``JobRegistry``, and ``ProjectHandle`` via a per-child ``ToolContext`` whose
 ``extra`` has ``ask_bridge`` stripped (elicit is structurally impossible) and
 whose ``output_dir`` is a per-child subdir.
 
-Protocol (§6): a child opens with exactly one ``subagent_start`` and closes with
-exactly one ``subagent_result``. Child TOOL activity rides the EXISTING
+Protocol: a child opens with exactly one ``subagent_start`` and closes with
+exactly one ``subagent_result``.  Child TOOL activity rides the EXISTING
 ``tool_exec_*`` kinds carrying an optional ``agent_id`` field (absent = the
-root/parent loop). There is no ``subagent_progress`` kind and children never emit
-``model_text_delta`` — child final text folds into the structured-result summary.
+root/parent loop).
 
-Budget (§5): the parent reserves a 20% floor for itself, splits the rest across
-N children (``max_cost_usd`` can only clamp a child DOWN), gives each child its
-own capped ``BudgetGuard``, and settles every reservation in a mandatory
-``try/finally`` (unspent returns). The parent loop special-cases ``spawn_subtasks``
-to commit ``actual_seconds=0.0`` so the batch wall-clock does not double-count on
-top of the children's settled seconds.
+Model routing: each subtask may specify a ``model`` override.  When a task
+requires full video understanding (visual content analysis, scene recognition,
+frame-level reasoning), route it to a multimodal model such as Gemini.
 """
 from __future__ import annotations
 
@@ -36,7 +29,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
-from gemia.budget_guard import BudgetGuard, BudgetReservation
+from gemia.budget_guard import BudgetGuard
 from gemia.errors import (
     GemiaError,
     RECOVERY_FIX_ARGS,
@@ -54,10 +47,8 @@ if TYPE_CHECKING:  # avoid an import cycle: agent_loop_v3 imports tools which...
     from gemia.agent_loop_v3 import AgentLoopV3
 
 
-# ── tool profiles (fixed frozensets, plan_mode-style — §4.2) ─────────────────
-# Derived by reading dispatcher behavior (same doctrine as plan_mode.py), names
-# cross-checked against gemia/tools/__init__.py DISPATCHER. P1 ships annotate +
-# probe only; P2/P3 profiles are listed in the doc, not registered here.
+# ── legacy tool profiles (kept for backward compat) ─────────────────────────
+# New callers should omit tool_profile (defaults to "full" = parent's tool list).
 
 PROFILE_ANNOTATE = frozenset({
     "probe_media", "analyze_media", "extract_frame", "search_library",
@@ -68,43 +59,31 @@ PROFILE_PROBE = frozenset({
     "get_media_annotations", "get_timeline", "get_lumenframe", "get_safe_areas",
 })
 
-# Globally forbidden in every profile, regardless of what a profile lists. A
-# schema subset alone is not a security boundary (a model can hallucinate a tool
-# name), so the child dispatch path checks membership fail-closed against BOTH
-# the active profile and this set.
-FORBIDDEN_IN_ANY_PROFILE = frozenset({
-    "spawn_subtasks", "elicit", "remember", "log_note", "save_skill",
-    "run_shell", "build", "export", "project_export",
-    # Machine-scope file ops: child agents must never touch host files. (The
-    # session-scope file_* verbs — including file_delete, formerly listed
-    # here — were removed from the schema in favour of these equivalents.)
-    "read_file", "list_dir", "write_file",
-    "copy_in", "move_file", "organize_files",
-})
+FORBIDDEN_IN_CHILDREN = frozenset({"spawn_subtasks"})
 
-# tool_profile enum → frozenset. Kept in one place so the schema enum, the
-# dispatcher, and the coverage test cannot drift.
-PROFILES: dict[str, frozenset[str]] = {
+PROFILES: dict[str, frozenset[str] | None] = {
     "annotate": PROFILE_ANNOTATE,
     "probe": PROFILE_PROBE,
+    "full": None,
 }
 
+# Backward compat alias
+FORBIDDEN_IN_ANY_PROFILE = FORBIDDEN_IN_CHILDREN
 
-# ── rails (§8) ───────────────────────────────────────────────────────────────
 
-MAX_CHILDREN = 4                 # schema maxItems + host assert
+# ── rails ────────────────────────────────────────────────────────────────────
+
 CHILD_DEPTH = 1                  # children cannot spawn (depth 1)
-DEFAULT_MAX_STEPS = 10           # child model-call cap
-HARD_MAX_STEPS = 16
-DEFAULT_DEADLINE_SEC = 240.0     # per-batch shared wall-clock deadline
-HARD_DEADLINE_SEC = 480.0
-PARENT_BUDGET_FLOOR = 0.20       # parent keeps 20% of remaining on each axis
+DEFAULT_MAX_STEPS = 30           # child model-call cap
+HARD_MAX_STEPS = 128
+DEFAULT_DEADLINE_SEC = 600.0     # per-batch shared wall-clock deadline
+HARD_DEADLINE_SEC = 3600.0
 _DOOM_LOOP_THRESHOLD = 3         # per-child, byte-identical (name,args) streak
 _REPEATED_FAILURE_NUDGE_THRESHOLD = 5
 _TRANSIENT_RETRY_NUDGE_THRESHOLD = 8
 _PROGRESS_COALESCE_SEC = 1.0     # ≥1 s between child tool_exec_progress emits
-_SUMMARY_CAP = 1200              # per-child summary char cap (§4.3)
-_RESULT_CAP = 16_000             # whole tool_result byte cap (§4.3)
+_SUMMARY_CAP = 1200              # per-child summary char cap
+_RESULT_CAP = 16_000             # whole tool_result byte cap
 
 _VALID_STATUSES = {"ok", "error", "timeout", "cancelled", "needs_user"}
 
@@ -122,7 +101,10 @@ class SubtaskError(ToolError):
         super().__init__(message, code=code, recovery=recovery)
 
 
-def _profile_tools(profile_name: str) -> frozenset[str]:
+def _profile_tools(profile_name: str | None) -> frozenset[str] | None:
+    """Return the tool set for a profile.  ``None`` means "full" (all parent tools)."""
+    if profile_name is None or profile_name == "full":
+        return None
     tools = PROFILES.get(profile_name)
     if tools is None:
         raise SubtaskError(
@@ -133,9 +115,14 @@ def _profile_tools(profile_name: str) -> frozenset[str]:
     return tools
 
 
-def _child_tool_schemas(profile_tools: frozenset[str]) -> list[dict[str, Any]]:
-    """The subset of TOOL_SCHEMAS whose names are in the profile — the child model
-    physically cannot see out-of-profile verbs."""
+def _child_tool_schemas(profile_tools: frozenset[str] | None) -> list[dict[str, Any]]:
+    """The subset of TOOL_SCHEMAS visible to the child.  ``None`` means all tools
+    except those in FORBIDDEN_IN_CHILDREN."""
+    if profile_tools is None:
+        return [
+            t for t in TOOL_SCHEMAS
+            if t["function"]["name"] not in FORBIDDEN_IN_CHILDREN
+        ]
     return [t for t in TOOL_SCHEMAS if t["function"]["name"] in profile_tools]
 
 
@@ -143,12 +130,12 @@ def _child_tool_schemas(profile_tools: frozenset[str]) -> list[dict[str, Any]]:
 
 
 class SubtaskLoop:
-    """A restricted AgentLoopV3-lite. Reuses only streaming + dispatch primitives.
+    """AgentLoopV3-lite for child sub-agents.
 
-    One instance per child within a single ``spawn_subtasks`` call. Never mutates
-    the parent; reads ``plan_mode`` and the client from it. Its transcript, its
-    ``BudgetGuard`` (capped at the reserved slice), and its ``ToolContext`` are
-    all its own.
+    Children share the parent's full tool surface (minus ``spawn_subtasks``)
+    and the parent's budget by default.  An optional ``client`` override
+    enables model routing — e.g. sending video-understanding tasks to a
+    multimodal model like Gemini.
     """
 
     def __init__(
@@ -158,22 +145,22 @@ class SubtaskLoop:
         parent: "AgentLoopV3",
         call_id: str,
         goal: str,
-        profile_name: str,
-        guard: BudgetGuard,
+        profile_name: str | None = None,
+        guard: BudgetGuard | None = None,
+        client: Any = None,
         asset_ids: list[str] | None = None,
         max_steps: int = DEFAULT_MAX_STEPS,
         depth: int = CHILD_DEPTH,
     ) -> None:
-        # Depth-1 invariant: a child is always depth 1 and has no spawn path;
-        # asserting here makes an accidental nested-spawn wiring fail loudly.
         assert depth == CHILD_DEPTH, f"subtask depth must be {CHILD_DEPTH}, got {depth}"
         self.agent_id = agent_id
         self.parent = parent
         self.call_id = call_id
         self.goal = goal
-        self.profile_name = profile_name
-        self.profile_tools = _profile_tools(profile_name)
-        self.guard = guard
+        self.profile_name = profile_name or "full"
+        self.profile_tools = _profile_tools(self.profile_name)
+        self.guard = guard or parent.budget
+        self.client = client or parent.client
         self.asset_ids = list(asset_ids or [])
         self.max_steps = max(1, min(int(max_steps), HARD_MAX_STEPS))
 
@@ -251,22 +238,31 @@ class SubtaskLoop:
     # ── transcript helpers (mirrors AgentLoopV3 shapes) ──────────────────
 
     def _system_prompt(self) -> str:
-        tool_list = ", ".join(sorted(self.profile_tools))
+        if self.profile_tools is not None:
+            tool_list = ", ".join(sorted(self.profile_tools))
+            tools_note = f"Available tools: {tool_list}."
+        else:
+            tools_note = (
+                "You have the SAME full tool set as the parent agent "
+                "(except spawn_subtasks)."
+            )
         scope = (
             f"\nScoped assets: {', '.join(self.asset_ids)}." if self.asset_ids else ""
         )
         return (
-            "You are a bounded Lumeri sub-agent working on ONE independent goal in "
-            "parallel with sibling sub-agents. You run a restricted tool set and "
-            "CANNOT ask the user, spawn further sub-agents, or edit the shared "
-            "project document.\n"
-            f"Available tools: {tool_list}.\n"
+            "You are a Lumeri sub-agent working on ONE independent goal in "
+            "parallel with sibling sub-agents. You CANNOT ask the user or spawn "
+            "further sub-agents.\n"
+            f"{tools_note}\n"
             f"Your goal:\n{self.goal}{scope}\n\n"
             "Work efficiently: call tools to accomplish the goal, then STOP with a "
             "short final text summary of what you found/did and any asset_ids you "
             "produced. Your final text is the ONLY thing the parent sees, so make "
             "it self-contained. If you need a human decision you cannot make, stop "
-            "and say so plainly (the parent will decide whether to ask the user)."
+            "and say so plainly (the parent will decide whether to ask the user).\n\n"
+            "If your task requires understanding VIDEO CONTENT (visual analysis, "
+            "scene detection, object recognition, reading on-screen text), prefer "
+            "tools like analyze_media that leverage multimodal models."
         )
 
     def _append_tool_result(self, tool_call_id: str, payload: Any) -> None:
@@ -362,7 +358,7 @@ class SubtaskLoop:
             by_index: dict[int, dict[str, Any]] = {}
 
             try:
-                async for delta in self.parent.client.stream_turn(
+                async for delta in self.client.stream_turn(
                     self._messages, tools=child_schemas
                 ):
                     kind = delta.get("kind")
@@ -496,10 +492,20 @@ class SubtaskLoop:
             self._record_unresolved(name, "E_BAD_ARG")
             return
 
-        # Fail-closed profile enforcement: the schema subset is NOT a boundary
-        # (a model can hallucinate a tool name), so gate every dispatch against
-        # BOTH the active profile and the global forbidden set.
-        if name not in self.profile_tools or name in FORBIDDEN_IN_ANY_PROFILE:
+        # Recursion prevention: children can never spawn further children.
+        if name in FORBIDDEN_IN_CHILDREN:
+            self._append_tool_result(tool_call_id, {
+                "error": f"'{name}' is forbidden in sub-agents",
+                "error_code": "E_SUBTASK_PROFILE",
+                "recovery": RECOVERY_SWITCH_TOOL,
+            })
+            self._maybe_nudge(name, "E_SUBTASK_PROFILE")
+            self._record_unresolved(name, "E_SUBTASK_PROFILE", parsed_args)
+            return
+
+        # Legacy profile enforcement: when a restricted profile is active, only
+        # allow tools explicitly listed in that profile.
+        if self.profile_tools is not None and name not in self.profile_tools:
             self._append_tool_result(tool_call_id, {
                 "error": (
                     f"'{name}' is not available in the '{self.profile_name}' "
@@ -688,36 +694,21 @@ def _child_tool_call_message(tc: dict[str, Any]) -> dict[str, Any]:
 # ── the spawn_subtasks host verb ─────────────────────────────────────────────
 
 
-def _slice_budget(
-    guard: BudgetGuard, n: int
-) -> tuple[float, float, str | None]:
-    """Return (pool_usd, pool_sec, refusal_reason). The pool is the remaining
-    budget minus the parent's 20% floor, to be split across N children."""
-    remaining_usd = guard.max_usd - guard.spent_usd
-    remaining_sec = guard.max_seconds - guard.spent_seconds
-    parent_floor_usd = PARENT_BUDGET_FLOOR * guard.max_usd
-    parent_floor_sec = PARENT_BUDGET_FLOOR * guard.max_seconds
-    pool_usd = remaining_usd - parent_floor_usd
-    pool_sec = remaining_sec - parent_floor_sec
-    if pool_sec <= 0:
-        return 0.0, 0.0, (
-            "not enough session time budget remains to fan out sub-agents while "
-            "keeping the parent's 20% floor to integrate results"
-        )
-    if pool_usd < 0:
-        # A zero-cost profile still runs on time alone; only refuse if the money
-        # floor is already breached (negative remaining).
-        return 0.0, 0.0, (
-            "not enough session cost budget remains to fan out sub-agents while "
-            "keeping the parent's 20% floor"
-        )
-    return pool_usd, pool_sec, None
+def _build_child_client(
+    parent: "AgentLoopV3", model: str | None
+) -> Any:
+    """Return a model client for the child.  When *model* is set, construct a
+    dedicated ``GeminiClientV3`` pointed at that model (e.g. a multimodal Gemini
+    for video understanding).  Otherwise reuse the parent's client."""
+    if not model:
+        return parent.client
+    from gemia.gemini_client import GeminiClientV3
+    return GeminiClientV3(model=model)
 
 
 async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-    """``spawn_subtasks`` host verb. Slices the parent budget, fans children out
-    as asyncio tasks on the session loop under a shared deadline, and settles
-    every reservation in a mandatory try/finally (unspent returns)."""
+    """``spawn_subtasks`` host verb.  Fans out an arbitrary number of children as
+    asyncio tasks sharing the parent's budget, under a shared deadline."""
     parent: "AgentLoopV3" | None = ctx.extra.get("agent_loop")
     if parent is None:
         raise SubtaskError(
@@ -732,13 +723,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             "subtasks must be a non-empty array", code="E_SUBTASK", recovery=RECOVERY_FIX_ARGS
         )
     n = len(subtasks)
-    if n > MAX_CHILDREN:
-        raise SubtaskError(
-            f"at most {MAX_CHILDREN} sub-agents per spawn_subtasks call (got {n})",
-            code="E_SUBTASK", recovery=RECOVERY_FIX_ARGS,
-        )
 
-    # Validate specs and profiles UP FRONT (fail before reserving anything).
     specs: list[dict[str, Any]] = []
     for i, st in enumerate(subtasks):
         if not isinstance(st, dict):
@@ -746,94 +731,52 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                 f"subtasks[{i}] must be an object", code="E_SUBTASK", recovery=RECOVERY_FIX_ARGS
             )
         goal = st.get("goal")
-        profile_name = st.get("tool_profile")
         if not isinstance(goal, str) or not goal.strip():
             raise SubtaskError(
                 f"subtasks[{i}].goal is required", code="E_SUBTASK", recovery=RECOVERY_FIX_ARGS
             )
-        _profile_tools(str(profile_name))  # raises E_SUBTASK_PROFILE if unknown
+        profile_name = st.get("tool_profile")
+        if profile_name is not None:
+            _profile_tools(str(profile_name))
         specs.append(st)
 
     deadline = float(args.get("deadline_sec") or DEFAULT_DEADLINE_SEC)
     deadline = max(1.0, min(deadline, HARD_DEADLINE_SEC))
 
-    guard = parent.budget
-    pool_usd, pool_sec, refusal = _slice_budget(guard, n)
-    if refusal is not None:
-        # A budget refusal is not fixable by re-args; the model should switch
-        # tactic (do the work sequentially) — mirror the budget-gate affordance.
-        raise SubtaskError(refusal, code="E_BUDGET", recovery=RECOVERY_SWITCH_TOOL)
-
-    slice_usd_base = pool_usd / n
-    slice_sec = pool_sec / n
-
     children: list[SubtaskLoop] = []
-    reservations: list[BudgetReservation] = []
     tasks: list[asyncio.Task] = []
-    # agent_id → result; a started child ALWAYS gets a terminal result (§accept 3).
     results_by_agent: dict[str, dict[str, Any]] = {}
 
     try:
         for i, st in enumerate(specs):
             agent_id = f"sub_{i + 1}"
-            requested = st.get("max_cost_usd")
-            slice_usd = slice_usd_base
-            if isinstance(requested, (int, float)) and requested >= 0:
-                slice_usd = min(float(requested), slice_usd_base)
-
-            decision, res = guard.reserve_amount(
-                f"spawn_subtasks:{agent_id}", usd=slice_usd, seconds=slice_sec
-            )
-            if res is None:
-                # Pool exhausted mid-loop (siblings already reserved). Record a
-                # synthetic terminal result and stop launching more.
-                results_by_agent[agent_id] = {
-                    "agent_id": agent_id, "status": "error",
-                    "summary": f"budget slice refused: {decision.reason}",
-                    "asset_ids": [], "data": {}, "steps": 0,
-                    "spent_usd": 0.0, "spent_seconds": 0.0,
-                }
-                break
-            reservations.append(res)
+            profile_name = st.get("tool_profile")
+            model = st.get("model")
 
             child = SubtaskLoop(
                 agent_id=agent_id,
                 parent=parent,
                 call_id=call_id,
                 goal=str(st["goal"]),
-                profile_name=str(st["tool_profile"]),
-                guard=BudgetGuard(max_usd=slice_usd, max_seconds=slice_sec),
+                profile_name=str(profile_name) if profile_name else None,
+                client=_build_child_client(parent, model),
                 asset_ids=[str(a) for a in (st.get("asset_ids") or [])],
-                max_steps=DEFAULT_MAX_STEPS,
+                max_steps=int(st.get("max_steps", DEFAULT_MAX_STEPS)),
             )
             children.append(child)
             tasks.append(asyncio.ensure_future(_run_child(child, results_by_agent)))
 
         if tasks:
-            # Shared batch deadline: stragglers are cancelled → status "timeout".
             await asyncio.wait(tasks, timeout=deadline)
 
     finally:
-        # MANDATORY: create_task children are NOT auto-cancelled when this
-        # coroutine is cancelled, so cancel every outstanding task, drain it,
-        # and settle EVERY reservation with spent-so-far (unspent returns).
         for t in tasks:
             if not t.done():
                 t.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        for child, res in zip(children, reservations):
+        for child in children:
             snap = child.guard.snapshot()
-            guard.commit_reserved(
-                res,
-                actual_usd=snap["spent_usd"],
-                actual_seconds=snap["spent_seconds"],
-            )
-            # Ensure every STARTED child has EXACTLY ONE terminal subagent_result.
-            # A child cancelled (deadline / parent error) before run() emitted its
-            # own result gets a synthetic terminal record + emit here. The child's
-            # _emitted_result flag makes _emit_result idempotent, so a child that
-            # already emitted normally is not double-closed (§accept 3).
             terminal = results_by_agent.get(child.agent_id)
             if terminal is None:
                 terminal = {
@@ -846,7 +789,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                 results_by_agent[child.agent_id] = terminal
             try:
                 child._emit_result(terminal, elapsed_seconds=snap.get("elapsed_seconds", 0.0))
-            except Exception:  # noqa: BLE001 — cleanup emit must never raise out of finally
+            except Exception:  # noqa: BLE001
                 pass
 
     # Ordered results (sub_1, sub_2, …) capped at 16 KB total.
@@ -936,8 +879,8 @@ __all__ = [
     "PROFILE_ANNOTATE",
     "PROFILE_PROBE",
     "PROFILES",
+    "FORBIDDEN_IN_CHILDREN",
     "FORBIDDEN_IN_ANY_PROFILE",
-    "MAX_CHILDREN",
     "DEFAULT_MAX_STEPS",
     "HARD_MAX_STEPS",
     "DEFAULT_DEADLINE_SEC",

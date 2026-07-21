@@ -14,12 +14,27 @@ This module provides the ``default_resolver`` which handles:
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import numpy as np
 
+from lumenframe import timebase
 from lumenframe.compile import CompileError, ContentFn, ResolveContext
+
+
+_DOCUMENT_TIME_QUANTUM_SECONDS = 1e-6
+
+
+def _source_frame_index(seconds: float, fps: float) -> int:
+    """Preserve legacy truncation while snapping six-decimal frame boundaries."""
+    exact = float(seconds) * float(fps)
+    nearest = int(round(exact))
+    tolerance_frames = abs(float(fps)) * (_DOCUMENT_TIME_QUANTUM_SECONDS / 2.0) + timebase.FRAME_EPS
+    if abs(exact - nearest) <= tolerance_frames:
+        return nearest
+    return int(exact)
 
 
 def default_resolver(
@@ -140,11 +155,11 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
         # Source time = source_in + local_time * speed
         source_time = source_in + (local_time * speed)
         # Mapped to source video frame.
-        source_frame = int(source_time * ctx.fps)
+        source_frame = _source_frame_index(source_time, ctx.fps)
 
         # Clamp to source range.
-        source_frame_min = int(source_in * ctx.fps)
-        source_frame_max = int(source_out * ctx.fps)
+        source_frame_min = _source_frame_index(source_in, ctx.fps)
+        source_frame_max = _source_frame_index(source_out, ctx.fps)
         source_frame = min(max(source_frame, source_frame_min), source_frame_max - 1)
 
         try:
@@ -289,6 +304,39 @@ def _resolve_font(font_path, font_size: int, weight: Any = None):
         except Exception:
             return None
 
+    def _try_bold_collection_face(name_or_path):
+        """Return a bold face embedded in a TTC/OTC collection, if present.
+
+        Pillow defaults to face index 0 for font collections.  On macOS that
+        makes an explicit ``Hiragino Sans GB.ttc`` resolve to W3 even when the
+        layer requests weight 700/900; the W6 face lives at a later index.  A
+        short, bounded scan lets explicit CJK collections honor the existing
+        weight contract without changing ordinary TTF/OTF resolution.
+        """
+        if not name_or_path or Path(str(name_or_path)).suffix.lower() not in {".ttc", ".otc"}:
+            return None
+        best = None
+        best_score = 0
+        for index in range(64):
+            try:
+                face = ImageFont.truetype(str(name_or_path), size, index=index)
+            except Exception:
+                break
+            family, style = face.getname()
+            label = f"{family} {style}".lower()
+            score = 0
+            if any(token in label for token in ("bold", "semibold", "demibold", "heavy", "black")):
+                score = 100
+            match = re.search(r"\bw([1-9])\b", label)
+            if match:
+                score = max(score, int(match.group(1)) * 10)
+            if "interface" in label:
+                score -= 5
+            if score > best_score:
+                best = (face, index)
+                best_score = score
+        return best if best_score >= 60 else None
+
     # 1) Explicit prop wins. Honor bold by probing common sibling filenames.
     if font_path:
         if bold:
@@ -300,6 +348,10 @@ def _resolve_font(font_path, font_size: int, weight: Any = None):
                     f = _try(cand)
                     if f is not None:
                         return f, cand, True
+            collection_face = _try_bold_collection_face(font_path)
+            if collection_face is not None:
+                f, index = collection_face
+                return f, f"{font_path}#index={index}", True
         f = _try(font_path)
         if f is not None:
             return f, str(font_path), True
@@ -475,8 +527,14 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
 
         # Compute block dimensions.
         block_width = max(line_widths) if line_widths else font_size
-        avg_line_height = sum(line_heights) / len(line_heights) if line_heights else font_size
-        block_height = sum(line_heights) + (len(lines) - 1) * avg_line_height * (line_spacing - 1.0)
+        # Each subsequent baseline advances by the PREVIOUS line's measured
+        # height.  Mirror that exact geometry here: using an average line
+        # height under-allocates the block when an unusually tall first line
+        # is followed by a short one, clipping the final line at spacing > 1.
+        block_height = (
+            sum(height * line_spacing for height in line_heights[:-1])
+            + line_heights[-1]
+        ) if line_heights else font_size
 
         # Add padding for stroke and effects (glow needs room outside glyphs).
         padding = int(stroke_width) + 2
@@ -524,7 +582,11 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                     x_pos = (block_width - line_widths[i]) / 2.0
 
                 shadow_x = x_pos + shadow_offset[0]
-                shadow_y = y_offset + shadow_offset[1]
+                # Pillow's default text anchor reports a positive bbox top for
+                # many fonts (for example Helvetica Neue).  ``block_height``
+                # is based on ``bottom - top``, so drawing at ``y_offset``
+                # without cancelling that top bearing clips the glyph bottom.
+                shadow_y = y_offset - line_bboxes[i][1] + shadow_offset[1]
 
                 if use_tracking:
                     _draw_line_spaced(
@@ -567,13 +629,14 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 else:
                     x_pos = (block_width - line_widths[i]) / 2.0
 
+                glyph_y = y_offset - line_bboxes[i][1]
                 if use_tracking:
                     _draw_line_spaced(
-                        glow_draw, (x_pos, y_offset), line, font, glow_fill,
+                        glow_draw, (x_pos, glyph_y), line, font, glow_fill,
                         letter_spacing,
                     )
                 else:
-                    glow_draw.text((x_pos, y_offset), line, fill=glow_fill, font=font)
+                    glow_draw.text((x_pos, glyph_y), line, fill=glow_fill, font=font)
 
             # Blur to spread the halo outward.
             glow_canvas = glow_canvas.filter(
@@ -613,16 +676,17 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
             else:  # center
                 x_pos = (block_width - line_widths[i]) / 2.0
 
+            glyph_y = y_offset - line_bboxes[i][1]
             if use_tracking:
                 _draw_line_spaced(
-                    text_draw, (x_pos, y_offset), line, font, text_fill,
+                    text_draw, (x_pos, glyph_y), line, font, text_fill,
                     letter_spacing,
                     stroke_width=stroke_width if stroke_width > 0 else 0,
                     stroke_fill=stroke_fill,
                 )
             else:
                 text_draw.text(
-                    (x_pos, y_offset), line,
+                    (x_pos, glyph_y), line,
                     fill=text_fill, font=font,
                     stroke_width=stroke_width if stroke_width > 0 else 0,
                     stroke_fill=stroke_fill

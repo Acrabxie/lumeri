@@ -15,6 +15,8 @@ def test_read_status_masks_keys():
         "anthropic_api_key": "",
         "openrouter_api_key": "or-key",
         "vertex_project": "proj-1",
+        "lumeri_anthropic_base_url": "https://gateway.example/v1/messages",
+        "lumeri_anthropic_betas": "context-1m-2025-08-07",
     }
     st = bc.read_status(cfg)
     # 现状字段透传
@@ -22,6 +24,8 @@ def test_read_status_masks_keys():
     assert st["model"] == "gpt-5.5"
     assert st["effort"] == "high"
     assert st["vertex_project"] == "proj-1"
+    assert st["anthropic_base_url"] == "https://gateway.example/v1/messages"
+    assert st["anthropic_betas"] == "context-1m-2025-08-07"
     # 密钥只给布尔
     assert st["has_key"] == {
         "openrouter": True,
@@ -76,6 +80,21 @@ def test_custom_maps_to_openai_with_base_url():
     assert out["lumeri_openai_base_url"] == "https://gw.example/v1/chat/completions"
     assert out["openai_api_key"] == "sk-x"
     assert os.environ.get("LUMERI_OPENAI_BASE_URL") == "https://gw.example/v1/chat/completions"
+
+
+def test_claude_custom_endpoint_and_beta_are_whitelisted():
+    out, changed = bc.apply_update({}, {
+        "provider": "claude",
+        "model": "claude-fable-5",
+        "anthropic_base_url": "https://anyrouter.top/v1/messages",
+        "anthropic_betas": "context-1m-2025-08-07",
+    })
+    assert out["lumeri_v3_provider"] == "claude"
+    assert out["lumeri_anthropic_base_url"] == "https://anyrouter.top/v1/messages"
+    assert out["lumeri_anthropic_betas"] == "context-1m-2025-08-07"
+    assert "lumeri_anthropic_base_url" in changed
+    assert os.environ.get("LUMERI_ANTHROPIC_BASE_URL") == "https://anyrouter.top/v1/messages"
+    assert os.environ.get("LUMERI_ANTHROPIC_BETAS") == "context-1m-2025-08-07"
 
 
 def test_blank_key_does_not_clobber():

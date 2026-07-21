@@ -4,9 +4,9 @@ When the budget is exhausted, the doom-loop guard fires, or the model stream
 errors out, ``_drive_turn`` used to emit a bare turn_error and return — the user
 got an unexplained stop. This adds an ADDITIVE graceful wrap-up: at each of those
 non-success exit points, *in addition to* the existing turn_error event, the loop emits a short
-``turn_wrapup`` event whose ``message`` explains 'stopped because X; here's what
-was / wasn't done', synthesized LOCALLY (no extra model call) from the turn's
-tool / asset counts.
+``turn_wrapup`` event whose ``message`` explains the actual stop reason in one
+natural sentence, synthesized LOCALLY (no extra model call). Tool / asset counts
+stay as structured event telemetry instead of becoming a canned status report.
 
 Pinned here:
   * a fake client that emits a model stream error → ``turn_wrapup`` is emitted
@@ -83,10 +83,12 @@ def test_wrapup_emitted_on_stream_error(tmp_path: Path) -> None:
     assert len(wrapups) == 1, "expected exactly one graceful wrap-up event"
     wrap = wrapups[0]
     assert wrap["reason"] == "stream_error"
-    # The message explains the stop AND what was / wasn't done.
+    # The message explains the stop without turning telemetry into a template.
     msg = wrap["message"]
-    assert "我先停在这里" in msg
     assert "模型连接" in msg
+    assert "我先停在这里" not in msg
+    assert "已完成：" not in msg
+    assert "仍待处理：" not in msg
     assert wrap["tools_failed"] == 0
     assert wrap["tools_succeeded"] == 0
     assert wrap["assets_produced"] == 0
@@ -224,8 +226,7 @@ def test_wrapup_synthesis_exception_does_not_break_turn(
 
 
 def test_synthesize_wrapup_message_pure_helper() -> None:
-    """Unit-level proof that the LOCAL synthesis builds a sensible explanatory
-    summary from the stop reason + counts, with no model call involved."""
+    """The LOCAL fallback names the stop naturally without a report template."""
     # Doom loop, work partially done.
     msg = AgentLoopV3._synthesize_wrapup_message(
         "doom_loop",
@@ -234,11 +235,11 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=1,
         tool_name="echo_tool",
     )
-    assert "同一步骤连续重复" in msg
+    assert "陷入了重复" in msg
     assert "echo_tool" not in msg
-    assert "产出了 1 个素材" in msg
-    assert "完成了 2 个执行步骤" in msg
-    assert "有 5 个步骤没有完成" in msg
+    assert "已完成：" not in msg
+    assert "仍待处理：" not in msg
+    assert "你让我继续" not in msg
 
     # Budget exhaustion, nothing done.
     msg2 = AgentLoopV3._synthesize_wrapup_message(
@@ -248,8 +249,7 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=0,
     )
     assert "执行预算已经用完" in msg2
-    assert "还没有形成可交付的修改" in msg2
-    assert "没有记录到执行失败" in msg2
+    assert "未完成的部分没有被算作成功" in msg2
 
     # Doom-loop reporting stays human-facing and does not leak tool names.
     msg3 = AgentLoopV3._synthesize_wrapup_message(
@@ -259,7 +259,7 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=0,
         tool_name="echo_tool",
     )
-    assert "同一步骤连续重复" in msg3
+    assert "陷入了重复" in msg3
     assert "echo_tool" not in msg3
 
     # Stream error path.
@@ -270,4 +270,16 @@ def test_synthesize_wrapup_message_pure_helper() -> None:
         assets_produced=0,
     )
     assert "模型连接" in msg4
-    assert "完成了 1 个执行步骤" in msg4
+    assert "完成了 1 个执行步骤" not in msg4
+
+    # Incomplete-goal fallback can disclose real failures without adding
+    # progress headings or asking the user to trigger another turn.
+    msg5 = AgentLoopV3._synthesize_wrapup_message(
+        "incomplete_goal",
+        tools_succeeded=15,
+        tools_failed=4,
+        assets_produced=0,
+    )
+    assert msg5 == "有 4 个步骤执行失败了，所以这轮还不能算完成。"
+    assert "我先停在这里" not in msg5
+    assert "你让我继续" not in msg5

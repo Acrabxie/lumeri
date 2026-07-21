@@ -19,7 +19,7 @@ from gemia.tools.quanta_frames import materialize_quanta_frame_assets
 
 
 QUANTA_VIDEO_TRACK = "QUANTA_V1"
-QUANTA_FRAME_TRACK = "QUANTA_OV1"
+QUANTA_FRAME_TRACK = "QUANTA_V2"
 
 
 def _project(ctx: ToolContext):
@@ -152,7 +152,7 @@ def _timeline_ops(
     timeline = project_state.get("timeline") if isinstance(project_state.get("timeline"), Mapping) else {}
     tracks = [item for item in timeline.get("tracks") or [] if isinstance(item, Mapping)]
     track_by_id = {str(item.get("id") or ""): item for item in tracks}
-    for track_id, expected_kind in ((QUANTA_VIDEO_TRACK, "video"), (QUANTA_FRAME_TRACK, "overlay")):
+    for track_id, expected_kind in ((QUANTA_VIDEO_TRACK, "video"), (QUANTA_FRAME_TRACK, "video")):
         existing = track_by_id.get(track_id)
         if existing is not None and str(existing.get("kind") or "") != expected_kind:
             raise QuantaMaterializeError(
@@ -168,7 +168,7 @@ def _timeline_ops(
     if QUANTA_VIDEO_TRACK not in track_by_id:
         ops.append({"op": "add_track", "kind": "video", "track_id": QUANTA_VIDEO_TRACK, "name": "Quanta Base"})
     if QUANTA_FRAME_TRACK not in track_by_id:
-        ops.append({"op": "add_track", "kind": "overlay", "track_id": QUANTA_FRAME_TRACK, "name": "Quanta Frames"})
+        ops.append({"op": "add_track", "kind": "video", "track_id": QUANTA_FRAME_TRACK, "name": "Quanta Frames"})
 
     clip_ids: list[str] = []
     background_clip_id = f"quanta_{quanta_hash}_background"

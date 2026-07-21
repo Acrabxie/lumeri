@@ -63,20 +63,30 @@ class _CallsSameArgs:
 
 class _CallsDifferentArgs:
     """Fake model that calls ``echo_tool`` with DIFFERENT args each stream for a
-    fixed number of turns, then ends with text — genuine progress, never a loop."""
+    fixed number of turns, then ends with text — genuine progress, never a loop.
+
+    Like a real API client, it physically cannot emit tool calls when the host
+    withholds the tool schemas (``tools == []``); it answers in prose instead.
+    """
 
     model = "fake"
 
     def __init__(self, tool_name: str, *, call_times: int) -> None:
         self.calls = 0
+        self.schema_counts: list[int] = []
         self._tool = tool_name
         self._call_times = call_times
 
     async def stream_turn(
         self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
     ) -> AsyncIterator[dict[str, Any]]:
-        del messages, tools, temperature
+        del messages, temperature
         self.calls += 1
+        self.schema_counts.append(len(tools or []))
+        if tools is not None and len(tools) == 0:
+            yield {"kind": "text_delta", "text": "wrapping up"}
+            yield {"kind": "finish", "reason": "stop"}
+            return
         if self.calls <= self._call_times:
             yield {"kind": "tool_call_start", "index": 0, "id": f"c{self.calls}", "name": self._tool}
             # Distinct args each call → never byte-identical.
@@ -194,8 +204,11 @@ def test_doom_loop_trips_after_threshold_identical_calls(tmp_path: Path, monkeyp
 def test_distinct_args_do_not_bypass_objective_no_progress_guard(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Different args avoid the byte-identical doom guard, but successful echo
-    calls still cannot masquerade as objective ledger progress forever."""
+    """Different args avoid the byte-identical doom guard, and successful echo
+    calls cannot masquerade as objective ledger progress forever: once the
+    commanded scope is complete, the host nudges, then withholds tools so the
+    turn ends with an honest prose wrap-up — never a false incomplete_goal
+    with zero blockers (2026-07-17 forced-work regression)."""
     disp = _AlwaysSucceeds()
     monkeypatch.setitem(loop_mod.DISPATCHER, "echo_tool", disp)
 
@@ -212,13 +225,16 @@ def test_distinct_args_do_not_bypass_objective_no_progress_guard(
 
     asyncio.run(loop.run_turn("do distinct steps"))
 
-    assert client.calls == 5
-    assert disp.n == 5 < n_calls
-    # No byte-identical doom signal; the host instead stops after adjacent,
-    # full-surface, then still-no-progress execution.
+    # Bounded: nowhere near the client's 9 queued tool rounds. One round of
+    # progress, one nudged grind round, one grind round that arms the prose
+    # wrap-up, then a tool-less round that must answer.
+    assert client.calls < n_calls
+    assert disp.n < n_calls
+    assert client.schema_counts[-1] == 0  # final round had tools withheld
     assert not [e for e in events if e.get("reason") == "doom_loop"]
-    assert any(e.get("reason") == "incomplete_goal" for e in events)
-    assert not [e for e in events if e.get("kind") == "turn_complete"]
+    # The act was done and evidenced; stopping as incomplete would be false.
+    assert not [e for e in events if e.get("reason") == "incomplete_goal"]
+    assert any(e.get("kind") == "turn_complete" for e in events)
 
 
 def test_full_fallback_result_is_consumed_before_incomplete_stop(

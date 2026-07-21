@@ -19,6 +19,7 @@ Endpoints:
   DELETE /media-library/<id>    → soft-delete one media asset
   GET  /agent-links/status      → codex-lumeri/gemini-lumeri link status and recent relay messages
   GET  /agent-links/messages    → recent local relay messages
+  GET  /skill-panels            → validated schema-only panels from Skill packages
   POST /agent-links/link        → mark codex-lumeri or gemini-lumeri linked in the top bar
   POST /agent-links/message     → send one local relay message, optionally invoking target CLI
   POST /agent-links/relay       → run one codex-lumeri ↔ gemini-lumeri relay round through Lumeri
@@ -298,7 +299,6 @@ from gemia.stability import (
     stability_gate_enabled as _stability_gate_enabled,
 )
 from gemia.ai.sub_agents import SubAgentRegistry
-from lumerai.sandbox import sandbox_ctx as _sandbox_ctx
 from gemia.sandbox_v4 import set_sandbox_disabled as _set_v4_sandbox_disabled, is_sandbox_disabled as _is_v4_sandbox_disabled
 
 # In-memory store for pending ask sessions. Each entry MUST carry account_id
@@ -802,6 +802,19 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, 200, model_selection_payload("planner"))
             return
 
+        if path == "/starter-recommendations":
+            from gemia.starter_recommendations import get_starter_recommendations
+
+            # Durable memory belongs to the signed-in local workspace. Public
+            # remote visitors and signed-out browsers only receive defaults.
+            is_remote = str(self.headers.get("X-Lumeri-Remote") or "").strip() == "1"
+            account_id = identity.resolve_account_id(self)
+            payload = get_starter_recommendations(
+                allow_personalized=body and bool(account_id) and not is_remote,
+            )
+            _json_response(self, 200, payload)
+            return
+
         if path == "/auth/session":
             _json_response(self, 200, accounts.auth_session_payload())
             return
@@ -1059,6 +1072,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/agents":
             _json_response(self, 200, {"agents": SubAgentRegistry.list_agents()})
+            return
+
+        if path == "/skill-panels":
+            from gemia.skill_panels import discover_skill_panels
+
+            _json_response(self, 200, discover_skill_panels().public_payload())
             return
 
         if path == "/skills":

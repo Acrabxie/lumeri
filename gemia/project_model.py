@@ -16,7 +16,7 @@ DEFAULT_FPS = 30.0
 IMAGE_DURATION = 3.0
 
 MEDIA_KINDS = {"video", "image", "audio", "text", "lottie"}
-TRACK_KINDS = {"video", "overlay", "audio"}
+TRACK_KINDS = {"video", "audio"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 AUDIO_EXTENSIONS = {".flac", ".wav", ".mp3", ".m4a", ".aac"}
 LOTTIE_EXTENSIONS = {".json", ".lottie"}
@@ -894,24 +894,31 @@ def _normalize_tracks(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value:
         return _default_tracks()
     tracks: list[dict[str, Any]] = []
+    next_video_index = 1
+    next_audio_index = 1
     for index, raw in enumerate(value):
         if not isinstance(raw, dict):
             continue
         raw_id = str(raw.get("id", ""))
-        if raw_id.startswith("OV"):
-            inferred = "overlay"
-        elif raw_id.startswith("A"):
-            inferred = "audio"
+        raw_kind = str(raw.get("kind") or "").strip().lower()
+        if raw_kind == "audio" or raw_id.startswith("A"):
+            kind = "audio"
+            prefix = "A"
+            default_name = "Audio"
+            fallback_id = f"A{next_audio_index}"
+            next_audio_index += 1
         else:
-            inferred = "video"
-        kind = str(raw.get("kind") or inferred)
-        if kind not in TRACK_KINDS:
             kind = "video"
-        prefix = {"audio": "A", "overlay": "OV"}.get(kind, "V")
-        default_name = {"audio": "Audio", "overlay": "Overlay"}.get(kind, "Video")
+            prefix = "V"
+            default_name = "Video"
+            fallback_id = f"V{next_video_index}"
+            next_video_index += 1
+        normalized_id = str(raw.get("id") or fallback_id)
+        if raw_id.startswith("OV"):
+            normalized_id = fallback_id
         tracks.append(
             {
-                "id": str(raw.get("id") or f"{prefix}{index + 1}"),
+                "id": normalized_id,
                 "kind": kind,
                 "name": str(raw.get("name") or default_name),
                 "index": int(_float_or(raw.get("index"), index)),
@@ -962,8 +969,6 @@ def _media_kind_for_name(name: str, mime_type: str = "") -> str:
 def _default_track_id_for_media_kind(media_kind: str) -> str:
     if media_kind == "audio":
         return "A1"
-    if media_kind in {"image", "text", "lottie"}:
-        return "OV1"
     return "V1"
 
 

@@ -346,6 +346,41 @@ def _integration_topic_without_media_artifact(text: str) -> bool:
     )
 
 
+# "找到 logo" is a retrieval request, not a commission to animate one.  Topic
+# nouns (logo, 宣传片, 动画…) used to route pure find/search turns into
+# production packs, whose ledgers then demanded a final asset the user never
+# asked for this turn.  When the commanded action is retrieval and no
+# production verb appears, route to the inspect/files surface instead.
+_RETRIEVAL_ACTION_RE = re.compile(
+    r"(?:找到|找出|找一下|找找|寻找|查找|搜索|搜一下|搜搜|检索|"
+    r"帮我找|给我找|替我找|把.{0,24}找|看看有没有|有没有|在哪里|在哪儿|在哪|哪里有|"
+    r"\b(?:find|locate|search\s+for|look\s+for|where\s+is)\b)",
+    re.I,
+)
+
+_PRODUCTION_ACTION_RE = re.compile(
+    r"(?:生成|制作|创建|设计|渲染|导出|合成|拼接|添加|加上|叠加|插入|"
+    r"调色|变速|转场|抠图|修图|字幕|配乐|做成|做一|做个|做张|做段|"
+    r"画一|画个|画张|画幅|画出|剪辑|剪掉|剪成|裁剪|裁掉|"
+    r"\b(?:generate|make|create|produce|render|export|edit|trim|cut|"
+    r"add|overlay|insert|animate|design|draw|compose)\b)",
+    re.I,
+)
+
+_PRODUCTION_PACKS = (
+    "storyboard", "quanta", "motion_graphics", "video_generation",
+    "video_edit", "timeline", "image", "audio",
+    "lumen_core", "lumen_time", "lumen_mask", "interchange",
+)
+
+
+def _retrieval_without_production(text: str) -> bool:
+    """True when the turn commands finding something, not making something."""
+    return bool(_RETRIEVAL_ACTION_RE.search(text)) and not bool(
+        _PRODUCTION_ACTION_RE.search(text)
+    )
+
+
 def classify_request(
     request: str,
     *,
@@ -382,6 +417,16 @@ def classify_request(
         scores["files"] += 2
     elif integration_topic and media_artifact_action:
         scores["image"] += 4
+
+    # A pure retrieval turn ("找到 logo", "find the intro clip") must not be
+    # routed into a production pack just because the target noun matches a
+    # production keyword; the ledger would then require producing media the
+    # user only asked to locate.
+    if _retrieval_without_production(text):
+        for name in _PRODUCTION_PACKS:
+            scores[name] = 0
+        scores["media_inspect"] += 3
+        scores["files"] += 2
 
     # Head-noun generation phrasing may contain modifiers between the verb and
     # "video" ("生成一个有音乐的视频", "make a 7-second video").

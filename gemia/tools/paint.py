@@ -55,7 +55,7 @@ async def dispatch_overlay(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     )
 
     clip_id = f"clip_{uuid.uuid4().hex[:8]}"
-    track_id, needs_track = _pick_overlay_track(
+    track_id, needs_track = _pick_visual_track(
         state,
         start=start,
         duration=duration,
@@ -87,7 +87,7 @@ async def dispatch_overlay(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     }
     ops: list[dict[str, Any]] = []
     if needs_track:
-        ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id, "name": track_id})
+        ops.append({"op": "add_track", "kind": "video", "track_id": track_id, "name": track_id})
     ops.append(
         {
             "op": "insert_clip",
@@ -108,7 +108,7 @@ async def dispatch_overlay(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
         "duration": duration,
         "seq": result.get("patch_seq_end"),
         "timeline": project.compact_text(),
-        "note": "paint overlay inserted on an overlay track; call inspect_timeline to verify the composited pixels",
+        "note": "paint overlay inserted on a visual V* track; call inspect_timeline to verify the composited pixels",
     }
 
 
@@ -381,7 +381,7 @@ def _bbox(spec: dict[str, Any], width: int, height: int) -> tuple[int, int, int,
     )
 
 
-def _pick_overlay_track(
+def _pick_visual_track(
     state: dict[str, Any],
     *,
     start: float,
@@ -395,16 +395,16 @@ def _pick_overlay_track(
     if requested:
         return requested, requested not in existing
 
-    overlay_ids = [str(t.get("id")) for t in tracks if str(t.get("kind")) == "overlay"]
-    if not overlay_ids:
-        overlay_ids = ["OV1"]
-    for track_id in overlay_ids:
+    visual_ids = [str(t.get("id")) for t in tracks if str(t.get("kind")) == "video"]
+    if not visual_ids:
+        visual_ids = ["V1"]
+    for track_id in visual_ids:
         if not _track_has_overlap(clips, track_id, start, duration):
             return track_id, track_id not in existing
     index = 1
-    while f"OV{index}" in existing:
+    while f"V{index}" in existing:
         index += 1
-    return f"OV{index}", True
+    return f"V{index}", True
 
 
 def _track_has_overlap(clips: list[dict[str, Any]], track_id: str, start: float, duration: float) -> bool:

@@ -383,6 +383,28 @@ def test_v3_frontend_recovers_an_expired_session_before_retrying_upload() -> Non
     assert "return uploadFile(file, false);" in source
 
 
+def test_v3_frontend_recovers_an_expired_session_before_retrying_turn() -> None:
+    """A runtime reload must not make the user's next message fail."""
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert "async function submitTurn(message, retryExpiredSession = true)" in source
+    assert "r.status === 404 && retryExpiredSession" in source
+    assert "await autoSaveSession();" in source
+    assert "await createSession();" in source
+    assert "return submitTurn(message, false);" in source
+
+
+def test_v3_turn_start_error_uses_unboxed_text_treatment() -> None:
+    """Turn-start failures should not render as a large red bordered block."""
+    css = Path("static/v3/v3.css").read_text(encoding="utf-8")
+    error_rule = css.split(".banner-turn-error {", 1)[1].split("}", 1)[0]
+
+    assert "background: transparent" in error_rule
+    assert "color: var(--m3-error)" in error_rule
+    assert "padding: 0" in error_rule
+    assert "border-radius: 0" in error_rule
+
+
 def test_v3_frontend_uses_only_model_authored_activity_copy() -> None:
     """The activity UI must not infer user copy from a tool name or payload."""
     source = Path("static/v3/v3.js").read_text(encoding="utf-8")

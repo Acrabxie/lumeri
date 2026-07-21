@@ -46,6 +46,7 @@ _DEFAULT_MODEL = "google/gemini-3.1-pro-preview"
 _DEFAULT_VERTEX_MODEL    = "google/gemini-3.5-flash"  # available on the Vertex 'global' endpoint (brain default location is global)
 _DEFAULT_GEMINI_MODEL    = "gemini-2.0-flash"
 _DEFAULT_CLAUDE_MODEL    = "claude-sonnet-4-6"
+_DEFAULT_CLAUDE_URL      = "https://api.anthropic.com/v1/messages"
 _DEFAULT_OPENROUTER_MODEL = _DEFAULT_MODEL
 _DEFAULT_OPENAI_MODEL    = "gpt-5.5"
 
@@ -74,6 +75,33 @@ def _read_config_value(field: str) -> Any:
     except Exception:
         return None
     return None
+
+
+def _normalize_anthropic_url(value: str) -> str:
+    """Accept an Anthropic-compatible root, /v1 URL, or full Messages URL."""
+    url = str(value or "").strip().rstrip("/")
+    if not url:
+        return _DEFAULT_CLAUDE_URL
+    if url.endswith("/v1/messages") or url.endswith("/messages"):
+        return url
+    if url.endswith("/v1"):
+        return f"{url}/messages"
+    return f"{url}/v1/messages"
+
+
+def _claude_request_headers(api_url: str, api_key: str, betas: str = "") -> dict[str, str]:
+    """Build Anthropic headers without leaking a custom gateway key."""
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+    if api_url.rstrip("/") != _DEFAULT_CLAUDE_URL:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if betas.strip():
+        headers["anthropic-beta"] = betas.strip()
+    return headers
 
 
 def _parse_optional_bool(raw: Any, *, source: str) -> bool | None:
@@ -470,7 +498,16 @@ class GeminiClientV3:
             ).strip()
             if not self.api_key:
                 raise RuntimeError("ANTHROPIC_API_KEY required for claude provider (env or config.json:anthropic_api_key).")
-            self.api_url = "https://api.anthropic.com/v1/messages"
+            self.api_url = _normalize_anthropic_url(
+                os.environ.get("LUMERI_ANTHROPIC_BASE_URL")
+                or _read_config_key("lumeri_anthropic_base_url")
+            )
+            self.anthropic_betas = (
+                os.environ.get("LUMERI_ANTHROPIC_BETAS")
+                or _read_config_key("lumeri_anthropic_betas")
+                or os.environ.get("ANTHROPIC_BETAS")
+                or ""
+            ).strip()
             self.model = model_override or _DEFAULT_CLAUDE_MODEL
 
         elif self.provider == "openai":
@@ -735,12 +772,11 @@ class GeminiClientV3:
         if temp is not None:
             body["temperature"] = temp
 
-        headers = {
-            "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-        }
+        headers = _claude_request_headers(
+            self.api_url,
+            self.api_key,
+            getattr(self, "anthropic_betas", ""),
+        )
         req = urllib.request.Request(
             self.api_url,
             data=json.dumps(body).encode("utf-8"),

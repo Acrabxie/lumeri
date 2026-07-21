@@ -112,6 +112,7 @@ from gemia.turn_control import (
     ClarificationGuard,
     TurnIntent,
     classify_turn_intent,
+    extract_scoped_directive,
 )
 from gemia.turn_compaction import compact_settled_tool_blocks
 from gemia.turn_ledger import TurnLedger, tool_target_key
@@ -151,13 +152,15 @@ _VISUAL_ASSET_KINDS = {"image", "video", "lottie"}
 
 _GATE_VOICE_TEXT = (
     "表达方式：以上核对是你交付前的内部检查步骤，不是回复的模板。"
-    "最终回复要像一个同事交活那样自然地说话，按这一回合实际发生的事"
-    "来组织内容：做了什么、结果怎么样、有什么值得注意的地方；有失败就如实说明。"
+    "最终回复只说用户此刻真正需要知道的结果，像同事一样自然说话；一句够就说一句，"
+    "不要被要求覆盖「做了什么、结果怎么样、注意事项」之类固定栏目。"
+    "有失败或阻塞时才准确说明，不要为了显得完整而硬凑汇报内容。"
     "不要按固定的标题或清单结构逐项汇报，不要把内部检查清单本身复述给用户，"
     "也不要用「项目已圆满完成」这类礼节性套话收尾。"
     "尤其避免这几种机械腔：别用「已完成：…」这种状态汇报式开头；"
     "别用第三人称回述自己刚才做了什么（如「我刚才已经回答了…」）；"
     "别报告「当前没有需要继续执行的工具操作」这类内部机制状态。"
+    "不要自动追加「等你让我继续」之类交接话，除非确实需要用户决定下一步。"
     "如果这一回合本来就只是对话，那就只说这段对话该说的话，别硬凑成一份交付报告。"
     "用用户最新消息的语言回复。"
 )
@@ -443,6 +446,27 @@ def _load_system_template() -> str:
     return _PROMPT_PATH.read_text(encoding="utf-8")
 
 
+def _looks_like_model_identity_question(text: str) -> bool:
+    """Heuristic guard for direct questions about the assistant/model itself.
+
+    These turns are explanatory conversation, not media-creation briefs. The
+    prompt already tells the model this, but a compact host-side nudge in the
+    recency slot helps when long history or synthetic user notices would
+    otherwise pull attention back toward an old creation task.
+    """
+    s = str(text or "").strip().lower()
+    if not s:
+        return False
+    keys = [
+        "你叫什么", "你叫啥", "你是谁", "你能做什么", "你可以帮我做什么",
+        "what can you do", "who are you", "your name",
+        "什么模型", "什么ai", "什么引擎", "哪个模型", "哪个ai", "哪个引擎",
+        "what model", "which model", "what engine", "which engine",
+        "what ai", "which ai", "runtime engine",
+    ]
+    return any(k in s for k in keys)
+
+
 def _parse_args(raw: str) -> tuple[dict[str, Any] | None, str | None]:
     """Parse JSON tool-call args. Returns (parsed, None) or (None, error_message)."""
     text = (raw or "").strip()
@@ -522,6 +546,10 @@ class AgentLoopV3:
         self.client = gemini_client or GeminiClientV3()
 
         self._messages: list[dict[str, Any]] = []
+        # The most recent REAL user input (run_turn's argument). Retract needs
+        # to distinguish it from host-injected role="user" rows (background
+        # notes, failure nudges), which must never be a retract anchor.
+        self._last_user_message: str | None = None
         # Thread-safe mailbox for guidance arriving from the HTTP thread while
         # this loop is streaming or awaiting a tool. Guidance is drained only
         # at model-round boundaries so it can never split an assistant
@@ -811,6 +839,7 @@ class AgentLoopV3:
         if note is None:
             return False
         self._messages.append({"role": "user", "content": note})
+        self._last_user_message = note
         self._trim_rolling_window()
         # Mirror run_turn's per-turn setup. The notice must drive an
         # ACTIONABLE turn: CONVERSATION/INFORMATION intents expose zero
@@ -1171,6 +1200,11 @@ class AgentLoopV3:
                 "blocked until the user approves the plan."
             )
         tl = _first(self.project.compact_text())
+        if _looks_like_model_identity_question(getattr(self, "_last_user_message", "")):
+            snaps.append(
+                "Conversation turn: answer the user's question about you directly. "
+                "Do not create media, inspect assets, or continue an older task unless the user asks for that now."
+            )
         if tl:
             snaps.append(f"Timeline: {tl}")
         lf = self._get_lumenframe_prompt_text() or ""
@@ -1503,44 +1537,31 @@ class AgentLoopV3:
         assets_produced: int,
         tool_name: str | None = None,
     ) -> str:
-        """Build a short 'stopped because X; here's what was / wasn't done'
-        summary LOCALLY from the known stop reason and the turn's tool / asset
-        counts. No model API call — this is a cheap deterministic synthesis so a
-        budget / doom-loop / stream-error stop is *explained*
-        to the user instead of being a bare silent halt.
+        """Build a short natural-language explanation of a host-side stop.
+
+        No model API call is available on these hard exits, so the host still
+        needs a deterministic sentence. Keep it to the actual reason only;
+        tool / asset counts remain structured event telemetry and must not be
+        expanded into a canned ``done / remaining / continue`` report.
 
         ``reason`` is a short machine code (e.g. ``"doom_loop"``,
         ``"budget_exhausted"``, ``"stream_error"``); the rest
         is synthesized from the turn state that is already on hand at the exit
         point."""
-        del tool_name  # Kept in the event for diagnostics; never expose it in copy.
-        why = {
-            "doom_loop": "同一步骤连续重复，继续重试只会原地打转",
-            "budget_exhausted": "本轮可用的执行预算已经用完",
-            "stream_error": "模型连接在执行过程中中断",
-            "plan_gate_limit": "当前处于计划模式，修改操作还没有获得批准",
-            "incomplete_goal": "我检查后发现目标还有未完成的验收项",
-        }.get(reason, "本轮执行没有完整结束")
-
-        done_bits: list[str] = []
-        if tools_succeeded:
-            done_bits.append(f"完成了 {tools_succeeded} 个执行步骤")
-        if assets_produced:
-            done_bits.append(f"产出了 {assets_produced} 个素材")
-        done = "，".join(done_bits) if done_bits else "还没有形成可交付的修改"
-
-        not_done = (
-            f"有 {tools_failed} 个步骤没有完成，我没有把它们算作成功"
-            if tools_failed
-            else "没有记录到执行失败，但目标仍未完整闭环"
-        )
-
-        return (
-            f"我先停在这里：{why}。\n\n"
-            f"- 已完成：{done}\n"
-            f"- 仍待处理：{not_done}\n\n"
-            "当前进度已经保留。你让我继续，我会从这里接着处理。"
-        )
+        del tools_succeeded, assets_produced, tool_name
+        if reason == "doom_loop":
+            return "执行陷入了重复，我已经停止继续重试，避免原地打转。"
+        if reason == "budget_exhausted":
+            return "这轮的执行预算已经用完，未完成的部分没有被算作成功。"
+        if reason == "stream_error":
+            return "执行过程中模型连接中断了，未完成的部分没有被算作成功。"
+        if reason == "plan_gate_limit":
+            return "现在仍是计划模式，修改操作需要先获得批准。"
+        if reason == "incomplete_goal":
+            if tools_failed:
+                return f"有 {tools_failed} 个步骤执行失败了，所以这轮还不能算完成。"
+            return "这轮还不能算完成，目标里仍有部分没有得到验证。"
+        return "这轮执行没有完整结束。"
 
     def _emit_turn_wrapup(
         self,
@@ -1733,11 +1754,39 @@ class AgentLoopV3:
 
     # ── public entrypoint ────────────────────────────────────────────
 
+    def retract_last_turn(self, expected_message: str | None = None) -> str | None:
+        """Drop the most recent real user turn — that user message plus every
+        row after it — from the conversation. Returns the retracted text, or
+        ``None`` when nothing is retractable: no completed turn, the anchor
+        was rewritten away by trimming/compaction, or ``expected_message``
+        (the caller's view of the last turn) no longer matches ours.
+
+        Anchors on content, not index: rolling-window trims and compaction
+        rewrite ``_messages``, so a stored index could silently point at the
+        wrong row. Only ever call between turns (the HTTP layer guards this).
+        Side effects already applied by the turn (timeline edits, files) are
+        deliberately NOT rolled back — retract rewrites the conversation, not
+        the project.
+        """
+        target = self._last_user_message
+        if not target:
+            return None
+        if expected_message is not None and expected_message != target:
+            return None
+        for i in range(len(self._messages) - 1, -1, -1):
+            row = self._messages[i]
+            if row.get("role") == "user" and row.get("content") == target:
+                del self._messages[i:]
+                self._last_user_message = None
+                return target
+        return None
+
     async def run_turn(self, user_message: str) -> None:
         """Run one user turn until the model stops calling tools."""
         if self._pinned_intent is None:
             self._pinned_intent = user_message
         self._messages.append({"role": "user", "content": user_message})
+        self._last_user_message = user_message
         self._trim_rolling_window()
         intent = classify_turn_intent(user_message)
         # Host-owned, per-turn clarification budget. The dispatcher reads it
@@ -1770,7 +1819,11 @@ class AgentLoopV3:
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
         routing_state = self._routing_state()
-        router = ToolRouter(turn_request, state=routing_state)
+        # "…做一个宣传片，你先把logo找到" budgets THIS turn against the staged
+        # clause only; the model and the goal check still see the full request,
+        # so the deferred goal is context, not a completion demand.
+        scope_request = extract_scoped_directive(turn_request) or turn_request
+        router = ToolRouter(scope_request, state=routing_state)
         ledger_enforced = (
             enforce_ledger
             and turn_intent is TurnIntent.ACTIONABLE
@@ -1780,7 +1833,7 @@ class AgentLoopV3:
             router.decision.primary_workflow if ledger_enforced else "conversation"
         )
         ledger = TurnLedger(
-            turn_request,
+            scope_request,
             workflow=workflow,
             session_origin=self.session_id,
             workflows=(
@@ -1827,6 +1880,11 @@ class AgentLoopV3:
         # enabling reads/elicit answers whose value only appears in the next
         # model round. A second consecutive full-surface batch may stop.
         full_surface_no_progress_batches = 0
+        # Batches where the ledger is already complete but the model keeps
+        # grinding tools anyway. One nudge, then tools are withheld so the
+        # model must wrap up in prose — never a false incomplete_goal.
+        complete_scope_grind_batches = 0
+        force_prose_wrapup = False
 
         def _assets_produced() -> int:
             return sum(
@@ -1856,6 +1914,7 @@ class AgentLoopV3:
                 "若它与原请求冲突，以最新引导为准。\n" + joined
             )
             self._messages.append({"role": "user", "content": content})
+            self._last_user_message = content
             self._emit({"kind": "turn_guidance_applied", "guidance": items[-1]})
             return content
 
@@ -1874,6 +1933,7 @@ class AgentLoopV3:
             bg_note = self._drain_background_notifications()
             if bg_note is not None:
                 self._messages.append({"role": "user", "content": bg_note})
+                self._last_user_message = bg_note
 
             accum = _StreamAccumulator()
             self._compact_turn_history()
@@ -1884,6 +1944,10 @@ class AgentLoopV3:
             # ---- stream from model ---------------------------------
             if turn_intent in {TurnIntent.CONVERSATION, TurnIntent.INFORMATION}:
                 active_schemas: list[dict[str, Any]] = []
+            elif force_prose_wrapup:
+                # The commanded scope is complete and the model ignored the
+                # wrap-up nudge; withhold tools so this round must answer.
+                active_schemas = []
             else:
                 active_schemas = router.active_schemas
                 if self._remote:
@@ -2731,6 +2795,30 @@ class AgentLoopV3:
                     # no-progress budget before the model can consume those
                     # errors and correct its arguments/approach.
                     full_surface_no_progress_batches = 0
+                elif ledger.completion_decision().complete:
+                    # The commanded scope is fully evidenced; further tool
+                    # calls are the model's own diligence, not owed work.
+                    # Demanding "a concrete goal mutation" here (or force-
+                    # stopping incomplete_goal with zero blockers) is what
+                    # used to force-march finished turns. Nudge once, then
+                    # withhold tools so the next round must answer in prose.
+                    full_surface_no_progress_batches = 0
+                    complete_scope_grind_batches += 1
+                    if complete_scope_grind_batches >= 2:
+                        force_prose_wrapup = True
+                    self._messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The turn ledger for the commanded scope is "
+                                "already complete. Do not keep calling tools "
+                                "out of momentum: finish now with an honest "
+                                "prose report of what you found — including "
+                                "'not found, I need X from you' if that is "
+                                "the truth."
+                            ),
+                        }
+                    )
                 else:
                     was_full = router.is_full_fallback
                     expansion = router.note_no_progress()

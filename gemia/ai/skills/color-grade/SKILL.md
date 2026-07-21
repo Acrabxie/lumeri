@@ -19,6 +19,10 @@ primitives:
   - gemia.picture.enhance.image_adjust_hsl
   - gemia.picture.enhance.image_contrast
 est_tokens: 560
+permissions:
+  - timeline.components
+timeline_components:
+  - timeline/grade-actions.json
 ---
 
 # color-grade

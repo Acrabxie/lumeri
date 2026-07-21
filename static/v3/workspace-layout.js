@@ -11,6 +11,7 @@
     outline: Object.freeze({ width: 19, height: 64 }),
     tasks: Object.freeze({ width: 19, height: 64 }),
     files: Object.freeze({ width: 50, height: 38 }),
+    library: Object.freeze({ width: 38, height: 64 }),
     history: Object.freeze({ width: 50, height: 38 }),
   });
   const LIMITS = Object.freeze({

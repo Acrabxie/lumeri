@@ -1902,35 +1902,39 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     ),
     _tool(
         "spawn_subtasks",
-        "Fan out 1-4 bounded sub-agents that work IN PARALLEL on independent goals and "
-        "return structured results. Each child runs a restricted tool profile, cannot "
-        "ask the user, cannot spawn further children, and draws cost/time from THIS "
-        "session's budget. Use for: bulk media annotation/indexing, per-beat rough-cut "
-        "candidate scouting, parallel library search/probe sweeps, A/B preview variants. "
-        "Do NOT use for a single sequential task — call the tools directly instead.",
+        "Fan out sub-agents that work IN PARALLEL on independent goals and return "
+        "structured results. No limit on the number of children. Each child has the "
+        "SAME full tool set as the parent (except spawn_subtasks) by default. Use for: "
+        "bulk media annotation/indexing, per-beat rough-cut candidate scouting, parallel "
+        "library search/probe sweeps, A/B preview variants, any embarrassingly-parallel "
+        "workload. For tasks requiring full VIDEO UNDERSTANDING (visual analysis, scene "
+        "recognition, frame-level reasoning), set model to a multimodal model such as "
+        "'gemini-3.5-flash'. Do NOT use for a single sequential task — call the tools "
+        "directly instead.",
         {
             "subtasks": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 4,
                 "items": {
                     "type": "object",
                     "properties": {
                         "goal": {"type": "string",
                                  "description": "Self-contained instruction for this child; include asset_ids explicitly."},
                         "tool_profile": {"type": "string",
-                                         "enum": ["annotate", "probe"],
-                                         "description": "Host-fixed capability set the child runs with."},
+                                         "enum": ["full", "annotate", "probe"],
+                                         "description": "Capability set. Omit or 'full' for the parent's full tool list."},
+                        "model": {"type": "string",
+                                  "description": "Model override for this child. Use a multimodal model (e.g. 'gemini-3.5-flash') when the task needs to understand video content."},
                         "asset_ids": {"type": "array", "items": {"type": "string"},
                                       "description": "Assets this child is scoped to (informational; echoed into the child prompt)."},
-                        "max_cost_usd": {"type": "number",
-                                         "description": "Optional per-child spend ceiling; host clamps to the fair slice."},
+                        "max_steps": {"type": "integer",
+                                      "description": "Max model-call steps for this child (default 30, max 128)."},
                     },
-                    "required": ["goal", "tool_profile"],
+                    "required": ["goal"],
                 },
             },
             "deadline_sec": {"type": "number",
-                             "description": "Shared wall-clock deadline for the whole batch (default 240, max 480)."},
+                             "description": "Shared wall-clock deadline for the whole batch (default 600, max 3600)."},
         },
         ["subtasks"],
     ),

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "grade-actions",
+  "widgets": [
+    {
+      "id": "grade-selection",
+      "kind": "button",
+      "label": "调色所选",
+      "description": "让 Lumeri 检查当前选中片段并完成自然、克制的调色。",
+      "icon": "droplet",
+      "placement": {"after": "add-title"},
+      "requires_selection": true,
+      "action": {
+        "type": "agent_turn",
+        "intent": "检查时间轴当前选中的片段，为它完成自然、克制的整体调色，保护肤色和高光，并在完成后检查结果。"
+      }
+    }
+  ]
+}

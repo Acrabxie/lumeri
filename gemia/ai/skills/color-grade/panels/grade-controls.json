@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "grade-controls",
+  "title": "调色控制",
+  "description": "用 Lumeri 已有控件给当前工程设定整体观感，提交后仍由 Agent 检查素材并执行。",
+  "icon": "droplet",
+  "intent": "根据面板选择为当前工程完成整体调色，优先保持肤色和高光自然，并在完成后检查结果。",
+  "submit_label": "交给 Lumeri 调色",
+  "lifecycle": "persistent",
+  "default_size": {
+    "width": 38,
+    "height": 64
+  },
+  "fields": [
+    {
+      "id": "look",
+      "type": "select",
+      "label": "整体风格",
+      "description": "先决定整体方向，不直接暴露底层滤镜参数。",
+      "required": true,
+      "default": "natural",
+      "options": [
+        {"label": "自然统一", "value": "natural"},
+        {"label": "暖色电影感", "value": "warm-cinematic"},
+        {"label": "冷调克制", "value": "cool-restrained"},
+        {"label": "复古胶片", "value": "vintage-film"}
+      ]
+    },
+    {
+      "id": "intensity",
+      "type": "slider",
+      "label": "处理强度",
+      "description": "数值越高，整体风格越明显。",
+      "required": true,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 45
+    },
+    {
+      "id": "protect-skin",
+      "type": "toggle",
+      "label": "保护肤色",
+      "description": "有人像时优先避免肤色偏色。",
+      "default": true
+    },
+    {
+      "id": "note",
+      "type": "text",
+      "label": "补充要求",
+      "description": "可选，例如“不要压暗背景”或“参考第二个镜头”。",
+      "placeholder": "可选补充",
+      "multiline": true,
+      "min_length": 0,
+      "max_length": 240,
+      "default": ""
+    }
+  ]
+}

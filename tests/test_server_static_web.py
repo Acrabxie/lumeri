@@ -9,6 +9,15 @@ def make_request(method, path, headers=None, body=None):
     return response["status"], response["headers"].get("cache-control", ""), response["body"]
 
 
+def test_server_startup_does_not_eagerly_expand_the_lumerai_video_package() -> None:
+    source = Path(server.__file__).read_text(encoding="utf-8")
+
+    # Importing lumerai.sandbox executes lumerai/__init__.py, which expands the
+    # complete video surface.  That context variable was unused here and made
+    # cold start depend on hundreds of small reads from the external volume.
+    assert "from lumerai.sandbox import sandbox_ctx as _sandbox_ctx" not in source
+
+
 def test_root_is_intentionally_blank() -> None:
     """Root is reserved for the future Lumeri family portal; Video lives at /video."""
     response = run_server_handler(server._Handler, create_raw_request("GET", "/"))
@@ -27,6 +36,85 @@ def test_video_serves_frontend() -> None:
     html = video["body"].decode("utf-8")
     assert "/video/v3.js" in html
     assert "/video/v3.css" in html
+
+
+def test_video_serves_lumeri_working_indicator_assets() -> None:
+    for path, expected in (
+        ("/video/lumeri-working.svg", "Lumeri 正在工作"),
+        ("/video/lumeri-working-static.svg", "Lumeri"),
+    ):
+        response = run_server_handler(server._Handler, create_raw_request("GET", path))
+
+        assert response["status"] == 200
+        assert response["headers"].get("content-type", "").startswith("image/svg+xml")
+        svg = response["body"].decode("utf-8")
+        assert expected in svg
+        assert "width=\"90\"" in svg
+
+
+def test_video_working_indicator_renders_under_assistant_output() -> None:
+    root = Path(server.__file__).resolve().parent
+    css = (root / "static/v3/v3.css").read_text(encoding="utf-8")
+    source = (root / "static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert "assistantMarkHtml" in source
+    assert "startedAt: Date.now()" in source
+    assert "completedAt: null" in source
+    assert "formatWorkElapsed(turn, isActiveTurn)" in source
+    assert "const shouldShowMark = isActiveTurn || hasAssistant" in source
+    assert 'isActiveTurn ? "lumeri-working.svg" : "lumeri-working-static.svg"' in source
+    assert "${assistantHtml}" in source
+    assert "${assistantMarkHtml}" in source
+    assert source.count("${assistantMarkHtml}") == 1
+    assert source.index("${assistantHtml}") < source.index("${assistantMarkHtml}")
+    assert ".assistant-workmark" in css
+    assert ".assistant-workmark.is-static" in css
+    assert "width: 24px" in css
+    assert "height: 12px" in css
+    assert "font-variant-numeric: tabular-nums" in css
+    assert "border-radius: var(--shape-sm)" in css
+
+
+def test_signed_in_avatar_opens_a_real_account_menu() -> None:
+    root = Path(server.__file__).resolve().parent
+    html = (root / "static/v3/index.html").read_text(encoding="utf-8")
+    css = (root / "static/v3/v3.css").read_text(encoding="utf-8")
+    source = (root / "static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert 'aria-controls="account-menu"' in html
+    assert 'id="account-menu"' in html
+    for action in ("settings", "setup", "help", "logout"):
+        assert f'data-account-action="{action}"' in html
+    assert '<use href="#i-sliders"/>' in html
+    assert '<use href="#i-spark"/>' in html
+    assert "openAccountMenu" in source
+    assert 'action === "settings"' in source and "openModelPicker()" in source
+    assert 'action === "setup"' in source and "openSetupPanel()" in source
+    assert 'postAuth("/auth/logout", {})' in source
+    assert ".account-menu" in css
+    assert "account-menu-in" in css
+
+
+def test_settings_opens_a_split_page_with_real_sections() -> None:
+    root = Path(server.__file__).resolve().parent
+    css = (root / "static/v3/v3.css").read_text(encoding="utf-8")
+    source = (root / "static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert 'overlay.className = "settings-overlay"' in source
+    assert 'class="settings-sidebar"' in source
+    assert 'class="settings-detail"' in source
+    for section in ("model", "safety", "account"):
+        assert f'data-settings-section="{section}"' in source
+        assert f'data-settings-panel="{section}"' in source
+    assert 'id="settings-sandbox-toggle"' in source
+    assert 'id="settings-plan-toggle"' in source
+    assert 'id="settings-account-detail"' in source
+    assert "els.sandboxBtn?.click()" in source
+    assert "els.planBtn?.click()" in source
+    assert 'fetch("/auth/session")' in source
+    assert 'fetch("/auth/logout"' in source
+    assert ".settings-page" in css
+    assert "grid-template-columns: 252px minmax(0, 1fr)" in css
 
 
 def test_legacy_v3_redirects_to_video() -> None:

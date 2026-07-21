@@ -684,6 +684,23 @@ def _materialize_recall_view(skill: dict[str, Any]) -> dict[str, Any] | None:
         return None
     except Exception:
         return None
+    # Charter §14 S3 (recall-side dead-reference filter): a .lus whose
+    # ``tools_used`` names a verb no longer in the live tool surface points the
+    # model at a dead tool — exclude it from recall, never silently. Fail OPEN
+    # when the tool surface is unresolvable (mirrors the save-side known_tools
+    # contract; keeps the store standalone-testable). Scope is deliberately the
+    # canonical .lus ``tools_used`` field only — a v3-verb namespace identical
+    # to ``TOOL_NAMES``; the legacy SKILL.md source (v2 dotted primitives, a
+    # disjoint namespace) is out of scope here to avoid 误杀 (charter 宁窄勿宽).
+    known = _known_tool_names()
+    if known:  # fail OPEN when the tool surface is unavailable (None) OR empty
+        dead = sorted(v for v in meta.tools_used if v not in known)
+        if dead:
+            _LOG.warning(
+                "skill %s quarantined from recall: references dead tool(s) "
+                "%s not in the live tool surface (charter §14 S3)",
+                path.name, ", ".join(dead))
+            return None
     return _recall_view(_lus_record(meta, body, warnings, path))
 
 
