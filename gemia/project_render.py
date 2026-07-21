@@ -1,12 +1,18 @@
 """Low-resolution preview renderer for the experimental Lumeri Runtime Kernel."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import shutil
 import subprocess
+import threading
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .compat import ffmpeg_path, ffprobe_path
 from .project_model import normalize_project
@@ -20,6 +26,12 @@ class ProjectRenderError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.detail = detail
+
+
+_PREVIEW_CACHE_SCHEMA = "lumeri.preview-segment-cache.v1"
+_PREVIEW_CACHE_RENDERER_REVISION = 1
+_PREVIEW_CACHE_LOCKS_GUARD = threading.Lock()
+_PREVIEW_CACHE_LOCKS: dict[tuple[str, str], tuple[threading.Lock, int]] = {}
 
 
 def render_project_preview(
@@ -47,12 +59,17 @@ def render_project_preview(
 
     output_dir = Path(output_root).expanduser().resolve() / "runtime" / project_id
     output_dir.mkdir(parents=True, exist_ok=True)
+    cache_root = output_dir.parent / ".preview-segment-cache" / "v1"
     preview_path = output_dir / f"{render_id}.mp4"
     work_dir = render_dir / f"{render_id}.work"
     _empty_dir(work_dir)
+    cache_stats = _empty_cache_stats()
+    source_fingerprints: dict[tuple[str, int, int], dict[str, Any]] = {}
 
     timeline = project.get("timeline") if isinstance(project.get("timeline"), dict) else {}
-    fps = _positive_float(timeline.get("fps"), 30.0)
+    # Segment commands format time and rate to six decimals; canonicalise the
+    # same way before cache-keying so equal keys always mean equal ffmpeg args.
+    fps = round(_positive_float(timeline.get("fps"), 30.0), 6)
     target_w, target_h = _target_size(
         int(_positive_float(timeline.get("width"), 1920.0)),
         int(_positive_float(timeline.get("height"), 1080.0)),
@@ -82,15 +99,30 @@ def render_project_preview(
             continue
         if item is None:
             gap_path = work_dir / f"{index:04d}-gap.mp4"
-            _render_black_segment(
-                gap_path,
+            cache_spec = _preview_segment_spec(
+                source={"kind": "generated-black"},
+                source_in=0.0,
                 duration=seg_duration,
                 width=target_w,
                 height=target_h,
                 fps=fps,
-                timeout_sec=timeout_sec,
+                media_kind="gap",
             )
-            segment_paths.append(gap_path)
+            cached_gap = _materialize_preview_segment(
+                cache_root=cache_root,
+                fallback_path=gap_path,
+                cache_spec=cache_spec,
+                stats=cache_stats,
+                render=lambda output: _render_black_segment(
+                    output,
+                    duration=seg_duration,
+                    width=target_w,
+                    height=target_h,
+                    fps=fps,
+                    timeout_sec=timeout_sec,
+                ),
+            )
+            segment_paths.append(cached_gap)
             continue
 
         clip = item["clip"]
@@ -109,18 +141,34 @@ def render_project_preview(
         trim_duration = min(seg_duration, max(source_out - source_in, 0.1))
         segment_path = work_dir / f"{index:04d}-{_safe_slug(str(clip.get('id') or 'clip'))}.mp4"
         media_kind = str(asset.get("media_kind") or "video")
-        _render_video_segment(
-            source,
-            segment_path,
+        source_fingerprint = _source_fingerprint(source, source_fingerprints)
+        cache_spec = _preview_segment_spec(
+            source=source_fingerprint,
             source_in=source_in,
             duration=trim_duration,
             width=target_w,
             height=target_h,
             fps=fps,
             media_kind=media_kind,
-            timeout_sec=timeout_sec,
         )
-        segment_paths.append(segment_path)
+        cached_segment = _materialize_preview_segment(
+            cache_root=cache_root,
+            fallback_path=segment_path,
+            cache_spec=cache_spec,
+            stats=cache_stats,
+            render=lambda output: _render_video_segment(
+                source,
+                output,
+                source_in=source_in,
+                duration=trim_duration,
+                width=target_w,
+                height=target_h,
+                fps=fps,
+                media_kind=media_kind,
+                timeout_sec=timeout_sec,
+            ),
+        )
+        segment_paths.append(cached_segment)
         source_clips.append(
             {
                 "clip_id": str(clip.get("id") or ""),
@@ -147,6 +195,9 @@ def render_project_preview(
         "resolution": resolution,
         "ffprobe": probe,
         "source_clips": source_clips,
+        # Deliberately high-level: callers can measure reuse without learning
+        # cache paths, source fingerprints, or recovery details.
+        "segment_cache": _finalize_cache_stats(cache_stats),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     manifest_path = store.render_manifest_path(project_id, render_id)
@@ -185,6 +236,225 @@ def ffprobe_media(path: str | Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ProjectRenderError("ffprobe_invalid_json", "ffprobe JSON payload was not an object.")
     return payload
+
+
+def _empty_cache_stats() -> dict[str, int]:
+    return {
+        "segments_total": 0,
+        "hits": 0,
+        "misses": 0,
+        "rebuilds": 0,
+        "bypassed": 0,
+    }
+
+
+def _finalize_cache_stats(stats: dict[str, int]) -> dict[str, Any]:
+    total = max(int(stats.get("segments_total") or 0), 0)
+    hits = max(int(stats.get("hits") or 0), 0)
+    return {
+        "schema": _PREVIEW_CACHE_SCHEMA,
+        "segments_total": total,
+        "hits": hits,
+        "misses": max(int(stats.get("misses") or 0), 0),
+        "rebuilds": max(int(stats.get("rebuilds") or 0), 0),
+        "bypassed": max(int(stats.get("bypassed") or 0), 0),
+        "hit_ratio": round(hits / total, 6) if total else 0.0,
+    }
+
+
+def _source_fingerprint(
+    source: Path,
+    memo: dict[tuple[str, int, int], dict[str, Any]],
+) -> dict[str, Any]:
+    """Return a content fingerprint without persisting the source path.
+
+    A stat tuple is only an in-process memo key.  The content-addressed cache
+    key itself uses the full file SHA-256 and byte count, so changing a source
+    invalidates the segment even when the project patch sequence does not.
+    """
+    resolved = source.expanduser().resolve()
+    stat = resolved.stat()
+    memo_key = (str(resolved), int(stat.st_size), int(stat.st_mtime_ns))
+    cached = memo.get(memo_key)
+    if cached is not None:
+        return dict(cached)
+    fingerprint = {
+        "kind": "file",
+        "sha256": _sha256_file(resolved),
+        "bytes": int(stat.st_size),
+    }
+    memo[memo_key] = fingerprint
+    return dict(fingerprint)
+
+
+def _preview_segment_spec(
+    *,
+    source: dict[str, Any],
+    source_in: float,
+    duration: float,
+    width: int,
+    height: int,
+    fps: float,
+    media_kind: str,
+) -> dict[str, Any]:
+    """Canonical material inputs for one proxy fragment.
+
+    Clip ids, project ids, labels, and patch sequence are intentionally absent:
+    they do not affect pixels and therefore must not invalidate proxy reuse.
+    """
+    return {
+        "schema": _PREVIEW_CACHE_SCHEMA,
+        "renderer_revision": _PREVIEW_CACHE_RENDERER_REVISION,
+        "source": source,
+        "source_in": round(float(source_in), 6),
+        "duration": round(float(duration), 6),
+        "width": int(width),
+        "height": int(height),
+        "fps": round(float(fps), 6),
+        "media_kind": str(media_kind),
+        "video_filter": "scale-pad-setsar-fps-yuv420p",
+        "video_encoder": "libx264-veryfast-crf28",
+    }
+
+
+def _preview_segment_cache_key(cache_spec: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        cache_spec,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _materialize_preview_segment(
+    *,
+    cache_root: Path,
+    fallback_path: Path,
+    cache_spec: dict[str, Any],
+    stats: dict[str, int],
+    render: Callable[[Path], None],
+) -> Path:
+    """Return a valid cached segment, rebuilding or bypassing transparently.
+
+    Cache metadata never contains a source path.  Corrupt/missing entries are
+    regenerated.  If the cache filesystem itself is unavailable, rendering
+    falls back to the per-render work directory instead of surfacing a cache
+    implementation error to the product caller.
+    """
+    stats["segments_total"] = int(stats.get("segments_total") or 0) + 1
+    key = _preview_segment_cache_key(cache_spec)
+    cache_dir = cache_root / key[:2]
+    cache_path = cache_dir / f"{key}.mp4"
+    metadata_path = cache_dir / f"{key}.json"
+    lock = _preview_segment_lock(cache_root, key)
+    with lock:
+        # Recheck inside the per-key lock. Two renders that arrive together for
+        # the same material must not both encode the same segment.
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            entry_existed = cache_path.exists() or metadata_path.exists()
+            if _valid_cached_segment(cache_path, metadata_path, key):
+                stats["hits"] = int(stats.get("hits") or 0) + 1
+                return cache_path
+        except (OSError, ValueError, json.JSONDecodeError):
+            stats["misses"] = int(stats.get("misses") or 0) + 1
+            stats["bypassed"] = int(stats.get("bypassed") or 0) + 1
+            fallback_path.parent.mkdir(parents=True, exist_ok=True)
+            render(fallback_path)
+            return fallback_path
+
+        stats["misses"] = int(stats.get("misses") or 0) + 1
+        if entry_existed:
+            stats["rebuilds"] = int(stats.get("rebuilds") or 0) + 1
+
+        # The product render is created in its ordinary per-render work path
+        # first. Cache publication is only a best-effort copy after successful
+        # encoding, so a cache filesystem problem cannot turn into a render
+        # failure or force a second encode.
+        fallback_path.parent.mkdir(parents=True, exist_ok=True)
+        render(fallback_path)
+        media_sha256 = _sha256_file(fallback_path)
+        media_bytes = int(fallback_path.stat().st_size)
+        token = uuid.uuid4().hex
+        media_temp = cache_dir / f".{key}.{token}.tmp.mp4"
+        metadata_temp = cache_dir / f".{key}.{token}.tmp.json"
+        try:
+            shutil.copyfile(fallback_path, media_temp)
+            media_temp.replace(cache_path)
+            metadata_temp.write_text(
+                json.dumps(
+                    {
+                        "schema": _PREVIEW_CACHE_SCHEMA,
+                        "key": key,
+                        "media_sha256": media_sha256,
+                        "media_bytes": media_bytes,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            metadata_temp.replace(metadata_path)
+            if not _valid_cached_segment(cache_path, metadata_path, key):
+                stats["bypassed"] = int(stats.get("bypassed") or 0) + 1
+        except (OSError, ValueError, json.JSONDecodeError):
+            stats["bypassed"] = int(stats.get("bypassed") or 0) + 1
+        finally:
+            for temp_path in (media_temp, metadata_temp):
+                try:
+                    if temp_path.exists():
+                        temp_path.unlink()
+                except OSError:
+                    pass
+        return fallback_path
+
+
+@contextmanager
+def _preview_segment_lock(cache_root: Path, key: str) -> Iterator[None]:
+    """Serialize one cache key without retaining locks after its last user."""
+    identity = (str(cache_root.absolute()), key)
+    with _PREVIEW_CACHE_LOCKS_GUARD:
+        state = _PREVIEW_CACHE_LOCKS.get(identity)
+        lock, users = state if state is not None else (threading.Lock(), 0)
+        _PREVIEW_CACHE_LOCKS[identity] = (lock, users + 1)
+    try:
+        with lock:
+            yield
+    finally:
+        with _PREVIEW_CACHE_LOCKS_GUARD:
+            current_lock, users = _PREVIEW_CACHE_LOCKS[identity]
+            if users <= 1:
+                _PREVIEW_CACHE_LOCKS.pop(identity, None)
+            else:
+                _PREVIEW_CACHE_LOCKS[identity] = (current_lock, users - 1)
+
+
+def _valid_cached_segment(cache_path: Path, metadata_path: Path, key: str) -> bool:
+    try:
+        if not cache_path.is_file() or not metadata_path.is_file():
+            return False
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            return False
+        if metadata.get("schema") != _PREVIEW_CACHE_SCHEMA or metadata.get("key") != key:
+            return False
+        size = int(metadata.get("media_bytes") or 0)
+        if size <= 0 or cache_path.stat().st_size != size:
+            return False
+        expected_sha = str(metadata.get("media_sha256") or "")
+        return len(expected_sha) == 64 and _sha256_file(cache_path) == expected_sha
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _renderable_video_clips(project: dict[str, Any], assets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

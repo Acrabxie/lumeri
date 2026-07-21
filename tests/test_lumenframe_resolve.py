@@ -193,7 +193,11 @@ def test_video_resolver_uses_frame_stable_quantization_at_30fps(monkeypatch):
         height=1,
         fps=30.0,
         total_frames=930,
-        assets=[{"id": "vid1", "path": "/tmp/frame-quantization-regression.mp4"}],
+        assets=[{
+            "id": "vid1",
+            "path": "/tmp/frame-quantization-regression.mp4",
+            "fps": 30.0,
+        }],
     )
     content = default_resolver(
         {
@@ -231,7 +235,11 @@ def test_video_resolver_preserves_legacy_truncation_off_frame_boundaries(monkeyp
         height=1,
         fps=30.0,
         total_frames=930,
-        assets=[{"id": "vid1", "path": "/tmp/frame-quantization-regression.mp4"}],
+        assets=[{
+            "id": "vid1",
+            "path": "/tmp/frame-quantization-regression.mp4",
+            "fps": 30.0,
+        }],
     )
     content = default_resolver(
         {
@@ -269,7 +277,11 @@ def test_video_resolver_snaps_six_decimal_source_range_boundaries(monkeypatch):
         height=1,
         fps=30.0,
         total_frames=930,
-        assets=[{"id": "vid1", "path": "/tmp/frame-quantization-regression.mp4"}],
+        assets=[{
+            "id": "vid1",
+            "path": "/tmp/frame-quantization-regression.mp4",
+            "fps": 30.0,
+        }],
     )
     rounded_247 = round(247 / 30.0, 6)
     rounded_250 = round(250 / 30.0, 6)
@@ -300,6 +312,102 @@ def test_video_resolver_snaps_six_decimal_source_range_boundaries(monkeypatch):
     trimmed(0)
     bounded(246)
     assert requested_frames == [247, 246]
+
+
+def test_video_resolver_maps_source_seconds_with_asset_fps(monkeypatch):
+    """A 24fps source in a 30fps composition samples source frame 24 at 1s."""
+    import gemia.video.layers as video_layers
+
+    requested_frames: list[int] = []
+    monkeypatch.setattr(
+        video_layers,
+        "_read_video_frame",
+        lambda _path, frame_index: (
+            requested_frames.append(frame_index) or np.zeros((1, 1, 4), dtype=np.float32)
+        ),
+    )
+    monkeypatch.setattr(video_layers, "_fit_to_canvas", lambda frame, *_args: frame)
+    monkeypatch.setattr(
+        video_layers,
+        "_video_metadata",
+        lambda _path: (_ for _ in ()).throw(AssertionError("declared fps must avoid probing")),
+    )
+
+    context = ResolveContext(
+        width=1,
+        height=1,
+        fps=30.0,
+        total_frames=60,
+        assets=[{
+            "id": "vid1",
+            "path": "/tmp/source-fps-regression.mp4",
+            "metadata": {"fps": "24/1"},
+        }],
+    )
+    content = default_resolver(
+        {
+            "type": "video",
+            "asset_id": "vid1",
+            "source_in": 0.0,
+            "source_out": 2.0,
+            "duration": 2.0,
+            "speed": 1.0,
+        },
+        context,
+    )
+
+    assert content is not None
+    content(30)
+    assert requested_frames == [24]
+
+
+def test_video_resolver_probes_missing_source_fps_once(monkeypatch):
+    """Physical metadata is read once when the asset has no declared fps."""
+    import gemia.video.layers as video_layers
+
+    probe_paths: list[str] = []
+    requested_frames: list[int] = []
+
+    def fake_metadata(path: str) -> dict[str, float]:
+        probe_paths.append(path)
+        return {"fps": 12.0}
+
+    monkeypatch.setattr(video_layers, "_video_metadata", fake_metadata)
+    monkeypatch.setattr(
+        video_layers,
+        "_read_video_frame",
+        lambda _path, frame_index: (
+            requested_frames.append(frame_index) or np.zeros((1, 1, 4), dtype=np.float32)
+        ),
+    )
+    monkeypatch.setattr(video_layers, "_fit_to_canvas", lambda frame, *_args: frame)
+
+    path = "/tmp/source-fps-probe-once.mp4"
+    context = ResolveContext(
+        width=1,
+        height=1,
+        fps=30.0,
+        total_frames=60,
+        assets=[{"id": "vid1", "path": path}],
+    )
+    content = default_resolver(
+        {
+            "type": "video",
+            "asset_id": "vid1",
+            "source_in": 0.0,
+            "source_out": 2.0,
+            "duration": 2.0,
+            "speed": 1.0,
+        },
+        context,
+    )
+
+    assert content is not None
+    content(0)
+    content(15)
+    content(30)
+    assert probe_paths == [path]
+    assert requested_frames == [0, 6, 12]
 
 
 # ── text resolver ────────────────────────────────────────────────────────

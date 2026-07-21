@@ -190,6 +190,7 @@ def html_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conten
         fps=ctx.fps,
         total_frames=ctx.total_frames,
         assets=[*ctx.assets, synthetic_asset],
+        video_fps_cache=ctx.video_fps_cache,
     )
 
     # Build a video-shaped layer: carry the original timing (source_in/out, speed,

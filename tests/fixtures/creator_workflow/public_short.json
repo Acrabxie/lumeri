@@ -1,0 +1,25 @@
+{
+  "schema": "lumeri.creator-workflow-regression.fixture.v1",
+  "fixture_id": "public-short-v1",
+  "canvas": {
+    "width": 320,
+    "height": 180,
+    "fps": 12
+  },
+  "segments": [
+    {
+      "id": "moving-geometry",
+      "media_kind": "video",
+      "duration_sec": 1.5,
+      "generator": "testsrc2"
+    },
+    {
+      "id": "brand-geometry",
+      "media_kind": "image",
+      "duration_sec": 1.5,
+      "background": "#080b10",
+      "accent": "#5fc6de"
+    }
+  ],
+  "review_time_sec": 1.5
+}

@@ -37,6 +37,48 @@ def _source_frame_index(seconds: float, fps: float) -> int:
     return int(exact)
 
 
+def _coerce_positive_fps(value: Any) -> float | None:
+    """Read a positive decimal or rational frame rate from asset metadata."""
+    try:
+        if isinstance(value, str) and "/" in value:
+            numerator, denominator = value.split("/", 1)
+            fps = float(numerator) / float(denominator)
+        else:
+            fps = float(value)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return fps if np.isfinite(fps) and fps > 0.0 else None
+
+
+def _source_video_fps(
+    asset: dict[str, Any],
+    path: str,
+    fallback_fps: float,
+    probe_cache: dict[str, float | None],
+) -> float:
+    """Resolve source fps, probing each physical path once per document compile."""
+    metadata = asset.get("metadata") if isinstance(asset.get("metadata"), dict) else {}
+    for candidate in (asset.get("fps"), metadata.get("fps")):
+        fps = _coerce_positive_fps(candidate)
+        if fps is not None:
+            return fps
+
+    cache_key = str(Path(path).expanduser().absolute())
+    if cache_key not in probe_cache:
+        try:
+            from gemia.video.layers import _video_metadata
+
+            probe_cache[cache_key] = _coerce_positive_fps(_video_metadata(path).get("fps"))
+        except Exception:
+            # Preserve the prior tolerant resolver contract for missing/unreadable
+            # assets: frame reads will still return a transparent canvas.
+            probe_cache[cache_key] = None
+    fps = probe_cache[cache_key]
+    if fps is not None:
+        return fps
+    return float(fallback_fps)
+
+
 def default_resolver(
     layer: dict[str, Any],
     ctx: ResolveContext,
@@ -137,6 +179,12 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
     path = asset.get("path")
     if not path:
         return None
+    source_fps = _source_video_fps(
+        asset,
+        str(path),
+        ctx.fps,
+        ctx.video_fps_cache,
+    )
 
     # Account for source_in / source_out (trimming within the video).
     source_in = float(layer.get("source_in", 0.0))
@@ -155,11 +203,11 @@ def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
         # Source time = source_in + local_time * speed
         source_time = source_in + (local_time * speed)
         # Mapped to source video frame.
-        source_frame = _source_frame_index(source_time, ctx.fps)
+        source_frame = _source_frame_index(source_time, source_fps)
 
         # Clamp to source range.
-        source_frame_min = _source_frame_index(source_in, ctx.fps)
-        source_frame_max = _source_frame_index(source_out, ctx.fps)
+        source_frame_min = _source_frame_index(source_in, source_fps)
+        source_frame_max = _source_frame_index(source_out, source_fps)
         source_frame = min(max(source_frame, source_frame_min), source_frame_max - 1)
 
         try:
@@ -525,23 +573,29 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 for i, line in enumerate(lines)
             ]
 
-        # Compute block dimensions.
+        # Compute block dimensions.  The height must enclose every positioned
+        # line, not merely the final line: tight line spacing can make an early
+        # tall glyph extend below a later short glyph.
         block_width = max(line_widths) if line_widths else font_size
-        # Each subsequent baseline advances by the PREVIOUS line's measured
-        # height.  Mirror that exact geometry here: using an average line
-        # height under-allocates the block when an unusually tall first line
-        # is followed by a short one, clipping the final line at spacing > 1.
-        block_height = (
-            sum(height * line_spacing for height in line_heights[:-1])
-            + line_heights[-1]
-        ) if line_heights else font_size
+        line_offsets: list[float] = []
+        line_cursor = 0.0
+        for index, height in enumerate(line_heights):
+            if index > 0:
+                line_cursor += line_heights[index - 1] * line_spacing
+            line_offsets.append(line_cursor)
+        block_top = min(line_offsets, default=0.0)
+        block_bottom = max(
+            (offset + height for offset, height in zip(line_offsets, line_heights)),
+            default=float(font_size),
+        )
+        block_height = max(1.0, block_bottom - block_top)
 
         # Add padding for stroke and effects (glow needs room outside glyphs).
         padding = int(stroke_width) + 2
         if use_glow:
             padding += int(glow_radius) * 2 + 2
         block_width = int(block_width + 2 * padding)
-        block_height = int(block_height + 2 * padding)
+        block_height = int(np.ceil(block_height + 2 * padding))
 
         # Step 1: Create background layer if configured.
         if background_rgba:
@@ -569,7 +623,7 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 for c in shadow_color_rgba[:3]
             ) + (255,)
 
-            y_offset = float(padding)
+            y_offset = float(padding) - block_top
             for i, line in enumerate(lines):
                 if i > 0:
                     y_offset += line_heights[i - 1] * line_spacing
@@ -618,7 +672,7 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 int(min(255, max(0, c * 255))) for c in glow_color_rgba[:3]
             ) + (255,)
 
-            y_offset = float(padding)
+            y_offset = float(padding) - block_top
             for i, line in enumerate(lines):
                 if i > 0:
                     y_offset += line_heights[i - 1] * line_spacing
@@ -664,7 +718,7 @@ def _text_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conte
                 for c in stroke_color_rgba[:3]
             ) + (255,)
 
-        y_offset = float(padding)
+        y_offset = float(padding) - block_top
         for i, line in enumerate(lines):
             if i > 0:
                 y_offset += line_heights[i - 1] * line_spacing

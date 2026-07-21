@@ -1,13 +1,25 @@
 """Layer-based compositing system for RGBA frame rendering."""
 from __future__ import annotations
 
+import atexit
+from collections import OrderedDict
+from contextlib import contextmanager, suppress
 from copy import deepcopy
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
+import queue
+import select
+import secrets
+import signal
 import shutil
 import subprocess
+import tempfile
+import threading
+import time
+import weakref
 from typing import Any, Callable
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import cv2
 import numpy as np
@@ -100,19 +112,271 @@ def _load_font(font_config: dict[str, Any] | None) -> ImageFont.ImageFont | Imag
         return ImageFont.load_default()
 
 
-def _read_video_frame(video_path: str | Path, frame_index: int) -> RGBAFrame:
-    cap = cv2.VideoCapture(str(video_path))
+_VIDEO_READER_CACHE_LIMIT = 64
+_VideoCacheKey = str
+_video_reader_local = threading.local()
+_video_reader_registry_lock = threading.RLock()
+_video_reader_registry: weakref.WeakSet["_VideoFrameReader"] = weakref.WeakSet()
+_export_destination_locks_guard = threading.Lock()
+_export_destination_locks: dict[str, tuple[threading.Lock, int]] = {}
+_FFMPEG_IO_STALL_TIMEOUT_SECONDS = 30.0
+_FFMPEG_EXIT_TIMEOUT_SECONDS = 30.0
+_FFMPEG_KILL_TIMEOUT_SECONDS = 5.0
+
+
+@contextmanager
+def _export_destination_lock(output_path: Path):
+    """Serialize writers targeting one final path without retaining idle locks."""
+    key = str(output_path)
+    with _export_destination_locks_guard:
+        state = _export_destination_locks.get(key)
+        lock, users = state if state is not None else (threading.Lock(), 0)
+        _export_destination_locks[key] = (lock, users + 1)
     try:
-        if not cap.isOpened():
-            raise FileNotFoundError(f"Cannot open video: {video_path}")
-        cap.set(cv2.CAP_PROP_POS_FRAMES, max(frame_index, 0))
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            raise IndexError(f"Frame {frame_index} out of range for {video_path}")
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        return _to_rgba(rgb)
+        with lock:
+            yield
     finally:
-        cap.release()
+        with _export_destination_locks_guard:
+            current_lock, users = _export_destination_locks[key]
+            if users <= 1:
+                _export_destination_locks.pop(key, None)
+            else:
+                _export_destination_locks[key] = (current_lock, users - 1)
+
+
+class _VideoFrameReader:
+    """One OpenCV decoder cursor, owned by exactly one calling thread."""
+
+    def __init__(self, video_path: str) -> None:
+        self.video_path = video_path
+        self._lock = threading.RLock()
+        capture = cv2.VideoCapture(video_path)
+        if not capture.isOpened():
+            capture.release()
+            raise FileNotFoundError(f"Cannot open video: {video_path}")
+        self._capture = capture
+        # A newly opened VideoCapture is positioned immediately before frame 0.
+        self._next_frame_index: int | None = 0
+        self._last_frame_index: int | None = None
+        # Keep the repeated-frame cache in the decoder's native uint8/BGR
+        # representation.  A 4K float32 RGBA copy would consume ~4x as much.
+        self._last_frame_bgr: np.ndarray | None = None
+
+    @property
+    def closed(self) -> bool:
+        with self._lock:
+            return self._capture is None
+
+    def read(self, frame_index: int) -> RGBAFrame:
+        requested = max(int(frame_index), 0)
+        with self._lock:
+            capture = self._capture
+            if capture is None:
+                raise RuntimeError(f"Video decoder is closed: {self.video_path}")
+            if self._last_frame_index == requested and self._last_frame_bgr is not None:
+                # Frame-rate conversion and slow motion commonly request one
+                # source frame more than once.  Reuse the decoded pixels rather
+                # than seeking backwards through a long GOP.
+                frame = self._last_frame_bgr
+            else:
+                # Sequential renders advance the existing decoder cursor. Random
+                # access remains supported by seeking only when the requested frame
+                # is not the cursor's natural next frame.
+                if self._next_frame_index != requested:
+                    if not capture.set(cv2.CAP_PROP_POS_FRAMES, requested):
+                        raise RuntimeError(
+                            f"Video decoder cannot seek to frame {requested}: {self.video_path}"
+                        )
+
+                ok, frame = capture.read()
+                if not ok or frame is None:
+                    raise IndexError(f"Frame {frame_index} out of range for {self.video_path}")
+                self._next_frame_index = requested + 1
+                self._last_frame_bgr = frame
+                self._last_frame_index = requested
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            return _to_rgba(rgb)
+
+    def close(self) -> None:
+        with self._lock:
+            capture = self._capture
+            self._capture = None
+            self._next_frame_index = None
+            self._last_frame_index = None
+            self._last_frame_bgr = None
+        if capture is not None:
+            capture.release()
+
+    def __del__(self) -> None:
+        with suppress(Exception):
+            self.close()
+
+
+def _video_cache_key(video_path: str | Path) -> _VideoCacheKey:
+    # ``absolute`` normalises relative paths without a per-frame filesystem
+    # stat/realpath round trip. Assets are immutable during one export, and the
+    # export's finally block releases the cursor before a later render can reuse
+    # a replaced file at the same path.
+    return str(Path(video_path).expanduser().absolute())
+
+
+def _thread_video_reader_cache() -> OrderedDict[_VideoCacheKey, _VideoFrameReader]:
+    cache = getattr(_video_reader_local, "readers", None)
+    if cache is None:
+        cache = OrderedDict()
+        _video_reader_local.readers = cache
+    return cache
+
+
+def _enter_video_decoder_scope() -> None:
+    depth = int(getattr(_video_reader_local, "scope_depth", 0))
+    _video_reader_local.scope_depth = depth + 1
+
+
+def _exit_video_decoder_scope() -> None:
+    depth = int(getattr(_video_reader_local, "scope_depth", 0))
+    if depth <= 1:
+        _video_reader_local.scope_depth = 0
+        release_video_decoders()
+    else:
+        _video_reader_local.scope_depth = depth - 1
+
+
+def _enter_video_decoder_frame() -> None:
+    """Start one possibly nested compositing frame and its active-reader set."""
+    depth = int(getattr(_video_reader_local, "frame_depth", 0))
+    if depth <= 0:
+        _video_reader_local.frame_touched = set()
+    _video_reader_local.frame_depth = depth + 1
+
+
+def _exit_video_decoder_frame() -> None:
+    """Drop readers that were not active in the just-rendered outer frame."""
+    depth = int(getattr(_video_reader_local, "frame_depth", 0))
+    if depth > 1:
+        _video_reader_local.frame_depth = depth - 1
+        return
+    _video_reader_local.frame_depth = 0
+    touched = set(getattr(_video_reader_local, "frame_touched", set()))
+    _video_reader_local.frame_touched = set()
+    cache = getattr(_video_reader_local, "readers", None)
+    if cache is None:
+        return
+    for key, reader in list(cache.items()):
+        if key not in touched:
+            _discard_video_reader(cache, key, reader)
+
+
+@contextmanager
+def _video_decoder_frame_scope():
+    _enter_video_decoder_frame()
+    try:
+        yield
+    finally:
+        _exit_video_decoder_frame()
+
+
+@contextmanager
+def video_decoder_scope():
+    """Reuse decoder cursors within one render, then release them deterministically."""
+    _enter_video_decoder_scope()
+    try:
+        yield
+    finally:
+        _exit_video_decoder_scope()
+
+
+def _unregister_video_reader(reader: _VideoFrameReader) -> None:
+    with _video_reader_registry_lock:
+        _video_reader_registry.discard(reader)
+
+
+def _discard_video_reader(
+    cache: OrderedDict[_VideoCacheKey, _VideoFrameReader],
+    key: _VideoCacheKey,
+    reader: _VideoFrameReader,
+) -> None:
+    if cache.get(key) is reader:
+        cache.pop(key, None)
+    reader.close()
+    _unregister_video_reader(reader)
+
+
+def _video_reader(video_path: str | Path) -> tuple[_VideoCacheKey, _VideoFrameReader]:
+    cache = _thread_video_reader_cache()
+    key = _video_cache_key(video_path)
+    reader = cache.get(key)
+    if reader is not None and not reader.closed:
+        cache.move_to_end(key)
+        return key, reader
+    if reader is not None:
+        _discard_video_reader(cache, key, reader)
+
+    # Evict before opening the next decoder so even the transient peak stays
+    # within the declared resource ceiling.
+    while len(cache) >= _VIDEO_READER_CACHE_LIMIT:
+        old_key, old_reader = cache.popitem(last=False)
+        old_reader.close()
+        _unregister_video_reader(old_reader)
+
+    reader = _VideoFrameReader(key)
+    cache[key] = reader
+    with _video_reader_registry_lock:
+        _video_reader_registry.add(reader)
+    return key, reader
+
+
+def release_video_decoders(*, all_threads: bool = False) -> None:
+    """Release cached OpenCV decoders for this thread, or every thread at exit.
+
+    The normal render path releases only its own thread-local cursors, so two
+    concurrent renders cannot close or move each other's decoder state.
+    """
+    if all_threads:
+        with _video_reader_registry_lock:
+            readers = list(_video_reader_registry)
+            _video_reader_registry.clear()
+        for reader in readers:
+            reader.close()
+        cache = getattr(_video_reader_local, "readers", None)
+        if cache is not None:
+            cache.clear()
+        return
+
+    cache = getattr(_video_reader_local, "readers", None)
+    if cache is None:
+        return
+    readers = list(cache.values())
+    cache.clear()
+    for reader in readers:
+        reader.close()
+        _unregister_video_reader(reader)
+
+
+def _read_video_frame(video_path: str | Path, frame_index: int) -> RGBAFrame:
+    cache = _thread_video_reader_cache()
+    key, reader = _video_reader(video_path)
+    touched = getattr(_video_reader_local, "frame_touched", None)
+    if isinstance(touched, set):
+        touched.add(key)
+    try:
+        frame = reader.read(frame_index)
+    except Exception:
+        # A failed read must not poison the next attempt with an unknown cursor.
+        _discard_video_reader(cache, key, reader)
+        raise
+    if int(getattr(_video_reader_local, "scope_depth", 0)) <= 0:
+        # One-off previews stay fresh when a file at the same path is replaced;
+        # only an explicit render scope is allowed to retain a decoder cursor.
+        _discard_video_reader(cache, key, reader)
+    return frame
+
+
+def _release_all_video_decoders_at_exit() -> None:
+    release_video_decoders(all_threads=True)
+
+
+atexit.register(_release_all_video_decoders_at_exit)
 
 
 def _video_metadata(video_path: str | Path) -> dict[str, int | float]:
@@ -528,19 +792,20 @@ class LayerStack:
         if frame_index < 0 or frame_index >= self.total_frames:
             raise IndexError(f"Frame index {frame_index} outside [0, {self.total_frames}).")
 
-        canvas = np.zeros((self.height, self.width, 4), dtype=np.float32)
-        for layer in sorted(self.layers, key=lambda item: (item.z_index, item.id)):
-            if not layer.is_active(frame_index):
-                continue
-            content = layer.frame_content(frame_index)
-            placed = _fit_to_canvas(content, self.width, self.height, layer.position_value(frame_index))
-            opacity = float(np.clip(layer.property_value("opacity", frame_index, self.fps), 0.0, 1.0))
-            if opacity <= 0.0:
-                continue
-            placed = placed.copy()
-            placed[..., 3:4] *= opacity
-            canvas = _blend_colors(canvas, placed, layer.blend_mode)
-        return canvas.astype(np.float32)
+        with _video_decoder_frame_scope():
+            canvas = np.zeros((self.height, self.width, 4), dtype=np.float32)
+            for layer in sorted(self.layers, key=lambda item: (item.z_index, item.id)):
+                if not layer.is_active(frame_index):
+                    continue
+                content = layer.frame_content(frame_index)
+                placed = _fit_to_canvas(content, self.width, self.height, layer.position_value(frame_index))
+                opacity = float(np.clip(layer.property_value("opacity", frame_index, self.fps), 0.0, 1.0))
+                if opacity <= 0.0:
+                    continue
+                placed = placed.copy()
+                placed[..., 3:4] *= opacity
+                canvas = _blend_colors(canvas, placed, layer.blend_mode)
+            return canvas.astype(np.float32)
 
     def render_frames(
         self,
@@ -555,7 +820,11 @@ class LayerStack:
         stop = self.total_frames if end_frame is None else min(int(end_frame), self.total_frames)
         if stop < start:
             raise ValueError("end_frame must be >= start_frame")
-        return [self.render_frame(frame_index) for frame_index in range(start, stop, step)]
+        _enter_video_decoder_scope()
+        try:
+            return [self.render_frame(frame_index) for frame_index in range(start, stop, step)]
+        finally:
+            _exit_video_decoder_scope()
 
     def render_to_video(
         self,
@@ -567,31 +836,64 @@ class LayerStack:
         end_frame: int | None = None,
         step: int = 1,
     ) -> str:
-        frames = self.render_frames(start_frame=start_frame, end_frame=end_frame, step=step)
-        if not frames:
+        if step <= 0:
+            raise ValueError("step must be >= 1")
+        start = max(0, int(start_frame))
+        stop = self.total_frames if end_frame is None else min(int(end_frame), self.total_frames)
+        if stop < start:
+            raise ValueError("end_frame must be >= start_frame")
+        frame_indices = range(start, stop, step)
+        if len(frame_indices) == 0:
             raise ValueError("No frames selected for render.")
 
         final_path = Path(output_path).expanduser().resolve()
         final_path.parent.mkdir(parents=True, exist_ok=True)
-        should_transcode_mp4 = final_path.suffix.lower() == ".mp4" and shutil.which("ffmpeg") is not None
-        write_path = (
-            final_path.with_name(f"{final_path.stem}.opencv-tmp{final_path.suffix}")
-            if should_transcode_mp4
-            else final_path
-        )
         fps = self.fps / max(int(step), 1)
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(str(write_path), fourcc, fps, (self.width, self.height))
+        ffmpeg_path = shutil.which("ffmpeg")
+        _enter_video_decoder_scope()
         try:
-            for frame in frames:
-                writer.write(to_uint8(_flatten_rgba_for_video(frame, background_color=background_color)))
+            if final_path.suffix.lower() == ".mp4" and ffmpeg_path is not None:
+                _stream_browser_mp4(
+                    (self.render_frame(frame_index) for frame_index in frame_indices),
+                    final_path,
+                    width=self.width,
+                    height=self.height,
+                    fps=fps,
+                    background_color=background_color,
+                    ffmpeg_path=ffmpeg_path,
+                )
+                return str(final_path)
+
+            write_path = final_path.with_name(
+                f"{final_path.stem}.opencv-tmp{final_path.suffix}"
+            )
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            writer = cv2.VideoWriter(str(write_path), fourcc, fps, (self.width, self.height))
+            if not writer.isOpened():
+                writer.release()
+                raise RuntimeError(f"OpenCV video writer could not open: {write_path}")
+            try:
+                try:
+                    for frame_index in frame_indices:
+                        frame = self.render_frame(frame_index)
+                        writer.write(
+                            to_uint8(
+                                _flatten_rgba_for_video(
+                                    frame,
+                                    background_color=background_color,
+                                )
+                            )
+                        )
+                finally:
+                    writer.release()
+            except BaseException:
+                with suppress(OSError):
+                    write_path.unlink()
+                raise
+            write_path.replace(final_path)
+            return str(final_path)
         finally:
-            writer.release()
-        if should_transcode_mp4:
-            _transcode_browser_mp4(write_path, final_path)
-            if write_path != final_path and write_path.exists():
-                write_path.unlink()
-        return str(final_path)
+            _exit_video_decoder_scope()
 
 
 def make_video_layer(video_path: str, primitives_chain: PrimitiveChain | None = None) -> Layer:
@@ -1047,6 +1349,317 @@ def render_layer_plan(
     )
 
 
+def _stream_browser_mp4(
+    frames: Iterable[RGBAFrame],
+    output_path: Path,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+    background_color: tuple[float, float, float],
+    ffmpeg_path: str,
+) -> None:
+    """Serialize same-destination exports, then stream to a unique temp file."""
+    with _export_destination_lock(output_path):
+        _stream_browser_mp4_locked(
+            frames,
+            output_path,
+            width=width,
+            height=height,
+            fps=fps,
+            background_color=background_color,
+            ffmpeg_path=ffmpeg_path,
+        )
+
+
+def _encoder_stderr_tail(stderr_file, *, limit: int = 800) -> bytes:
+    """Read only the diagnostic tail without retaining unbounded stderr in RAM."""
+    try:
+        stderr_file.flush()
+        stderr_file.seek(0, os.SEEK_END)
+        size = stderr_file.tell()
+        stderr_file.seek(max(0, size - limit), os.SEEK_SET)
+        return stderr_file.read(limit)
+    except (OSError, ValueError):
+        return b""
+
+
+def _create_export_temp(output_path: Path) -> tuple[Path, int]:
+    """Create a unique sibling using the caller's normal file-creation umask."""
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    for _attempt in range(100):
+        candidate = output_path.with_name(
+            f".{output_path.stem}.{secrets.token_hex(8)}.h264-tmp{output_path.suffix}"
+        )
+        try:
+            fd = os.open(candidate, flags, 0o666)
+        except FileExistsError:
+            continue
+        try:
+            created_mode = os.fstat(fd).st_mode & 0o777
+        finally:
+            os.close(fd)
+        return candidate, created_mode
+    raise FileExistsError(f"Could not allocate a unique export temp beside {output_path}")
+
+
+def _kill_encoder_process(proc: subprocess.Popen) -> None:
+    """Stop an encoder and any subprocesses it spawned, with bounded waits."""
+    if proc.poll() is None:
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except (OSError, ProcessLookupError):
+            with suppress(OSError):
+                proc.kill()
+    try:
+        proc.wait(timeout=_FFMPEG_KILL_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        with suppress(OSError):
+            proc.kill()
+        with suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=_FFMPEG_KILL_TIMEOUT_SECONDS)
+
+
+def _encoder_supports_nonblocking_pipe() -> bool:
+    """POSIX select supports pipe fds; Windows select is socket-only."""
+    return os.name == "posix"
+
+
+class _BlockingEncoderPipeWriter:
+    """Bounded Windows-compatible pipe writer with a persistent watchdog thread."""
+
+    def __init__(self, proc: subprocess.Popen) -> None:
+        if proc.stdin is None:
+            raise RuntimeError("ffmpeg streaming MP4 encoder has no stdin pipe")
+        self._proc = proc
+        self._queue: queue.Queue[tuple[bytes, threading.Event, list[BaseException]] | None] = (
+            queue.Queue(maxsize=1)
+        )
+        self._thread = threading.Thread(
+            target=self._run,
+            name="lumeri-ffmpeg-stdin",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            task = self._queue.get()
+            if task is None:
+                return
+            payload, done, errors = task
+            try:
+                stdin = self._proc.stdin
+                if stdin is None:
+                    raise BrokenPipeError("ffmpeg raw-frame pipe is unavailable")
+                stdin.write(payload)
+                stdin.flush()
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
+    def write(self, payload: bytes) -> None:
+        done = threading.Event()
+        errors: list[BaseException] = []
+        try:
+            self._queue.put(
+                (payload, done, errors),
+                timeout=_FFMPEG_IO_STALL_TIMEOUT_SECONDS,
+            )
+        except queue.Full as exc:
+            raise TimeoutError("ffmpeg input queue stopped accepting raw frames") from exc
+        if not done.wait(_FFMPEG_IO_STALL_TIMEOUT_SECONDS):
+            _kill_encoder_process(self._proc)
+            done.wait(_FFMPEG_KILL_TIMEOUT_SECONDS)
+            raise TimeoutError("ffmpeg stopped accepting raw frames")
+        if errors:
+            raise errors[0]
+
+    def close(self) -> None:
+        if not self._thread.is_alive():
+            return
+        try:
+            self._queue.put(None, timeout=_FFMPEG_KILL_TIMEOUT_SECONDS)
+        except queue.Full:
+            return
+        self._thread.join(timeout=_FFMPEG_KILL_TIMEOUT_SECONDS)
+
+
+def _write_encoder_bytes(proc: subprocess.Popen, payload: bytes) -> None:
+    """Write one frame without allowing a stuck encoder pipe to hang forever."""
+    if proc.stdin is None:
+        raise RuntimeError("ffmpeg streaming MP4 encoder has no stdin pipe")
+    fd = proc.stdin.fileno()
+    remaining = memoryview(payload)
+    last_progress = time.monotonic()
+    while remaining:
+        if proc.poll() is not None:
+            raise BrokenPipeError("ffmpeg exited while receiving raw frames")
+        try:
+            written = os.write(fd, remaining)
+        except BlockingIOError:
+            timeout = _FFMPEG_IO_STALL_TIMEOUT_SECONDS - (time.monotonic() - last_progress)
+            if timeout <= 0.0:
+                raise TimeoutError("ffmpeg stopped accepting raw frames")
+            try:
+                select.select([], [fd], [], min(timeout, 0.5))
+            except InterruptedError:
+                pass
+            continue
+        if written <= 0:
+            raise BrokenPipeError("ffmpeg raw-frame pipe closed")
+        remaining = remaining[written:]
+        last_progress = time.monotonic()
+
+
+def _stream_browser_mp4_locked(
+    frames: Iterable[RGBAFrame],
+    output_path: Path,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+    background_color: tuple[float, float, float],
+    ffmpeg_path: str,
+) -> None:
+    """Stream RGBA frames directly into an atomic, browser-ready H.264 MP4."""
+    try:
+        output_mode = output_path.stat().st_mode & 0o777
+    except OSError:
+        output_mode = None
+    # Allocate stderr first: if the OS cannot provide it, no sibling output
+    # temp has been created and therefore nothing can leak.
+    stderr_file = tempfile.TemporaryFile()
+    try:
+        tmp_path, created_mode = _create_export_temp(output_path)
+    except BaseException:
+        stderr_file.close()
+        raise
+    if output_mode is None:
+        output_mode = created_mode
+    cmd = [
+        ffmpeg_path,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-s:v",
+        f"{width}x{height}",
+        "-r",
+        f"{fps:.12g}",
+        "-i",
+        "pipe:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-vf",
+        "scale=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
+        "-profile:v",
+        "high",
+        "-pix_fmt",
+        "yuv420p",
+        "-colorspace",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-x264-params",
+        "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+        "-movflags",
+        "+faststart",
+        str(tmp_path),
+    ]
+    proc: subprocess.Popen | None = None
+    blocking_writer: _BlockingEncoderPipeWriter | None = None
+    stderr = b""
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stderr=stderr_file,
+            start_new_session=(os.name == "posix"),
+        )
+        if proc.stdin is None:
+            raise RuntimeError("ffmpeg streaming MP4 encoder has no stdin pipe")
+        if _encoder_supports_nonblocking_pipe():
+            try:
+                os.set_blocking(proc.stdin.fileno(), False)
+            except (AttributeError, OSError) as exc:
+                raise RuntimeError("ffmpeg raw-frame pipe cannot be made non-blocking") from exc
+        else:
+            blocking_writer = _BlockingEncoderPipeWriter(proc)
+        for frame in frames:
+            bgr = to_uint8(
+                _flatten_rgba_for_video(frame, background_color=background_color)
+            )
+            payload = bgr.tobytes()
+            if blocking_writer is None:
+                _write_encoder_bytes(proc, payload)
+            else:
+                blocking_writer.write(payload)
+        if blocking_writer is not None:
+            blocking_writer.close()
+            blocking_writer = None
+        proc.stdin.close()
+        try:
+            return_code = proc.wait(timeout=_FFMPEG_EXIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("ffmpeg did not exit after its input closed") from exc
+        stderr = _encoder_stderr_tail(stderr_file)
+    except BaseException as exc:
+        if proc is not None:
+            with suppress(Exception):
+                if proc.stdin is not None and not proc.stdin.closed:
+                    proc.stdin.close()
+            _kill_encoder_process(proc)
+        if blocking_writer is not None:
+            blocking_writer.close()
+        failure_stderr = _encoder_stderr_tail(stderr_file)
+        with suppress(OSError):
+            tmp_path.unlink()
+        if isinstance(exc, (BrokenPipeError, TimeoutError)):
+            detail = failure_stderr.decode("utf-8", errors="replace")[-800:]
+            if not detail:
+                detail = str(exc)
+            raise RuntimeError(f"ffmpeg streaming MP4 encode failed: {detail}") from exc
+        raise
+    finally:
+        if blocking_writer is not None:
+            blocking_writer.close()
+        stderr_file.close()
+    if return_code != 0:
+        with suppress(OSError):
+            tmp_path.unlink()
+        detail = stderr.decode("utf-8", errors="replace")[-800:]
+        raise RuntimeError(f"ffmpeg streaming MP4 encode failed: {detail}")
+    if not tmp_path.is_file() or tmp_path.stat().st_size <= 0:
+        with suppress(OSError):
+            tmp_path.unlink()
+        raise RuntimeError("ffmpeg streaming MP4 encode produced no output file")
+    try:
+        tmp_path.chmod(output_mode)
+        tmp_path.replace(output_path)
+    except BaseException:
+        with suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+
 def _transcode_browser_mp4(source_path: Path, output_path: Path) -> None:
     """Re-encode OpenCV's mp4v output into Chromium/Safari-friendly H.264."""
     tmp_path = output_path.with_name(f"{output_path.stem}.h264-tmp{output_path.suffix}")
@@ -1086,6 +1699,8 @@ __all__ = [
     "execute_layer_plan",
     "materialize_layer_plan",
     "render_layer_plan",
+    "release_video_decoders",
+    "video_decoder_scope",
     "make_video_layer",
     "make_image_layer",
     "make_mask_layer",

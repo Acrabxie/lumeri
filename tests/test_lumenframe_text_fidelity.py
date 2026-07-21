@@ -248,6 +248,59 @@ class TestTextWithinCanvas:
         assert actual_bbox[1] - actual_bbox[0] + 1 == expected_height
         assert int(np.sum(frame[:, :, 3] > 0)) >= expected_coverage * 0.85
 
+    def test_tight_multiline_spacing_preserves_tall_earlier_line(self):
+        """Spacing below 1 cannot size the block only from the short final line."""
+        font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
+        if not font_path.is_file():
+            pytest.skip("macOS Helvetica Neue collection unavailable")
+        lines = ["ÅÉ", "."]
+        line_spacing = 0.8
+        font, _source, _is_tt = _resolve_font(font_path, 76, 500)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1, 1), (0, 0, 0, 0)))
+        boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
+        heights = [box[3] - box[1] for box in boxes]
+        offsets = [0.0, heights[0] * line_spacing]
+        assert offsets[1] + heights[1] < heights[0], (offsets, heights)
+
+        padding = 2
+        width = max(box[2] - box[0] for box in boxes) + 2 * padding
+        content_height = max(offset + height for offset, height in zip(offsets, heights))
+        reference = Image.new(
+            "RGBA",
+            (width, int(np.ceil(content_height + 2 * padding))),
+            (0, 0, 0, 0),
+        )
+        reference_draw = ImageDraw.Draw(reference)
+        for index, line in enumerate(lines):
+            box = boxes[index]
+            reference_draw.text(
+                (
+                    (width - (box[2] - box[0])) / 2.0,
+                    padding + offsets[index] - box[1],
+                ),
+                line,
+                font=font,
+                fill=(255, 255, 255, 255),
+            )
+        reference_alpha = np.asarray(reference)[:, :, 3]
+        expected_rows = np.where(reference_alpha.sum(axis=1) > 0)[0]
+        expected_height = int(expected_rows[-1] - expected_rows[0] + 1)
+        expected_coverage = int(np.sum(reference_alpha > 0))
+
+        ctx = ResolveContext(width=500, height=300, fps=30, total_frames=1, assets=[])
+        frame = _render({
+            "text": "\n".join(lines),
+            "font": str(font_path),
+            "font_size": 76,
+            "weight": 500,
+            "line_spacing": line_spacing,
+            "color": "#FFFFFF",
+        }, ctx)
+        actual_bbox = _alpha_bbox(frame)
+        assert actual_bbox is not None
+        assert actual_bbox[1] - actual_bbox[0] + 1 == expected_height
+        assert int(np.sum(frame[:, :, 3] > 0)) >= expected_coverage * 0.85
+
     def test_tracking_shadow_glow_and_core_share_bbox_corrected_y(self, monkeypatch):
         """Every tracked-text draw path uses the same bbox-top correction."""
         font_path = Path("/System/Library/Fonts/HelveticaNeue.ttc")
