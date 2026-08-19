@@ -43,6 +43,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
     "get_safe_areas",
     "get_timeline",
     "list_dir",
+    "lumen_stage",         # measures layout only; registers nothing, edits nothing
     "camera",              # deterministic transform recipe only
     "compose",             # deterministic framing recipe only
     "edit_grammar",        # deterministic cut plan only
@@ -63,7 +64,7 @@ PLAN_ALLOWED_TOOLS = frozenset({
 # Everything that edits, generates, registers assets, writes files/memory,
 # exports, or executes code.
 PLAN_BLOCKED_TOOLS = frozenset({
-    "add_overlay", "adjust_media", "animate_captions", "annotate_media",
+    "add_overlay", "adjust_media", "animate_captions", "annotate_media", "prepare_roughcut",
     "arrange_timeline", "assemble_quanta", "assemble_shotlist",
     "build", "color_grade", "composite", "copy_in",
     "draft_quanta", "draft_shotlist",

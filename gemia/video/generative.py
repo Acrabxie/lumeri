@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from gemia.errors import ContentPolicyError
+from gemia.moderation import guard_prompt
 from gemia.model_strength import strongest_media_model
 
 # Import at module level so tests can patch "gemia.video.generative.VeoClient"
@@ -51,8 +53,19 @@ def generate_video(
     Returns:
         Absolute path to the generated or locally fallback-rendered MP4.
     """
+    # Screened before the try block, not inside VeoClient. Constructing the
+    # client can fail on its own (missing key, bad config), and that failure is
+    # caught below and turned into a local fallback render — so a guard living
+    # inside the client is skipped entirely whenever the client cannot be built.
+    guard_prompt(prompt, surface="video.generate")
     try:
         return VeoClient().generate(prompt, duration=duration, aspect_ratio=aspect_ratio)
+    except ContentPolicyError:
+        # A policy refusal is a decision, not an outage. The fallback path
+        # exists so a provider failure does not stall the edit; letting it
+        # swallow this would turn every refusal into a locally rendered video
+        # and hand the user the content the platform just declined to make.
+        raise
     except Exception as exc:
         if not fallback_on_error:
             raise
@@ -89,8 +102,15 @@ def generate_video_from_image(
     Raises:
         FileNotFoundError: If ``image_path`` does not exist.
     """
+    guard_prompt(prompt, surface="video.from_image")
     try:
         return VeoClient().generate_from_image(image_path, prompt, duration=duration)
+    except ContentPolicyError:
+        # A policy refusal is a decision, not an outage. The fallback path
+        # exists so a provider failure does not stall the edit; letting it
+        # swallow this would turn every refusal into a locally rendered video
+        # and hand the user the content the platform just declined to make.
+        raise
     except FileNotFoundError:
         raise
     except Exception as exc:
@@ -131,8 +151,15 @@ def extend_video(
     Raises:
         FileNotFoundError: If ``video_path`` does not exist.
     """
+    guard_prompt(prompt, surface="video.extend")
     try:
         return VeoClient().extend(video_path, prompt, duration=duration)
+    except ContentPolicyError:
+        # A policy refusal is a decision, not an outage. The fallback path
+        # exists so a provider failure does not stall the edit; letting it
+        # swallow this would turn every refusal into a locally rendered video
+        # and hand the user the content the platform just declined to make.
+        raise
     except FileNotFoundError:
         raise
     except Exception as exc:

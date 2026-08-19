@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # avoid an import cycle: agent_loop_v3 imports tools which...
 
 PROFILE_ANNOTATE = frozenset({
     "probe_media", "analyze_media", "extract_frame", "search_library",
-    "get_media_annotations", "annotate_media", "write_media_annotation",
+    "get_media_annotations", "annotate_media", "write_media_annotation", "prepare_roughcut",
 })
 PROFILE_PROBE = frozenset({
     "probe_media", "analyze_media", "search_library",

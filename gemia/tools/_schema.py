@@ -579,6 +579,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "style": {"type": "string", "description": "Optional look/tone, e.g. 'cinematic promo, warm'."},
             "language": {"type": "string", "enum": ["zh", "en"], "description": "Language of the drafted text. Auto-detected from the theme if omitted."},
             "replace": {"type": "boolean", "description": "Replace the current shotlist (default true). false = return the draft without persisting."},
+            "fit_media": {"type": "boolean", "description": "Fit indexed time-ranged library evidence to the drafted outline. Default false; never generates or purchases media."},
         },
         ["theme"],
     ),
@@ -614,6 +615,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                                             "mood": {"type": "string", "description": "Optional emotion/tone tag, e.g. 'energetic','tense','hopeful','calm','inviting'."},
                                             "source": {"type": "string", "enum": ["search", "generate", "unset"], "description": "How to fill this shot. Prefer 'search'."},
                                             "search_query": {"type": "string", "description": "Query for search_frames/search_media when source='search'."},
+                                            "asset_id": {"type": "string", "description": "Optional registered media asset already chosen for this shot."},
+                                            "library_asset_id": {"type": "string", "description": "Persistent media-library identity for the chosen source."},
+                                            "source_in": {"type": "number", "description": "Chosen source start second from persistent evidence."},
+                                            "source_out": {"type": "number", "description": "Chosen source end second from persistent evidence."},
+                                            "evidence": {"type": "object", "description": "Traceable persistent evidence identity and ranking explanation."},
+                                            "alternatives": {"type": "array", "items": {"type": "object"}, "description": "Up to three traceable candidates not selected."},
                                             "transition_after": {
                                                 "type": "object",
                                                 "description": "Transition INTO the next shot (omit or kind='cut' for a hard cut).",
@@ -631,6 +638,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                 },
             },
+            "fit_media": {"type": "boolean", "description": "Fit indexed time-ranged library evidence before the single atomic shotlist write. Default false; never generates or purchases media."},
         },
         ["shotlist"],
     ),
@@ -644,6 +652,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "description": "Fields to merge, e.g. {asset_id, source, status, duration_sec, on_screen_text, narration, mood, search_query, description, transition_after, notes}.",
                 "properties": {
                     "asset_id": {"type": "string"},
+                    "library_asset_id": {"type": "string", "description": "Persistent media-library identity for the selected source."},
+                    "source_in": {"type": "number", "description": "Chosen source start second from persistent evidence."},
+                    "source_out": {"type": "number", "description": "Chosen source end second from persistent evidence."},
+                    "evidence": {"type": "object", "description": "Traceable evidence identity and ranking explanation."},
+                    "alternatives": {"type": "array", "items": {"type": "object"}, "description": "Up to three non-selected evidence candidates."},
                     "source": {"type": "string", "enum": ["search", "generate", "unset"]},
                     "status": {"type": "string", "enum": ["draft", "filled", "placed"]},
                     "duration_sec": {"type": "number"},
@@ -879,6 +892,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "type": "boolean",
                 "description": "Replace existing Gemini-source annotations for these assets. Default true.",
             },
+        },
+        [],
+    ),
+    _tool(
+        "prepare_roughcut",
+        "Prepare imported video/audio for editorial review without changing the timeline. Runs local Whisper transcription, detects pauses and filler words, ranks repeated takes, creates/reuses a low-resolution proxy, and checkpoints each asset so interrupted long batches can resume. This is local and does not spend generation budget. Use before storyboard fitting or timeline editing when the user has raw talking-head, interview, or repeated-take footage.",
+        {
+            "asset_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Media-library video/audio asset ids.",
+            },
+            "all": {"type": "boolean", "description": "Prepare all video/audio assets in the media library."},
+            "language": {"type": "string", "description": "Spoken language code or auto. Default auto."},
+            "create_proxies": {"type": "boolean", "description": "Create/reuse 540p local proxies for video. Default true."},
+            "proxy_resolution": {"type": "integer", "description": "Proxy height from 240 to 1080. Default 540."},
+            "resume": {"type": "boolean", "description": "Reuse matching completed checkpoints. Default true."},
+            "max_assets": {"type": "integer", "description": "Batch cap, maximum 100."},
         },
         [],
     ),
@@ -1255,6 +1286,30 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         [],
     ),
     # (lumen_set_range through lumen_set_work_area removed — see comment above)
+    _tool(
+        "lumen_stage",
+        "Describe WHERE everything is in the current lumenframe document at one moment, without rendering a frame to look at. Use when you need to place, align, or un-overlap things: 'is the title covering the subject?', 'what's in the lower third?', 'is anything running off frame?', 'move the caption left a bit'. Reports each layer's measured box, its thirds-grid region, which regions it actually paints into, safe-area status, and real overlaps measured from actual alpha coverage — so a hollow or mostly-transparent layer is NOT reported as covering what sits inside its bounding box. Prefer this over rendering a frame when the question is about position rather than appearance: a picture shows you that something is wrong, this tells you which layer and by how many pixels. Pass phrase+layer_id to turn an instruction like 'left a bit' into a concrete patch proposal with the arithmetic shown. Read-only: it proposes, it never edits. Always read the returned 'warnings' — they list what the measurement cannot see (a scale_y or anchor the renderer discards, or a clipped off-canvas layer whose size is unreliable).",
+        {
+            "seconds": {
+                "type": "number",
+                "description": "Moment to describe, in seconds on the document timeline. Defaults to 0.",
+            },
+            "detail": {
+                "type": "string",
+                "enum": ["brief", "normal", "full"],
+                "description": "Verbosity. 'brief' omits region spans, 'full' adds the resolved grid vocabulary (cut lines, safe-area margins, nudge/size steps). Defaults to 'normal'.",
+            },
+            "phrase": {
+                "type": "string",
+                "description": "Optional spatial instruction to resolve into an edit proposal, e.g. 'move it left a bit', '往左一点', 'make it bigger'. Requires layer_id.",
+            },
+            "layer_id": {
+                "type": "string",
+                "description": "The layer that 'phrase' applies to. Required when phrase is given.",
+            },
+        },
+        [],
+    ),
     _tool(
         "lumen_seek",
         "Seek/locate the current lumenframe document to a specific moment. Use when the user says 'go to', 'show me at', 'what's happening at <time>', 'jump to frame N', or wants to inspect/preview a single instant. Reports the timeline state at that moment (which layers are active and how they are placed/sampled) AND renders that exact frame to a preview image asset. Pass exactly one of seconds or frame.",

@@ -37,7 +37,7 @@ from mcp.shared.memory import (  # noqa: E402
 )
 
 from gemia.mcp.server import build_server  # noqa: E402
-from gemia.mcp.toolset import PHASE1_TOOLSET, mcp_input_schema  # noqa: E402
+from gemia.mcp.toolset import PHASE2_TOOLSET, mcp_input_schema  # noqa: E402
 from gemia.session_manager import SessionManager  # noqa: E402
 
 
@@ -120,10 +120,10 @@ def test_initialize_handshake_negotiates_supported_protocol(tmp_path):
         mgr.close_all()
 
 
-# ── case 2: tools/list == the frozen Phase 1 set, EXACTLY ────────────────────
+# ── case 2: tools/list == the frozen Phase 2 set, EXACTLY ────────────────────
 
 
-def test_tools_list_equals_frozen_phase1_set(tmp_path):
+def test_tools_list_equals_frozen_phase2_set(tmp_path):
     mgr = _make_manager(tmp_path)
     try:
 
@@ -132,10 +132,35 @@ def test_tools_list_equals_frozen_phase1_set(tmp_path):
             return {t.name for t in res.tools}
 
         names = asyncio.run(_drive(mgr, scenario))
-        assert names == set(PHASE1_TOOLSET), (
-            "MCP surface drifted from the frozen Phase 1 toolset: "
-            f"extra={names - set(PHASE1_TOOLSET)} missing={set(PHASE1_TOOLSET) - names}"
+        assert names == set(PHASE2_TOOLSET), (
+            "MCP surface drifted from the frozen Phase 2 toolset: "
+            f"extra={names - set(PHASE2_TOOLSET)} missing={set(PHASE2_TOOLSET) - names}"
         )
+    finally:
+        mgr.close_all()
+
+
+def test_phase2_tools_are_exposed_but_spend_and_shell_tools_stay_excluded(tmp_path):
+    mgr = _make_manager(tmp_path)
+    try:
+
+        async def scenario(client):
+            res = await client.list_tools()
+            return {t.name for t in res.tools}
+
+        names = asyncio.run(_drive(mgr, scenario))
+        for phase2_name in (
+            "lumen_add_layer",
+            "lumen_patch",
+            "lumen_delete_layer",
+            "render_preview",
+            "project_export",
+            "extract_frame",
+            "write_media_annotation",
+        ):
+            assert phase2_name in names
+        for excluded in ("run_shell", "generate_video", "write_file", "remember"):
+            assert excluded not in names
     finally:
         mgr.close_all()
 

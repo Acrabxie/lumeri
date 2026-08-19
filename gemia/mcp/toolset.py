@@ -28,6 +28,53 @@ from typing import Any
 
 from gemia.tools._schema import TOOL_SCHEMAS
 
+# These two convenience dispatchers remain supported by the runtime and are
+# intentionally kept out of the general agent schema catalog in favor of the
+# lower-level ``lumen_patch`` verb. Phase 2 still exposes them over MCP because
+# they are bounded, existing editing operations; keep their adapter schemas
+# local so enabling MCP does not silently re-expand the internal agent surface.
+_MCP_COMPAT_VERB_SCHEMAS: dict[str, dict[str, Any]] = {
+    "lumen_add_layer": {
+        "description": (
+            "Convenience verb: create a new layer "
+            "(video/image/text/shape/audio/adjustment/solid/null/composition)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "video", "image", "text", "shape", "audio",
+                        "adjustment", "solid", "null", "composition",
+                    ],
+                    "description": "Layer type.",
+                },
+                "name": {"type": "string", "description": "Optional layer name."},
+                "parent_id": {"type": "string", "description": "Optional parent layer id (default: root)."},
+                "index": {"type": "integer", "description": "Optional insert position (default: end)."},
+                "at_time": {"type": "number", "description": "Optional start time on parent timeline."},
+            },
+            "required": ["type"],
+        },
+    },
+    "lumen_delete_layer": {
+        "description": "Convenience verb: delete one or more layers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "layer_id": {"type": "string", "description": "Layer id to delete."},
+                "layer_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Multiple layer ids to delete.",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
 # ── the 5 MCP-native lifecycle/import tools ─────────────────────────────────
 # These exist ONLY at the MCP layer — they have no internal verb / dispatcher
 # entry. They wrap SessionManager / SessionRunner methods directly (see
@@ -92,8 +139,8 @@ _PHASE2_1TO1: frozenset[str] = frozenset(
     }
 )
 
-# The Phase 1 MCP surface actually exposed by the stdio server: the 13 read+
-# timeline 1:1 verbs plus the 5 native lifecycle/import tools = 18 tools.
+# The Phase 1 MCP surface: the 13 read+timeline 1:1 verbs plus the 5 native
+# lifecycle/import tools = 18 tools.
 PHASE1_TOOLSET: frozenset[str] = _PHASE1_1TO1 | MCP_NATIVE_TOOLS
 
 # The full frozen 1:1 verb surface (Phase 1 + Phase 2), used by ``run_verb``'s
@@ -101,6 +148,11 @@ PHASE1_TOOLSET: frozenset[str] = _PHASE1_1TO1 | MCP_NATIVE_TOOLS
 # ``run_verb`` directly. Native tools are NOT in here — they never route through
 # ``run_verb`` (they are not internal verbs).
 MCP_TOOLSET: frozenset[str] = _PHASE1_1TO1 | _PHASE2_1TO1
+
+# Phase 2 adds the seven bounded render/lumen/annotation verbs to the Phase 1
+# surface. HTTP transport remains separately gated; this set only controls the
+# stdio tools/list and the existing run_verb membership gate.
+PHASE2_TOOLSET: frozenset[str] = MCP_TOOLSET | MCP_NATIVE_TOOLS
 
 # Read-only 1:1 verbs (used to set MCP ``readOnlyHint`` and to decide, in
 # ``run_verb``, whether a verb may interleave with an in-flight agent turn).
@@ -163,6 +215,9 @@ _VERB_PARAMS: dict[str, dict[str, Any]] = {
 _VERB_DESCRIPTIONS: dict[str, str] = {
     s["function"]["name"]: s["function"].get("description", "") for s in TOOL_SCHEMAS
 }
+for _name, _schema in _MCP_COMPAT_VERB_SCHEMAS.items():
+    _VERB_PARAMS[_name] = _schema["parameters"]
+    _VERB_DESCRIPTIONS[_name] = _schema["description"]
 
 
 def internal_verb_description(tool_name: str) -> str:
@@ -207,6 +262,7 @@ __all__ = [
     "MCP_READ_ONLY",
     "MCP_DESTRUCTIVE",
     "PHASE1_TOOLSET",
+    "PHASE2_TOOLSET",
     "internal_verb_description",
     "mcp_input_schema",
 ]

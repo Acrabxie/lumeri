@@ -18,6 +18,7 @@ M1 — that's a separate concern if real concurrency becomes a need.
 from __future__ import annotations
 
 import asyncio
+import math
 import dataclasses
 import json
 import os
@@ -111,6 +112,9 @@ class SessionRunner:
         now = time.time()
         self.created_at = now
         self.last_used_at = now
+        # Human-readable AI summary shown in the background-tasks panel.
+        # Keep the opaque session_id for plumbing only, never as the row label.
+        self.task_summary = ""
 
         # Background-job watcher: single lazily-started task on this session's
         # loop; auto-resume rate-limit bookkeeping guarded by _state_lock.
@@ -142,6 +146,17 @@ class SessionRunner:
 
         fut = asyncio.run_coroutine_threadsafe(self._create_agent(), self._loop)
         self.agent: AgentLoopV3 = fut.result(timeout=20)
+        # The slash command may tighten a session's cost ceiling, but it must
+        # never turn a user-facing control into a way around the host guard.
+        # Keep the original ceiling as the immutable upper bound for /budget.
+        budget = getattr(self.agent, "budget", None)
+        self._budget_hard_cap_usd = (
+            float(budget.max_usd) if budget is not None else None
+        )
+        # A blank user limit means "use the immutable host cap".  Keep that
+        # distinction outside BudgetGuard, whose max_usd must remain numeric for
+        # every preflight and reservation check.
+        self._budget_user_max_usd: float | None = None
 
     def touch(self) -> None:
         with self._state_lock:
@@ -151,6 +166,124 @@ class SessionRunner:
     def turn_in_progress(self) -> bool:
         with self._state_lock:
             return self._turn_in_progress
+
+    def budget_snapshot(self) -> dict[str, Any]:
+        """Return the live guard state without reading it across threads."""
+
+        async def _snapshot() -> dict[str, Any]:
+            budget = getattr(self.agent, "budget", None)
+            if budget is None:
+                raise RuntimeError("budget guard is unavailable")
+            snapshot = dict(budget.snapshot())
+            snapshot["hard_cap_usd"] = self._budget_hard_cap_usd
+            snapshot["user_max_usd"] = self._budget_user_max_usd
+            client = getattr(self.agent, "client", None)
+            model = str(getattr(client, "model", "") or "")
+            snapshot["model"] = model
+            snapshot["provider"] = str(
+                getattr(client, "provider", "") or ""
+            )
+            snapshot["token_prices"] = budget.token_prices(model)
+            snapshot["pricing_available"] = (
+                snapshot["token_prices"] is not None
+                or snapshot["unpriced_tokens"] == 0
+            )
+            return snapshot
+
+        fut = asyncio.run_coroutine_threadsafe(_snapshot(), self._loop)
+        return fut.result(timeout=5)
+
+    def set_budget_max_usd(
+        self, max_usd: float | None = None, *, reset: bool = False
+    ) -> dict[str, Any]:
+        """Tighten this session's USD cap, or restore the host hard ceiling.
+
+        The command is intentionally unavailable during a running turn so a
+        cap cannot move underneath an in-flight reservation/dispatch.
+        """
+        current = self.budget_snapshot()
+        warning = min(
+            float(current.get("warning_usd") or 0.0),
+            float(current.get("hard_cap_usd") or 0.0),
+        )
+        if not reset and max_usd is not None:
+            try:
+                target = float(max_usd)
+            except (TypeError, ValueError):
+                target = -1.0
+            if warning > target:
+                warning = max(target * 0.8, 0.0)
+        return self.set_budget_limits(
+            max_usd=max_usd,
+            warning_usd=warning,
+            reset=reset,
+        )
+
+    def set_budget_limits(
+        self,
+        *,
+        max_usd: float | None = None,
+        warning_usd: float | None = None,
+        reset: bool = False,
+    ) -> dict[str, Any]:
+        """Update both user-facing dollar thresholds as one atomic change."""
+
+        if self.turn_in_progress:
+            raise RuntimeError(
+                "wait for the current turn to finish before changing budget"
+            )
+
+        async def _set() -> dict[str, Any]:
+            budget = getattr(self.agent, "budget", None)
+            hard_cap = self._budget_hard_cap_usd
+            if budget is None or hard_cap is None:
+                raise RuntimeError("budget guard is unavailable")
+            user_max: float | None = None
+            try:
+                if not reset and max_usd is not None:
+                    user_max = float(max_usd)
+                target = hard_cap if user_max is None else user_max
+            except (TypeError, ValueError) as exc:
+                raise ValueError("max_usd must be a number or null") from exc
+            if not math.isfinite(target) or target < 0:
+                raise ValueError("max_usd must be a finite number greater than or equal to 0")
+            if target > hard_cap + 1e-9:
+                raise ValueError(f"max_usd cannot exceed host cap ${hard_cap:.2f}")
+            spent = float(budget.spent_usd)
+            if target + 1e-9 < spent:
+                raise ValueError(f"max_usd cannot be below already spent ${spent:.2f}")
+            try:
+                warning_target = (
+                    0.0 if reset or warning_usd is None else float(warning_usd)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("warning_usd must be a number or null") from exc
+            if not math.isfinite(warning_target) or warning_target < 0:
+                raise ValueError(
+                    "warning_usd must be a finite number greater than or equal to 0"
+                )
+            if warning_target > target + 1e-9:
+                raise ValueError("warning_usd cannot exceed max_usd")
+            budget.set_limits(max_usd=target, warning_usd=warning_target)
+            self._budget_user_max_usd = user_max
+            snapshot = dict(budget.snapshot())
+            snapshot["hard_cap_usd"] = hard_cap
+            snapshot["user_max_usd"] = self._budget_user_max_usd
+            client = getattr(self.agent, "client", None)
+            model = str(getattr(client, "model", "") or "")
+            snapshot["model"] = model
+            snapshot["provider"] = str(
+                getattr(client, "provider", "") or ""
+            )
+            snapshot["token_prices"] = budget.token_prices(model)
+            snapshot["pricing_available"] = (
+                snapshot["token_prices"] is not None
+                or snapshot["unpriced_tokens"] == 0
+            )
+            return snapshot
+
+        fut = asyncio.run_coroutine_threadsafe(_set(), self._loop)
+        return fut.result(timeout=5)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -370,14 +503,26 @@ class SessionRunner:
                 self._transcript_failed = True
         SSE_REGISTRY.emit(self.session_id, event)
 
-    def add_external_asset(self, path: Path, *, summary: str = "") -> str:
+    def add_external_asset(
+        self,
+        path: Path,
+        *,
+        summary: str = "",
+        original_name: str | None = None,
+    ) -> str:
         self.touch()
 
         async def _add() -> str:
-            return self.agent.add_external_asset(Path(path), summary=summary)
+            return self.agent.add_external_asset(
+                Path(path),
+                summary=summary,
+                original_name=original_name,
+            )
 
         fut = asyncio.run_coroutine_threadsafe(_add(), self._loop)
-        return fut.result(timeout=30)
+        return fut.result(
+            timeout=_env_int("LUMERI_V3_ASSET_REGISTER_TIMEOUT_SEC", 10 * 60)
+        )
 
     def submit_turn(self, message: str) -> bool:
         """Fire-and-forget if no turn is active.

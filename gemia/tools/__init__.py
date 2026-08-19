@@ -24,8 +24,10 @@ try/except and emits a ``tool_exec_error`` event on exception.
 """
 from __future__ import annotations
 
+import functools
 from typing import Any, Awaitable, Callable
 
+from gemia.moderation import guard_tool_args, guard_tool_output
 from gemia.tools._context import (
     AssetRecord,
     AssetRegistry,
@@ -63,6 +65,7 @@ from gemia.tools import layer as _layer
 from gemia.tools import lumen_comp_to_timeline as _lumen_comp_to_timeline
 from gemia.tools import lumen_render_range as _lumen_render_range
 from gemia.tools import lumen_seek as _lumen_seek
+from gemia.tools import lumen_stage as _lumen_stage
 from gemia.tools import lottie as _lottie
 from gemia.tools import log_note as _log_note
 from gemia.tools import media_annotations as _media_annotations
@@ -70,6 +73,7 @@ from gemia.tools import mix_audio as _mix_audio
 from gemia.tools import narrate as _narrate
 from gemia.tools import paint as _paint
 from gemia.tools import probe_media as _probe_media
+from gemia.tools import roughcut as _roughcut
 from gemia.tools import remember as _remember
 from gemia.tools import run_shell as _run_shell
 from gemia.tools import safe_areas as _safe_areas
@@ -178,6 +182,7 @@ _REAL: dict[str, Dispatcher] = {
     "lumen_reverse":             _layer.dispatch_lumen_reverse,
     "lumen_ripple_delete":       _layer.dispatch_lumen_ripple_delete,
     "lumen_seek":                _lumen_seek.dispatch,
+    "lumen_stage":               _lumen_stage.dispatch,
     "lumen_select":              _layer.dispatch_lumen_select,
     "lumen_set_lane":            _layer.dispatch_lumen_set_lane,
     "lumen_set_mask":            _layer.dispatch_lumen_set_mask,
@@ -202,6 +207,7 @@ _REAL: dict[str, Dispatcher] = {
     "paint_mask_effect":         _paint.dispatch_mask_effect,
     "paint_overlay":             _paint.dispatch_overlay,
     "probe_media":               _probe_media.dispatch,
+    "prepare_roughcut":          _roughcut.dispatch,
     "project_export":            _timeline.dispatch_project_export,
     "project_export_otio":       _timeline.dispatch_export_otio,
     "project_import_otio":       _timeline.dispatch_import_otio,
@@ -243,8 +249,37 @@ _REAL: dict[str, Dispatcher] = {
 }
 
 
+def _screened(name: str, dispatcher: Dispatcher) -> Dispatcher:
+    """Wrap a dispatcher so its generative arguments are screened first.
+
+    Screening lives here rather than inside each tool because ``DISPATCHER`` is
+    reached from three places (the agent loop, subtasks, and the session
+    manager). A guard placed in one call site leaves the other two open, and a
+    guard placed inside a provider client is skipped whenever constructing that
+    client fails — the failure is caught upstream and turned into a local
+    fallback render, which would hand back the very content that was refused.
+    """
+
+    # functools.wraps keeps the wrapped handler's __module__/__name__. Without
+    # it every entry reports itself as living in "gemia.tools", which is exactly
+    # how a stub is detected — the whole table would read as unimplemented to
+    # any diagnostic that inspects it.
+    @functools.wraps(dispatcher)
+    async def run(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        guard_tool_args(name, args)
+        result = await dispatcher(args, ctx)
+        # The product is screened here rather than at the display layer for the
+        # same reason as the arguments: this is the one point all three callers
+        # pass through, and "before display" has to mean before the id is handed
+        # back, not before some particular renderer draws it.
+        await guard_tool_output(name, result, ctx)
+        return result
+
+    return run
+
+
 DISPATCHER: dict[str, Dispatcher] = {
-    name: _REAL.get(name) or _make_stub(name) for name in TOOL_NAMES
+    name: _screened(name, _REAL.get(name) or _make_stub(name)) for name in TOOL_NAMES
 }
 
 

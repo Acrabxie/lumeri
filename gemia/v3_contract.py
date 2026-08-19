@@ -54,6 +54,8 @@ EVENT_KINDS: frozenset[str] = frozenset({
     # (emit_background_update), which is already in the tests' EMIT_FILES.
     "background_task_update",
     "timeline_op",
+    "budget_update",
+    "budget_warning",
     "budget_gate",
     "plan_gate",
     "plan_mode_changed",

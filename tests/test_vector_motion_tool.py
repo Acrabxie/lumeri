@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import inspect
 import json
 import uuid
 from pathlib import Path
@@ -98,8 +99,9 @@ def test_vector_motion_in_tool_names_and_dispatcher():
 
     assert "vector_motion" in TOOL_NAMES
     assert "vector_motion" in DISPATCHER
-    # The dispatcher maps to the real module function, not a stub.
-    assert DISPATCHER["vector_motion"] is vm.dispatch
+    # The dispatcher maps to the real module function, not a stub — unwrapped,
+    # because every entry goes through the ``_screened`` argument guard.
+    assert inspect.unwrap(DISPATCHER["vector_motion"]) is vm.dispatch
 
 
 def test_vector_motion_is_plan_mode_blocked():

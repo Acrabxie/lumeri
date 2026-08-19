@@ -87,7 +87,7 @@ async def dispatch_overlay(args: dict[str, Any], ctx: ToolContext) -> dict[str, 
     }
     ops: list[dict[str, Any]] = []
     if needs_track:
-        ops.append({"op": "add_track", "kind": "video", "track_id": track_id, "name": track_id})
+        ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id, "name": track_id})
     ops.append(
         {
             "op": "insert_clip",
@@ -395,16 +395,16 @@ def _pick_visual_track(
     if requested:
         return requested, requested not in existing
 
-    visual_ids = [str(t.get("id")) for t in tracks if str(t.get("kind")) == "video"]
+    visual_ids = [str(t.get("id")) for t in tracks if str(t.get("kind")) == "overlay"]
     if not visual_ids:
-        visual_ids = ["V1"]
+        visual_ids = ["OV1"]
     for track_id in visual_ids:
         if not _track_has_overlap(clips, track_id, start, duration):
             return track_id, track_id not in existing
     index = 1
-    while f"V{index}" in existing:
+    while f"OV{index}" in existing:
         index += 1
-    return f"V{index}", True
+    return f"OV{index}", True
 
 
 def _track_has_overlap(clips: list[dict[str, Any]], track_id: str, start: float, duration: float) -> bool:

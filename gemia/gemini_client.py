@@ -49,6 +49,8 @@ _DEFAULT_CLAUDE_MODEL    = "claude-sonnet-4-6"
 _DEFAULT_CLAUDE_URL      = "https://api.anthropic.com/v1/messages"
 _DEFAULT_OPENROUTER_MODEL = _DEFAULT_MODEL
 _DEFAULT_OPENAI_MODEL    = "gpt-5.5"
+_OPENAI_SUBSCRIPTION_BASE_URL = "http://127.0.0.1:7808/v1/chat/completions"
+_OPENAI_SUBSCRIPTION_MODE = "subscription"
 
 # Auto-probe priority: first provider with credentials wins
 _PROVIDER_PRIORITY = ("vertex", "gemini", "claude", "openrouter", "openai")
@@ -399,9 +401,17 @@ def _parse_claude_stream(resp: Any) -> Iterator[dict[str, Any]]:
                     yield {"kind": "tool_call_args_delta", "index": idx, "delta": partial}
 
         elif ctype == "message_delta":
+            usage = chunk.get("usage")
+            if isinstance(usage, dict) and usage:
+                yield {"kind": "usage", "usage": usage}
             stop_reason = (chunk.get("delta") or {}).get("stop_reason")
             if stop_reason:
                 yield {"kind": "finish", "reason": _STOP_MAP.get(stop_reason, stop_reason)}
+
+        elif ctype == "message_start":
+            usage = (chunk.get("message") or {}).get("usage")
+            if isinstance(usage, dict) and usage:
+                yield {"kind": "usage", "usage": usage}
 
         elif ctype == "error":
             err = chunk.get("error") or {}
@@ -511,22 +521,31 @@ class GeminiClientV3:
             self.model = model_override or _DEFAULT_CLAUDE_MODEL
 
         elif self.provider == "openai":
-            self.api_key = (
-                os.environ.get("OPENAI_API_KEY") or _read_config_key("openai_api_key")
-            ).strip()
-            if not self.api_key:
-                raise RuntimeError("OPENAI_API_KEY required for openai provider (env or config.json:openai_api_key).")
-            # Base URL is config-readable (not env-only) so the openai path can
-            # be pinned to a local bridge — e.g. the codex-shim that fronts a
-            # ChatGPT subscription — from ~/.gemia/config.json alone, without
-            # needing the daemon's env. The shim authenticates with its own
-            # managed token and ignores this api_key, but a non-empty value is
-            # still required above.
             self.api_url = (
                 os.environ.get("LUMERI_OPENAI_BASE_URL")
                 or _read_config_key("lumeri_openai_base_url")
                 or "https://api.openai.com/v1/chat/completions"
             )
+            auth_mode = (
+                os.environ.get("LUMERI_OPENAI_AUTH_MODE")
+                or _read_config_key("lumeri_openai_auth_mode")
+                or ""
+            ).strip().lower()
+            using_subscription_bridge = (
+                auth_mode == _OPENAI_SUBSCRIPTION_MODE
+                and self.api_url.rstrip("/") == _OPENAI_SUBSCRIPTION_BASE_URL
+            )
+            if using_subscription_bridge:
+                # The loopback bridge owns OAuth and ignores this header. Keep a
+                # harmless in-memory placeholder so a saved API key is never
+                # read or forwarded while subscription mode is active.
+                self.api_key = "unused"
+            else:
+                self.api_key = (
+                    os.environ.get("OPENAI_API_KEY") or _read_config_key("openai_api_key")
+                ).strip()
+                if not self.api_key:
+                    raise RuntimeError("OPENAI_API_KEY required for openai provider (env or config.json:openai_api_key).")
             self.model = model_override or _DEFAULT_OPENAI_MODEL
 
         else:  # openrouter (default)
@@ -585,6 +604,7 @@ class GeminiClientV3:
         *,
         tools: list[dict[str, Any]] | None = None,
         temperature: float | None = None,
+        max_output_tokens: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream one turn. Yields delta dicts:
 
@@ -607,6 +627,17 @@ class GeminiClientV3:
             "stream": True,
             "temperature": temp,
         }
+        if self.provider != "claude":
+            # OpenAI-compatible providers emit one final usage-only stream
+            # frame when requested.  It stays inside the agent loop and never
+            # exposes provider metadata or credentials to the browser.
+            body["stream_options"] = {"include_usage": True}
+        if max_output_tokens is not None:
+            token_limit = max(int(max_output_tokens), 1)
+            if self.provider == "openai":
+                body["max_completion_tokens"] = token_limit
+            else:
+                body["max_tokens"] = token_limit
         if tools:
             body["tools"] = tools
             if self.provider != "claude" and self.parallel_tool_calls is not None:
@@ -760,7 +791,7 @@ class GeminiClientV3:
 
         body: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 8096,
+            "max_tokens": max(int(body_openai.get("max_tokens") or 8096), 1),
             "messages": claude_messages,
             "stream": True,
         }
@@ -844,6 +875,9 @@ def _parse_chunk(chunk: dict[str, Any]) -> Iterator[dict[str, Any]]:
             message = str(raw_error or "upstream stream error")
         yield {"kind": "error", "error": str(message)}
         return
+    usage = chunk.get("usage")
+    if isinstance(usage, dict) and usage:
+        yield {"kind": "usage", "usage": usage}
     choices = chunk.get("choices") or []
     if not choices:
         return

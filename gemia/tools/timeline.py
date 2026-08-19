@@ -132,10 +132,14 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
         }
         source_in = _float_arg(args, "source_in") or 0.0
         source_out = _float_arg(args, "source_out")
+        if source_in < 0.0:
+            raise ValueError("source_in must be >= 0")
         if record.kind in {"video", "audio", "lottie"}:
             if source_out is None:
                 source_out = probe_duration or source_in + 0.1
-            duration = max(round(source_out - source_in, 6), 0.1)
+            if source_out <= source_in:
+                raise ValueError("source_out must be greater than source_in")
+            duration = round(source_out - source_in, 6)
         else:  # image
             duration = _float_arg(args, "duration") or _TEXT_DEFAULT_DURATION
             source_in, source_out = 0.0, duration
@@ -149,7 +153,8 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
             "source_out": round(source_out, 6),
         }
 
-    # Resolve target track; all visual media share V* tracks, audio uses A*.
+    # Resolve target track. Text/Lottie are compositing layers and must land on
+    # overlay tracks; strict patches reject them on V1.
     track_id = str(args.get("track_id") or "")
     if media_kind == "audio":
         audio_tracks = [t for t in tracks if t.get("kind") == "audio"]
@@ -157,6 +162,12 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
             track_id = str(audio_tracks[0]["id"]) if audio_tracks else "A1"
         if not any(str(t.get("id")) == track_id for t in tracks):
             ops.append({"op": "add_track", "kind": "audio", "track_id": track_id})
+    elif media_kind in {"text", "lottie", "image"}:
+        overlay_tracks = [t for t in tracks if t.get("kind") == "overlay"]
+        if not track_id:
+            track_id = str(overlay_tracks[0]["id"]) if overlay_tracks else "OV1"
+        if not any(str(t.get("id")) == track_id for t in tracks):
+            ops.append({"op": "add_track", "kind": "overlay", "track_id": track_id})
     else:
         video_tracks = [t for t in tracks if t.get("kind") == "video"]
         if not track_id:
@@ -175,13 +186,21 @@ async def dispatch_insert(args: dict[str, Any], ctx: ToolContext) -> dict[str, A
     elif at_index is not None:
         at = {"index": int(at_index)}
 
+    provenance = {"verb": "timeline_insert_clip", "session_id": ctx.session_id}
+    internal_provenance = args.get("_provenance")
+    if isinstance(internal_provenance, dict):
+        for key in ("shot_id", "evidence_id", "annotation_id"):
+            value = internal_provenance.get(key)
+            if value not in (None, ""):
+                provenance[key] = str(value)[:200]
+
     insert_op: dict[str, Any] = {
         "op": "insert_clip",
         "data": ({"asset": asset_payload, "clip": clip} if asset_payload else {"clip": clip}),
         "track_id": track_id,
         "at": at,
         "ripple": bool(args.get("ripple", False)),
-        "provenance": {"verb": "timeline_insert_clip", "session_id": ctx.session_id},
+        "provenance": provenance,
     }
     ops.append(insert_op)
 

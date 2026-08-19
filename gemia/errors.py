@@ -65,6 +65,39 @@ class TaskCancelledError(GemiaError):
     code = "E_CANCELLED"
 
 
+class ContentPolicyError(GemiaError):
+    """Request refused by the platform content policy.
+
+    Raised by :func:`gemia.moderation.guard_prompt` before a prompt reaches any
+    model provider. It reports ``recovery="none"`` (see the recovery vocabulary
+    below) so the agent loop treats a refusal as final: a policy decision is not
+    a malformed argument, and letting the model retry with a reworded prompt
+    would turn enforcement into an exercise in evasion.
+    """
+
+    code = "E_POLICY"
+
+    def __init__(
+        self,
+        user_message: str,
+        *,
+        category: str = "",
+        blocking_id: str = "",
+        detail: str = "",
+    ) -> None:
+        super().__init__(user_message, detail=detail)
+        self.category = category
+        self.blocking_id = blocking_id
+        self.recovery = "none"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = super().to_payload()
+        payload["recovery"] = self.recovery
+        if self.category:
+            payload["category"] = self.category
+        return payload
+
+
 # Recovery vocabulary. Both the model (to pick its next move) and the agent
 # loop's circuit breaker (to tell self-debugging apart from flailing) read
 # this field, so keep it a small, stable closed set.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from statistics import median
 
 from gemia.ai.skill_router import clear_skill_cache, load_skill_metadata, route
@@ -143,6 +144,41 @@ def test_prompt_only_fallback_activates_creation_skills() -> None:
 
     assert result.source == "keyword"
     assert result.skills[0] == "generative"
+
+
+def test_generic_fallback_does_not_impose_house_style_or_color_grade() -> None:
+    result = route("优化一下")
+
+    assert result.source == "fallback"
+    assert result.skills == ["analysis", "timeline-ops"]
+    assert "design-system" not in result.skills
+    assert "color-grade" not in result.skills
+
+
+def test_secondary_design_language_beats_unrelated_fallback_skills() -> None:
+    result = route("让画面更有高级感")
+
+    assert result.source == "keyword"
+    assert result.skills == ["design-system"]
+    assert result.matched_triggers == {"design-system": ["高级感"]}
+
+
+def test_design_system_checks_intent_without_house_style_hard_gates() -> None:
+    text = (
+        Path(__file__).resolve().parent.parent
+        / "gemia"
+        / "ai"
+        / "skills"
+        / "design-system"
+        / "SKILL.md"
+    ).read_text(encoding="utf-8")
+
+    assert "意图优先" in text
+    assert "不设全片固定比例" in text
+    assert "不覆盖当前用户意图" in text
+    assert "命中即打回重做" not in text
+    assert "全局饱和 ≤ 0.85" not in text
+    assert "镜头数 × 0.20" not in text
 
 
 def test_llm_fallback_interface_is_default_off(monkeypatch) -> None:

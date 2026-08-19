@@ -38,6 +38,23 @@ def test_video_serves_frontend() -> None:
     assert "/video/v3.css" in html
 
 
+def test_quanta_serves_mac_first_loopback_development_surface() -> None:
+    """Quanta develops beside Video on the local HTTP runtime before packaging."""
+    get_response = run_server_handler(server._Handler, create_raw_request("GET", "/quanta/"))
+    head_response = run_server_handler(server._Handler, create_raw_request("HEAD", "/quanta/"))
+
+    assert get_response["status"] == 200
+    assert get_response["headers"].get("content-type", "").startswith("text/html")
+    html = get_response["body"].decode("utf-8")
+    assert "Quanta · 离散视频 Demo" in html
+    assert 'id="graph"' in html
+    assert 'id="stage"' in html
+    assert 'id="qdata"' in html
+    assert head_response["status"] == 200
+    assert head_response["body"] == b""
+    assert head_response["headers"].get("content-length") == str(len(get_response["body"]))
+
+
 def test_video_serves_lumeri_working_indicator_assets() -> None:
     for path, expected in (
         ("/video/lumeri-working.svg", "Lumeri 正在工作"),
@@ -93,6 +110,22 @@ def test_signed_in_avatar_opens_a_real_account_menu() -> None:
     assert 'postAuth("/auth/logout", {})' in source
     assert ".account-menu" in css
     assert "account-menu-in" in css
+
+
+def test_setup_supports_openai_subscription_quota_without_api_key() -> None:
+    root = Path(server.__file__).resolve().parent
+    source = (root / "static/v3/v3.js").read_text(encoding="utf-8")
+    css = (root / "static/v3/v3.css").read_text(encoding="utf-8")
+
+    assert "OpenAI 订阅" in source
+    assert "订阅额度模式无需 API Key" in source
+    assert 'p.fields.includes("base_url")' in source
+    assert 'st.sel === "openai_subscription"' in source
+    assert "登录 Codex" in source
+    assert 'fetch("/config/codex-login", { method: "POST" })' in source
+    assert 'fetch("/config/codex-login-status")' in source
+    assert 'authUrl.origin !== "https://auth.openai.com"' in source
+    assert ".setup-codex-login" in css
 
 
 def test_settings_opens_a_split_page_with_real_sections() -> None:

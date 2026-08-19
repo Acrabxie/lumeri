@@ -738,6 +738,15 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        if path == "/config/codex-login-status":
+            if accounts.list_accounts() and _require_account(self) is None:
+                return
+            from gemia import brain_config
+
+            status, payload = brain_config.codex_login_bridge("GET")
+            _json_response(self, status, payload)
+            return
+
         # Config status (for first-run key check). Network topology fields
         # (bind host, port, LAN URLs) are gated behind a signed-in account so
         # the first-run check stays anonymous but a logged-in user can still
@@ -1002,6 +1011,35 @@ class _Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 200
             _json_response(self, 200, {"assets": list_assets(account_id, kind=kind, q=q, limit=limit)})
+            return
+
+        if path.startswith("/media-library/prepare/"):
+            from gemia.roughcut import RoughcutError, get_prepare_job
+
+            account_id = identity.resolve_account_id(self)
+            if not account_id:
+                _json_response(self, 401, {"error": "not signed in"})
+                return
+            job_id = path.removeprefix("/media-library/prepare/").strip()
+            try:
+                _json_response(self, 200, get_prepare_job(account_id, job_id))
+            except RoughcutError as exc:
+                _json_response(self, 404, {"error": str(exc)})
+            return
+
+        if path.startswith("/media-library/") and path.endswith("/roughcut"):
+            from gemia.roughcut import RoughcutError, load_roughcut
+
+            account_id = identity.resolve_account_id(self)
+            if not account_id:
+                _json_response(self, 401, {"error": "not signed in"})
+                return
+            parts = path.split("/")
+            asset_id = parts[2] if len(parts) >= 4 else ""
+            try:
+                _json_response(self, 200, {"manifest": load_roughcut(account_id, asset_id)})
+            except RoughcutError as exc:
+                _json_response(self, 404, {"error": str(exc)})
             return
 
         if path.startswith("/media-library/") and path.endswith("/annotations"):
@@ -1585,6 +1623,15 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 500, {"ok": False, "error": str(exc), "models": []})
             return
 
+        if route == "/config/codex-login":
+            if accounts.list_accounts() and _require_account(self) is None:
+                return
+            from gemia import brain_config
+
+            status, payload = brain_config.codex_login_bridge("POST")
+            _json_response(self, status, payload)
+            return
+
         if route == "/config/test-brain":
             # 用当前配置发极小探针，验证 provider 连通与鉴权（Setup 面板的"测试连接"）。
             if accounts.list_accounts() and _require_account(self) is None:
@@ -1678,6 +1725,68 @@ class _Handler(BaseHTTPRequestHandler):
                 _json_response(self, 400, {"error": str(exc)})
             except Exception as exc:
                 _json_response(self, 500, {"error": str(exc)})
+            return
+
+        if route == "/media-library/prepare":
+            try:
+                from gemia.roughcut import RoughcutError, prepare_roughcut, start_prepare_job
+
+                payload = _read_json_body(self)
+                account_id = identity.resolve_account_id(self)
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                if bool(payload.get("background", True)):
+                    _json_response(self, 202, start_prepare_job(account_id, payload))
+                else:
+                    asset_ids = payload.get("asset_ids") or payload.get("assets") or []
+                    if isinstance(asset_ids, str):
+                        asset_ids = [asset_ids]
+                    result = prepare_roughcut(
+                        account_id,
+                        [str(item) for item in asset_ids],
+                        all_assets=bool(payload.get("all") or payload.get("all_assets")),
+                        language=str(payload.get("language") or "auto"),
+                        create_proxies=bool(payload.get("create_proxies", True)),
+                        proxy_resolution=int(payload.get("proxy_resolution") or 540),
+                        resume=bool(payload.get("resume", True)),
+                        max_assets=int(payload.get("max_assets") or 100),
+                    )
+                    _json_response(self, 200, result)
+            except RoughcutError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+            except Exception as exc:
+                _json_response(self, 500, {"error": str(exc)})
+            return
+
+        if route.startswith("/media-library/prepare/") and route.endswith("/resume"):
+            try:
+                from gemia.roughcut import RoughcutError, resume_prepare_job
+
+                account_id = identity.resolve_account_id(self)
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                job_id = route.removeprefix("/media-library/prepare/").removesuffix("/resume").strip("/")
+                _json_response(self, 202, resume_prepare_job(account_id, job_id))
+            except RoughcutError as exc:
+                _json_response(self, 400, {"error": str(exc)})
+            return
+
+        if route.startswith("/media-library/") and route.endswith("/roughcut/review"):
+            try:
+                from gemia.roughcut import RoughcutError, apply_roughcut_review
+
+                payload = _read_json_body(self)
+                account_id = identity.resolve_account_id(self)
+                if not account_id:
+                    _json_response(self, 401, {"error": "not signed in"})
+                    return
+                parts = route.split("/")
+                asset_id = parts[2] if len(parts) >= 5 else ""
+                _json_response(self, 200, apply_roughcut_review(account_id, asset_id, payload))
+            except RoughcutError as exc:
+                _json_response(self, 400, {"error": str(exc)})
             return
 
         if route == "/media-library/annotate":

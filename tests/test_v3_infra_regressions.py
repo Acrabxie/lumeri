@@ -10,6 +10,7 @@ import pytest
 import server
 from gemia import v3_routes
 from gemia import session_manager
+from gemia.budget_guard import BudgetGuard
 from gemia.session_manager import SessionLimitError, SessionManager, SessionRunner
 from gemia.tools import add_overlay as add_overlay_tool
 from gemia.tools import edit_video as edit_video_tool
@@ -50,6 +51,7 @@ class FakeHandler:
 class FakeAgentLoop:
     def __init__(self, **_kwargs) -> None:
         self.registry = AssetRegistry()
+        self.budget = BudgetGuard(max_usd=5.0, max_seconds=600.0)
         self.guidance = []
         self.started = False
 
@@ -119,6 +121,118 @@ def test_session_runner_can_steer_and_stop_active_turn(monkeypatch, tmp_path: Pa
         runner.close()
 
 
+def test_session_budget_command_can_only_tighten_host_cap(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(session_manager, "AgentLoopV3", FakeAgentLoop)
+    runner = SessionRunner(
+        session_id="v3-budget",
+        output_dir=tmp_path / "work",
+        sessions_root=tmp_path / "sessions",
+    )
+    try:
+        initial = runner.budget_snapshot()
+        assert initial["max_usd"] == 5.0
+        assert initial["user_max_usd"] is None
+        assert initial["warning_usd"] is None
+        configured = runner.set_budget_limits(max_usd=None, warning_usd=1.25)
+        assert configured["max_usd"] == 5.0
+        assert configured["user_max_usd"] is None
+        assert configured["warning_usd"] == 1.25
+        tightened = runner.set_budget_limits(max_usd=2.5, warning_usd=None)
+        assert tightened["max_usd"] == 2.5
+        assert tightened["user_max_usd"] == 2.5
+        assert tightened["warning_usd"] is None
+        with pytest.raises(ValueError, match="host cap"):
+            runner.set_budget_max_usd(5.01)
+        runner.agent.budget.spent_usd = 1.0
+        with pytest.raises(ValueError, match="already spent"):
+            runner.set_budget_max_usd(0.99)
+        reset = runner.set_budget_max_usd(reset=True)
+        assert reset["max_usd"] == 5.0
+        assert reset["user_max_usd"] is None
+        assert reset["warning_usd"] is None
+    finally:
+        runner.close()
+
+
+def test_budget_route_returns_live_guard_snapshot() -> None:
+    class Runner:
+        session_id = "v3-budget-route"
+
+        @staticmethod
+        def set_budget_max_usd(max_usd, *, reset=False):
+            if max_usd is None:
+                raise ValueError("max_usd must be a number")
+            assert max_usd == 2.0
+            assert reset is False
+            return {"max_usd": 2.0, "spent_usd": 0.0}
+
+    body = json.dumps({"max_usd": 2.0}).encode("utf-8")
+    handler = FakeHandler(headers={"Content-Length": str(len(body))}, body=body)
+    assert v3_routes._set_budget(handler, Runner()) is True
+    assert handler.status == 200
+    assert handler.body_json["budget"]["max_usd"] == 2.0
+
+    invalid_body = json.dumps({"max_usd": None}).encode("utf-8")
+    invalid = FakeHandler(
+        headers={"Content-Length": str(len(invalid_body))}, body=invalid_body
+    )
+    assert v3_routes._set_budget(invalid, Runner()) is True
+    assert invalid.status == 400
+
+
+def test_budget_route_sets_warning_and_max_together() -> None:
+    class Runner:
+        session_id = "v3-budget-limits"
+
+        @staticmethod
+        def set_budget_limits(*, max_usd, warning_usd, reset=False):
+            assert max_usd == 3.0
+            assert warning_usd == 2.0
+            assert reset is False
+            return {"max_usd": 3.0, "warning_usd": 2.0, "spent_usd": 0.0}
+
+    body = json.dumps({"max_usd": 3.0, "warning_usd": 2.0}).encode("utf-8")
+    handler = FakeHandler(headers={"Content-Length": str(len(body))}, body=body)
+    assert v3_routes._set_budget(handler, Runner()) is True
+    assert handler.status == 200
+    assert handler.body_json["budget"]["warning_usd"] == 2.0
+
+
+def test_budget_route_accepts_blank_warning_and_max() -> None:
+    class Runner:
+        session_id = "v3-budget-blank-limits"
+
+        @staticmethod
+        def set_budget_limits(*, max_usd, warning_usd, reset=False):
+            assert max_usd is None
+            assert warning_usd is None
+            assert reset is False
+            return {
+                "max_usd": 5.0,
+                "user_max_usd": None,
+                "warning_usd": None,
+                "spent_usd": 0.0,
+            }
+
+    body = json.dumps({"max_usd": None, "warning_usd": None}).encode("utf-8")
+    handler = FakeHandler(headers={"Content-Length": str(len(body))}, body=body)
+    assert v3_routes._set_budget(handler, Runner()) is True
+    assert handler.status == 200
+    assert handler.body_json["budget"]["user_max_usd"] is None
+    assert handler.body_json["budget"]["warning_usd"] is None
+
+
+def test_web_slash_palette_wires_budget_to_session_guard() -> None:
+    source = (Path(__file__).parents[1] / "static/v3/v3.js").read_text(encoding="utf-8")
+    assert '{ name: "budget",  desc: "消费上限与 Token" }' in source
+    assert "`/sessions/${state.sessionId}/budget`" in source
+    assert "openBudgetModal()" in source
+    assert "warning_usd: warningUsd" in source
+    assert 'placeholder="留空关闭警示"' in source
+    assert 'placeholder="留空使用宿主上限"' in source
+    assert "openBudgetWarningDialog(ev.budget || {})" in source
+
+
 def test_session_manager_caps_sessions_and_sweeps_idle(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(session_manager, "AgentLoopV3", FakeAgentLoop)
     manager = SessionManager(
@@ -141,6 +255,79 @@ def test_session_manager_caps_sessions_and_sweeps_idle(monkeypatch, tmp_path: Pa
     # Idle sweep must never delete workdir files — they are user data.
     assert marker.exists()
     manager.close_all(remove_workdirs=True)
+
+
+def test_sessions_list_exposes_ai_task_summary_without_using_id_as_copy(monkeypatch) -> None:
+    class Runner:
+        session_id = "v3-local-opaque-id"
+        account_id = ""
+        created_at = 1.0
+        last_used_at = 2.0
+        task_summary = "制作竖屏产品宣传片"
+        turn_in_progress = True
+        plan_mode = False
+
+        class Agent:
+            class Context:
+                class Jobs:
+                    @staticmethod
+                    def list_pending():
+                        return []
+
+                jobs = Jobs()
+
+            _tool_ctx = Context()
+
+        agent = Agent()
+
+    class Manager:
+        _lock = __import__("threading").Lock()
+        _runners = {Runner.session_id: Runner()}
+
+    monkeypatch.setattr(v3_routes, "get_manager", lambda: Manager())
+    handler = FakeHandler()
+
+    assert v3_routes._list_sessions(handler) is True
+    assert handler.status == 200
+    assert handler.body_json["sessions"][0]["task_summary"] == "制作竖屏产品宣传片"
+
+
+def test_auto_title_saves_ai_summary_on_live_runner(monkeypatch) -> None:
+    class Future:
+        @staticmethod
+        def result(timeout=None):
+            return "制作竖屏产品宣传片"
+
+    class Pool:
+        def __init__(self, max_workers):
+            assert max_workers == 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def submit(_fn):
+            return Future()
+
+    monkeypatch.setattr("concurrent.futures.ThreadPoolExecutor", Pool)
+    body = json.dumps({"messages": [{"role": "user", "content": "做一个产品宣传片"}]}).encode()
+    handler = FakeHandler(headers={"Content-Length": str(len(body))}, body=body)
+    runner = type("Runner", (), {"task_summary": ""})()
+
+    assert v3_routes._auto_title(handler, runner) is True
+    assert handler.status == 200
+    assert handler.body_json["title"] == "制作竖屏产品宣传片"
+    assert runner.task_summary == "制作竖屏产品宣传片"
+
+
+def test_background_panel_uses_ai_summary_instead_of_visible_session_id() -> None:
+    source = Path("static/v3/v3.js").read_text(encoding="utf-8")
+
+    assert 'const summary = String(s.task_summary || (mine ? state.sessionTitle : "") || "").trim();' in source
+    assert '<span class="task-name">${escapeHTML(s.session_id)}' not in source
 
 
 def test_session_manager_cap_counts_sessions_being_created(monkeypatch, tmp_path: Path) -> None:
@@ -208,6 +395,46 @@ def test_v3_upload_rejects_bad_content_length_without_500() -> None:
     assert _upload_asset(handler, object()) is True
     assert handler.status == 400
     assert "Content-Length" in handler.body_json["error"]
+
+
+def test_v3_upload_also_registers_signed_in_media_library_asset(monkeypatch, tmp_path: Path) -> None:
+    class Runner:
+        output_dir = tmp_path
+        account_id = "signed-in-account"
+        session_id = "v3-upload-library"
+
+        def add_external_asset(
+            self,
+            path: Path,
+            *,
+            summary: str = "",
+            original_name: str | None = None,
+        ) -> str:
+            assert path.read_bytes() == b"audio-bytes"
+            assert "take.wav" in summary
+            return "aud_001"
+
+    from gemia import media_library
+
+    monkeypatch.setattr(
+        media_library,
+        "import_media",
+        lambda account_id, path, original_name=None: {
+            "asset_id": "asset_library_001",
+            "account_id": account_id,
+            "name": original_name,
+        },
+    )
+    handler = FakeHandler(
+        headers={"Content-Length": str(len(b"audio-bytes")), "X-Filename": "take.wav"},
+        body=b"audio-bytes",
+    )
+
+    assert _upload_asset(handler, Runner()) is True
+    assert handler.status == 201
+    assert handler.body_json["asset_id"] == "aud_001"
+    assert handler.body_json["library_asset_id"] == "asset_library_001"
+    assert handler.body_json["library_asset"]["name"] == "take.wav"
 
 
 def test_v3_try_handle_hides_internal_errors_by_default(monkeypatch) -> None:

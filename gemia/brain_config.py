@@ -12,6 +12,14 @@ from __future__ import annotations
 import os
 from typing import Any
 
+# Local OpenAI-compatible bridge backed by the user's ChatGPT/Codex subscription.
+# The bridge owns OAuth credentials; Lumeri never receives or stores them.
+OPENAI_SUBSCRIPTION_BRIDGE_ROOT = os.environ.get(
+    "LUMERI_CODEX_BRIDGE_ROOT", "http://127.0.0.1:7808"
+).rstrip("/")
+OPENAI_SUBSCRIPTION_BASE_URL = f"{OPENAI_SUBSCRIPTION_BRIDGE_ROOT}/v1/chat/completions"
+OPENAI_SUBSCRIPTION_MODE = "subscription"
+
 # 常见供应商目录：前端据此渲染卡片；custom = OpenAI 兼容自定义 base_url。
 PROVIDERS: list[dict[str, Any]] = [
     {
@@ -41,6 +49,15 @@ PROVIDERS: list[dict[str, Any]] = [
         "fields": ["model", "base_url"],
         "key_field": "openai_api_key",
         "model_presets": ["gpt-5.5", "gpt-5.6-sol"],
+    },
+    {
+        "id": "openai_subscription",
+        "label": "OpenAI 订阅额度",
+        "hint": "使用本机 Codex 登录的 ChatGPT 订阅额度，无需 API Key；需本地 bridge 正在运行",
+        "fields": ["model"],
+        "key_field": None,
+        "default_model": "gpt-5.5",
+        "model_presets": ["gpt-5.5", "gpt-5.4"],
     },
     {
         "id": "claude",
@@ -84,6 +101,7 @@ _STR_FIELDS = {
     "vertex_project": ("vertex_project", "VERTEX_PROJECT"),
     "vertex_location": ("vertex_location", "VERTEX_LOCATION"),
     "base_url": ("lumeri_openai_base_url", "LUMERI_OPENAI_BASE_URL"),
+    "openai_auth_mode": ("lumeri_openai_auth_mode", "LUMERI_OPENAI_AUTH_MODE"),
     "anthropic_base_url": ("lumeri_anthropic_base_url", "LUMERI_ANTHROPIC_BASE_URL"),
     "anthropic_betas": ("lumeri_anthropic_betas", "LUMERI_ANTHROPIC_BETAS"),
 }
@@ -103,14 +121,22 @@ def _has(config: dict, key: str) -> bool:
 
 def read_status(config: dict) -> dict[str, Any]:
     """返回脱敏的大脑配置现状（密钥只给布尔）。供 GET /config 用。"""
+    provider = config.get("lumeri_v3_provider") or ""
+    auth_mode = config.get("lumeri_openai_auth_mode") or ""
+    base_url = config.get("lumeri_openai_base_url") or ""
+    if provider == "openai" and (
+        auth_mode == OPENAI_SUBSCRIPTION_MODE
+        or base_url.rstrip("/") == OPENAI_SUBSCRIPTION_BASE_URL
+    ):
+        provider = "openai_subscription"
     return {
-        "provider": config.get("lumeri_v3_provider") or "",
+        "provider": provider,
         "model": config.get("lumeri_v3_model") or "",
         "effort": config.get("lumeri_v3_effort") or "medium",
         "location": config.get("lumeri_v3_location") or "global",
         "vertex_project": config.get("vertex_project") or "",
         "vertex_location": config.get("vertex_location") or "",
-        "base_url": config.get("lumeri_openai_base_url") or "",
+        "base_url": base_url,
         "anthropic_base_url": config.get("lumeri_anthropic_base_url") or "",
         "anthropic_betas": config.get("lumeri_anthropic_betas") or "",
         "has_key": {
@@ -129,13 +155,22 @@ def apply_update(config: dict, body: dict) -> tuple[dict, list[str]]:
 
     返回 (更新后的 config, 变更字段名列表)。就地修改 config 并返回它。
     """
+    body = dict(body)
+    requested_provider = str(body.get("provider") or "").strip()
+    if requested_provider == "openai_subscription":
+        body["provider"] = "openai"
+        body["base_url"] = OPENAI_SUBSCRIPTION_BASE_URL
+        body["openai_auth_mode"] = OPENAI_SUBSCRIPTION_MODE
+    elif requested_provider in {"openai", "custom"}:
+        body["openai_auth_mode"] = "api_key"
+
     changed: list[str] = []
     for field, (cfg_key, env_key) in _STR_FIELDS.items():
         if field not in body:
             continue
         val = str(body.get(field) or "").strip()
-        # provider 必须在已知集合内（含 custom 会在下方翻译）
-        if field == "provider" and val and val not in {p["id"] for p in PROVIDERS}:
+        # provider 必须在已知运行时集合内（UI-only 值已在上方翻译）
+        if field == "provider" and val and val not in {"vertex", "gemini", "openai", "claude", "openrouter", "custom"}:
             continue
         # custom 只是 UI 概念 → 实际走 openai 通道 + 自定义 base_url
         if field == "provider" and val == "custom":
@@ -170,6 +205,19 @@ def list_models(provider: str, config: dict, proxy: str | None = None) -> dict[s
         transport_kw["proxy"] = proxy
 
     try:
+        if provider == "openai_subscription":
+            # This hop is loopback-only. The bridge itself owns outbound proxying;
+            # never send the local model-list request through the configured proxy.
+            r = httpx.get(f"{OPENAI_SUBSCRIPTION_BRIDGE_ROOT}/v1/models", timeout=timeout)
+            r.raise_for_status()
+            data = r.json().get("data") or []
+            models = [
+                {"id": m["id"], **({"name": m["name"]} if m.get("name") else {})}
+                for m in data
+                if isinstance(m, dict) and "id" in m
+            ]
+            return {"ok": True, "models": models}
+
         if provider in ("openai", "custom"):
             key = config.get("openai_api_key") or os.environ.get("OPENAI_API_KEY") or ""
             base = config.get("lumeri_openai_base_url") or os.environ.get("LUMERI_OPENAI_BASE_URL") or "https://api.openai.com/v1/chat/completions"
@@ -209,6 +257,34 @@ def list_models(provider: str, config: dict, proxy: str | None = None) -> dict[s
         return {"ok": False, "error": f"HTTP {exc.response.status_code}", "models": []}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200], "models": []}
+
+
+def codex_login_bridge(method: str) -> tuple[int, dict[str, Any]]:
+    """Start or inspect the loopback Codex OAuth flow without exposing tokens."""
+    import httpx
+
+    normalized = method.strip().upper()
+    if normalized == "POST":
+        path = "/v1/auth/login"
+    elif normalized == "GET":
+        path = "/v1/auth/status"
+    else:
+        return 405, {"error": "unsupported method"}
+    try:
+        response = httpx.request(
+            normalized,
+            f"{OPENAI_SUBSCRIPTION_BRIDGE_ROOT}{path}",
+            timeout=httpx.Timeout(8, connect=3),
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {"error": "Codex bridge returned invalid JSON"}
+        if not isinstance(payload, dict):
+            payload = {"error": "Codex bridge returned an invalid response"}
+        return response.status_code, payload
+    except Exception as exc:
+        return 502, {"error": f"Codex bridge unavailable: {str(exc)[:160]}"}
 
 
 def test_provider(proxy: str | None = None) -> dict[str, Any]:

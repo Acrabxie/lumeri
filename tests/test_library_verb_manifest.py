@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import inspect
 import pathlib
 
 import gemia.tools as tools_pkg
@@ -54,7 +55,12 @@ def _tool_modules_with_bare_dispatch() -> list[str]:
 
 
 def test_every_tool_module_dispatch_is_installed() -> None:
-    wired = {id(fn) for fn in DISPATCHER.values()}
+    # Every entry is wrapped by ``_screened`` so the argument guard cannot be
+    # bypassed by whichever of the three call sites reaches DISPATCHER. That
+    # wrapper is a different object than the module's ``dispatch``, so compare
+    # the unwrapped handlers — a module that is genuinely unregistered still
+    # has no entry to unwrap, which is what this gate is looking for.
+    wired = {id(inspect.unwrap(fn)) for fn in DISPATCHER.values()}
     orphans: list[str] = []
     for stem in _tool_modules_with_bare_dispatch():
         if stem in NON_VERB_DISPATCH_MODULES:

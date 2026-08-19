@@ -13,9 +13,9 @@ from . import skill_yaml as yaml
 SkillRouteSource = Literal["keyword", "llm", "fallback"]
 
 SKILLS_ROOT = Path(__file__).resolve().parent / "skills"
-# 无关键词命中时的兜底 skill,按优先级排序;route() 只取前 max_skills 个(默认 3)。
-# design-system 领跑,让质量基准在"让它好看点/再处理一下"这类说不清的请求上也随行。
-CORE_FALLBACK_SKILLS = ["design-system", "timeline-ops", "color-grade", "transition"]
+# 无语义命中时只给规划器一个保守的“先看、再做最小结构修改”表面。
+# 不在兜底中默认注入某种审美或调色偏好；这些只在用户的语义命中时激活。
+CORE_FALLBACK_SKILLS = ["analysis", "timeline-ops"]
 PROMPT_ONLY_FALLBACK_SKILLS = ["generative", "ad-graphics", "stock-media"]
 
 
@@ -179,6 +179,25 @@ def route(
             effective_request=effective,
             raw_request=raw,
             matched_triggers={hit.skill_id: hit.primary_hits + hit.secondary_hits for hit in primary_hits},
+            latency_ms=latency,
+        )
+
+    # Secondary triggers are weaker but still more informative than a fixed
+    # house-style fallback.  This keeps requests such as "高级感" scoped to
+    # design review without making that design system accompany unrelated turns.
+    secondary_hits = [hit for hit in hits if hit.secondary_hits]
+    if secondary_hits:
+        selected = [hit.skill_id for hit in secondary_hits[:max(1, max_skills)]]
+        latency = (time.perf_counter() - start) * 1000
+        return RouteResult(
+            skills=selected,
+            source="keyword",
+            confidence=min(0.6, secondary_hits[0].score),
+            effective_request=effective,
+            raw_request=raw,
+            matched_triggers={
+                hit.skill_id: hit.secondary_hits for hit in secondary_hits
+            },
             latency_ms=latency,
         )
 

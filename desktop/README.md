@@ -17,8 +17,8 @@ npm start
 ## Build installers
 
 ```bash
-npm run build:mac   # → dist/Lumeri-0.1.0-mac-arm64.dmg (+ x64)
-npm run build:win   # → dist/Lumeri Setup 0.1.0.exe
+npm run build:mac   # → dist/Lumeri-1.0.0-mac-arm64.dmg (+ x64)
+npm run build:win   # → dist/Lumeri Setup 1.0.0.exe
 npm run build:all   # both
 ```
 

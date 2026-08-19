@@ -1,4 +1,4 @@
-# Lumeri 0.1.0 — Desktop Preview
+# Lumeri 1.0.0
 
 The first double-click build of Lumeri. Runs on macOS and Windows with **no
 Python, no Node, no configuration**. Just download, install, open.
@@ -11,9 +11,9 @@ you can see the shape of the tool before we open the backend.
 
 | Platform         | File                                    |
 | ---------------- | --------------------------------------- |
-| macOS (Apple)    | `Lumeri-0.1.0-mac-arm64.dmg`            |
-| macOS (Intel)    | `Lumeri-0.1.0-mac-x64.dmg`              |
-| Windows (x64)    | `Lumeri-0.1.0-win-x64.exe`              |
+| macOS (Apple)    | `Lumeri-1.0.0-mac-arm64.dmg`            |
+| macOS (Intel)    | `Lumeri-1.0.0-mac-x64.dmg`              |
+| Windows (x64)    | `Lumeri-1.0.0-win-x64.exe`              |
 
 macOS builds are unsigned — first launch, right-click → Open, or run
 `xattr -dr com.apple.quarantine /Applications/Lumeri.app`.

@@ -70,6 +70,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
         "add_overlay", "arrange_timeline", "subtitle", "animate_captions",
         "transform_geometry", "smart_reframe", "export", "probe_media",
         "analyze_media", "extract_frame", "timeline_insert_clip", "grade",
+        "prepare_roughcut",
     }),
     "audio": frozenset({
         "generate_audio", "narrate", "mix_audio", "edit_audio",
@@ -98,7 +99,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
     }),
     "lumen_core": frozenset({
         "get_lumenframe", "lumen_patch",
-        "lumen_render", "lumen_seek", "lumen_render_range",
+        "lumen_render", "lumen_seek", "lumen_render_range", "lumen_stage",
         "vector_motion", "camera", "lumen_comp_to_timeline",
     }),
     "lumen_time": frozenset({
@@ -107,7 +108,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
     }),
     "lumen_mask": frozenset({
         "get_lumenframe", "lumen_patch", "lumen_render",
-        "lumen_seek", "lumen_render_range",
+        "lumen_seek", "lumen_render_range", "lumen_stage",
     }),
     "motion_graphics": frozenset({
         "build", "run_shell", "copy_in", "list_dir", "read_file",
@@ -125,6 +126,7 @@ TOOL_PACKS: dict[str, frozenset[str]] = {
     "annotations": frozenset({
         "annotate_media", "get_media_annotations", "write_media_annotation",
         "search_media", "search_library", "probe_media", "analyze_media",
+        "prepare_roughcut",
     }),
     "memory_skills": frozenset({
         "save_skill", "recall_skills", "remember", "log_note",
@@ -166,8 +168,8 @@ WORKFLOW_ORDER: tuple[str, ...] = (
 
 WORKFLOW_KEYWORDS: dict[str, tuple[str, ...]] = {
     "storyboard": (
-        "分镜", "镜头", "脚本", "大纲", "多镜头", "宣传片", "storyboard",
-        "shotlist", "script", "rough cut", "成片",
+        "分镜", "分镜脚本", "镜头大纲", "多镜头规划", "storyboard",
+        "shotlist", "rough cut",
     ),
     "quanta": (
         "演示", "幻灯片", "讲稿", "离散视频", "汇报", "课件", "quanta",
@@ -224,7 +226,8 @@ WORKFLOW_KEYWORDS: dict[str, tuple[str, ...]] = {
     ),
     "annotations": (
         "标注", "标签", "素材库", "找素材", "搜素材", "annotation",
-        "media library", "search media",
+        "media library", "search media", "粗剪", "转写", "口头禅", "废话",
+        "选条", "挑条", "rough cut", "transcribe", "filler", "take selection",
     ),
     "files": (
         "文件", "目录", "文件夹", "路径", "复制", "移动", "整理", "file",
@@ -432,11 +435,40 @@ def classify_request(
     # "video" ("生成一个有音乐的视频", "make a 7-second video").
     if re.search(
         r"(?:生成|制作|创建|做|输出|make|create|generate|produce|output)"
-        r".{0,48}(?:视频|短片|成片|videos?|clips?)",
+        r".{0,48}(?:视频|短片|宣传片|成片|videos?|clips?)",
         text,
         re.I,
     ):
         scores["video_generation"] += 4
+    if re.search(
+        r"(?:生成|制作|创建|做).{0,24}宣传片",
+        text,
+        re.I,
+    ):
+        # A promo normally has multiple shots, so keep the shotlist available;
+        # video_generation remains primary unless the user explicitly asks to
+        # plan or outline it.
+        scores["storyboard"] += 2
+    # Storyboard is a planning structure, not a synonym for any mention of a
+    # shot, script, promo, or finished cut.  Activate it when the user actually
+    # asks to plan/outline a multi-shot work.
+    if re.search(
+        r"(?:(?:规划|策划|设计|列出|拆分).{0,20}"
+        r"(?:宣传片|成片|视频|镜头|脚本|大纲)|"
+        r"(?:plan|outline|storyboard).{0,20}(?:promo|video|shots?|script))",
+        text,
+        re.I,
+    ):
+        scores["storyboard"] += 4
+    # Quality-review wording should expose inspection tools, not acquire a
+    # storyboard merely because the object is a "finished cut".
+    if re.search(
+        r"(?:(?:检查|审查|评审|质检|看看|review|inspect|check)"
+        r".{0,20}(?:成片|视频|画面|音频|质量|cut|video|quality))",
+        text,
+        re.I,
+    ):
+        scores["media_inspect"] += 4
     if re.search(
         r"(?:生成|制作|创建|做|输出|make|create|generate|produce|output)"
         r".{0,24}(?:图片|图像|海报|照片|封面图|images?|photos?|posters?|cover\s+(?:image|art))",

@@ -65,24 +65,24 @@ def test_steer_and_stop_routes_accept_only_active_turns() -> None:
 
 
 def test_web_composer_exposes_stop_and_midturn_guidance() -> None:
-    # M3 restyle: the dedicated #session-stop-btn was removed. Mid-turn, the
-    # voice-input button morphs into the stop control (pause icon, label
-    # "停止当前执行" -> stopCurrentTurn), and the send button relabels to
-    # "引导当前执行" so submissions route to steerTurn instead of submitTurn.
+    # One composer button owns all states. During an active turn it shows stop
+    # only while the input is empty; typed text changes it to send and routes
+    # that message to steerTurn.
     html = (ROOT / "static/v3/index.html").read_text(encoding="utf-8")
     source = (ROOT / "static/v3/v3.js").read_text(encoding="utf-8")
 
-    assert 'id="voice-input-btn"' in html
+    assert 'id="send-btn"' in html
 
     # Stop affordance: the composer button cancels the active turn via /stop.
     assert '/stop`' in source
-    assert 'if (state.turnInProgress) stopCurrentTurn();' in source
+    assert 'const shouldStop = state.turnInProgress && !hasText && !isListening;' in source
+    assert 'if (state.turnInProgress && !msg)' in source
     assert '"停止当前执行"' in source
 
     # Mid-turn guidance: submissions during a turn steer it via /steer.
     assert '/steer`' in source
     assert 'state.turnInProgress ? steerTurn(msg) : submitTurn(msg)' in source
-    assert '"引导当前执行"' in source
+    assert 'setAttribute("aria-label", "发送")' in source
 
     # Server events for both flows are still handled.
     assert 'turn_guidance_applied:' in source

@@ -24,6 +24,7 @@ import certifi
 
 from gemia.audio.effects import text_to_speech as local_text_to_speech
 from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+from gemia.moderation import guard_prompt
 from gemia.primitives_common import ensure_path_exists
 
 # ── Type Definitions ─────────────────────────────────────────────────────
@@ -109,7 +110,13 @@ class AudioClient:
 
         Returns:
             A SpeechGenerationArtifact detailing the request and result.
+
+        Raises:
+            ContentPolicyError: If the spoken text is refused by the content policy.
         """
+        # Screened before the dry-run branch too: a refusal must not be
+        # reachable by flipping to local TTS.
+        guard_prompt(text, surface="audio.speech")
         output_dir_path = ensure_path_exists(output_dir)
         artifact_path = output_dir_path / f"speech_artifact_{Path(output_dir).name}.json"
         audio_output_path = output_dir_path / f"speech_{Path(output_dir).name}.mp3"

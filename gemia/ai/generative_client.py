@@ -32,6 +32,7 @@ import cv2
 import numpy as np
 
 from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+from gemia.moderation import guard_prompt
 from gemia.primitives_common import ensure_float32, to_uint8
 
 # ── Defaults ─────────────────────────────────────────────────────────────
@@ -81,8 +82,10 @@ class GenerativeClient:
             float32 BGR ndarray, shape (H, W, 3), values in [0, 1].
 
         Raises:
+            ContentPolicyError: If the prompt is refused by the content policy.
             RuntimeError: If the API call fails or returns no image.
         """
+        guard_prompt(prompt, surface="image.generate")
         return self._openrouter_text_to_image(prompt)
 
     def generate_image_from_image_and_text(self, img: np.ndarray, prompt: str) -> np.ndarray:
@@ -96,8 +99,10 @@ class GenerativeClient:
             float32 BGR ndarray with the edit applied.
 
         Raises:
+            ContentPolicyError: If the instruction is refused by the content policy.
             RuntimeError: If the API call fails or returns no image.
         """
+        guard_prompt(prompt, surface="image.edit")
         return self._openrouter_image_and_text(img, prompt)
 
     def blend_two_images(self, img_a: np.ndarray, img_b: np.ndarray, prompt: str) -> np.ndarray:
@@ -112,8 +117,10 @@ class GenerativeClient:
             Blended float32 BGR ndarray.
 
         Raises:
+            ContentPolicyError: If the guidance is refused by the content policy.
             RuntimeError: If the API call fails or returns no image.
         """
+        guard_prompt(prompt, surface="image.blend")
         return self._openrouter_blend(img_a, img_b, prompt)
 
     # ── OpenRouter chat-completions image API ─────────────────────────────

@@ -23,6 +23,7 @@ from typing import Any
 import certifi
 
 from gemia.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+from gemia.moderation import guard_prompt
 
 # ── Defaults ─────────────────────────────────────────────────────────────
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -79,8 +80,10 @@ class VeoClient:
             Absolute path to the downloaded MP4 video file.
 
         Raises:
+            ContentPolicyError: If the prompt is refused by the content policy.
             RuntimeError: If the API call fails or generation is rejected.
         """
+        guard_prompt(prompt, surface="video.generate")
         body: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
@@ -103,9 +106,11 @@ class VeoClient:
             Absolute path to the downloaded MP4 video file.
 
         Raises:
+            ContentPolicyError: If the prompt is refused by the content policy.
             FileNotFoundError: If ``image_path`` does not exist.
             RuntimeError: If the API call fails.
         """
+        guard_prompt(prompt, surface="video.from_image")
         img_data = _image_path_to_data_uri(image_path)
         body: dict[str, Any] = {
             "model": self.model,
@@ -129,9 +134,11 @@ class VeoClient:
             Absolute path to the downloaded extended MP4 video file.
 
         Raises:
+            ContentPolicyError: If the prompt is refused by the content policy.
             FileNotFoundError: If ``video_path`` does not exist.
             RuntimeError: If the API call fails.
         """
+        guard_prompt(prompt, surface="video.extend")
         video_b64 = _file_to_b64(video_path)
         body: dict[str, Any] = {
             "model": self.model,

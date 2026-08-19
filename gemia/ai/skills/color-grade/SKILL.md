@@ -4,7 +4,7 @@ description: |
   用于参考 DaVinci Resolve Color page 的整体调色、冷暖、曝光、对比、饱和度、LUT、胶片色和统一多个素材色彩。何时不用我：具体油画/水彩/像素化等艺术滤镜用 stylize-art；文本生成新视觉或图生视频用 generative；局部抠像/蒙版/合成用 composite-blend。
 triggers:
   primary: [调色, 冷色, 暖色, 色调, 曝光, 对比度, 饱和度, LUT, color grade, color grading, exposure]
-  secondary: [好看, 高级感, 统一色彩, 电影感, resolve color, color page, cyberpunk, vintage, warm, cool, contrast]
+  secondary: [统一色彩, 电影感, resolve color, color page, cyberpunk, vintage, warm, cool, contrast]
 primitives:
   - gemia.picture.color.color_grade
   - gemia.picture.color.adjust_exposure

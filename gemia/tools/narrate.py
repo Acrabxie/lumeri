@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from gemia.moderation import guard_prompt
 from gemia.tools._context import ProgressUpdate, ToolContext
 from gemia.tools._ffmpeg import ffprobe_duration
 
@@ -28,6 +29,12 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     text = str(args.get("text") or "").strip()
     if not text:
         raise ValueError("narrate requires non-empty 'text' to speak")
+    # This tool reaches a local TTS engine directly rather than through an AI
+    # client, so it is not covered by the guards on the provider calls — but it
+    # still turns free text into a delivered media asset, which is what the
+    # policy is about. The backend being offline and free changes the cost, not
+    # the content.
+    guard_prompt(text, surface="audio.narrate")
     voice = str(args.get("voice") or "auto").strip() or "auto"
     rate = args.get("rate")
     try:

@@ -305,3 +305,15 @@ def test_parse_chunk_accepts_string_error_without_choices() -> None:
     assert list(_parse_chunk({"error": "connection reset"})) == [
         {"kind": "error", "error": "connection reset"}
     ]
+
+
+def test_parse_chunk_keeps_final_usage_frame_without_choices() -> None:
+    usage = {
+        "prompt_tokens": 120,
+        "completion_tokens": 30,
+        "total_tokens": 150,
+        "cost": 0.012,
+    }
+    assert list(_parse_chunk({"choices": [], "usage": usage})) == [
+        {"kind": "usage", "usage": usage}
+    ]

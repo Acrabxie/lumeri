@@ -1,0 +1,20 @@
+{
+  "schema": "lumeri.product-identities.v1",
+  "bundle_id_prefix": "com.acrab.lumeri",
+  "products": {
+    "video": {
+      "display_name": "Lumeri Video",
+      "model": "video",
+      "apple_bundle_id": "com.acrab.lumeri.video",
+      "android_application_id": "com.acrab.lumeri.video",
+      "android_status": "active"
+    },
+    "quanta": {
+      "display_name": "Lumeri Quanta",
+      "model": "quanta",
+      "apple_bundle_id": "com.acrab.lumeri.quanta",
+      "android_application_id": "com.acrab.lumeri.quanta",
+      "android_status": "reserved"
+    }
+  }
+}

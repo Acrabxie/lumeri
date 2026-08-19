@@ -10,7 +10,7 @@
 <body>
 <header class="app-header">
   <span class="brand">
-    <img class="brand-logo" src="/video/lumeri-mark.svg" alt="Lumeri" width="26" height="19" />
+    <img class="brand-logo" src="/video/lumeri-mark.svg" alt="Lumeri Video" width="26" height="26" />
     <h1>Lumeri Video</h1>
   </span>
 </header>
@@ -43,7 +43,7 @@
         </div>
 
         <div class="empty-state" id="empty-state">
-          <img class="empty-mark" src="/video/lumeri-mark.svg" alt="Lumeri" width="92" height="66" />
+          <img class="empty-mark" src="/video/lumeri-mark.svg" alt="Lumeri Video" width="92" height="92" />
           <h2 class="empty-title">开始创作</h2>
           <p class="empty-sub">在右侧描述你想要的视频</p>
         </div>
@@ -172,7 +172,7 @@
         </button>
       </div>
 
-      <input type="file" id="upload-input" hidden />
+      <input type="file" id="upload-input" multiple hidden />
       <button type="button" id="plus-btn" class="plus-btn" aria-haspopup="menu" aria-expanded="false" title="添加" aria-label="添加">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg>
       </button>
@@ -211,10 +211,12 @@
       <h2 class="pane-heading">媒体库</h2>
       <div class="assets-tray-actions">
         <button type="button" id="library-refresh-btn" class="library-small-btn icon-btn" title="刷新" aria-label="刷新"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+        <button type="button" id="library-roughcut-btn" class="library-small-btn icon-btn" title="粗剪准备" aria-label="粗剪准备"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
         <button type="button" id="library-annotate-btn" class="library-small-btn icon-btn" title="标注视频" aria-label="标注视频"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
         <button type="button" id="assets-tray-close" class="library-small-btn icon-btn" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>
     </div>
+    <div id="roughcut-job-status" class="roughcut-job-status" role="status" aria-live="polite" hidden></div>
     <div class="media-library-grid" id="media-library-grid">
       <p class="placeholder">登录后可用</p>
     </div>
@@ -230,7 +232,7 @@
     <!-- Signed-out view -->
     <div class="auth-view" id="auth-view-signin">
       <div class="auth-brand">
-        <img src="/video/lumeri-mark.svg" alt="" width="40" height="29" />
+        <img src="/video/lumeri-mark.svg" alt="Lumeri Video" width="40" height="40" />
         <h2 id="auth-title">登录 Lumeri Video</h2>
       </div>
 

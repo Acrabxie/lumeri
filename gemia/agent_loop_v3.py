@@ -72,6 +72,7 @@ from gemia.budget_guard import BudgetGuard
 from gemia.env_probe import format_environment_summary
 from gemia.errors import RECOVERY_FIX_ARGS, RECOVERY_TRANSIENT_RETRY
 from gemia.gemini_client import GeminiClientV3
+from gemia.moderation import check_prompt, record_rejection
 from gemia.plan_mode import (
     PLAN_GATE_TURN_LIMIT,
     PLAN_MODE_PROMPT,
@@ -541,7 +542,12 @@ class AgentLoopV3:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._max_visual_inspections = int(max_visual_inspections)
 
-        self.registry = AssetRegistry()
+        _extra = dict(extra or {})
+        self._account_id = str(_extra.get("account_id") or "").strip()
+        self._library_asset_ids: dict[str, str] = {}
+        self.registry = AssetRegistry(
+            on_registered=self._persist_registered_asset if self._account_id else None
+        )
         self.budget = BudgetGuard(max_usd=budget_max_usd, max_seconds=budget_max_seconds)
         self.client = gemini_client or GeminiClientV3()
 
@@ -568,6 +574,11 @@ class AgentLoopV3:
         self.plan_mode: bool = False
         self._system_template = _load_system_template()
         self._emit: EventSink = emit_event or self._emit_via_sse_registry
+        self.budget.bind_warning_sink(
+            lambda snapshot: self._emit(
+                {"kind": "budget_warning", "budget": snapshot}
+            )
+        )
 
         self.project = ProjectHandle.open(
             self.output_dir / "project",
@@ -593,8 +604,8 @@ class AgentLoopV3:
         self._bg_committed: set[str] = set()
         self._bg_finalized: set[str] = set()
 
-        _extra = dict(extra or {})
         _extra.setdefault("ask_bridge", self._ask_bridge)
+        _extra["persistent_library_asset_ids"] = self._library_asset_ids
         # The spawn_subtasks host verb needs a handle back to this loop (to share
         # the client / registry / project with its children and read plan_mode
         # live). Children strip ask_bridge from their own ctx.extra, so a child
@@ -677,8 +688,36 @@ class AgentLoopV3:
                 self._write_session_meta(turn_count=self._turn_count)
         return self.plan_mode
 
-    def add_external_asset(self, path: Path, *, summary: str = "") -> str:
-        record = self.registry.add_external(Path(path), summary=summary or None)
+    def _persist_registered_asset(self, record: Any) -> None:
+        """Keep every session media asset in the account library.
+
+        The library owns a content-addressed copy, so closing or sweeping the
+        session cannot remove it. ``import_media`` also restores a deliberately
+        re-uploaded asset after a prior manual soft delete.
+        """
+        if record.kind not in {"video", "image", "audio", "lottie"}:
+            return
+        from gemia.media_library import import_media
+
+        asset = import_media(
+            self._account_id,
+            record.path,
+            original_name=record.original_name or record.path.name,
+        )
+        self._library_asset_ids[record.asset_id] = str(asset["asset_id"])
+
+    def add_external_asset(
+        self,
+        path: Path,
+        *,
+        summary: str = "",
+        original_name: str | None = None,
+    ) -> str:
+        record = self.registry.add_external(
+            Path(path),
+            summary=summary or None,
+            original_name=original_name,
+        )
         return record.asset_id
 
     # ── background jobs (watcher-facing) ─────────────────────────────
@@ -1220,8 +1259,9 @@ class AgentLoopV3:
             "original request or your memory of earlier turns. Re-read the full "
             "Timeline / Layer Document / asset registry above before a consequential "
             "step; after a change, confirm the result here and correct course if it "
-            "diverged. Narrate and reply in the USER's language (match their latest "
-            "message) from the first line of the turn — no stock English openers, and "
+            "diverged. Narrate and reply in the USER's explicit preferred language "
+            "from durable memory; otherwise match their latest message from the first "
+            "line of the turn — no stock English openers, and "
             "vary your phrasing: never open every narration line with the same formula "
             "(e.g. 「我将…」/'I will …').]\n"
             + "\n".join(snaps)
@@ -1782,7 +1822,25 @@ class AgentLoopV3:
         return None
 
     async def run_turn(self, user_message: str) -> None:
-        """Run one user turn until the model stops calling tools."""
+        """Run one user turn until the model stops calling tools.
+
+        A turn refused by the content policy never reaches the model: the
+        refusal is streamed back as ordinary assistant text and the turn ends.
+        Raising here instead would surface as a crash rather than an answer, and
+        appending the refused text to ``self._messages`` would leave it in the
+        rolling window for every later request.
+        """
+        verdict = check_prompt(user_message)
+        if not verdict.allowed:
+            record_rejection(verdict, surface="agent.turn", text=user_message)
+            self._emit({"kind": "turn_start"})
+            self._emit({"kind": "model_text_delta", "delta": verdict.reason})
+            self._emit({"kind": "turn_complete", "final_asset_ids": []})
+            self._turn_count += 1
+            if self.sessions_root is not None:
+                self._write_session_meta(turn_count=self._turn_count)
+            return
+
         if self._pinned_intent is None:
             self._pinned_intent = user_message
         self._messages.append({"role": "user", "content": user_message})
@@ -1958,8 +2016,48 @@ class AgentLoopV3:
                         for schema in active_schemas
                         if is_plan_safe(str(schema["function"]["name"]))
                     ]
+            model_budget = (
+                self.budget.prepare_model_call(
+                    messages,
+                    model=str(getattr(self.client, "model", "") or ""),
+                    tools=active_schemas,
+                )
+                if isinstance(self.client, GeminiClientV3)
+                else {
+                    "ok": True,
+                    "max_output_tokens": 8096,
+                    "estimated_input_cost_usd": None,
+                    "reason": "",
+                }
+            )
+            if not model_budget["ok"]:
+                self._emit(
+                    {
+                        "kind": "budget_gate",
+                        "call_id": "model_budget",
+                        "tool_name": "model",
+                        "reason": model_budget["reason"],
+                        "alternatives": [],
+                        "estimated_cost_usd": model_budget.get(
+                            "estimated_input_cost_usd"
+                        ),
+                        "estimated_eta_sec": 0.0,
+                    }
+                )
+                self._emit_turn_wrapup(
+                    "budget_exhausted",
+                    tools_succeeded=tools_succeeded,
+                    tools_failed=tools_failed,
+                    assets_produced=_assets_produced(),
+                )
+                return
             try:
-                async for delta in self.client.stream_turn(messages, tools=active_schemas):
+                stream_kwargs: dict[str, Any] = {"tools": active_schemas}
+                if isinstance(self.client, GeminiClientV3):
+                    stream_kwargs["max_output_tokens"] = model_budget[
+                        "max_output_tokens"
+                    ]
+                async for delta in self.client.stream_turn(messages, **stream_kwargs):
                     kind = delta["kind"]
                     if kind == "text_delta":
                         accum.text_buf.append(delta["text"])
@@ -1994,6 +2092,25 @@ class AgentLoopV3:
                             tc.extra_content = delta.get("extra_content")
                     elif kind == "finish":
                         accum.finish_reason = str(delta["reason"])
+                    elif kind == "usage":
+                        usage = delta.get("usage")
+                        if isinstance(usage, dict) and usage:
+                            settled = self.budget.record_model_usage(
+                                usage,
+                                provider=str(
+                                    getattr(self.client, "provider", "") or ""
+                                ),
+                                model=str(
+                                    getattr(self.client, "model", "") or ""
+                                ),
+                            )
+                            self._emit(
+                                {
+                                    "kind": "budget_update",
+                                    "usage": settled,
+                                    "budget": self.budget.snapshot(),
+                                }
+                            )
                     elif kind == "error":
                         stream_error = str(delta["error"])
                         break

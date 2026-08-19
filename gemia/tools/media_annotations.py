@@ -88,29 +88,45 @@ async def dispatch_write(args: dict[str, Any], ctx: ToolContext) -> dict[str, An
     account_id = _account_id(ctx)
     if not account_id:
         raise ValueError("write_media_annotation requires a signed-in account")
-    from gemia.media_annotations import create_annotation, update_annotation
+    from gemia.media_annotations import (
+        MediaAnnotationError,
+        create_annotation,
+        get_annotation,
+        update_annotation,
+    )
 
     asset_id = str(args.get("library_asset_id") or args.get("asset_id") or "")
     annotation_id = str(args.get("annotation_id") or "")
-    payload = {
-        "scope": args.get("scope") or "asset",
-        "start_sec": args.get("start_sec"),
-        "end_sec": args.get("end_sec"),
-        "frame": args.get("frame"),
-        "label": args.get("label"),
-        "note": args.get("note") or "",
-        "tags": args.get("tags") or [],
-        "category": args.get("category") or "",
-        "confidence": args.get("confidence"),
-        "source": "gemini",
-        "language": args.get("language") or "auto",
-        "metadata": args.get("metadata") if isinstance(args.get("metadata"), dict) else {},
-    }
-    annotation = (
-        update_annotation(account_id, asset_id, annotation_id, payload)
-        if annotation_id
-        else create_annotation(account_id, asset_id, payload)
+    writable_fields = (
+        "scope",
+        "start_sec",
+        "end_sec",
+        "frame",
+        "label",
+        "note",
+        "tags",
+        "category",
+        "confidence",
+        "language",
+        "metadata",
     )
+    payload = {key: args[key] for key in writable_fields if key in args}
+    if "metadata" in payload and not isinstance(payload["metadata"], dict):
+        raise ValueError("write_media_annotation metadata must be an object")
+
+    if annotation_id:
+        current = get_annotation(account_id, asset_id, annotation_id)
+        if current.get("source") == "user":
+            raise MediaAnnotationError(
+                "write_media_annotation cannot update a user annotation; "
+                "create a new annotation instead"
+            )
+        annotation = update_annotation(account_id, asset_id, annotation_id, payload)
+    else:
+        payload.setdefault("scope", "asset")
+        payload.setdefault("language", "auto")
+        payload["source"] = "gemini"
+        annotation = create_annotation(account_id, asset_id, payload)
     return {
         "asset_id": asset_id,
         "annotation": annotation,

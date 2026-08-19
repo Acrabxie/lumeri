@@ -19,6 +19,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from gemia.moderation import guard_prompt
 from gemia.primitives_common import Image, batchable, ensure_float32
 
 # Import at module level so tests can patch "gemia.picture.generative.GenerativeClient"
@@ -56,6 +57,7 @@ def generate_image(
         RuntimeError: If no OpenRouter API key is configured,
             or if the API call fails.
     """
+    guard_prompt(prompt, surface="picture.generate")
     if style:
         full_prompt = f"{prompt}. Style: {style}. Aspect ratio: {aspect_ratio}."
     else:
@@ -93,6 +95,7 @@ def edit_image(
     Raises:
         RuntimeError: If the API call fails or no API key is configured.
     """
+    guard_prompt(instruction, surface="picture.edit")
     client = GenerativeClient(model_tier=model_tier)
     return client.generate_image_from_image_and_text(img, instruction)
 
@@ -125,6 +128,7 @@ def style_transfer(
     Raises:
         RuntimeError: If the API call fails or no API key is configured.
     """
+    guard_prompt(style_prompt, surface="picture.style_transfer")
     client = GenerativeClient(model_tier=model_tier)
     prompt = f"Apply this visual style to the image: {style_prompt}. Keep the same composition and subject."
     return client.generate_image_from_image_and_text(img, prompt)
@@ -159,6 +163,7 @@ def blend_images(
         FileNotFoundError: If ``img_b_path`` does not exist or cannot be read.
         RuntimeError: If the API call fails or no API key is configured.
     """
+    guard_prompt(prompt, surface="picture.blend")
     img_b_raw = cv2.imread(img_b_path)
     if img_b_raw is None:
         raise FileNotFoundError(f"blend_images: cannot read second image from '{img_b_path}'.")

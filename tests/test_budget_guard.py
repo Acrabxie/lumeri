@@ -143,3 +143,103 @@ def test_spawn_subtasks_cost_row_is_near_free() -> None:
     usd, eta = g.estimate("spawn_subtasks")
     assert usd == 0.0
     assert eta == 1.0
+
+
+def test_verified_model_usage_is_counted_and_converted_to_real_cost() -> None:
+    g = BudgetGuard(max_usd=5.0, max_seconds=600.0)
+    settled = g.record_model_usage(
+        {
+            "prompt_tokens": 100_000,
+            "completion_tokens": 10_000,
+            "prompt_tokens_details": {"cached_tokens": 20_000},
+            "completion_tokens_details": {"reasoning_tokens": 4_000},
+        },
+        provider="openai",
+        model="gpt-5.6-sol",
+    )
+    assert settled["pricing_source"] == "verified_model_price"
+    assert settled["cost_usd"] == 0.71
+    snapshot = g.snapshot()
+    assert snapshot["input_tokens"] == 100_000
+    assert snapshot["cached_input_tokens"] == 20_000
+    assert snapshot["output_tokens"] == 10_000
+    assert snapshot["reasoning_tokens"] == 4_000
+    assert snapshot["model_spent_usd"] == 0.71
+    assert snapshot["tool_spent_usd"] == 0.0
+
+
+def test_provider_billed_cost_wins_and_unknown_model_stays_honest() -> None:
+    g = BudgetGuard(max_usd=5.0, max_seconds=600.0)
+    settled = g.record_model_usage(
+        {"input_tokens": 1200, "output_tokens": 300, "cost": 0.1234},
+        provider="openrouter",
+        model="vendor/future-model",
+    )
+    assert settled["pricing_source"] == "provider"
+    assert settled["cost_usd"] == 0.1234
+    assert g.snapshot()["unpriced_tokens"] == 0
+
+    unpriced = BudgetGuard(max_usd=5.0, max_seconds=600.0)
+    settled_unpriced = unpriced.record_model_usage(
+        {"prompt_tokens": 100, "completion_tokens": 20},
+        provider="custom",
+        model="unknown-model",
+    )
+    assert settled_unpriced["pricing_source"] == "unpriced"
+    assert settled_unpriced["cost_usd"] is None
+    assert unpriced.snapshot()["unpriced_tokens"] == 120
+
+
+def test_warning_threshold_emits_once_and_rearms_when_raised() -> None:
+    events = []
+    g = BudgetGuard(max_usd=5.0, warning_usd=0.10, max_seconds=600.0)
+    g.bind_warning_sink(events.append)
+    g.commit("generate_image")
+    g.commit("generate_image")
+    assert len(events) == 1
+    assert events[0]["warning_reached"] is True
+
+    g.set_limits(max_usd=5.0, warning_usd=1.0)
+    assert len(events) == 1
+    g.record_model_usage(
+        {"prompt_tokens": 100_000, "completion_tokens": 30_000},
+        provider="openai",
+        model="gpt-5.6-sol",
+    )
+    assert len(events) == 2
+
+
+def test_blank_warning_is_disabled_and_exposed_as_null() -> None:
+    events = []
+    g = BudgetGuard(max_usd=5.0, warning_usd=None, max_seconds=600.0)
+    g.bind_warning_sink(events.append)
+    g.commit("generate_image")
+    assert events == []
+    assert g.snapshot()["warning_usd"] is None
+    assert g.snapshot()["warning_reached"] is False
+
+
+def test_enabling_warning_below_spend_emits_immediately() -> None:
+    events = []
+    g = BudgetGuard(max_usd=5.0, warning_usd=None, max_seconds=600.0)
+    g.bind_warning_sink(events.append)
+    g.spent_usd = 1.0
+    g.set_limits(max_usd=5.0, warning_usd=0.5)
+    assert len(events) == 1
+    assert events[0]["warning_usd"] == 0.5
+    assert events[0]["warning_reached"] is True
+
+
+def test_model_preflight_caps_output_to_remaining_real_budget() -> None:
+    g = BudgetGuard(max_usd=0.05, max_seconds=600.0)
+    allowance = g.prepare_model_call(
+        [{"role": "user", "content": "hello"}],
+        model="gpt-5.6-sol",
+        tools=[],
+    )
+    assert allowance["ok"] is True
+    assert 1 <= allowance["max_output_tokens"] < 8096
+
+    g.spent_usd = g.max_usd
+    blocked = g.prepare_model_call([], model="gpt-5.6-sol")
+    assert blocked["ok"] is False

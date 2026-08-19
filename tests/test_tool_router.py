@@ -23,13 +23,14 @@ def _load_historical_prompt_corpus() -> dict[str, object]:
     return json.loads(_HISTORICAL_PROMPT_FIXTURE.read_text(encoding="utf-8"))
 
 
-def test_catalog_exactly_covers_current_111_tool_schemas() -> None:
+def test_catalog_exactly_covers_current_tool_schemas() -> None:
     # 95 = 111 - 18 lumen_* convenience verbs - 6 session-scope file ops
     #    + lumen_comp_to_timeline (comp_ref bridge)
     #    + 6 quanta verbs (draft/set/update/get/refine/assemble)
-    #    + kill_job (background task chain).
-    assert len(MASTER_TOOL_NAMES) == 95
-    assert len(set(MASTER_TOOL_NAMES)) == 95
+    #    + kill_job (background task chain)
+    #    + lumen_stage (spatial grammar: read-only layout description).
+    assert len(MASTER_TOOL_NAMES) == 97
+    assert len(set(MASTER_TOOL_NAMES)) == 97
     assert catalog_coverage() == (frozenset(), frozenset())
     # vector_motion must belong to a pack (else it only surfaces on full
     # fallback and the model falls back to hand-pushed keyframes).
@@ -221,6 +222,21 @@ def test_source_image_made_into_video_routes_to_video_generation() -> None:
 def test_common_adjustment_language_routes_to_editing_not_read_only_inspection() -> None:
     decision = classify_request("把画面调亮一点", state={"has_assets": True})
     assert decision.primary_workflow == "video_edit"
+
+
+def test_broad_video_nouns_do_not_force_storyboard() -> None:
+    for request in (
+        "检查一下成片质量",
+        "把镜头调好看",
+        "这个脚本是什么意思",
+    ):
+        assert "storyboard" not in classify_request(request).workflows
+
+    assert classify_request("检查一下成片质量").primary_workflow == "media_inspect"
+
+
+def test_explicit_promo_planning_still_routes_to_storyboard() -> None:
+    assert classify_request("帮我规划一支宣传片").primary_workflow == "storyboard"
 
 
 def test_google_photos_api_topic_does_not_route_to_image_generation() -> None:

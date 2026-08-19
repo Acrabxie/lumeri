@@ -1,7 +1,7 @@
-"""Lumeri AS an MCP server — Direction A, Phase 1 (docs/mcp-interface-plan.md).
+"""Lumeri AS an MCP server — Direction A, Phase 2 tool surface (docs/mcp-interface-plan.md).
 
 ``build_server()`` returns a low-level ``mcp.server.Server`` exposing the
-curated Phase 1 toolset (18 tools: 13 read/timeline 1:1 verbs + 5 MCP-native
+curated Phase 2 toolset (25 tools: 20 curated 1:1 verbs + 5 MCP-native
 lifecycle/import tools). Every 1:1 verb call is routed through
 ``SessionRunner.run_verb`` — the single choke point that re-applies the plan
 gate then the budget gate in agent-loop order against the SAME ``BudgetGuard``
@@ -27,7 +27,7 @@ module (and running its toolset drift tests) does not require the SDK. When the
 SDK is missing, ``build_server`` raises a friendly ``ImportError`` telling the
 user how to install it.
 
-## Process model (stdio, Phase 1)
+## Process model (stdio, Phase 2 tool surface)
 ``python -m gemia mcp-serve`` over stdio runs in its OWN process with its own
 ``SessionManager``. Its sessions persist to disk through the normal sessions
 roots but are NOT live-visible in a separately running 7788 web UI. Clients
@@ -45,7 +45,7 @@ from gemia.mcp.toolset import (
     MCP_NATIVE_PLAN_SAFE,
     MCP_NATIVE_TOOLS,
     MCP_READ_ONLY,
-    PHASE1_TOOLSET,
+    PHASE2_TOOLSET,
     internal_verb_description,
     mcp_input_schema,
 )
@@ -65,7 +65,7 @@ _INSTALL_HINT = (
 
 # Server identity advertised in the MCP initialize handshake.
 SERVER_NAME = "lumeri"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "1.0.0"
 
 
 def _require_mcp():  # -> module `mcp`
@@ -163,9 +163,9 @@ def _native_tool_schemas(types) -> list[Any]:
 
 
 def _verb_tool_schemas(types) -> list[Any]:
-    """The 1:1 Phase 1 verbs, mechanically transformed from ``TOOL_SCHEMAS``."""
+    """The curated 1:1 Phase 1+2 verbs, mechanically transformed from ``TOOL_SCHEMAS``."""
     tools = []
-    for name in sorted(PHASE1_TOOLSET - MCP_NATIVE_TOOLS):
+    for name in sorted(PHASE2_TOOLSET - MCP_NATIVE_TOOLS):
         tools.append(
             types.Tool(
                 name=name,
@@ -182,7 +182,7 @@ def _verb_tool_schemas(types) -> list[Any]:
 
 
 def build_server(manager: SessionManager | None = None):
-    """Build the low-level MCP ``Server`` for Lumeri (Phase 1).
+    """Build the low-level MCP ``Server`` for Lumeri (Phase 2 tool surface).
 
     ``manager`` defaults to the process-local ``get_manager()`` singleton. Tests
     pass their own ``SessionManager`` (rooted under a tmp dir) so the harness
@@ -486,7 +486,7 @@ def _guess_mime(path: str) -> str:
 
 
 async def serve_stdio(manager: SessionManager | None = None) -> None:
-    """Run the Lumeri MCP server over stdio (the Phase 1 deliverable).
+    """Run the Lumeri MCP server over stdio with the Phase 2 tool surface.
 
     ``claude mcp add lumeri -- python -m gemia mcp-serve`` and Codex's
     ``mcp_servers`` config consume this.

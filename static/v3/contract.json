@@ -28,6 +28,8 @@
     "ask_question",
     "background_task_update",
     "budget_gate",
+    "budget_update",
+    "budget_warning",
     "completion_check",
     "model_text_delta",
     "model_tool_call_ready",

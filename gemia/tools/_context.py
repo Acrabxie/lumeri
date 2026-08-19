@@ -54,6 +54,7 @@ class AssetRecord:
     summary: str
     created_at: str
     lineage: tuple[str, ...] = ()
+    original_name: str | None = None
 
     def to_compact_line(self) -> str:
         size = ""
@@ -71,11 +72,22 @@ class AssetRecord:
 class AssetRegistry:
     """Session-scoped asset_id ↔ path mapping with per-kind counters."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        on_registered: Callable[[AssetRecord], None] | None = None,
+    ) -> None:
         self._records: dict[str, AssetRecord] = {}
         self._counters: dict[str, int] = {"video": 0, "image": 0, "audio": 0, "lottie": 0}
+        self._on_registered = on_registered
 
-    def add_external(self, path: Path, *, summary: str | None = None) -> AssetRecord:
+    def add_external(
+        self,
+        path: Path,
+        *,
+        summary: str | None = None,
+        original_name: str | None = None,
+    ) -> AssetRecord:
         path = Path(path).expanduser().resolve()
         if not path.exists():
             raise FileNotFoundError(f"external asset path does not exist: {path}")
@@ -88,9 +100,9 @@ class AssetRegistry:
             summary=summary or f"user-provided {kind} ({path.name})",
             created_at=_now(),
             lineage=(),
+            original_name=Path(original_name).name if original_name else None,
         )
-        self._records[asset_id] = record
-        return record
+        return self._store(record)
 
     def allocate_id(self, kind: str) -> str:
         if kind not in _KIND_PREFIX:
@@ -116,7 +128,16 @@ class AssetRegistry:
             created_at=_now(),
             lineage=tuple(lineage),
         )
-        self._records[asset_id] = record
+        return self._store(record)
+
+    def _store(self, record: AssetRecord) -> AssetRecord:
+        self._records[record.asset_id] = record
+        try:
+            if self._on_registered is not None:
+                self._on_registered(record)
+        except Exception:
+            self._records.pop(record.asset_id, None)
+            raise
         return record
 
     def get(self, asset_id: str) -> AssetRecord:

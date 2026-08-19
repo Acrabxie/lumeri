@@ -6,6 +6,7 @@
     POST   /sessions/{id}/steer                 guide the active turn (202)
     POST   /sessions/{id}/stop                  stop the active turn (202)
     POST   /sessions/{id}/plan_mode             toggle plan mode {"enabled": bool}
+    POST   /sessions/{id}/budget                tighten/reset session USD cap
     POST   /sessions/{id}/assets                upload asset (raw body + X-Filename)
     GET    /sessions/{id}/assets                list session assets
     GET    /sessions/{id}/assets/{asset_id}     serve asset file (Range supported)
@@ -110,7 +111,7 @@ def _route_post(handler, path: str, query: dict) -> bool:
             return True
         return _kill_task(handler, runner, m.group(2))
 
-    m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|retract|assets|close|ask_response|plan_mode|auto_title)$", path)
+    m = re.match(r"^/sessions/([^/]+)/(turn|steer|stop|retract|assets|close|ask_response|plan_mode|budget|auto_title)$", path)
     if not m:
         return False
     session_id, action = m.group(1), m.group(2)
@@ -135,6 +136,8 @@ def _route_post(handler, path: str, query: dict) -> bool:
         return _ask_response(handler, runner)
     if action == "plan_mode":
         return _set_plan_mode(handler, runner)
+    if action == "budget":
+        return _set_budget(handler, runner)
     if action == "auto_title":
         return _auto_title(handler, runner)
     return False
@@ -351,6 +354,33 @@ def _set_plan_mode(handler, runner: SessionRunner) -> bool:
     return True
 
 
+def _set_budget(handler, runner: SessionRunner) -> bool:
+    data = _read_json_body(handler)
+    if data is None:
+        return True
+    reset = data.get("reset") is True
+    if not reset and "max_usd" not in data:
+        _json_error(handler, 400, "max_usd is required (or use reset: true)")
+        return True
+    try:
+        if hasattr(runner, "set_budget_limits") and (reset or "warning_usd" in data):
+            snapshot = runner.set_budget_limits(
+                max_usd=data.get("max_usd"),
+                warning_usd=data.get("warning_usd"),
+                reset=reset,
+            )
+        else:
+            snapshot = runner.set_budget_max_usd(data.get("max_usd"), reset=reset)
+    except ValueError as exc:
+        _json_error(handler, 400, str(exc))
+        return True
+    except RuntimeError as exc:
+        _json_error(handler, 409, str(exc))
+        return True
+    _json_response(handler, 200, {"session_id": runner.session_id, "budget": snapshot})
+    return True
+
+
 def _upload_asset(handler, runner: SessionRunner) -> bool:
     try:
         length = int(handler.headers.get("Content-Length") or "0")
@@ -393,14 +423,32 @@ def _upload_asset(handler, runner: SessionRunner) -> bool:
         return True
 
     try:
-        asset_id = runner.add_external_asset(temp_path, summary=f"user-uploaded {filename}")
+        asset_id = runner.add_external_asset(
+            temp_path,
+            summary=f"user-uploaded {filename}",
+            original_name=filename,
+        )
     except Exception as exc:
         temp_path.unlink(missing_ok=True)
         _json_error(handler, 400, f"failed to register asset: {exc}")
         return True
 
+    library_asset = None
+    if runner.account_id:
+        try:
+            from gemia.media_library import import_media
+
+            library_asset = import_media(runner.account_id, temp_path, original_name=filename)
+        except Exception:
+            # Session upload remains usable if account-library indexing fails;
+            # the response makes that absence explicit instead of failing the
+            # already-completed session registration.
+            library_asset = None
+
     _json_response(handler, 201, {
         "asset_id": asset_id,
+        "library_asset_id": library_asset.get("asset_id") if library_asset else None,
+        "library_asset": library_asset,
         "filename": filename,
         "size_bytes": bytes_read,
         "preview_url": f"/sessions/{runner.session_id}/assets/{asset_id}",
@@ -518,6 +566,7 @@ def _auto_title(handler, runner: SessionRunner) -> bool:
             title = None
 
     if title:
+        runner.task_summary = title
         _json_response(handler, 200, {"title": title})
     else:
         _json_response(handler, 200, {"title": None})
@@ -588,6 +637,7 @@ def _session_info(handler, session_id: str) -> bool:
         "tasks": runner.list_tasks(),
         "latest_event_id": SSE_REGISTRY.latest_event_id(session_id),
         "plan_mode": runner.plan_mode,
+        "budget": runner.budget_snapshot(),
         "turn_in_progress": runner.turn_in_progress,
         "protocol_version": PROTOCOL_VERSION,
     })
@@ -621,6 +671,7 @@ def _list_sessions(handler) -> bool:
             "account_id": getattr(runner, "account_id", "") or "",
             "created_at": getattr(runner, "created_at", None),
             "last_used_at": getattr(runner, "last_used_at", None),
+            "task_summary": getattr(runner, "task_summary", "") or "",
             "turn_in_progress": bool(getattr(runner, "turn_in_progress", False)),
             "plan_mode": bool(getattr(runner, "plan_mode", False)),
             "pending_jobs": jobs,

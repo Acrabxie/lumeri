@@ -288,6 +288,85 @@ def test_alternative_tool_on_same_target_resolves_failed_attempt() -> None:
     assert ledger.can_complete() is True
 
 
+def test_verified_alternative_route_resolves_untargeted_mutation_failure() -> None:
+    ledger = TurnLedger("生成并检查 SVG 预览", workflow="general")
+    ledger.record_outcome(
+        "run_shell",
+        {"status": "failed", "error_code": "E_PROCESS_EXIT"},
+        call_id="magick-failed",
+    )
+    ledger.record_outcome(
+        "run_shell",
+        {"status": "failed", "error_code": "E_PROCESS_EXIT"},
+        call_id="ffmpeg-failed",
+    )
+    ledger.record_outcome(
+        "wait_for_job",
+        {
+            "status": "failed",
+            "error_code": "E_PROCESS_EXIT",
+            "job_id": "build-proof-v1",
+        },
+        call_id="first-proof-failed",
+    )
+    ledger.record_outcome(
+        "copy_in",
+        {
+            "status": "success",
+            "path": "/tmp/proof.png",
+            "asset_id": "svg-proof",
+            "kind": "image",
+        },
+        call_id="alternate-preview",
+    )
+
+    # A replacement mutation is only a candidate recovery until its result is
+    # actually inspected.  This preserves fail-closed completion semantics.
+    assert set(ledger.unresolved_failures) == {
+        "magick-failed",
+        "ffmpeg-failed",
+        "first-proof-failed",
+    }
+    assert set(ledger.superseded_failure_ids) == set(ledger.unresolved_failures)
+    assert ledger.can_complete() is False
+
+    ledger.record_outcome(
+        "analyze_media",
+        {"status": "success", "asset_id": "svg-proof", "summary": "no crop"},
+        call_id="verified-proof",
+    )
+
+    assert ledger.unresolved_failures == {}
+    assert ledger.superseded_failure_ids == []
+    assert ledger.can_complete() is True
+
+
+def test_verified_alternative_route_does_not_hide_targeted_failure() -> None:
+    ledger = TurnLedger("写入文件 /tmp/a.txt", workflow="files")
+    ledger.record_outcome(
+        "write_file",
+        {
+            "status": "failed",
+            "error_code": "E_WRITE",
+            "path": "/tmp/a.txt",
+        },
+        call_id="write-a-failed",
+    )
+    ledger.record_outcome(
+        "write_file",
+        {"status": "success", "path": "/tmp/b.txt"},
+        call_id="write-b-succeeded",
+    )
+    ledger.record_outcome(
+        "file_read",
+        {"status": "success", "path": "/tmp/b.txt", "content": "ok"},
+        call_id="verify-b",
+    )
+
+    assert "write-a-failed" in ledger.unresolved_failures
+    assert ledger.can_complete() is False
+
+
 def test_read_on_same_target_cannot_resolve_failed_write() -> None:
     ledger = TurnLedger("写入文件 /tmp/a.txt", workflow="files")
     ledger.record_outcome(

@@ -109,6 +109,60 @@ def test_shotlist_survives_re_normalization():
     assert [s["id"] for _, s in iter_shots(twice["shotlist"])] == ["a"]
 
 
+def test_range_evidence_roundtrips_with_full_provenance():
+    raw = {
+        "scenes": [{"shots": [{
+            "id": "a",
+            "asset_id": "session_1",
+            "library_asset_id": "lib_1",
+            "source_in": 12.0,
+            "source_out": 17.0,
+            "evidence": {
+                "evidence_id": "lib_1:ann_1",
+                "annotation_id": "ann_1",
+                "library_asset_id": "lib_1",
+                "start_sec": 12.0,
+                "end_sec": 20.0,
+                "label": "best answer",
+                "note": "creator reviewed",
+                "tags": ["interview", "approved"],
+                "category": "dialogue",
+                "confidence": 0.73,
+                "source": "user",
+                "decision": "prefer",
+                "metadata": {"evidence": {"version": 1, "claim_key": "editorial.usability"}},
+                "score_components": {"query": 0.9, "duration": 1.0},
+                "algorithm_version": "evidence-fit-v1",
+            },
+            "alternatives": [{
+                "evidence_id": "lib_2:ann_2",
+                "annotation_id": "ann_2",
+                "library_asset_id": "lib_2",
+                "label": "backup",
+                "reason_not_selected": "lower query relevance",
+            }],
+        }]}],
+    }
+    once = normalize_shotlist(raw)
+    twice = normalize_shotlist(once)
+    shot = twice["scenes"][0]["shots"][0]
+    assert once == twice
+    assert shot["library_asset_id"] == "lib_1"
+    assert (shot["source_in"], shot["source_out"]) == (12.0, 17.0)
+    assert shot["evidence"]["note"] == "creator reviewed"
+    assert shot["evidence"]["tags"] == ["interview", "approved"]
+    assert shot["evidence"]["metadata"]["evidence"]["claim_key"] == "editorial.usability"
+    assert shot["evidence"]["confidence"] == 0.73
+    assert shot["alternatives"][0]["reason_not_selected"] == "lower query relevance"
+
+
+def test_invalid_source_range_is_cleared_not_invented():
+    shot = normalize_shotlist({"scenes": [{"shots": [{
+        "asset_id": "session_1", "source_in": 7, "source_out": 4,
+    }]}]})["scenes"][0]["shots"][0]
+    assert shot["source_in"] is None and shot["source_out"] is None
+
+
 # ── patch ops ───────────────────────────────────────────────────────────────
 def _seeded():
     return apply_timeline_patches(

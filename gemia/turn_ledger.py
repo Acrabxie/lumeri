@@ -35,6 +35,7 @@ VISUAL_VERIFICATION_TOOLS = frozenset({
     "inspect_lottie",
     "inspect_timeline",
     "lumen_seek",
+    "lumen_stage",
     "lumen_render_range",
     "render_preview",
     "host_visual_review",
@@ -56,7 +57,7 @@ MUTATION_TOOLS = frozenset({
     "composite", "color_grade", "adjust_media", "paint_overlay",
     "paint_mask_effect", "add_overlay", "arrange_timeline", "mix_audio",
     "edit_audio", "transform_geometry", "smart_reframe", "assemble_shotlist",
-    "set_shotlist", "update_shot", "refine_shot", "annotate_media",
+    "set_shotlist", "update_shot", "refine_shot", "annotate_media", "prepare_roughcut",
     "write_media_annotation", "draft_shotlist", "export", "file_write", "file_copy",
     "file_move", "file_delete", "build", "save_skill", "remember",
     "log_note", "lumen_patch", "lumen_add_layer", "lumen_set_transform",
@@ -2185,7 +2186,20 @@ class TurnLedger:
 
         if goal_mutation:
             for failed_call_id, failure in self.unresolved_failures.items():
-                if failure.job_id and failed_call_id not in self.superseded_failure_ids:
+                # A later concrete mutation may be an alternate implementation
+                # of an earlier failed route (for example: SVG preview via a
+                # build script after ImageMagick/ffmpeg shell routes failed).
+                # Targeted failures stay tied to their object, but an untargeted
+                # mutation failure can be superseded once the replacement result
+                # is objectively verified below.  Merely making another mutation
+                # never clears the failure on its own.
+                alternate_route_failure = (
+                    failure.tool_name in MUTATION_TOOLS
+                    and failure.target_key is None
+                )
+                if (
+                    failure.job_id or alternate_route_failure
+                ) and failed_call_id not in self.superseded_failure_ids:
                     self.superseded_failure_ids.append(failed_call_id)
             self.last_mutation_seq = self.sequence
             self._invalidate_prior_verification()

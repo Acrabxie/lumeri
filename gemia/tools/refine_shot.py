@@ -109,8 +109,14 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         # For video, adjust source_out via trim; for image/lottie, adjust duration.
         # Enable ripple to reflow subsequent clips when duration changes.
         if media_kind == "video":
+            source_in = float(shot_clip.get("source_in") or 0.0)
             await _timeline.dispatch_trim(
-                {"clip_id": clip_id, "source_out": new_duration, "ripple": True}, ctx
+                {
+                    "clip_id": clip_id,
+                    "source_out": source_in + new_duration,
+                    "ripple": True,
+                },
+                ctx,
             )
         else:
             # image/lottie: set duration directly.
@@ -132,8 +138,11 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                 )
 
         # Update the shot IR.
+        shot_fields: dict[str, Any] = {"duration_sec": new_duration}
+        if media_kind == "video" and shot.get("source_in") is not None:
+            shot_fields["source_out"] = float(shot["source_in"]) + new_duration
         await _shotlist.dispatch_update_shot(
-            {"shot_id": shot_id, "fields": {"duration_sec": new_duration}}, ctx
+            {"shot_id": shot_id, "fields": shot_fields}, ctx
         )
 
     # ── asset_id: replace the shot's footage
@@ -195,6 +204,7 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             insert_args["source_out"] = old_duration
         else:  # image/lottie
             insert_args["duration"] = old_duration
+        insert_args["_provenance"] = {"shot_id": shot_id}
 
         result = await _timeline.dispatch_insert(insert_args, ctx)
         new_clip_id = result.get("clip_id")
@@ -205,6 +215,11 @@ async def dispatch(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                 "shot_id": shot_id,
                 "fields": {
                     "asset_id": new_asset_id,
+                    "library_asset_id": None,
+                    "source_in": None,
+                    "source_out": None,
+                    "evidence": None,
+                    "alternatives": [],
                     "clip_id": new_clip_id,
                     "source": "search",
                     "status": "placed",

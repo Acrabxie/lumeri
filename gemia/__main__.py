@@ -340,9 +340,9 @@ def main() -> None:
 def _cmd_mcp_serve(args: argparse.Namespace) -> None:
     """Serve Lumeri as an MCP server (docs/mcp-interface-plan.md, Direction A).
 
-    Phase 1 ships the stdio transport only. ``--transport http`` is reserved for
-    Phase 2 (in-process streamable HTTP on 127.0.0.1:7789) and exits cleanly
-    with a not-yet-implemented message rather than pretending.
+    The stdio transport now exposes the bounded Phase 2 tool surface. The
+    in-process streamable HTTP transport on 127.0.0.1:7789 remains a separate
+    not-yet-implemented deliverable and exits cleanly rather than pretending.
     """
     transport = getattr(args, "transport", "stdio")
     if transport == "http":

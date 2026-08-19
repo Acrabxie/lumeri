@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 import gemia.gemini_client as gemini_client
+import pytest
 from gemia.gemini_client import (
     GeminiClientV3,
     _claude_request_headers,
@@ -62,6 +63,35 @@ def test_parallel_false_is_not_lost() -> None:
     assert body["parallel_tool_calls"] is False
 
 
+def test_stream_requests_usage_and_honors_output_budget() -> None:
+    client = object.__new__(GeminiClientV3)
+    client.provider = "openai"
+    client.model = "gpt-5.6-sol"
+    client.reasoning_effort = "medium"
+    client.parallel_tool_calls = None
+    client.orchestration_temperature = 0.2
+    captured: dict[str, Any] = {}
+
+    def fake_stream(body: dict[str, Any]):
+        captured.update(body)
+        yield {"kind": "finish", "reason": "stop"}
+
+    client._stream_blocking = fake_stream
+    client._stream_blocking_claude = fake_stream
+
+    async def consume() -> None:
+        async for _ in client.stream_turn(
+            [{"role": "user", "content": "hello"}],
+            max_output_tokens=321,
+        ):
+            pass
+
+    asyncio.run(consume())
+    assert captured["stream_options"] == {"include_usage": True}
+    assert captured["max_completion_tokens"] == 321
+    assert "max_tokens" not in captured
+
+
 def test_parallel_unset_no_tools_and_claude_are_omitted() -> None:
     assert "parallel_tool_calls" not in _capture_body(parallel=None, tools=[])
     assert "parallel_tool_calls" not in _capture_body(
@@ -114,3 +144,34 @@ def test_claude_client_resolves_custom_messages_endpoint(monkeypatch) -> None:
     assert client.model == "claude-fable-5"
     assert client.api_url == "https://anyrouter.top/v1/messages"
     assert client.anthropic_betas == "context-1m-2025-08-07"
+
+
+def test_openai_subscription_bridge_needs_no_api_key(monkeypatch) -> None:
+    monkeypatch.setattr(gemini_client, "strongest_model_lock", lambda _slot: {"enabled": False})
+    monkeypatch.setenv("LUMERI_V3_PROVIDER", "openai")
+    monkeypatch.setenv("LUMERI_V3_MODEL", "gpt-5.5")
+    monkeypatch.setenv("LUMERI_OPENAI_AUTH_MODE", "subscription")
+    monkeypatch.setenv(
+        "LUMERI_OPENAI_BASE_URL",
+        "http://127.0.0.1:7808/v1/chat/completions",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = GeminiClientV3(proxy="")
+
+    assert client.provider == "openai"
+    assert client.model == "gpt-5.5"
+    assert client.api_url == "http://127.0.0.1:7808/v1/chat/completions"
+    assert client.api_key == "unused"
+
+
+def test_openai_api_still_requires_key(monkeypatch) -> None:
+    monkeypatch.setattr(gemini_client, "strongest_model_lock", lambda _slot: {"enabled": False})
+    monkeypatch.setenv("LUMERI_V3_PROVIDER", "openai")
+    monkeypatch.setenv("LUMERI_OPENAI_AUTH_MODE", "api_key")
+    monkeypatch.setenv("LUMERI_OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(gemini_client, "_read_config_key", lambda _field: "")
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY required"):
+        GeminiClientV3(proxy="")

@@ -51,7 +51,9 @@
     assetGrid: $("#asset-grid"),
     mediaLibraryGrid: $("#media-library-grid"),
     libraryRefreshBtn: $("#library-refresh-btn"),
+    libraryRoughcutBtn: $("#library-roughcut-btn"),
     libraryAnnotateBtn: $("#library-annotate-btn"),
+    roughcutJobStatus: $("#roughcut-job-status"),
     uploadInput: $("#upload-input"),
     uploadBtn: $("#upload-btn"),
     promptInput: $("#prompt-input"),
@@ -92,6 +94,9 @@
     timelinePollTimer: null,
     mediaLibrary: [],
     mediaAnnotations: new Map(), // media-library asset_id -> annotations[]
+    roughcutManifests: new Map(), // media-library asset_id -> persisted review manifest
+    roughcutJob: null,
+    roughcutPollTimer: null,
     mediaLibraryStatus: "idle",
     _justSubmitted: false,      // true after submit → force scroll to bottom
     planMode: false,            // mirrors the backend per-session flag
@@ -100,6 +105,7 @@
     sessionTitle: null,         // auto-generated title
     userMessageCount: 0,        // user message counter for auto-title triggers
     stopPending: false,
+    latestBudget: null,
     // Background shell jobs (run_shell run_in_background=true), keyed by
     // job_id: {job_id, status, summary, exit_code, elapsed_sec, output_tail,
     // _killing}. Fed by background_task_update SSE + GET /sessions/{id} tasks.
@@ -466,39 +472,43 @@
     state.reconnectTimer = null;
   }
 
-  function render() {
-    els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
-    const busy = !state.sessionId || state.turnInProgress;
+  function syncComposerAction() {
     const hasText = els.promptInput.value.trim().length > 0;
+    const isListening = !!voiceInput.listening;
+    const shouldStop = state.turnInProgress && !hasText && !isListening;
+
     els.sendBtn.disabled = !state.sessionId || state.stopPending;
-    els.uploadBtn.disabled = busy;
-    els.inputShell.classList.toggle("is-steering", state.turnInProgress);
-    els.inputShell.classList.toggle("is-working", state.turnInProgress);
-    els.sendBtn.classList.toggle("is-voice", !state.turnInProgress && !voiceInput.listening && !hasText);
-    els.sendBtn.classList.toggle("is-stop", state.turnInProgress);
-    els.sendBtn.classList.toggle("is-listening", !!voiceInput.listening);
-    if (state.turnInProgress && !voiceInput.listening) {
+    els.sendBtn.classList.toggle("is-voice", !state.turnInProgress && !isListening && !hasText);
+    els.sendBtn.classList.toggle("is-stop", shouldStop);
+    els.sendBtn.classList.toggle("is-listening", isListening);
+    if (shouldStop) {
       els.sendBtn.querySelector("use")?.setAttribute("href", "#i-stop-solid");
       els.sendBtn.setAttribute("aria-label", "停止当前执行");
       els.sendBtn.title = "停止当前执行";
-      els.sendBtn.disabled = state.stopPending;
-    } else if (voiceInput.listening) {
+    } else if (isListening) {
       els.sendBtn.querySelector("use")?.setAttribute("href", "#i-mic");
       els.sendBtn.setAttribute("aria-label", "停止语音输入");
       els.sendBtn.title = "停止语音输入";
       els.sendBtn.disabled = false;
     } else if (hasText) {
       els.sendBtn.querySelector("use")?.setAttribute("href", "#i-send");
-      els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
-      els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
+      els.sendBtn.setAttribute("aria-label", "发送");
+      els.sendBtn.title = "发送";
     } else {
       els.sendBtn.querySelector("use")?.setAttribute("href", "#i-mic");
       els.sendBtn.setAttribute("aria-label", "语音输入");
       els.sendBtn.title = "语音输入";
     }
+  }
+
+  function render() {
+    els.sessionLabel.textContent = state.sessionTitle || state.sessionId || "—";
+    const busy = !state.sessionId || state.turnInProgress;
+    els.uploadBtn.disabled = busy;
+    els.inputShell.classList.toggle("is-steering", state.turnInProgress);
+    els.inputShell.classList.toggle("is-working", state.turnInProgress);
+    syncComposerAction();
     els.promptInput.placeholder = "描述你想要的视频，或输入 / 唤起命令…";
-    els.sendBtn.title = state.turnInProgress ? "引导当前执行" : "发送";
-    els.sendBtn.setAttribute("aria-label", state.turnInProgress ? "引导当前执行" : "发送");
     document.querySelectorAll(".pt-action-btn, .pt-edit-btn").forEach((b) => { b.disabled = busy; });
     updateEditHint();   // selection-aware split/delete rule wins over the blanket disable above
     syncTimelineSkillWidgets();
@@ -693,7 +703,7 @@
   }
 
   function renderBanner(banner) {
-    const cls = banner.kind === "budget" ? "banner-budget"
+    const cls = banner.kind === "budget" || banner.kind === "budget-warning" ? "banner-budget"
               : banner.kind === "turn_error" ? "banner-turn-error"
               : banner.kind === "plan" ? "banner-plan"
               : banner.kind === "info" ? "banner-info"
@@ -789,6 +799,7 @@
       const moreTags = allTags.length - shownTags.length;
       const markerCount = Number(summary.count || 0);
       const anns = state.mediaAnnotations.get(assetId) || [];
+      const roughcut = state.roughcutManifests.get(assetId);
       const annHtml = anns.length
         ? `<div class="annotation-list">${anns.map(renderAnnotation).join("")}</div>`
         : "";
@@ -811,14 +822,17 @@
             <div class="library-meta">${escapeHTML(kindLabel)}${kind === "image" ? "" : (formatMediaDuration(asset.duration) ? " · " + escapeHTML(formatMediaDuration(asset.duration)) : "")}</div>
             ${tagsHtml}
             <div class="library-card-actions">
+              ${kind === "video" || kind === "audio" ? `<button type="button" class="library-small-btn icon-btn" title="粗剪准备" aria-label="粗剪准备" data-library-roughcut="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>` : ""}
               <button type="button" class="library-small-btn icon-btn" title="标注" aria-label="标注" data-library-annotate="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
-              <button type="button" class="library-small-btn icon-btn" title="标记" aria-label="标记" data-library-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
+              <button type="button" class="library-small-btn icon-btn" title="复核" aria-label="复核" data-library-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
             </div>
             ${annHtml}
+            ${roughcut ? renderRoughcutReview(asset, roughcut) : ""}
           </div>
         </div>
       `;
     }).join("");
+    wireRoughcutControls(els.mediaLibraryGrid);
   }
 
   const LIBRARY_KIND_LABEL = { video: "视频", image: "图片", audio: "音频" };
@@ -866,6 +880,84 @@
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "0.0s";
     return `${n.toFixed(1)}s`;
+  }
+
+  function renderRoughcutReview(asset, manifest) {
+    const assetId = asset.asset_id || asset.id || "";
+    const take = manifest.take || {};
+    const takeLabel = take.user_decision === "select" || take.selected
+      ? "推荐主条"
+      : take.user_decision === "reject" ? "已排除" : `备选 · 第 ${take.rank || 1} 名`;
+    const suggestions = (manifest.cleanup_suggestions || []).map((item) => `
+      <div class="roughcut-row ${escapeHTML(item.review_status || "pending")}">
+        <button type="button" class="roughcut-time" data-roughcut-seek="${Number(item.start_sec || 0)}">${escapeHTML(formatSeconds(item.start_sec))}</button>
+        <span class="roughcut-copy">${escapeHTML(item.label || item.kind)}</span>
+        <span class="roughcut-review-actions">
+          <button type="button" data-roughcut-review="accept" data-roughcut-type="cleanup" data-roughcut-id="${escapeHTML(item.id)}" data-roughcut-asset="${escapeHTML(assetId)}">接受</button>
+          <button type="button" data-roughcut-review="reject" data-roughcut-type="cleanup" data-roughcut-id="${escapeHTML(item.id)}" data-roughcut-asset="${escapeHTML(assetId)}">保留</button>
+        </span>
+      </div>`).join("");
+    const segments = (manifest.transcript?.segments || []).map((segment) => `
+      <div class="roughcut-transcript-row">
+        <button type="button" class="roughcut-time" data-roughcut-seek="${Number(segment.start_sec || 0)}">${escapeHTML(formatSeconds(segment.start_sec))}</button>
+        <input type="text" value="${escapeHTML(segment.corrected_text || segment.text || "")}" aria-label="转写文本" data-roughcut-transcript-input="${escapeHTML(segment.id)}" />
+        <button type="button" data-roughcut-review="correct" data-roughcut-type="transcript" data-roughcut-id="${escapeHTML(segment.id)}" data-roughcut-asset="${escapeHTML(assetId)}">保存</button>
+      </div>`).join("");
+    const player = asset.media_kind === "audio"
+      ? `<audio class="roughcut-preview" src="${escapeHTML(asset.preview_src || "")}" controls preload="metadata"></audio>`
+      : `<video class="roughcut-preview" src="${escapeHTML(asset.preview_src || "")}" controls preload="metadata"></video>`;
+    return `
+      <section class="roughcut-review" aria-label="粗剪复核">
+        <div class="roughcut-summary"><strong>${escapeHTML(takeLabel)}</strong><span>质量 ${Math.round(Number(manifest.score || 0) * 100)}</span></div>
+        ${player}
+        <div class="roughcut-take-actions">
+          <button type="button" data-roughcut-review="select" data-roughcut-type="take" data-roughcut-id="take" data-roughcut-asset="${escapeHTML(assetId)}">选为主条</button>
+          <button type="button" data-roughcut-review="alternative" data-roughcut-type="take" data-roughcut-id="take" data-roughcut-asset="${escapeHTML(assetId)}">保留备选</button>
+          <button type="button" data-roughcut-review="reject" data-roughcut-type="take" data-roughcut-id="take" data-roughcut-asset="${escapeHTML(assetId)}">排除</button>
+        </div>
+        ${segments ? `<details class="roughcut-section"><summary>转写 · ${(manifest.transcript?.segments || []).length} 段</summary>${segments}</details>` : ""}
+        <details class="roughcut-section" ${suggestions ? "open" : ""}><summary>建议清理 · ${(manifest.cleanup_suggestions || []).length} 处</summary>${suggestions || `<p class="placeholder">未发现需要清理的停顿或口头禅</p>`}</details>
+      </section>`;
+  }
+
+  function wireRoughcutControls(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-library-roughcut], [data-panel-lib-roughcut]").forEach((button) => {
+      button.onclick = (event) => {
+        event.stopPropagation();
+        const assetId = button.dataset.libraryRoughcut || button.dataset.panelLibRoughcut;
+        startRoughcutPreparation(assetId).catch((err) => {
+          state.errors.push(`粗剪准备失败: ${err.message}`);
+          render();
+        });
+      };
+    });
+    root.querySelectorAll("[data-library-load], [data-panel-lib-load]").forEach((button) => {
+      button.onclick = (event) => {
+        event.stopPropagation();
+        const assetId = button.dataset.libraryLoad || button.dataset.panelLibLoad;
+        Promise.all([loadMediaAnnotations(assetId), loadRoughcutManifest(assetId)]).then(() => refreshPanel("library")).catch((err) => {
+          state.errors.push(`复核加载失败: ${err.message}`);
+          render();
+        });
+      };
+    });
+    root.querySelectorAll("[data-roughcut-review]").forEach((button) => {
+      button.onclick = (event) => {
+        event.stopPropagation();
+        reviewRoughcut(button).then(() => refreshPanel("library")).catch((err) => {
+          state.errors.push(`复核保存失败: ${err.message}`);
+          render();
+        });
+      };
+    });
+    root.querySelectorAll("[data-roughcut-seek]").forEach((button) => {
+      button.onclick = (event) => {
+        event.stopPropagation();
+        const player = button.closest(".library-card")?.querySelector(".roughcut-preview");
+        if (player) { player.currentTime = Number(button.dataset.roughcutSeek || 0); player.play().catch(() => {}); }
+      };
+    });
   }
 
   function formatWorkElapsed(turn, active) {
@@ -999,6 +1091,24 @@
     // of the user-facing activity stream.
     subagent_start: () => {},
     subagent_result: () => {},
+    budget_update: (ev) => {
+      if (ev.budget) {
+        state.latestBudget = ev.budget;
+        if (!$("#budget-modal")?.hidden) renderBudgetModal(ev.budget);
+      }
+    },
+    budget_warning: (ev) => {
+      if (ev.budget) {
+        state.latestBudget = ev.budget;
+        if (!$("#budget-modal")?.hidden) renderBudgetModal(ev.budget);
+      }
+      const warning = Number(ev.budget?.warning_usd || 0);
+      const text = warning > 0
+        ? `消费已达到警示值 $${warning.toFixed(2)}`
+        : "消费已达到警示值";
+      openBudgetWarningDialog(ev.budget || {});
+      setUploadStatus(text);
+    },
     budget_gate: (ev) => {
       const t = state.currentTurn;
       const tc = t?.toolCalls.get(ev.call_id);
@@ -2668,6 +2778,84 @@
     if (assetId) await loadMediaAnnotations(assetId);
   }
 
+  async function startRoughcutPreparation(assetId = "") {
+    const assetIds = assetId
+      ? [assetId]
+      : state.mediaLibrary.filter((asset) => ["video", "audio"].includes(asset.media_kind)).map((asset) => asset.asset_id);
+    if (!assetIds.length) throw new Error("没有可准备的视频或音频素材");
+    const r = await fetch("/media-library/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ asset_ids: assetIds, language: promptLanguage(), create_proxies: true, resume: true, background: true }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `prepare failed: ${r.status}`);
+    state.roughcutJob = data;
+    renderRoughcutJobStatus();
+    pollRoughcutJob(data.job_id);
+  }
+
+  async function pollRoughcutJob(jobId) {
+    if (state.roughcutPollTimer) clearTimeout(state.roughcutPollTimer);
+    try {
+      const r = await fetch(`/media-library/prepare/${encodeURIComponent(jobId)}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `job failed: ${r.status}`);
+      state.roughcutJob = data;
+      renderRoughcutJobStatus();
+      if (["ready", "partial"].includes(data.status)) {
+        const ids = (data.result?.results || []).filter((item) => item.status === "ready").map((item) => item.asset_id);
+        await Promise.all(ids.map((id) => loadRoughcutManifest(id)));
+        await fetchMediaLibrary();
+        await refreshPanel("library");
+        return;
+      }
+      if (["error", "interrupted"].includes(data.status)) return;
+      state.roughcutPollTimer = setTimeout(() => pollRoughcutJob(jobId), 900);
+    } catch (err) {
+      state.errors.push(`粗剪准备失败: ${err.message}`);
+      render();
+    }
+  }
+
+  function renderRoughcutJobStatus() {
+    if (!els.roughcutJobStatus) return;
+    const job = state.roughcutJob;
+    els.roughcutJobStatus.hidden = !job;
+    if (!job) return;
+    const progress = Math.max(0, Math.min(Number(job.progress || 0), 100));
+    const terminal = ["ready", "partial", "error", "interrupted"].includes(job.status);
+    els.roughcutJobStatus.innerHTML = `<div><span>${escapeHTML(terminal ? (job.message || job.status) : "正在准备素材")}</span><strong>${Math.round(progress)}%</strong></div><i style="width:${progress}%"></i>`;
+  }
+
+  async function loadRoughcutManifest(assetId) {
+    const r = await fetch(`/media-library/${encodeURIComponent(assetId)}/roughcut`);
+    if (r.status === 404) return null;
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `roughcut failed: ${r.status}`);
+    state.roughcutManifests.set(assetId, data.manifest);
+    render();
+    return data.manifest;
+  }
+
+  async function reviewRoughcut(button) {
+    const assetId = button.dataset.roughcutAsset;
+    const targetType = button.dataset.roughcutType;
+    const targetId = button.dataset.roughcutId;
+    const action = button.dataset.roughcutReview;
+    const card = button.closest(".library-card");
+    const input = targetType === "transcript" ? card?.querySelector(`[data-roughcut-transcript-input="${CSS.escape(targetId)}"]`) : null;
+    const r = await fetch(`/media-library/${encodeURIComponent(assetId)}/roughcut/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_type: targetType, target_id: targetId, action, text: input?.value || "" }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `review failed: ${r.status}`);
+    state.roughcutManifests.set(assetId, data.manifest);
+    render();
+  }
+
   async function loadMediaAnnotations(assetId) {
     const r = await fetch(`/media-library/${encodeURIComponent(assetId)}/annotations`);
     if (!r.ok) throw new Error(`annotations failed: ${r.status}`);
@@ -2811,9 +2999,12 @@
 
   els.uploadBtn.addEventListener("click", () => els.uploadInput.click());
   els.uploadInput.addEventListener("change", () => {
-    const file = els.uploadInput.files?.[0];
-    if (!file) return;
-    uploadFile(file).catch((err) => {
+    const files = Array.from(els.uploadInput.files || []);
+    if (!files.length) return;
+    files.reduce((chain, file, index) => chain.then(async () => {
+      setUploadStatus(`正在上传 ${index + 1}/${files.length} · ${file.name}`);
+      await uploadFile(file);
+    }), Promise.resolve()).catch((err) => {
       state.errors.push(`upload failed: ${err.message}`);
       render();
     }).finally(() => { els.uploadInput.value = ""; });
@@ -2829,6 +3020,13 @@
   els.libraryAnnotateBtn?.addEventListener("click", () => {
     annotateLibraryAsset("").catch((err) => {
       state.errors.push(`annotate media failed: ${err.message}`);
+      render();
+    });
+  });
+
+  els.libraryRoughcutBtn?.addEventListener("click", () => {
+    startRoughcutPreparation().catch((err) => {
+      state.errors.push(`粗剪准备失败: ${err.message}`);
       render();
     });
   });
@@ -2904,6 +3102,14 @@
       return;
     }
 
+    const roughcutBtn = e.target.closest("[data-library-roughcut]");
+    if (roughcutBtn) {
+      startRoughcutPreparation(roughcutBtn.dataset.libraryRoughcut).catch((err) => {
+        state.errors.push(`粗剪准备失败: ${err.message}`);
+        render();
+      });
+      return;
+    }
     const annotateBtn = e.target.closest("[data-library-annotate]");
     if (annotateBtn) {
       const assetId = annotateBtn.dataset.libraryAnnotate;
@@ -2916,10 +3122,27 @@
     const loadBtn = e.target.closest("[data-library-load]");
     if (loadBtn) {
       const assetId = loadBtn.dataset.libraryLoad;
-      loadMediaAnnotations(assetId).catch((err) => {
+      Promise.all([loadMediaAnnotations(assetId), loadRoughcutManifest(assetId)]).catch((err) => {
         state.errors.push(`load annotations failed: ${err.message}`);
         render();
       });
+      return;
+    }
+    const reviewBtn = e.target.closest("[data-roughcut-review]");
+    if (reviewBtn) {
+      reviewRoughcut(reviewBtn).catch((err) => {
+        state.errors.push(`复核保存失败: ${err.message}`);
+        render();
+      });
+      return;
+    }
+    const seekBtn = e.target.closest("[data-roughcut-seek]");
+    if (seekBtn) {
+      const player = seekBtn.closest(".library-card")?.querySelector(".roughcut-preview");
+      if (player) {
+        player.currentTime = Number(seekBtn.dataset.roughcutSeek || 0);
+        player.play().catch(() => {});
+      }
     }
   });
 
@@ -3349,7 +3572,7 @@
   }
 
   // ── AI 供应商 Setup 面板 ─────────────────────────────────────────────
-  // 列常见 provider（Vertex/Gemini/OpenAI/Claude/OpenRouter）+ 自定义(OpenAI 兼容)，
+  // 列常见 provider（Vertex/Gemini/OpenAI API/OpenAI 订阅/Claude/OpenRouter）+ 自定义(OpenAI 兼容)，
   // 密钥经 POST /config 白名单存盘、即时生效；测试连接走 POST /config/test-brain。
   function openSetupPanel() {
     let overlay = $("#setup-modal");
@@ -3363,7 +3586,7 @@
         <div class="auth-dialog setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
           <button type="button" class="auth-x" data-setup-close aria-label="关闭">×</button>
           <h2 id="setup-title">AI 供应商配置</h2>
-          <p class="setup-sub">拖动排序供应商优先级，选中后配置密钥与模型。</p>
+          <p class="setup-sub">选择 AI 来源并配置模型；订阅额度模式无需 API Key。</p>
           <div class="setup-providers" id="setup-providers"></div>
           <div class="setup-fields" id="setup-fields"></div>
           <div class="setup-actions">
@@ -3576,6 +3799,8 @@
         if (f === "model") {
           let val = st.vals.model ?? "";
           if (!val && st.sel === st.curProvider) val = st.info.model || "";
+          if (!val && p.default_model) val = p.default_model;
+          if (val) st.vals.model = val;
           renderModelField(box, p, val);
           continue;
         }
@@ -3584,7 +3809,7 @@
         if (!val) {
           if (f === "vertex_project") val = st.info.vertex_project || "";
           else if (f === "vertex_location") val = st.info.vertex_location || "";
-          else if (f === "base_url") val = st.info.base_url || "";
+          else if (f === "base_url" && st.sel === st.curProvider) val = st.info.base_url || "";
           else if (f === "anthropic_base_url") val = st.info.anthropic_base_url || "";
           else if (f === "anthropic_betas") val = st.info.anthropic_betas || "";
         }
@@ -3609,6 +3834,17 @@
         `<button type="button" class="setup-echip${e === curEff ? " active" : ""}" data-eff="${escapeHTML(e)}">${escapeHTML(e)}</button>`).join("")}</div>`;
       box.appendChild(effDiv);
 
+      if (st.sel === "openai_subscription") {
+        const login = document.createElement("div");
+        login.className = "setup-codex-login";
+        login.innerHTML = `<button type="button" class="setup-test setup-codex-login-btn">登录 Codex</button>
+          <span class="setup-codex-login-status" aria-live="polite">点击后会重新走 ChatGPT 登录流程</span>`;
+        box.appendChild(login);
+        const button = login.querySelector(".setup-codex-login-btn");
+        const status = login.querySelector(".setup-codex-login-status");
+        button.addEventListener("click", () => doCodexLogin(button, status));
+      }
+
       box.querySelectorAll("input[data-f]").forEach((inp) => {
         if (inp.dataset.f !== "model") inp.addEventListener("input", () => { st.vals[inp.dataset.f] = inp.value; });
       });
@@ -3617,6 +3853,65 @@
           st.vals.effort = b.dataset.eff;
           box.querySelectorAll("[data-eff]").forEach((x) => x.classList.toggle("active", x === b));
         }));
+    }
+
+    async function doCodexLogin(button, statusEl) {
+      setErr(""); setRes("");
+      button.disabled = true;
+      button.textContent = "正在登录…";
+      statusEl.textContent = "正在创建安全登录链接…";
+      const popup = window.open("about:blank", "lumeri-codex-login", "popup,width=720,height=820");
+      if (popup) {
+        popup.opener = null;
+        popup.document.title = "Codex 登录";
+        popup.document.body.textContent = "正在打开 ChatGPT 登录…";
+      }
+      try {
+        const response = await fetch("/config/codex-login", { method: "POST" });
+        const started = await response.json().catch(() => ({}));
+        if (!response.ok || !started.authorization_url) {
+          throw new Error(started.error || `HTTP ${response.status}`);
+        }
+        const authUrl = new URL(started.authorization_url);
+        if (authUrl.origin !== "https://auth.openai.com") throw new Error("登录地址不是 OpenAI 官方地址");
+        if (popup) {
+          popup.location.replace(authUrl.href);
+          statusEl.textContent = "请在新窗口完成 ChatGPT 登录…";
+        } else {
+          statusEl.textContent = "登录窗口被浏览器拦截：";
+          const link = document.createElement("a");
+          link.href = authUrl.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "点击这里继续登录";
+          statusEl.appendChild(link);
+        }
+
+        for (let i = 0; i < 300; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const poll = await fetch("/config/codex-login-status");
+          const auth = await poll.json().catch(() => ({}));
+          if (!poll.ok) throw new Error(auth.error || `HTTP ${poll.status}`);
+          if (auth.state === "success") {
+            statusEl.textContent = `登录成功${auth.email ? `：${auth.email}` : ""}`;
+            button.textContent = "重新登录 Codex";
+            button.disabled = false;
+            const modelInput = $("input[data-f='model']", $("#setup-fields", overlay));
+            const modelWrap = modelInput?.closest(".setup-model-wrap");
+            if (modelInput && modelWrap) {
+              autoScanModels(modelInput, $(".setup-model-list", modelWrap), $(".setup-model-spinner", modelWrap), getProviders().find((p) => p.id === st.sel));
+            }
+            return;
+          }
+          if (auth.state === "error") throw new Error(auth.error || "Codex 登录失败");
+        }
+        throw new Error("登录等待超时，请重试");
+      } catch (e) {
+        if (popup && popup.location.href === "about:blank") popup.close();
+        statusEl.textContent = `登录失败：${e.message}`;
+        button.textContent = "重新登录 Codex";
+        button.disabled = false;
+      }
     }
 
     function selectProvider(pid) {
@@ -3633,7 +3928,7 @@
       const body = { provider: st.sel };
       if (st.vals.model) body.model = st.vals.model;
       if (st.vals.effort) body.effort = st.vals.effort;
-      if (st.vals.base_url) body.base_url = st.vals.base_url;
+      if (p && p.fields.includes("base_url")) body.base_url = st.vals.base_url || "";
       if (st.vals.anthropic_base_url) body.anthropic_base_url = st.vals.anthropic_base_url;
       if (st.vals.anthropic_betas) body.anthropic_betas = st.vals.anthropic_betas;
       if (st.vals.vertex_project) body.vertex_project = st.vals.vertex_project;
@@ -3771,6 +4066,7 @@
     { name: "model",   desc: "切换模型与强度" },
     { name: "setup",   desc: "配置 AI 供应商" },
     { name: "sandbox", desc: "沙盒开关" },
+    { name: "budget",  desc: "消费上限与 Token" },
     { name: "library", desc: "刷新媒体库标注" },
     { name: "login",   desc: "登录 / 账户" },
   ];
@@ -3819,7 +4115,291 @@
 
   function slashClose() { slash.open = false; slashRender(); }
 
-  function execSlash(name) {
+  function slashArgument(line) {
+    const sp = line.indexOf(" ");
+    return sp === -1 ? "" : line.slice(sp + 1).trim();
+  }
+
+  function compactTokenCount(value) {
+    const n = Math.max(0, Number(value) || 0);
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 1 : 2)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;
+    return Math.round(n).toLocaleString();
+  }
+
+  function tokenEquivalentCopy(amount, prices, blankCopy = "") {
+    if (String(amount ?? "").trim() === "") return blankCopy;
+    const usd = Number(amount);
+    if (!Number.isFinite(usd) || usd < 0 || !prices?.input || !prices?.output) {
+      return "当前模型暂无可验证单价";
+    }
+    const input = usd * 1_000_000 / Number(prices.input);
+    const output = usd * 1_000_000 / Number(prices.output);
+    return `约 ${compactTokenCount(input)} 输入 · ${compactTokenCount(output)} 输出 tokens`;
+  }
+
+  function openBudgetWarningDialog(budget) {
+    let overlay = $("#budget-warning-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "budget-warning-modal";
+      overlay.className = "auth-modal budget-warning-modal";
+      overlay.hidden = true;
+      overlay.innerHTML = `
+        <div class="auth-backdrop" data-budget-warning-close></div>
+        <section class="auth-dialog budget-warning-dialog" role="alertdialog" aria-modal="true" aria-labelledby="budget-warning-title">
+          <button type="button" class="auth-x" data-budget-warning-close aria-label="关闭">×</button>
+          <span class="budget-warning-kicker">消费提醒</span>
+          <h2 id="budget-warning-title">已达到警示预算</h2>
+          <strong class="budget-warning-amount" id="budget-warning-amount">$0.00</strong>
+          <p id="budget-warning-copy">当前任务仍可继续；达到最高消费后，才会停止新的付费调用。</p>
+          <div class="budget-warning-actions">
+            <button type="button" class="budget-reset" id="budget-warning-dismiss">知道了</button>
+            <button type="button" class="auth-primary budget-save" id="budget-warning-adjust">调整 Budget</button>
+          </div>
+        </section>`;
+      document.body.appendChild(overlay);
+      const close = () => {
+        overlay.hidden = true;
+        els.promptInput.focus();
+      };
+      overlay.querySelectorAll("[data-budget-warning-close]").forEach((el) => el.addEventListener("click", close));
+      $("#budget-warning-dismiss", overlay).addEventListener("click", close);
+      $("#budget-warning-adjust", overlay).addEventListener("click", () => {
+        close();
+        openBudgetModal().catch((err) => setUploadStatus(`Budget 打开失败：${err.message}`));
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !overlay.hidden) close();
+      });
+    }
+    const warning = Number(budget.warning_usd || 0);
+    const spent = Number(budget.spent_usd || 0);
+    $("#budget-warning-amount", overlay).textContent = warning > 0
+      ? `$${warning.toFixed(2)}`
+      : `$${spent.toFixed(2)}`;
+    $("#budget-warning-copy", overlay).textContent = warning > 0
+      ? `当前已消费 $${spent.toFixed(4)}。任务仍可继续；达到最高消费后，才会停止新的付费调用。`
+      : "当前任务仍可继续；达到最高消费后，才会停止新的付费调用。";
+    overlay.hidden = false;
+    $("#budget-warning-dismiss", overlay).focus();
+  }
+
+  function renderBudgetModal(budget) {
+    const overlay = $("#budget-modal");
+    if (!overlay || !budget) return;
+    overlay._budget = budget;
+    state.latestBudget = budget;
+    const spent = Number(budget.spent_usd || 0);
+    const max = Number(budget.max_usd || 0);
+    const hasWarning = Object.prototype.hasOwnProperty.call(budget, "warning_usd");
+    const hasUserMax = Object.prototype.hasOwnProperty.call(budget, "user_max_usd");
+    const backendReady = hasWarning && hasUserMax;
+    const warning = hasWarning && budget.warning_usd != null
+      ? Number(budget.warning_usd)
+      : (hasWarning ? null : max * 0.8);
+    const userMax = hasUserMax
+      ? (budget.user_max_usd == null ? null : Number(budget.user_max_usd))
+      : max;
+    overlay.dataset.backendReady = backendReady ? "true" : "false";
+    const ratio = max > 0 ? Math.min(spent / max, 1) : 0;
+    const warningRatio = warning != null && max > 0 ? Math.min(warning / max, 1) : 0;
+    $("#budget-spent", overlay).textContent = `$${spent.toFixed(4)}`;
+    $("#budget-cap-copy", overlay).textContent = userMax == null
+      ? `最高使用宿主上限 $${max.toFixed(2)}`
+      : `最高 $${max.toFixed(2)}`;
+    $("#budget-progress-fill", overlay).style.width = `${ratio * 100}%`;
+    $("#budget-warning-marker", overlay).hidden = warning == null;
+    $("#budget-warning-marker", overlay).style.left = `${warningRatio * 100}%`;
+    $("#budget-model-spend", overlay).textContent = `$${Number(budget.model_spent_usd || 0).toFixed(4)}`;
+    $("#budget-tool-spend", overlay).textContent = `$${Number(budget.tool_spent_usd || 0).toFixed(4)}`;
+    $("#budget-input-tokens", overlay).textContent = compactTokenCount(budget.input_tokens);
+    $("#budget-output-tokens", overlay).textContent = compactTokenCount(budget.output_tokens);
+    $("#budget-cached-tokens", overlay).textContent = compactTokenCount(budget.cached_input_tokens);
+    $("#budget-model-label", overlay).textContent = budget.model || "当前模型";
+    const prices = budget.token_prices;
+    $("#budget-price-copy", overlay).textContent = prices
+      ? `输入 $${Number(prices.input).toFixed(2)} · 缓存 $${Number(prices.cached_input).toFixed(2)} · 输出 $${Number(prices.output).toFixed(2)} / 1M tokens`
+      : "供应商未返回费用且当前模型暂无可验证单价；Token 仍会计量，但不会伪造金额。";
+    const unpriced = Number(budget.unpriced_tokens || 0);
+    $("#budget-unpriced", overlay).hidden = unpriced <= 0;
+    $("#budget-unpriced", overlay).textContent = unpriced > 0
+      ? `${compactTokenCount(unpriced)} tokens 尚未计价`
+      : "";
+    $("#budget-warning-input", overlay).value = warning == null ? "" : warning.toFixed(2);
+    $("#budget-max-input", overlay).value = userMax == null ? "" : userMax.toFixed(2);
+    $("#budget-hard-cap", overlay).textContent = `宿主上限 $${Number(budget.hard_cap_usd || max).toFixed(2)}`;
+    $("#budget-save", overlay).disabled = !backendReady;
+    $("#budget-reset", overlay).disabled = !backendReady;
+    if (!backendReady) {
+      $("#budget-error", overlay).textContent = "Budget 后端更新将在服务下次正常重启后生效。";
+      $("#budget-error", overlay).hidden = false;
+    }
+    overlay._syncConversions?.();
+  }
+
+  async function fetchBudgetSnapshot() {
+    const response = await fetch(`/sessions/${state.sessionId}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data.budget;
+  }
+
+  async function openBudgetModal() {
+    if (!state.sessionId) {
+      setUploadStatus("请先开启一个会话，再使用 /budget");
+      return;
+    }
+    let overlay = $("#budget-modal");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "budget-modal";
+      overlay.className = "auth-modal budget-modal";
+      overlay.hidden = true;
+      overlay.innerHTML = `
+        <div class="auth-backdrop" data-budget-close></div>
+        <section class="auth-dialog budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title">
+          <button type="button" class="auth-x" data-budget-close aria-label="关闭">×</button>
+          <header class="budget-head">
+            <div>
+              <h2 id="budget-title">Budget</h2>
+              <p>当前会话的模型 Token 与付费媒体消费。</p>
+            </div>
+            <span class="budget-hard-cap" id="budget-hard-cap"></span>
+          </header>
+          <div class="budget-current" aria-label="当前消费">
+            <div class="budget-current-line"><strong id="budget-spent">$0.0000</strong><span id="budget-cap-copy">最高 $0.00</span></div>
+            <div class="budget-progress"><span id="budget-progress-fill"></span><i id="budget-warning-marker" title="警示消费"></i></div>
+            <div class="budget-breakdown"><span>模型 <b id="budget-model-spend">$0.0000</b></span><span>媒体与工具 <b id="budget-tool-spend">$0.0000</b></span></div>
+          </div>
+          <div class="budget-section">
+            <div class="budget-section-title"><span>Token 计量</span><small id="budget-model-label"></small></div>
+            <div class="budget-token-grid">
+              <div><strong id="budget-input-tokens">0</strong><span>输入</span></div>
+              <div><strong id="budget-output-tokens">0</strong><span>输出</span></div>
+              <div><strong id="budget-cached-tokens">0</strong><span>缓存输入</span></div>
+            </div>
+            <p class="budget-price-copy" id="budget-price-copy"></p>
+            <p class="budget-unpriced" id="budget-unpriced" hidden></p>
+          </div>
+          <form id="budget-form" class="budget-form">
+            <label class="budget-field">
+              <span>警示消费</span>
+              <div class="budget-money-input"><span aria-hidden="true">$</span><input id="budget-warning-input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="留空关闭警示"></div>
+              <small id="budget-warning-equivalent"></small>
+            </label>
+            <label class="budget-field">
+              <span>最高消费</span>
+              <div class="budget-money-input"><span aria-hidden="true">$</span><input id="budget-max-input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="留空使用宿主上限"></div>
+              <small id="budget-max-equivalent"></small>
+            </label>
+            <p class="budget-form-note">到达警示值只提醒；到达最高值后停止新的模型与付费工具调用。</p>
+            <p class="auth-error" id="budget-error" hidden></p>
+            <div class="budget-actions">
+              <button type="button" class="budget-reset" id="budget-reset">恢复默认</button>
+              <button type="submit" class="auth-primary budget-save" id="budget-save">保存</button>
+            </div>
+          </form>
+        </section>`;
+      document.body.appendChild(overlay);
+      const close = () => {
+        overlay.hidden = true;
+        els.promptInput.focus();
+      };
+      overlay.querySelectorAll("[data-budget-close]").forEach((el) => el.addEventListener("click", close));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !overlay.hidden) close();
+      });
+      overlay._syncConversions = () => {
+        const prices = overlay._budget?.token_prices;
+        const hardCap = Number(overlay._budget?.hard_cap_usd || overlay._budget?.max_usd || 0);
+        $("#budget-warning-equivalent", overlay).textContent = tokenEquivalentCopy(
+          $("#budget-warning-input", overlay).value,
+          prices,
+          "留空则关闭消费警示",
+        );
+        $("#budget-max-equivalent", overlay).textContent = tokenEquivalentCopy(
+          $("#budget-max-input", overlay).value,
+          prices,
+          `留空则使用宿主上限 $${hardCap.toFixed(2)}`,
+        );
+      };
+      $("#budget-warning-input", overlay).addEventListener("input", overlay._syncConversions);
+      $("#budget-max-input", overlay).addEventListener("input", overlay._syncConversions);
+      $("#budget-form", overlay).addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const error = $("#budget-error", overlay);
+        const save = $("#budget-save", overlay);
+        const warningRaw = $("#budget-warning-input", overlay).value.trim();
+        const maxRaw = $("#budget-max-input", overlay).value.trim();
+        const warningUsd = warningRaw === "" ? null : Number(warningRaw);
+        const maxUsd = maxRaw === "" ? null : Number(maxRaw);
+        const spentUsd = Number(overlay._budget?.spent_usd || 0);
+        const hardCap = Number(overlay._budget?.hard_cap_usd || overlay._budget?.max_usd || 0);
+        const effectiveMax = maxUsd == null ? hardCap : maxUsd;
+        error.hidden = true;
+        if (overlay.dataset.backendReady !== "true") {
+          error.textContent = "Budget 后端更新尚未激活。"; error.hidden = false; return;
+        }
+        if ((warningUsd != null && (!Number.isFinite(warningUsd) || warningUsd < 0))
+          || (maxUsd != null && (!Number.isFinite(maxUsd) || maxUsd < 0))) {
+          error.textContent = "请输入有效的消费金额。"; error.hidden = false; return;
+        }
+        if (warningUsd != null && warningUsd > effectiveMax) {
+          error.textContent = "警示消费不能高于最高消费。"; error.hidden = false; return;
+        }
+        if (effectiveMax + 1e-9 < spentUsd || effectiveMax > hardCap + 1e-9) {
+          error.textContent = `最高消费需在已消费 $${spentUsd.toFixed(4)} 与宿主上限 $${hardCap.toFixed(2)} 之间。`;
+          error.hidden = false; return;
+        }
+        save.disabled = true;
+        try {
+          const response = await fetch(`/sessions/${state.sessionId}/budget`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ max_usd: maxUsd, warning_usd: warningUsd }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+          renderBudgetModal(data.budget);
+          const warningCopy = warningUsd == null || warningUsd === 0 ? "警示关闭" : `警示 $${warningUsd.toFixed(2)}`;
+          const maxCopy = maxUsd == null ? "最高使用宿主上限" : `最高 $${maxUsd.toFixed(2)}`;
+          setUploadStatus(`Budget 已保存：${warningCopy} · ${maxCopy}`);
+          close();
+        } catch (err) {
+          error.textContent = `保存失败：${err.message}`; error.hidden = false;
+        } finally { save.disabled = false; }
+      });
+      $("#budget-reset", overlay).addEventListener("click", async () => {
+        const error = $("#budget-error", overlay);
+        error.hidden = true;
+        try {
+          const response = await fetch(`/sessions/${state.sessionId}/budget`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reset: true }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+          renderBudgetModal(data.budget);
+        } catch (err) {
+          error.textContent = `恢复失败：${err.message}`; error.hidden = false;
+        }
+      });
+    }
+    overlay.hidden = false;
+    $("#budget-error", overlay).hidden = true;
+    $("#budget-spent", overlay).textContent = "加载中…";
+    try {
+      renderBudgetModal(await fetchBudgetSnapshot());
+      $("#budget-warning-input", overlay).focus();
+    } catch (err) {
+      $("#budget-error", overlay).textContent = `加载失败：${err.message}`;
+      $("#budget-error", overlay).hidden = false;
+    }
+  }
+
+  function execSlash(name, arg = "") {
     // /help lists everything by re-opening the menu on a bare slash.
     if (name === "help") { els.promptInput.value = "/"; slashSync(); els.promptInput.focus(); return; }
     switch (name) {
@@ -3830,6 +4410,7 @@
       case "model":   openModelPicker(); break;
       case "setup":   openSetupPanel(); break;
       case "sandbox": els.sandboxBtn?.click(); break;
+      case "budget":  openBudgetModal().catch((err) => setUploadStatus(`Budget 打开失败：${err.message}`)); break;
       case "library": els.libraryRefreshBtn?.click(); break;
       case "login":   $("#account-btn")?.click(); break;
     }
@@ -3870,28 +4451,29 @@
 
   els.sendBtn.addEventListener("click", () => {
     if (!state.sessionId) return;
-    if (state.turnInProgress) {
+    const msg = els.promptInput.value.trim();
+    if (state.turnInProgress && !msg) {
       stopCurrentTurn();
       return;
     }
-    if (!SpeechRecognition && !els.promptInput.value.trim()) return;
+    if (!SpeechRecognition && !msg) return;
     if (voiceInput.listening) {
       stopVoiceInput();
       return;
     }
-    const msg = els.promptInput.value.trim();
     if (!msg) {
       startVoiceInput();
       return;
     }
     const name = parseSlashName(msg);
-    if (name) { execSlash(name); return; }
-    submitTurn(msg).then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
-                   .catch((err) => {
-                     state.errors.push(`submit turn failed: ${err.message}`);
-                     state.currentTurn?.banners.push({ kind: "info", text: "任务未能开始，请稍后重试" });
-                     render();
-                   });
+    if (name) { execSlash(name, slashArgument(msg)); return; }
+    const sendMessage = state.turnInProgress ? steerTurn(msg) : submitTurn(msg);
+    sendMessage.then(() => { els.promptInput.value = ""; slashClose(); syncShell(); })
+               .catch((err) => {
+                 state.errors.push(`send message failed: ${err.message}`);
+                 state.currentTurn?.banners.push({ kind: "info", text: "消息未能发送，请稍后重试" });
+                 render();
+               });
   });
   els.promptInput.addEventListener("keydown", (e) => {
     // Slash menu gets first crack at arrows/enter/tab/esc.
@@ -3907,7 +4489,7 @@
       // A bare `/command` runs directly — works even when send is disabled (no session).
       const raw = els.promptInput.value.trim();
       const name = raw && parseSlashName(raw);
-      if (name) { execSlash(name); return; }
+      if (name) { execSlash(name, slashArgument(raw)); return; }
       els.sendBtn.click();
     }
   });
@@ -3934,10 +4516,11 @@
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
     const msg = els.promptInput.value.trim();
-  const canSubmit = !!msg && !!state.sessionId;
-  const showPrimary = !!state.sessionId;
-  shell.classList.toggle("has-text", canSubmit);
-  shell.classList.toggle("show-primary", showPrimary);
+    const canSubmit = !!msg && !!state.sessionId;
+    const showPrimary = !!state.sessionId;
+    shell.classList.toggle("has-text", canSubmit);
+    shell.classList.toggle("show-primary", showPrimary);
+    syncComposerAction();
   }
   els.promptInput.addEventListener("input", syncShell);
 
@@ -5127,12 +5710,14 @@
           </span>
         </div>`).join("");
       const shellJobs = mine ? renderShellJobRows() : "";
+      const summary = String(s.task_summary || (mine ? state.sessionTitle : "") || "").trim();
+      const taskName = summary || (s.turn_in_progress ? "正在概括这项任务…" : "暂无任务摘要");
       return `
         <div class="task-row" title="${escapeHTML(s.session_id)}">
           <span class="task-dot ${cls}"></span>
           <span class="task-main">
-            <span class="task-name">${escapeHTML(s.session_id)}${mine ? " · 当前" : ""}</span>
-            <span class="task-sub">${stateTxt}${s.plan_mode ? " · 计划模式" : ""} · ${fmtAgo(s.last_used_at)}</span>
+            <span class="task-name">${escapeHTML(taskName)}</span>
+            <span class="task-sub">${stateTxt}${mine ? " · 当前" : ""}${s.plan_mode ? " · 计划模式" : ""} · ${fmtAgo(s.last_used_at)}</span>
           </span>
         </div>${jobs}${shellJobs}`;
     }).join("");
@@ -5363,6 +5948,18 @@
       body.innerHTML = `<p class="placeholder">暂无素材</p>`;
       return;
     }
+    const roughcutIds = state.mediaLibrary
+      .filter((asset) => {
+        const assetId = asset.asset_id || asset.id || "";
+        const summary = asset.annotation_summary || {};
+        const tags = [...(summary.tags || []), ...(summary.labels || [])];
+        return assetId && tags.includes("roughcut") && !state.roughcutManifests.has(assetId);
+      })
+      .map((asset) => asset.asset_id || asset.id);
+    if (roughcutIds.length) {
+      await Promise.all(roughcutIds.map((assetId) => loadRoughcutManifest(assetId).catch(() => null)));
+      if (!body.isConnected || !stageTabs.includes("library")) return;
+    }
     const cards = state.mediaLibrary.map((asset) => {
       const assetId = asset.asset_id || asset.id || "";
       const kind = asset.media_kind || "media";
@@ -5379,6 +5976,7 @@
         ? `<div class="library-tags">${shownTags.map((t) => `<span>${escapeHTML(t)}</span>`).join("")}${moreTags > 0 ? `<span>+${moreTags}</span>` : ""}</div>`
         : "";
       const dur = kind !== "image" && formatMediaDuration(asset.duration);
+      const roughcut = state.roughcutManifests.get(assetId);
       return `
         <div class="library-card" data-library-asset="${escapeHTML(assetId)}" title="${escapeHTML(asset.name || assetId)}">
           ${thumb}
@@ -5387,20 +5985,33 @@
             <div class="library-meta">${escapeHTML(kindLabel)}${dur ? " · " + escapeHTML(dur) : ""}</div>
             ${tagsHtml}
             <div class="library-card-actions">
+              ${kind === "video" || kind === "audio" ? `<button type="button" class="library-small-btn icon-btn" title="粗剪准备" aria-label="粗剪准备" data-panel-lib-roughcut="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>` : ""}
               <button type="button" class="library-small-btn icon-btn" title="标注" aria-label="标注" data-panel-lib-annotate="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wand"/></svg></button>
-              <button type="button" class="library-small-btn icon-btn" title="标记" aria-label="标记" data-panel-lib-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
+              <button type="button" class="library-small-btn icon-btn" title="复核" aria-label="复核" data-panel-lib-load="${escapeHTML(assetId)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-marker"/></svg></button>
             </div>
+            ${roughcut ? renderRoughcutReview(asset, roughcut) : ""}
           </div>
         </div>`;
     }).join("");
     body.innerHTML = cards;
+    wireRoughcutControls(body);
   }
 
   stagePanel?.addEventListener("click", (e) => {
+    const libRoughcut = e.target.closest("[data-panel-lib-roughcut]");
+    if (libRoughcut) { startRoughcutPreparation(libRoughcut.dataset.panelLibRoughcut).catch(() => {}); return; }
     const libAnnotate = e.target.closest("[data-panel-lib-annotate]");
     if (libAnnotate) { annotateLibraryAsset(libAnnotate.dataset.panelLibAnnotate).catch(() => {}); return; }
     const libLoad = e.target.closest("[data-panel-lib-load]");
-    if (libLoad) { loadMediaAnnotations(libLoad.dataset.panelLibLoad).then(() => refreshPanel("library")).catch(() => {}); return; }
+    if (libLoad) { Promise.all([loadMediaAnnotations(libLoad.dataset.panelLibLoad), loadRoughcutManifest(libLoad.dataset.panelLibLoad)]).then(() => refreshPanel("library")).catch(() => {}); return; }
+    const roughcutReview = e.target.closest("[data-roughcut-review]");
+    if (roughcutReview) { reviewRoughcut(roughcutReview).then(() => refreshPanel("library")).catch(() => {}); return; }
+    const roughcutSeek = e.target.closest("[data-roughcut-seek]");
+    if (roughcutSeek) {
+      const player = roughcutSeek.closest(".library-card")?.querySelector(".roughcut-preview");
+      if (player) { player.currentTime = Number(roughcutSeek.dataset.roughcutSeek || 0); player.play().catch(() => {}); }
+      return;
+    }
     const rootBtn = e.target.closest("[data-file-root]");
     if (rootBtn) {
       const key = rootBtn.dataset.fileRoot;

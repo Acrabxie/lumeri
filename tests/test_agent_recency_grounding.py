@@ -47,6 +47,24 @@ def test_digest_appended_to_last_user_message_at_turn_start():
     assert "make the title bigger" in last["content"]  # original text preserved
 
 
+def test_saved_language_preference_wins_over_latest_message(monkeypatch):
+    loop = _loop()
+    loop._messages = [{"role": "user", "content": "在吗"}]
+    monkeypatch.setattr(
+        "gemia.memory.format_memory_for_prompt",
+        lambda: "- Preferred response language: English, even when the user writes Chinese.",
+    )
+
+    messages = loop.render_messages()
+    system = messages[0]["content"]
+    latest = messages[-1]["content"]
+
+    assert "Honor the user's saved language preference" in system
+    assert "Preferred response language: English" in system
+    assert "explicit preferred language from durable memory" in latest
+    assert "match their latest message)" not in latest
+
+
 def test_digest_appended_to_last_tool_result_mid_turn():
     loop = _loop()
     loop._messages = [
