@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acceptable Use Policy · Lumeri</title>
+<link rel="icon" href="lumeri-favicon.svg">
+<style>
+  :root {
+    --surface: #111415;
+    --surface-container: #1d2021;
+    --on-surface: #e1e3e4;
+    --on-surface-variant: #bfc8ca;
+    --outline: #899294;
+    --primary: #54d6f3;
+    --divider: #2b2f30;
+    --font: 400 15px/1.6 Roboto, "Helvetica Neue", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --surface: #fbfcfd;
+      --surface-container: #eef1f2;
+      --on-surface: #191c1d;
+      --on-surface-variant: #3f484a;
+      --outline: #6f797a;
+      --primary: #006879;
+      --divider: #dfe3e4;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--on-surface);
+    font: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+  header img { width: 28px; height: 28px; }
+  header .wordmark { font-size: 15px; font-weight: 500; letter-spacing: .02em; }
+  h1 { font-size: 30px; font-weight: 500; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.01em; }
+  .sub { color: var(--on-surface-variant); margin: 0 0 8px; }
+  .updated { color: var(--outline); font-size: 13px; margin: 0 0 48px; }
+  h2 {
+    font-size: 13px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--primary); margin: 48px 0 20px; padding-top: 24px;
+    border-top: 1px solid var(--divider);
+  }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  p { margin: 0 0 16px; }
+  .zh { color: var(--on-surface-variant); font-size: 14px; }
+  ol.rules { list-style: none; counter-reset: rule; margin: 0; padding: 0; }
+  ol.rules > li { counter-increment: rule; margin: 0 0 24px; padding-left: 40px; position: relative; }
+  ol.rules > li::before {
+    content: counter(rule); position: absolute; left: 0; top: 1px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    color: var(--primary); font-size: 13px; font-weight: 600;
+    display: grid; place-items: center;
+  }
+  ol.rules h3 { font-size: 16px; font-weight: 500; margin: 0 0 6px; }
+  ol.rules p { margin: 0 0 4px; }
+  .not { color: var(--outline); font-size: 13.5px; }
+  .not strong { color: var(--on-surface-variant); font-weight: 500; }
+  /* The Chinese gloss sits on its own line: run together with the English it
+     reads as one dense run rather than a translation of the line above. */
+  .not .zh { display: block; margin-top: 3px; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { padding: 0 0 20px 28px; position: relative; border-left: 1px solid var(--divider); margin-left: 5px; }
+  .steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  .steps li::before {
+    content: ""; position: absolute; left: -5px; top: 6px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--primary);
+  }
+  .steps h3 { font-size: 15px; font-weight: 500; margin: 0 0 4px; }
+  .card {
+    background: var(--surface-container); border-radius: 14px; padding: 20px 24px; margin: 0 0 16px;
+  }
+  .card h3 { font-size: 15px; font-weight: 500; margin: 0 0 6px; }
+  .card p:last-child { margin-bottom: 0; }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .mail { font-family: var(--font-mono); font-size: 15px; }
+  .models { display: grid; gap: 16px; }
+  .model-group { background: var(--surface-container); border-radius: 14px; padding: 18px 22px; }
+  .model-group h3 { font-size: 14px; font-weight: 500; margin: 0 0 10px; color: var(--on-surface-variant); }
+  .model-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .model-group li {
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--on-surface);
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    border-radius: 6px; padding: 4px 9px;
+  }
+  footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--divider); color: var(--outline); font-size: 13px; }
+  @media (max-width: 560px) {
+    main { padding: 36px 18px 72px; }
+    h1 { font-size: 25px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="lumeri-mark.svg" alt="">
+    <span class="wordmark">Lumeri</span>
+  </header>
+
+  <h1>Acceptable Use Policy</h1>
+  <p class="sub">What Lumeri will not generate, how that is enforced, and how to report something.</p>
+  <p class="sub zh">Lumeri 不会生成什么、如何执行，以及如何举报。</p>
+  <p class="updated">Last updated 18 August 2026</p>
+
+  <h2>Prohibited generation</h2>
+  <p>These six categories may not be generated on this platform. They are listed
+     individually rather than as a general clause so there is no ambiguity about
+     what is covered.</p>
+  <p class="zh">以下六类内容不得在本平台生成。逐条列出而非笼统概括，是为了不留解释空间。</p>
+
+  <ol class="rules">
+    <li>
+      <h3>Sexual content</h3>
+      <p>Explicit sexual activity, or nudity presented pornographically.</p>
+      <p class="zh">露骨性行为，或以色情方式呈现的裸体。</p>
+      <p class="not"><strong>Not covered:</strong> artistic nudity that is not pornographic.
+         <span class="zh">不属于此类：非色情的艺术裸体。</span></p>
+    </li>
+    <li>
+      <h3>Graphic violence</h3>
+      <p>Gore, or realistic severe injury depicted for its own sake.</p>
+      <p class="zh">血腥内容，或为呈现本身而描绘的写实重伤。</p>
+      <p class="not"><strong>Not covered:</strong> war, history, illness, injustice and other
+         serious subjects treated seriously; stylised or game violence.
+         <span class="zh">不属于此类：严肃对待的战争、历史、疾病、不公等题材，以及风格化或游戏化的暴力。</span></p>
+    </li>
+    <li>
+      <h3>Hate speech</h3>
+      <p>Content attacking or demeaning people on the basis of a protected characteristic.</p>
+      <p class="zh">基于受保护特征攻击或贬低他人的内容。</p>
+      <p class="not"><strong>Not covered:</strong> depicting historical hatred in order to
+         document or criticise it.
+         <span class="zh">不属于此类：为记录或批判而呈现历史上的仇恨。</span></p>
+    </li>
+    <li>
+      <h3>Child-unsafe content</h3>
+      <p>Any sexualised depiction of a minor, and any other content that endangers children.
+         This category is not weighed against creative intent, and an uncertain
+         judgement resolves against generation.</p>
+      <p class="zh">任何对未成年人的性化描绘，以及其他危害儿童的内容。此类不与创作意图作权衡，判断存疑时一律拒绝。</p>
+    </li>
+    <li>
+      <h3>Deepfakes and impersonation</h3>
+      <p>Realistic depictions of a real person presented as genuine without their
+         consent, and deceptive impersonation of a person or organisation.</p>
+      <p class="zh">未经本人同意、以假乱真地呈现真实人物，以及对个人或机构的欺骗性冒充。</p>
+      <p class="not"><strong>Not covered:</strong> clearly labelled satire and commentary.
+         <span class="zh">不属于此类：明确标示的讽刺与评论。</span></p>
+    </li>
+    <li>
+      <h3>Copyright and trademark infringement</h3>
+      <p>Requests to reproduce a protected work, a brand mark, or a character in a way
+         that infringes the rights holder.</p>
+      <p class="zh">要求复制受保护作品、品牌标识或角色，且构成对权利人侵权的行为。</p>
+      <p class="not"><strong>Note:</strong> this is enforced on what you ask for, not by
+         inspecting rendered frames for brand marks. If your rights have been infringed,
+         use the reporting address below.
+         <span class="zh">说明：此项针对请求内容执行，不通过检测画面中的品牌标识实现。若您的权利受到侵害，请通过下方地址举报。</span></p>
+    </li>
+  </ol>
+
+  <h2>How this is enforced</h2>
+  <p>Enforcement happens on the platform itself, not only in the models it calls.</p>
+  <p class="zh">审核由平台自身执行，而非仅依赖所调用的模型。</p>
+
+  <ul class="steps">
+    <li>
+      <h3>Before generation</h3>
+      <p>Every generation request is screened before it reaches any model.</p>
+      <p class="zh">每个生成请求在送达模型之前都会被审核。</p>
+    </li>
+    <li>
+      <h3>After generation, before display</h3>
+      <p>Generated images and video are screened again before the result is returned.
+         A refused result is not shown and is not kept.</p>
+      <p class="zh">生成的图像与视频在返回前会再次审核。被拒绝的结果不会展示，也不会留存。</p>
+    </li>
+    <li>
+      <h3>Switching models does not bypass it</h3>
+      <p>Screening runs at the point where any tool is invoked, so it applies to every
+         model this platform can reach — including models supplied by the user.</p>
+      <p class="zh">审核发生在工具调用处，因此适用于平台可访问的每一个模型，包括用户自行接入的模型。</p>
+    </li>
+    <li>
+      <h3>Refusals are recorded</h3>
+      <p>Each refusal is logged with its time, category and a fingerprint. The refused
+         text or media is never stored — storing it would mean keeping exactly the
+         material that was just refused.</p>
+      <p class="zh">每次拒绝都会记录时间、类别与指纹。被拒绝的文本或媒体本身绝不留存——留存等同于保留刚被拒绝的内容。</p>
+    </li>
+  </ul>
+
+  <h2>What happens on a violation</h2>
+  <div class="card">
+    <h3>A single refused request</h3>
+    <p>The request is declined and nothing is generated. No further action is taken —
+       a refusal is not a strike.</p>
+    <p class="zh">请求被拒绝，不生成任何内容。不作进一步处理——一次拒绝不构成违规记录。</p>
+  </div>
+  <div class="card">
+    <h3>Repeated or deliberate attempts</h3>
+    <p>Repeatedly reformulating a refused request to get around screening may lead to
+       rate limiting, suspension of generation features, or account termination.</p>
+    <p class="zh">反复改写被拒请求以规避审核，可能导致速率限制、暂停生成功能或终止账户。</p>
+  </div>
+  <div class="card">
+    <h3>Child-unsafe content</h3>
+    <p>Handled separately from every other category: immediate termination, and
+       reporting to the competent authorities where the law requires it.</p>
+    <p class="zh">与其他类别分开处理：立即终止账户，并在法律要求时向主管机关报告。</p>
+  </div>
+
+  <h2>Reporting</h2>
+  <div class="card">
+    <p>To report content generated with Lumeri, an infringement of your rights, or a
+       failure of the screening described above, write to
+       <a class="mail" href="mailto:abuse@lumeri.io">abuse@lumeri.io</a>.</p>
+    <p class="zh">如需举报使用 Lumeri 生成的内容、侵犯您权利的行为，或上述审核机制的失效，请发送邮件至
+       <a class="mail" href="mailto:abuse@lumeri.io">abuse@lumeri.io</a>。</p>
+    <p>Please include what you saw and, where possible, how it was produced. Reports
+       about children are handled ahead of everything else.</p>
+    <p class="zh">请说明您看到的内容，并尽可能提供其生成方式。涉及儿童的举报优先于一切其他事项处理。</p>
+  </div>
+
+  <h2>Models used</h2>
+  <p>Lumeri is its own product and is not affiliated with the model providers below.
+     Generation is carried out by these third-party models:</p>
+  <p class="zh">Lumeri 是独立产品，与下列模型提供方无从属关系。生成由以下第三方模型完成：</p>
+  <div class="models" id="models">
+    <noscript><p class="not">Model list requires JavaScript; see <a href="models.json">models.json</a>.</p></noscript>
+  </div>
+  <p class="not" id="models-note"></p>
+
+  <h2>Bring your own model</h2>
+  <div class="card">
+    <p>When you connect your own provider key or your own model, that generation is
+       billed by your provider and is subject to their terms as well as this policy.
+       The pre-generation screening above still applies. Responsibility for content
+       produced with your own key and your own model rests with you.</p>
+    <p class="zh">当您接入自己的服务商密钥或自有模型时，该次生成由您的服务商计费，同时受其条款与本规范约束。上述生成前审核依然生效。使用您自己的密钥与模型所产生内容的责任由您承担。</p>
+  </div>
+
+  <footer>
+    <p>Lumeri · <a href="/video/">Back to app</a></p>
+  </footer>
+</main>
+
+<script>
+  // The model list is generated from the same table the runtime selects from
+  // (see scripts/export_model_disclosure.py), so it cannot drift into a false
+  // statement the next time the roster changes.
+  fetch("models.json")
+    .then((response) => response.ok ? response.json() : Promise.reject(response.status))
+    .then((data) => {
+      const host = document.getElementById("models");
+      host.innerHTML = "";
+      for (const surface of data.surfaces || []) {
+        if (!surface.models || !surface.models.length) continue;
+        const group = document.createElement("div");
+        group.className = "model-group";
+        const heading = document.createElement("h3");
+        heading.textContent = surface.label;
+        const list = document.createElement("ul");
+        for (const model of surface.models) {
+          const item = document.createElement("li");
+          item.textContent = model;
+          list.appendChild(item);
+        }
+        group.append(heading, list);
+        host.appendChild(group);
+      }
+      document.getElementById("models-note").textContent = data.note || "";
+    })
+    .catch(() => {
+      document.getElementById("models").innerHTML =
+        '<p class="not">Model list unavailable — see <a href="models.json">models.json</a>.</p>';
+    });
+</script>
+</body>
+</html>
