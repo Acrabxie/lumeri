@@ -515,6 +515,37 @@ def _safe_child_path(root: Path, rel: str) -> Path | None:
     return candidate if candidate.exists() and candidate.is_file() else None
 
 
+
+def _output_moderation_check() -> tuple[str, bool, str]:
+    """Whether generated media is actually being screened before display.
+
+    Surfaced in /health because the failure mode is invisible from the outside:
+    with no detector configured the platform keeps working and simply records
+    that nothing was screened. A deployment that takes payment has to be able to
+    see, without reading logs, which of the two modes it is in.
+    """
+    from gemia.moderation.backends import resolve_backend
+    from gemia.moderation.output import screening_required
+
+    required = screening_required()
+    try:
+        backend = resolve_backend()
+    except Exception as exc:  # unknown backend name — a config typo
+        return ("output_moderation", False, f"detector misconfigured: {exc}")
+
+    if backend is None:
+        detail = (
+            "no detector configured — generated media reaches the user unscreened "
+            "and each asset is recorded as unscreened"
+        )
+        # Required-and-absent is the one combination that refuses every
+        # generation, so it reads as a failure rather than as a mode.
+        return ("output_moderation", not required, detail)
+
+    mode = "enforcing" if required else "recording only (set GEMIA_OUTPUT_MODERATION_REQUIRED=1 to enforce)"
+    return ("output_moderation", True, f"{backend.name}: {mode}")
+
+
 def _health_payload() -> dict:
     checks: list[dict[str, object]] = []
 
@@ -558,6 +589,7 @@ def _health_payload() -> dict:
         str(input_log_dir),
         required=False,
     )
+    add(*_output_moderation_check())
     add("stability_gate", _stability_gate_enabled(), "stable-first capability gate")
     ok = all(item["ok"] for item in checks if item.get("required", True))
     return {

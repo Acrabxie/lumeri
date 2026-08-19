@@ -302,13 +302,39 @@ def test_unknown_backend_name_fails_closed(monkeypatch: pytest.MonkeyPatch):
         resolve_backend()
 
 
-def test_gemini_backend_without_a_key_is_unavailable(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("GEMIA_OUTPUT_MODERATION_BACKEND", "gemini")
-    monkeypatch.setenv("GEMINI_API_KEY", "")
+def test_gemini_backend_without_credentials_is_unavailable(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """Neither transport configured means unavailable — never a silent pass.
+
+    ``_vertex_target`` is stubbed rather than left to the environment: on a
+    developer machine the Vertex route *is* configured, and without the stub this
+    test would reach the real API — billing a unit test and passing for the wrong
+    reason (the fixture's 8-byte PNG being rejected upstream).
+    """
     media = tmp_path / "a.png"
     media.write_bytes(b"\x89PNG\r\n\x1a\n")
+    backend = GeminiOutputBackend(api_key="")
+    monkeypatch.setattr(backend, "_vertex_target", lambda: None)
     with pytest.raises(OutputModerationUnavailable):
-        _run(GeminiOutputBackend(api_key="").inspect("image", media))
+        _run(backend.inspect("image", media))
+
+
+def test_gemini_backend_prefers_vertex_when_configured(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """With both routes available the Vertex one is used.
+
+    This platform holds no static Gemini key; a detector that reached for one
+    first would be unavailable in production, which under required screening
+    means refusing every generation instead of screening it.
+    """
+    media = tmp_path / "a.png"
+    media.write_bytes(b"\x89PNG\r\n\x1a\n")
+    backend = GeminiOutputBackend(api_key="a-key")
+    monkeypatch.setattr(backend, "_vertex_target", lambda: ("https://example.invalid", "m", ""))
+    used: list[str] = []
+    monkeypatch.setattr(backend, "_post_vertex", lambda *a: used.append("vertex") or '{"verdict": "allow"}')
+    monkeypatch.setattr(backend, "_post_api_key", lambda *a: used.append("apikey") or '{"verdict": "allow"}')
+    verdict = _run(backend.inspect("image", media))
+    assert used == ["vertex"]
+    assert verdict.allowed
 
 
 def test_missing_generated_file_is_unavailable_not_allowed(tmp_path):
