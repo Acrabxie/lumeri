@@ -87,7 +87,10 @@ def test_all_six_prohibited_categories_are_listed_individually(page_text: str):
 
 def test_page_states_enforcement_and_reporting(page_text: str):
     """Enforcement actions and a reporting channel are both required."""
-    assert "abuse@lumeri.io" in page_text, "no reporting address published"
+    assert "safety@lumeri.io" in page_text, "no reporting address published"
+    # The published site has used safety@ since 2026-08-17; a second address
+    # invented here would split reports across a channel nobody watches.
+    assert "abuse@lumeri.io" not in page_text
     for phrase in ("suspension", "termination"):
         assert phrase in page_text.lower(), f"no stated enforcement action: {phrase}"
 
