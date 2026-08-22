@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from lumenframe.craft.lexicon import ANCHORS, Interpretation, axis_glossary, interpret
+
 
 def clamp01(v: float) -> float:
     """Clamp to the closed unit interval ``[0, 1]``."""
@@ -38,51 +40,13 @@ def remap(value: float, lo: float, hi: float) -> float:
     return lo + (hi - lo) * clamp01(value)
 
 
-#: Shared bilingual feeling adjectives → axis nudges, keyed by axis NAME so a
-#: library only feels a nudge for the axes it actually declares. The tool
-#: surface is used from Chinese and English briefs alike, so both are first
-#: class. A library extends this with its own domain feelings via
-#: :meth:`AxisSpace.with_feelings`; unknown feelings are reported, not fatal.
-BASE_FEELINGS: dict[str, dict[str, float]] = {
-    # energy / drive
-    "energetic": {"energy": +0.2},
-    "dynamic": {"energy": +0.15},
-    "bold": {"energy": +0.15, "drama": +0.1},
-    "calm": {"energy": -0.2, "smoothness": +0.15},
-    "gentle": {"energy": -0.15, "smoothness": +0.2},
-    "subtle": {"energy": -0.15, "elegance": +0.1},
-    "dramatic": {"drama": +0.2, "energy": +0.1},
-    "快": {"energy": +0.2},
-    "活力": {"energy": +0.2},
-    "平静": {"energy": -0.2, "smoothness": +0.15},
-    "克制": {"energy": -0.15, "elegance": +0.1},
-    "戏剧": {"drama": +0.2, "energy": +0.1},
-    # character
-    "playful": {"playfulness": +0.2},
-    "fun": {"playfulness": +0.2},
-    "serious": {"playfulness": -0.2, "elegance": +0.1},
-    "俏皮": {"playfulness": +0.2},
-    "premium": {"elegance": +0.2, "energy": -0.1},
-    "高级": {"elegance": +0.2, "energy": -0.1},
-    "elegant": {"elegance": +0.2, "smoothness": +0.1},
-    "优雅": {"elegance": +0.2, "smoothness": +0.1},
-    "minimal": {"complexity": -0.2, "density": -0.15, "elegance": +0.1},
-    "极简": {"complexity": -0.2, "density": -0.15, "elegance": +0.1},
-    "rich": {"density": +0.15, "complexity": +0.15},
-    "丰富": {"density": +0.15, "complexity": +0.15},
-    "smooth": {"smoothness": +0.2},
-    "顺滑": {"smoothness": +0.2},
-    "cinematic": {"elegance": +0.15, "drama": +0.1, "energy": -0.05},
-    "电影感": {"elegance": +0.15, "drama": +0.1, "energy": -0.05},
-    "warm": {"warmth": +0.2},
-    "暖": {"warmth": +0.2},
-    "cool": {"warmth": -0.2},
-    "冷": {"warmth": -0.2},
-    "moody": {"drama": +0.15, "energy": -0.1},
-    "氛围": {"drama": +0.15, "energy": -0.1},
-    "clean": {"complexity": -0.15, "elegance": +0.1},
-    "干净": {"complexity": -0.15, "elegance": +0.1},
-}
+#: Shared bilingual feeling adjectives → axis nudges. This *is*
+#: :data:`lumenframe.craft.lexicon.ANCHORS` — the create path and the adjust
+#: path read one table, so a word cannot mean one thing in a brief and another
+#: in feedback (it used to: "cinematic" was elegance-first here and drama-first
+#: there). Libraries layer domain words on via :meth:`AxisSpace.with_feelings`;
+#: unknown feelings are reported, never fatal.
+BASE_FEELINGS: dict[str, dict[str, float]] = ANCHORS
 
 
 @dataclass(frozen=True)
@@ -136,6 +100,25 @@ class AxisSpace:
         merged = {**self.feelings, **{k: dict(v) for k, v in extra.items()}}
         return AxisSpace(axes=self.axes, defaults=dict(self.defaults), feelings=merged)
 
+    def lookup(self, phrase: str) -> Interpretation | None:
+        """Read a spoken phrase as ``(signed magnitude, axis nudges)``.
+
+        Goes through :func:`~lumenframe.craft.lexicon.candidates`, so the way
+        people actually talk resolves: 「快一点」「节奏再快一点」「别那么花」
+        「稍微暖一些」as well as "warmer" and "much more cinematic". A reading
+        only counts once it lands on a word this space's table really holds.
+        """
+        return interpret(phrase, self.feelings)
+
+    def vocabulary(self) -> list[str]:
+        """Words that actually move an axis this space declares."""
+        axes = set(self.axes)
+        return sorted(w for w, d in self.feelings.items() if set(d) & axes)
+
+    def glossary(self) -> dict[str, str]:
+        """One-line meaning of each declared axis, for direct ``params`` use."""
+        return axis_glossary(self.axes)
+
     def resolve(
         self,
         *,
@@ -163,14 +146,13 @@ class AxisSpace:
 
         unknown: list[str] = []
         for word in feelings or []:
-            key = str(word).strip().lower()
-            nudges = self.feelings.get(key) or self.feelings.get(key.rstrip("的感 "))
-            if nudges is None:
+            hit = self.lookup(word)
+            if hit is None:
                 unknown.append(str(word))
                 continue
-            for axis, delta in nudges.items():
+            for axis, delta in hit.nudges.items():
                 if axis in base:  # ignore nudges to axes this space lacks
-                    base[axis] = clamp01(base[axis] + delta)
+                    base[axis] = clamp01(base[axis] + delta * hit.magnitude)
 
         bad = set(overrides or {}) - set(self.axes)
         if bad:

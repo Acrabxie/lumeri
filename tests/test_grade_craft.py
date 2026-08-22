@@ -12,6 +12,8 @@ import math
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.craft import stable_digest
 from lumenframe.craft.styles import StyleError
 
@@ -299,7 +301,7 @@ def test_style_key_accepts_look_or_style_field():
 
 def test_more_teal_cools_the_grade():
     base = build_grade({"look": "neutral", "seed": 1})["recipe"]
-    adjusted = adjust_grade({"look": "neutral", "seed": 1}, ["more teal", "more moody"])
+    adjusted = agent_adjust(adjust_grade, {"look": "neutral", "seed": 1}, ["more teal", "more moody"])
     assert adjusted["brief"]["params"]["warmth"] < 0.5          # cooled
     assert adjusted["recipe"]["temperature"] < base["temperature"]
     assert adjusted["recipe"]["vignette"] > base["vignette"]    # moodier
@@ -308,20 +310,20 @@ def test_more_teal_cools_the_grade():
 
 def test_more_filmic_adds_grain_and_halation():
     base = build_grade({"look": "clean", "seed": 1})["recipe"]
-    adjusted = adjust_grade({"look": "clean", "seed": 1}, ["much more filmic"])
+    adjusted = agent_adjust(adjust_grade, {"look": "clean", "seed": 1}, ["much more filmic"])
     assert adjusted["recipe"]["grain"] > base["grain"]
     assert adjusted["recipe"]["halation"] > base["halation"]
 
 
 def test_unknown_feedback_is_reported_not_fatal():
-    result = adjust_grade({"look": "neutral", "seed": 1}, ["more banana", "more teal"])
+    result = agent_adjust(adjust_grade, {"look": "neutral", "seed": 1}, ["more banana", "more teal"])
     assert any("banana" in n for n in result["notes"])
     # the recognised half still applied.
     assert result["brief"]["params"].get("warmth", 0.5) < 0.5
 
 
 def test_adjust_reuses_the_same_seed():
-    result = adjust_grade({"look": "film", "seed": 99}, ["more warm"])
+    result = agent_adjust(adjust_grade, {"look": "film", "seed": 99}, ["more warm"])
     assert result["brief"]["seed"] == 99
 
 
@@ -420,7 +422,7 @@ def test_tool_dispatch_create_adjust_catalog():
     assert created["applied"] is True
     assert "recipe" in created and "preview_svg" in created
 
-    adjusted = asyncio.run(dispatch({
+    adjusted = asyncio.run(agent_dispatch(dispatch, {
         "op": "adjust", "brief": {"look": "film", "seed": 1}, "feedback": ["more warm"],
     }))
     assert adjusted["applied"] is True and "brief" in adjusted

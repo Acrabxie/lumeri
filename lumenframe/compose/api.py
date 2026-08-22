@@ -28,11 +28,12 @@ re-derives with the *same* seed — a re-composition, never a nudge of the crop.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import new_rng
 from lumenframe.craft.determinism import round_floats
 
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.compose import framing as fr
 from lumenframe.compose.params import COMPOSE_AXES, compose_feedback
 from lumenframe.compose.styles import FRAMINGS
@@ -86,7 +87,7 @@ def build_frame(brief: dict[str, Any]) -> dict[str, Any]:
     recipe = _recipe(result)
     notes = list(result.notes)
     if axes.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(axes.unknown_feelings)}")
+        notes.append(unread_note(axes.unknown_feelings, compose_feedback()))
     intent = str(brief.get("intent") or "").lower()
     if intent in HORIZON_INTENTS and horizon is None:
         notes.append(f"intent '{intent}' implies a horizon — pass brief['horizon'] "
@@ -109,23 +110,29 @@ def build_frame(brief: dict[str, Any]) -> dict[str, Any]:
     return round_floats({"reframe": recipe, "plan": plan, "notes": notes}, 6)
 
 
-def adjust_frame(brief: dict[str, Any], feedback_phrases: list[str]) -> dict[str, Any]:
+def adjust_frame(brief: dict[str, Any], feedback_phrases: list[str],
+                 params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Fold human feedback into the brief and re-compose with the same seed.
 
     Returns :func:`build_frame`'s result plus ``brief`` (the adjusted brief to
     persist). Recognised-but-inert feedback (every targeted axis already at its
     limit) is reported honestly rather than silently no-op'ing.
     """
-    before = build_frame(brief)
     vocab = compose_feedback()
-    new_brief, unknown = vocab.apply(brief, list(feedback_phrases or []), _resolve_axes)
+    if not params:
+        return vocab.propose(brief, list(feedback_phrases or []), _resolve_axes)
+    before = build_frame(brief)
+    new_brief, unknown, readings = vocab.apply(
+        brief, list(feedback_phrases or []), _resolve_axes, params)
     result = build_frame(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
     if unknown:
         known = vocab.vocabulary()
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} "
-            f"(known: {', '.join(known[:12])}, …)")
+        result["notes"].append(unread_note(unknown, compose_feedback()))
     recognised = [p for p in (feedback_phrases or []) if p not in unknown]
     if recognised and result["reframe"] == before["reframe"]:
         result["notes"].append(

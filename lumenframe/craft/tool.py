@@ -57,3 +57,40 @@ def dispatch(
     if op == "adjust":
         return adjust(args)
     return err("E_ARG", f"{tool}: op {op!r} has no handler")
+
+
+def current_axes(result: dict[str, Any]) -> dict[str, float] | None:
+    """The resolved axis values behind a result, wherever the plan keeps them.
+
+    Without this on the wire the agent is blind: it can ask for "a bit warmer"
+    but has no idea whether warmth is at 0.2 or 0.9, which makes reading the
+    *degree* of a request impossible. Libraries nest the block differently, so
+    look in the three shapes they use.
+    """
+    plan = result.get("plan")
+    if not isinstance(plan, dict):
+        return None
+    for path in (("axes",), ("params", "axes"), ("axes", "axes")):
+        node: Any = plan
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict) and node and all(
+            isinstance(v, (int, float)) for v in node.values()
+        ):
+            return {k: round(float(v), 4) for k, v in node.items()}
+    return None
+
+
+def with_state(reply: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """Attach the current axis values and any feedback readings to a reply.
+
+    Both are what let the agent judge a degree instead of re-sending a phrase
+    and hoping. Existing keys are never overwritten.
+    """
+    axes = current_axes(result)
+    if axes and "axes" not in reply:
+        reply["axes"] = axes
+    readings = result.get("readings")
+    if readings is not None and "readings" not in reply:
+        reply["readings"] = readings
+    return reply

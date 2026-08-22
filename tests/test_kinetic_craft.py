@@ -12,6 +12,8 @@ import asyncio
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.craft import StyleError
 from lumenframe.kinetic.api import BriefError, adjust, build
 from lumenframe.kinetic.catalog import describe_kinetic, kinetic_catalog
@@ -313,7 +315,7 @@ def test_aliases_resolve():
 def test_feedback_bolder_increases_weight_and_reports_unknown():
     base = build(_brief(style="minimal"))
     before_w = next(x for x in base["scene"]["runs"] if x["role"] == "title")["weight"]
-    r = adjust(_brief(style="minimal"), ["bolder", "zzznope"])
+    r = agent_adjust(adjust, _brief(style="minimal"), ["bolder", "zzznope"])
     after_w = next(x for x in r["scene"]["runs"] if x["role"] == "title")["weight"]
     assert after_w >= before_w
     assert r["brief"]["params"]["weight"] > 0.4
@@ -321,13 +323,13 @@ def test_feedback_bolder_increases_weight_and_reports_unknown():
 
 
 def test_feedback_tighter_increases_density_bilingual():
-    r = adjust(_brief(), ["更紧凑"])
+    r = agent_adjust(adjust, _brief(), ["更紧凑"])
     assert r["brief"]["params"]["density"] > 0.45  # 更紧凑 = tighter
 
 
 def test_adjust_is_deterministic_same_seed():
-    a = adjust(_brief(), ["bolder", "faster"])
-    b = adjust(_brief(), ["bolder", "faster"])
+    a = agent_adjust(adjust, _brief(), ["bolder", "faster"])
+    b = agent_adjust(adjust, _brief(), ["bolder", "faster"])
     assert a["svg"] == b["svg"]
 
 
@@ -419,7 +421,7 @@ def test_tool_dispatch_ops():
     created = asyncio.run(dispatch({"op": "create", "brief": _brief()}))
     assert created["applied"] and created["svg"].startswith("<svg")
 
-    adjusted = asyncio.run(dispatch(
+    adjusted = asyncio.run(agent_dispatch(dispatch, 
         {"op": "adjust", "brief": _brief(), "feedback": ["bolder"]}))
     assert adjusted["applied"] and "brief" in adjusted
 

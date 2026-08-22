@@ -12,6 +12,8 @@ import asyncio
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.craft import stable_digest
 from lumenframe.craft.determinism import round_floats
 from lumenframe.rhythm import BriefError, adjust, build, rhythm_catalog
@@ -179,7 +181,7 @@ def test_feedback_more_driving_increases_density():
     brief = {"bpm": 128, "style": "on_beat", "drive": 0.3, "energy": 0.3,
              "sections": [{"name": "v", "bars": 16}], "seed": 4}
     base = build(brief)
-    res = adjust(brief, ["much more driving"])
+    res = agent_adjust(adjust, brief, ["much more driving"])
     assert res["brief"]["params"]["drive"] > 0.3
     assert len(res["score"]["cut_plan"]) >= len(base["score"]["cut_plan"])
 
@@ -187,21 +189,22 @@ def test_feedback_more_driving_increases_density():
 def test_feedback_tighter_moves_tightness_axis():
     brief = {"bpm": 128, "style": "syncopated", "sync": 0.5,
              "sections": [{"name": "v", "bars": 16}], "seed": 1}
-    res = adjust(brief, ["more tight"])
+    res = agent_adjust(adjust, brief, ["more tight"])
     assert res["brief"]["params"]["tightness"] > 0.5
 
 
 def test_feedback_unknown_phrase_reported():
     brief = {"bpm": 128, "sections": [{"name": "v", "bars": 8}]}
-    res = adjust(brief, ["more wobblecore"])
-    assert any("wobblecore" in n for n in res["notes"])
+    res = agent_adjust(adjust, brief, ["more wobblecore"])
+    assert res["needs"] == "degree"
+    assert any("wobblecore" in u for u in res["unknown"])
 
 
 def test_adjust_keeps_seed_deterministic():
     brief = {"bpm": 128, "style": "syncopated", "seed": 11,
              "sections": [{"name": "v", "bars": 16}]}
-    a = adjust(brief, ["more busy"])
-    b = adjust(brief, ["more busy"])
+    a = agent_adjust(adjust, brief, ["more busy"])
+    b = agent_adjust(adjust, brief, ["more busy"])
     assert _sig(a) == _sig(b)
 
 
@@ -287,7 +290,7 @@ def test_tool_create_adjust_catalog_roundtrip():
     assert create["applied"] and create["score"]["cut_plan"]
     assert create["timeline_ops"][0]["op"] == "cut"
 
-    adj = asyncio.run(dispatch({"op": "adjust", "brief": brief, "feedback": ["more driving"]}))
+    adj = asyncio.run(agent_dispatch(dispatch, {"op": "adjust", "brief": brief, "feedback": ["more driving"]}))
     assert adj["applied"] and adj["brief"]["params"]["drive"] > 0
 
     cat = asyncio.run(dispatch({"op": "catalog"}))

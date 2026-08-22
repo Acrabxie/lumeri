@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok, tool_dispatch
+from lumenframe.craft import err, ok, with_state, tool_dispatch
 from lumenframe.craft.styles import StyleError
 from lumenframe.edit.api import EditBriefError, adjust_cut_plan, build_cut_plan
 from lumenframe.edit.catalog import edit_catalog
@@ -38,9 +38,9 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         result = build_cut_plan(brief)
     except _ARG_ERRORS as exc:
         return err("E_ARG", f"{TOOL} create: {exc}", recovery="fix_args")
-    return ok(cut_plan=result["cut_plan"], plan=result["plan"], notes=result["notes"],
+    return with_state(ok(cut_plan=result["cut_plan"], plan=result["plan"], notes=result["notes"],
               next="lower with edit.render.plan_to_timeline_ops; "
-                   "adjust with op:'adjust' + feedback phrases")
+                   "adjust with op:'adjust' + feedback phrases"), result)
 
 
 def _adjust(args: dict[str, Any]) -> dict[str, Any]:
@@ -52,12 +52,20 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", f"{TOOL} adjust: 'feedback' must be a non-empty list of "
                             "phrases like 'more seamless' / '更快'")
     try:
-        result = adjust_cut_plan(brief, [str(p) for p in feedback])
+        result = adjust_cut_plan(
+            brief, [str(p) for p in feedback], args.get("params"))
     except _ARG_ERRORS as exc:
         return err("E_ARG", f"{TOOL} adjust: {exc}", recovery="fix_args")
-    return ok(cut_plan=result["cut_plan"], plan=result["plan"], notes=result["notes"],
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
+    return with_state(ok(cut_plan=result["cut_plan"], plan=result["plan"], notes=result["notes"],
               brief=result["brief"],
-              next="lower with edit.render.plan_to_timeline_ops to verify the new feel")
+              next="lower with edit.render.plan_to_timeline_ops to verify the new feel"), result)
 
 
 async def dispatch(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:

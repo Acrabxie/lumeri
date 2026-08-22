@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from craft_agent_helper import decide
+
 from gemia.tools._context import AssetRegistry, ToolContext
 from gemia.tools import layer as layer_module
 from gemia.tools import vector_motion as vm
@@ -61,6 +63,17 @@ def _logo_brief(**overrides) -> dict:
 
 def _dispatch(args: dict, ctx: ToolContext) -> dict:
     return asyncio.run(vm.dispatch(args, ctx))
+
+
+def _agent_dispatch(args: dict, ctx: ToolContext, step: float = 0.25) -> dict:
+    """Play the agent's part in the two-step adjust: propose, decide, apply."""
+    first = _dispatch(args, ctx)
+    if first.get("needs") != "degree":
+        return first
+    params = decide(first, step)
+    if not params:
+        return first
+    return _dispatch({**args, "params": params}, ctx)
 
 
 def _root_layers(ctx: ToolContext) -> list[dict]:
@@ -190,10 +203,7 @@ def test_adjust_raises_playfulness_and_preserves_layer_identity(tmp_session):
     assert [child["id"] for child in _root_layers(tmp_session)].index(layer_id) == 0
     n_layers = len(_root_layers(tmp_session))
 
-    adjusted = _dispatch(
-        {"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]},
-        tmp_session,
-    )
+    adjusted = _agent_dispatch({"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]}, tmp_session)
     assert adjusted["applied"] is True, adjusted
     assert adjusted["layer_id"] == layer_id
 
@@ -208,7 +218,8 @@ def test_adjust_raises_playfulness_and_preserves_layer_identity(tmp_session):
     layer = find_layer(layer_module._lumendoc(tmp_session), layer_id)
     new_playfulness = layer["props"]["vector_brief"]["params"]["playfulness"]
     assert new_playfulness > orig_playfulness
-    assert new_playfulness == pytest.approx(min(1.0, orig_playfulness + 0.2), abs=1e-3)
+    # the caller picked the distance (0.25 up, clamped); the engine executed it
+    assert new_playfulness == pytest.approx(min(1.0, orig_playfulness + 0.25), abs=1e-3)
     assert adjusted["adjusted_params"]["playfulness"] == new_playfulness
 
 
@@ -216,19 +227,15 @@ def test_adjust_twice_accumulates_or_clamps(tmp_session):
     created = _dispatch({"op": "create", "brief": _logo_brief()}, tmp_session)
     layer_id = created["layer_id"]
 
-    first = _dispatch(
-        {"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]},
-        tmp_session,
-    )
-    second = _dispatch(
-        {"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]},
-        tmp_session,
-    )
+    first = _agent_dispatch({"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]}, tmp_session)
+    second = _agent_dispatch({"op": "adjust", "layer_id": layer_id, "feedback": ["more playful"]}, tmp_session)
     assert first["applied"] is True and second["applied"] is True
     p1 = first["adjusted_params"]["playfulness"]
     p2 = second["adjusted_params"]["playfulness"]
     assert p2 > p1 or p2 == 1.0
-    assert p2 == pytest.approx(min(1.0, p1 + 0.2), abs=1e-3)
+    # each round trip moves from where the last one left off, by the distance
+    # the caller chose — so nudges compound rather than restarting from the style
+    assert p2 == pytest.approx(min(1.0, p1 + 0.25), abs=1e-3)
 
 
 def test_create_then_adjust_is_deterministic_across_sessions(tmp_path):
@@ -239,11 +246,8 @@ def test_create_then_adjust_is_deterministic_across_sessions(tmp_path):
             {"op": "create", "brief": copy.deepcopy(_logo_brief(seed=23))}, ctx
         )
         assert created["applied"] is True, created
-        adjusted = _dispatch(
-            {"op": "adjust", "layer_id": created["layer_id"],
-             "feedback": ["more playful"]},
-            ctx,
-        )
+        adjusted = _agent_dispatch({"op": "adjust", "layer_id": created["layer_id"],
+             "feedback": ["more playful"]}, ctx)
         assert adjusted["applied"] is True, adjusted
         layer = find_layer(layer_module._lumendoc(ctx), created["layer_id"])
         htmls.append(layer["props"]["html"])

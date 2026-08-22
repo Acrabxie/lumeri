@@ -51,6 +51,7 @@ from lumenframe.craft.registry import Registry  # noqa: F401
 from lumenframe.craft.styles import Style, StyleBook, StyleError  # noqa: F401
 from lumenframe.craft.tool import dispatch as tool_dispatch  # noqa: F401
 from lumenframe.craft.tool import err, ok  # noqa: F401
+from lumenframe.craft.tool import current_axes, with_state  # noqa: F401
 
 __all__ = [
     "AxisSpace", "ResolvedAxes", "axis_space", "clamp01", "lerp", "remap",
@@ -59,5 +60,5 @@ __all__ = [
     "IdSeq", "new_rng", "stable_digest",
     "Registry",
     "LibraryMeta", "register_library", "library_names", "craft_catalog", "describe_craft",
-    "tool_dispatch", "err", "ok",
+    "tool_dispatch", "err", "ok", "with_state", "current_axes",
 ]

@@ -29,12 +29,13 @@ surgery.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import new_rng, stable_digest
 from lumenframe.craft.determinism import round_floats
 from lumenframe.templates import theme
 
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.kinetic.params import kinetic_feedback
 from lumenframe.kinetic.render import scene_to_svg, validate_svg
 from lumenframe.kinetic.styles import STYLES
@@ -245,7 +246,7 @@ def build(brief: dict[str, Any]) -> dict[str, Any]:
 
     notes: list[str] = []
     if level.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(level.unknown_feelings)}")
+        notes.append(unread_note(level.unknown_feelings, kinetic_feedback()))
     if float(brief.get("duration") or duration) > MAX_DURATION:
         notes.append(f"duration capped at {MAX_DURATION}s (html render limit)")
     if rhythm.get("compressed"):
@@ -253,7 +254,8 @@ def build(brief: dict[str, Any]) -> dict[str, Any]:
     return {"scene": scene, "svg": svg, "plan": plan, "notes": notes}
 
 
-def adjust(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
+def adjust(brief: dict[str, Any], feedback: list[str],
+           params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Fold feedback phrases into the brief and rebuild with the same seed.
 
     Returns :func:`build`'s result plus ``brief`` (the adjusted brief to persist)
@@ -261,22 +263,28 @@ def adjust(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
     """
     if not isinstance(feedback, list) or not feedback:
         raise BriefError("feedback must be a non-empty list of phrases")
-    before = build(brief)
     vocab = kinetic_feedback()
-    new_brief, unknown = vocab.apply(
-        brief, [str(p) for p in feedback],
-        lambda b: STYLES.resolve_params(
+
+    def _resolve(b: dict[str, Any]):
+        return STYLES.resolve_params(
             style=STYLES.resolve_name(b.get("style")),
             feelings=list(b.get("feeling") or []),
             overrides=dict(b.get("params") or {}),
-        ),
-    )
+        )
+
+    phrases = [str(p) for p in feedback]
+    if not params:
+        return vocab.propose(brief, phrases, _resolve)
+    before = build(brief)
+    new_brief, unknown, readings = vocab.apply(brief, phrases, _resolve, params)
     result = build(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
     if unknown:
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} "
-            f"(known: {', '.join(vocab.vocabulary()[:12])}, …)")
+        result["notes"].append(unread_note(unknown, kinetic_feedback()))
     recognised = [p for p in feedback if p not in unknown]
     if recognised and before["scene"]["digest"] == result["scene"]["digest"]:
         result["notes"].append(

@@ -24,10 +24,11 @@ keyframe surgery.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import ResolvedAxes, new_rng
 
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.camera import camera as cam
 from lumenframe.camera.params import SPACE, feedback_vocab
 from lumenframe.camera.styles import camera_styles
@@ -143,7 +144,7 @@ def build_track(brief: dict[str, Any]) -> dict[str, Any]:
 
     notes: list[str] = []
     if level.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(level.unknown_feelings)}")
+        notes.append(unread_note(level.unknown_feelings, feedback_vocab()))
     if float(brief.get("duration") or duration) > MAX_DURATION:
         notes.append(f"duration capped at {MAX_DURATION}s (transform layer limit)")
     if profile.drift <= 0.001:
@@ -151,7 +152,8 @@ def build_track(brief: dict[str, Any]) -> dict[str, Any]:
     return {"track": track, "plan": plan, "notes": notes}
 
 
-def adjust_track(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
+def adjust_track(brief: dict[str, Any], feedback: list[str],
+                 params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Apply feedback phrases to a brief and rebuild with the SAME seed.
 
     Returns :func:`build_track`'s result plus ``brief`` (the adjusted brief to
@@ -159,17 +161,20 @@ def adjust_track(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
     if recognised feedback moved nothing (every targeted axis was already at its
     limit) we say so rather than silently no-op'ing.
     """
-    before = build_track(brief)
     vocab = feedback_vocab()
-    new_brief, unknown = vocab.apply(brief, list(feedback or []), _resolve_axes)
+    if not params:
+        return vocab.propose(brief, list(feedback or []), _resolve_axes)
+    before = build_track(brief)
+    new_brief, unknown, readings = vocab.apply(brief, list(feedback or []), _resolve_axes, params)
     result = build_track(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
     if unknown:
         known = vocab.vocabulary()
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} "
-            f"(known: {', '.join(known[:12])}, …)"
-        )
+        result["notes"].append(unread_note(unknown, feedback_vocab()))
     recognised = [p for p in (feedback or []) if p not in unknown]
     if recognised and _track_signature(before["track"]) == _track_signature(result["track"]):
         result["notes"].append(

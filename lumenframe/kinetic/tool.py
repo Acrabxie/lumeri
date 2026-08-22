@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok, tool_dispatch
+from lumenframe.craft import err, ok, with_state, tool_dispatch
 
 from lumenframe.kinetic.api import adjust as _adjust
 from lumenframe.kinetic.api import build as _build
@@ -32,7 +32,7 @@ TOOL = "kinetic_type"
 def _plan_reply(result: dict[str, Any], **extra: Any) -> dict[str, Any]:
     """Shape a create/adjust result into a compact, agent-friendly reply."""
     scene = result["scene"]
-    return ok(
+    return with_state(ok(
         svg=result["svg"],
         svg_bytes=len(result["svg"].encode("utf-8")),
         scene_digest=scene["digest"],
@@ -42,7 +42,7 @@ def _plan_reply(result: dict[str, Any], **extra: Any) -> dict[str, Any]:
         plan=result["plan"],
         notes=result["notes"],
         **extra,
-    )
+    ), result)
 
 
 def _create(args: dict[str, Any]) -> dict[str, Any]:
@@ -66,9 +66,17 @@ def _adjust_op(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", f"{TOOL} adjust: 'feedback' must be a non-empty list "
                             "of phrases like 'bolder' / '更紧凑'")
     try:
-        result = _adjust(brief, [str(p) for p in feedback])
+        result = _adjust(
+            brief, [str(p) for p in feedback], args.get("params"))
     except ValueError as exc:
         return err("E_ARG", f"{TOOL} adjust: {exc}", recovery="fix_args")
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
     return _plan_reply(result, brief=result["brief"])
 
 

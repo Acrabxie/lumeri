@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok, tool_dispatch
+from lumenframe.craft import err, ok, with_state, tool_dispatch
 
 from lumenframe.compose.api import adjust_frame, build_frame
 from lumenframe.compose.catalog import compose_catalog
@@ -68,8 +68,8 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         payload = _with_overlay(brief, result)
     except ValueError as exc:
         return err("E_RENDER", f"{_TOOL} create: overlay not render-safe: {exc}")
-    return ok(**payload, next="apply the crop via the transform layer; "
-                             "adjust with op:'adjust' + feedback phrases")
+    return with_state(ok(**payload, next="apply the crop via the transform layer; "
+                             "adjust with op:'adjust' + feedback phrases"), result)
 
 
 def _adjust(args: dict[str, Any]) -> dict[str, Any]:
@@ -81,16 +81,24 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", f"{_TOOL} adjust: 'feedback' must be a non-empty list "
                             "of phrases like 'more tension' / '紧凑一点'")
     try:
-        result = adjust_frame(brief, [str(p) for p in feedback])
+        result = adjust_frame(
+            brief, [str(p) for p in feedback], args.get("params"))
     except ValueError as exc:
         return err("E_ARG", f"{_TOOL} adjust: {exc}", recovery="fix_args")
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
     new_brief = result.get("brief", brief)
     try:
         payload = _with_overlay(new_brief, result)
     except ValueError as exc:
         return err("E_RENDER", f"{_TOOL} adjust: overlay not render-safe: {exc}")
-    return ok(**payload, brief=new_brief,
-              next="re-render to preview the new framing")
+    return with_state(ok(**payload, brief=new_brief,
+              next="re-render to preview the new framing"), result)
 
 
 async def dispatch(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:

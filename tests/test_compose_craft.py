@@ -12,6 +12,8 @@ import asyncio
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.craft import StyleError, stable_digest
 
 from lumenframe.compose import compose_catalog, validate_overlay
@@ -39,6 +41,10 @@ def _crop(result):
 
 
 def _run(args):
+    # adjust is a two-step contract now: the engine proposes a direction, the
+    # caller picks the degree. agent_dispatch plays the caller's part.
+    if args.get("op") == "adjust" and "params" not in args:
+        return asyncio.run(agent_dispatch(dispatch, args))
     return asyncio.run(dispatch(args))
 
 
@@ -255,20 +261,21 @@ def test_golden_anchor_sits_on_a_phi_line():
 
 def test_more_tension_moves_the_axis_and_the_frame():
     base = build_frame(brief())
-    out = adjust_frame(brief(), ["more tension"])
+    out = agent_adjust(adjust_frame, brief(), ["more tension"])
     assert out["plan"]["axes"]["axes"]["tension"] > base["plan"]["axes"]["axes"]["tension"]
     assert out["reframe"]["crop"] != base["reframe"]["crop"]   # geometry actually moved
 
 
 def test_tighter_increases_tightness():
     base = build_frame(brief())
-    out = adjust_frame(brief(), ["tighter"])
+    out = agent_adjust(adjust_frame, brief(), ["tighter"])
     assert out["plan"]["axes"]["axes"]["tightness"] > base["plan"]["axes"]["axes"]["tightness"]
 
 
 def test_unknown_feedback_phrase_is_reported():
-    out = adjust_frame(brief(), ["more banana"])
-    assert any("banana" in n for n in out["notes"])
+    out = agent_adjust(adjust_frame, brief(), ["more banana"])
+    assert out["needs"] == "degree"
+    assert any("banana" in u for u in out["unknown"])
 
 
 # ── 5. catalog anti-drift ───────────────────────────────────────────────────

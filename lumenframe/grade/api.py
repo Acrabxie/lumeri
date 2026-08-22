@@ -19,11 +19,12 @@ same seed — adjustment is a *re-derived* grade, never a nudged LUT.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import new_rng
 from lumenframe.craft.determinism import stable_digest
 
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.grade import grade as _g
 from lumenframe.grade.params import FEEDBACK, SPACE
 from lumenframe.grade.render import grade_preview_svg, grade_ffmpeg_filter, validate_grade_svg
@@ -114,7 +115,7 @@ def build_grade(brief: dict[str, Any]) -> dict[str, Any]:
 
     notes: list[str] = []
     if level.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(level.unknown_feelings)}")
+        notes.append(unread_note(level.unknown_feelings, FEEDBACK))
     if intensity_clamped:
         notes.append("intensity clamped into [0, 1]")
     if report["skin_protected"]:
@@ -143,22 +144,27 @@ def build_grade(brief: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def adjust_grade(brief: dict[str, Any], feedback_phrases: list[str]) -> dict[str, Any]:
+def adjust_grade(brief: dict[str, Any], feedback_phrases: list[str],
+                 params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Apply human feedback to a brief and rebuild with the SAME seed.
 
     Returns :func:`build_grade`'s result plus ``brief`` (the adjusted brief to
     persist). Recognised-but-inert feedback (every targeted axis already at a
     limit) is reported honestly rather than silently ignored.
     """
+    if not params:
+        return FEEDBACK.propose(brief, list(feedback_phrases or []), _resolve_axes)
     before = build_grade(brief)
-    new_brief, unknown = FEEDBACK.apply(brief, list(feedback_phrases or []), _resolve_axes)
+    new_brief, unknown, readings = FEEDBACK.apply(
+        brief, list(feedback_phrases or []), _resolve_axes, params)
     result = build_grade(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
     if unknown:
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} "
-            f"(known: {', '.join(FEEDBACK.vocabulary()[:12])}, …)"
-        )
+        result["notes"].append(unread_note(unknown, FEEDBACK))
     recognised = [p for p in (feedback_phrases or []) if p not in unknown]
     if recognised and result["plan"]["digest"] == before["plan"]["digest"]:
         result["notes"].append(

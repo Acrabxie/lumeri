@@ -29,10 +29,11 @@ with the **same seed** — the cut plan is re-derived, never hand-patched.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import new_rng, stable_digest
 from lumenframe.craft.determinism import round_floats
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.rhythm import rhythm as R
 from lumenframe.rhythm.params import SPACE, rhythm_vocab
 from lumenframe.rhythm.styles import BOOK
@@ -207,7 +208,8 @@ def build(brief: dict[str, Any]) -> dict[str, Any]:
     return {"score": score, "plan": plan, "notes": notes}
 
 
-def adjust(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
+def adjust(brief: dict[str, Any], feedback: list[str],
+           params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Fold feedback phrases into the brief and rebuild with the SAME seed.
 
     Returns :func:`build`'s result plus ``brief`` (the adjusted brief to persist).
@@ -216,16 +218,20 @@ def adjust(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
     silently no-op'ing.
     """
     vocab = rhythm_vocab()
+    if not params:
+        return vocab.propose(brief, list(feedback or []), _resolve_level)
     before = build(brief)
-    new_brief, unknown = vocab.apply(brief, feedback or [], _resolve_level)
+    new_brief, unknown, readings = vocab.apply(brief, feedback or [], _resolve_level, params)
     result = build(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
 
     if unknown:
         vocabulary = ", ".join(vocab.vocabulary()[:14])
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} (known: {vocabulary}, …)"
-        )
+        result["notes"].append(unread_note(unknown, rhythm_vocab()))
     recognised = [p for p in (feedback or []) if p not in unknown]
     if recognised and _score_signature(before) == _score_signature(result):
         result["notes"].append(
@@ -267,7 +273,7 @@ def _plan(style_name, pattern, ctx, level, cut_plan, seed) -> dict[str, Any]:
 def _notes(level, ctx, cut_plan, total_duration) -> list[str]:
     notes: list[str] = []
     if level.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(level.unknown_feelings)}")
+        notes.append(unread_note(level.unknown_feelings, rhythm_vocab()))
     if not cut_plan:
         notes.append("no cuts fit the grid — check bpm / duration / sections")
     if total_duration:

@@ -11,6 +11,8 @@ import math
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.camera import camera as cam
 from lumenframe.camera.api import BriefError, adjust_track, build_track
 from lumenframe.camera.catalog import camera_catalog, describe_camera
@@ -222,7 +224,7 @@ def test_style_alias_resolves():
 def test_more_handheld_raises_drift():
     base = _brief(style="cinematic")
     before = build_track(base)["track"]["handheld"]["amp_px"]
-    res = adjust_track(base, ["more handheld"])
+    res = agent_adjust(adjust_track, base, ["more handheld"])
     after = res["track"]["handheld"]["amp_px"]
     assert after > before
     assert res["brief"]["params"]["drift"] > 0
@@ -231,17 +233,20 @@ def test_more_handheld_raises_drift():
 def test_steady_lowers_drift():
     base = _brief(style="handheld")
     before = build_track(base)["track"]["handheld"]["amp_px"]
-    after = adjust_track(base, ["更稳"])["track"]["handheld"]["amp_px"]
+    after = agent_adjust(adjust_track, base, ["更稳"])["track"]["handheld"]["amp_px"]
     assert after < before
 
 
 def test_unknown_feedback_reported():
-    res = adjust_track(_brief(), ["more banana"])
-    assert any("banana" in n for n in res["notes"])
+    res = agent_adjust(adjust_track, _brief(), ["more banana"])
+    # Nothing readable, so the reply is still the degree proposal — and it says
+    # plainly which phrase it could not read rather than moving anything.
+    assert res["needs"] == "degree"
+    assert any("banana" in u for u in res["unknown"])
 
 
 def test_adjust_keeps_same_seed():
-    res = adjust_track(_brief(seed=42), ["more punchy"])
+    res = agent_adjust(adjust_track, _brief(seed=42), ["more punchy"])
     assert res["brief"]["seed"] == 42
 
 
@@ -331,7 +336,7 @@ def test_tool_dispatch_create_adjust_catalog():
     created = asyncio.run(dispatch({"op": "create", "brief": _brief()}))
     assert created["applied"] and created["preview_svg"].startswith("<svg")
 
-    adjusted = asyncio.run(dispatch(
+    adjusted = asyncio.run(agent_dispatch(dispatch, 
         {"op": "adjust", "brief": _brief(), "feedback": ["more epic"]}))
     assert adjusted["applied"] and "track" in adjusted
 

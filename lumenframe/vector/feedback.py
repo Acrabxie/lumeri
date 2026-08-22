@@ -10,67 +10,18 @@ to ask or ignore.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from lumenframe.vector.params import SEMANTIC_AXES, clamp01
-
-#: adjective → axis deltas applied for "more <adjective>" (inverted for less).
-ADJUSTMENTS: dict[str, dict[str, float]] = {
-    "playful": {"playfulness": +0.2, "energy": +0.1},
-    "俏皮": {"playfulness": +0.2, "energy": +0.1},
-    "fun": {"playfulness": +0.2},
-    "chaotic": {"complexity": +0.2, "smoothness": -0.15},
-    "乱": {"complexity": +0.2, "smoothness": -0.15},
-    "busy": {"density": +0.2, "complexity": +0.1},
-    "premium": {"elegance": +0.25, "energy": -0.1},
-    "高级": {"elegance": +0.25, "energy": -0.1},
-    "elegant": {"elegance": +0.25},
-    "优雅": {"elegance": +0.25},
-    "organic": {"organicness": +0.25},
-    "有机": {"organicness": +0.25},
-    "futuristic": {"organicness": +0.15, "smoothness": +0.1},
-    "未来感": {"organicness": +0.15, "smoothness": +0.1},
-    "energetic": {"energy": +0.2},
-    "活力": {"energy": +0.2},
-    "fast": {"energy": +0.2},
-    "快": {"energy": +0.2},
-    "slow": {"energy": -0.2},
-    "慢": {"energy": -0.2},
-    "calm": {"energy": -0.2, "smoothness": +0.15},
-    "平静": {"energy": -0.2, "smoothness": +0.15},
-    "smooth": {"smoothness": +0.2},
-    "顺滑": {"smoothness": +0.2},
-    "minimal": {"complexity": -0.2, "density": -0.2},
-    "极简": {"complexity": -0.2, "density": -0.2},
-    "simple": {"complexity": -0.2},
-    "简单": {"complexity": -0.2},
-    "rich": {"density": +0.2, "complexity": +0.15},
-    "丰富": {"density": +0.2, "complexity": +0.15},
-    "dense": {"density": +0.2},
-    "密": {"density": +0.2},
-    "geometric": {"organicness": -0.2},
-    "几何": {"organicness": -0.2},
-    "bouncy": {"playfulness": +0.25},
-    "弹": {"playfulness": +0.25},
-    "subtle": {"energy": -0.15, "density": -0.1, "elegance": +0.1},
-    "克制": {"energy": -0.15, "density": -0.1, "elegance": +0.1},
-    "dramatic": {"energy": +0.15, "playfulness": +0.15},
-    "戏剧": {"energy": +0.15, "playfulness": +0.15},
-}
-
-_MORE_RE = re.compile(
-    r"^\s*(?P<dir>more|less|slightly more|slightly less|much more|much less|更|再|多一点|多点|少一点|少点)\s*(?P<word>.+?)\s*$",
-    re.IGNORECASE,
+from lumenframe.craft.feedback import CALIBRATION
+from lumenframe.craft.lexicon import axis_glossary
+from lumenframe.vector.params import (
+    FEELINGS, SEMANTIC_AXES, clamp01, lookup_feeling,
 )
 
-_DIR_SIGNS = {
-    "more": 1.0, "less": -1.0,
-    "slightly more": 0.5, "slightly less": -0.5,
-    "much more": 1.6, "much less": -1.6,
-    "更": 1.0, "再": 1.0, "多一点": 0.5, "多点": 0.5, "少一点": -0.5, "少点": -1.0 * 0.5,
-}
-
+#: The adjust table *is* the brief table — see
+#: :data:`lumenframe.vector.params.FEELINGS`. They used to be two hand-kept
+#: copies that disagreed ("cinematic" existed in one and not the other).
+ADJUSTMENTS: dict[str, dict[str, float]] = FEELINGS
 
 def parse_feedback(phrases: list[str]) -> tuple[dict[str, float], list[str]]:
     """Feedback phrases → accumulated axis deltas + unrecognised phrases.
@@ -81,28 +32,82 @@ def parse_feedback(phrases: list[str]) -> tuple[dict[str, float], list[str]]:
     deltas: dict[str, float] = {}
     unknown: list[str] = []
     for phrase in phrases or []:
-        raw = str(phrase).strip().lower()
-        if not raw:
+        if not str(phrase).strip():
             continue
-        sign, word = 1.0, raw
-        m = _MORE_RE.match(raw)
-        if m:
-            sign = _DIR_SIGNS.get(m.group("dir").lower(), 1.0)
-            word = m.group("word").strip()
-        table = ADJUSTMENTS.get(word)
-        if table is None:
-            # Try stripping a trailing 的/感 (更高级的 / 更未来感).
-            table = ADJUSTMENTS.get(word.rstrip("的感 "))
-        if table is None:
+        hit = lookup_feeling(phrase)
+        if hit is None:
             unknown.append(str(phrase))
             continue
+        sign, table = hit.magnitude, hit.nudges
         for axis, delta in table.items():
-            deltas[axis] = deltas.get(axis, 0.0) + delta * sign
+            if axis in SEMANTIC_AXES:
+                deltas[axis] = deltas.get(axis, 0.0) + delta * sign
     return deltas, unknown
 
 
-def apply_feedback(brief: dict[str, Any], phrases: list[str]) -> tuple[dict[str, Any], list[str]]:
+def propose_feedback(brief: dict[str, Any], phrases: list[str]) -> dict[str, Any]:
+    """Read the direction of each phrase and hand the degree back to the agent.
+
+    Vector's counterpart to :meth:`lumenframe.craft.feedback.FeedbackVocab.propose`
+    — wording fixes which way to move, never how far.
+    """
+    from lumenframe.vector.styles import resolve_params
+
+    current = resolve_params(
+        style=brief.get("style"),
+        feelings=list(brief.get("feeling") or []),
+        overrides=dict(brief.get("params") or {}),
+    )
+    readings, unknown = [], []
+    for phrase in phrases or []:
+        if not str(phrase).strip():
+            continue
+        hit = lookup_feeling(phrase)
+        if hit is None or not set(hit.nudges) & set(SEMANTIC_AXES):
+            unknown.append(str(phrase))
+            continue
+        targets = {}
+        for axis, delta in hit.nudges.items():
+            if axis in SEMANTIC_AXES:
+                value = round(current.axes[axis], 4)
+                up = (delta * hit.magnitude) > 0
+                targets[axis] = {
+                    "current": value,
+                    "direction": "up" if up else "down",
+                    "headroom": round((1.0 - value) if up else value, 4),
+                }
+        readings.append({
+            "phrase": hit.phrase, "read_as": hit.word,
+            "means": "more" if hit.magnitude > 0 else "less",
+            "degree_word": hit.degree or None, "targets": targets,
+        })
+    return {
+        "needs": "degree",
+        "readings": readings,
+        "unknown": unknown,
+        "axes": {a: round(current.axes[a], 4) for a in SEMANTIC_AXES},
+        "axis_meanings": axis_glossary(SEMANTIC_AXES),
+        "calibration": CALIBRATION,
+        "how_to_answer": (
+            "Decide how far each axis should move — from these current values, "
+            "the user's wording, and what they have already pushed back on — "
+            "then call op:'adjust' again with the same brief plus "
+            "params:{axis: absolute 0..1}. Keep the original phrase in feedback "
+            "so the reply can quote what the user actually said."
+        ),
+    }
+
+
+def apply_feedback(
+    brief: dict[str, Any], phrases: list[str],
+    params: "dict[str, float] | None" = None,
+) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     """A new brief with feedback folded into ``params`` overrides.
+
+    Returns ``(new_brief, unknown, readings)``. ``readings`` spells out how each
+    phrase was read and which axis moved from what to what — step sizes come
+    from wording alone, so they are defaults the agent should override with
+    explicit ``params`` whenever the conversation says otherwise.
 
     The returned brief carries absolute axis values in ``params`` (current
     resolved axes + deltas, clamped) so repeated adjustments accumulate
@@ -110,22 +115,70 @@ def apply_feedback(brief: dict[str, Any], phrases: list[str]) -> tuple[dict[str,
     """
     from lumenframe.vector.styles import resolve_params
 
-    deltas, unknown = parse_feedback(phrases)
+    interpretations: list = []
+    unknown: list[str] = []
+    for phrase in phrases or []:
+        if not str(phrase).strip():
+            continue
+        hit = lookup_feeling(phrase)
+        if hit is None or not set(hit.nudges) & set(SEMANTIC_AXES):
+            unknown.append(str(phrase))
+        else:
+            interpretations.append(hit)
+
+    current = resolve_params(
+        style=brief.get("style"),
+        feelings=list(brief.get("feeling") or []),
+        overrides=dict(brief.get("params") or {}),
+    )
+    bad = set(params or {}) - set(SEMANTIC_AXES)
+    if bad:
+        raise ValueError(f"unknown semantic axes: {sorted(bad)} (use {SEMANTIC_AXES})")
     new_brief = {**brief, "params": dict(brief.get("params") or {})}
-    if deltas:
-        current = resolve_params(
-            style=brief.get("style"),
-            feelings=list(brief.get("feeling") or []),
-            overrides=dict(brief.get("params") or {}),
-        )
-        for axis in SEMANTIC_AXES:
-            if axis in deltas:
-                new_brief["params"][axis] = round(
-                    clamp01(current.axes[axis] + deltas[axis]), 4
-                )
-    return new_brief, unknown
+    for axis, value in (params or {}).items():
+        new_brief["params"][axis] = round(clamp01(float(value)), 4)
+    touched = set(params or {})
+
+    readings: list[dict[str, Any]] = []
+    for hit in interpretations:
+        moved = {}
+        for axis in hit.nudges:
+            if axis in SEMANTIC_AXES and axis in touched:
+                before = round(current.axes[axis], 4)
+                after = new_brief["params"][axis]
+                moved[axis] = {"from": before, "to": after,
+                               "delta": round(after - before, 4)}
+        readings.append({
+            "phrase": hit.phrase, "read_as": hit.word,
+            "direction": "more" if hit.magnitude > 0 else "less",
+            "degree_word": hit.degree or None, "axes": moved,
+            "degree_set_by": "agent",
+        })
+    accounted = {a for r in readings for a in r["axes"]}
+    for axis in sorted(touched - accounted):
+        before = round(current.axes[axis], 4)
+        readings.append({
+            "phrase": None, "read_as": None, "direction": None,
+            "degree_word": None, "degree_set_by": "agent",
+            "axes": {axis: {"from": before, "to": new_brief["params"][axis],
+                            "delta": round(new_brief["params"][axis] - before, 4)}},
+        })
+    return new_brief, unknown, readings
 
 
 def feedback_vocabulary() -> list[str]:
     """The recognised adjectives (agent-facing catalog)."""
-    return sorted(ADJUSTMENTS)
+    return sorted(w for w, d in ADJUSTMENTS.items() if set(d) & set(SEMANTIC_AXES))
+
+
+def feedback_guidance() -> dict[str, Any]:
+    """Anchors + axis meanings to hand back when a phrase could not be read."""
+    return {
+        "anchors": feedback_vocabulary(),
+        "axes": axis_glossary(SEMANTIC_AXES),
+        "how_to_use": (
+            "Translate the user's wording into these anchors (optionally "
+            "'more X' / 'less X'), or set params axis values in 0..1 directly. "
+            "Say which reading you chose."
+        ),
+    }

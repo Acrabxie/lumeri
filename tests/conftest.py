@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+# Let tests import sibling helpers (craft_agent_helper) by plain name.
+sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
 import pytest

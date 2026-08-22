@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok, tool_dispatch
+from lumenframe.craft import err, ok, with_state, tool_dispatch
 
 from lumenframe.camera.api import BriefError, adjust_track, build_track
 from lumenframe.camera.catalog import camera_catalog
@@ -45,14 +45,14 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         preview = _preview(result["track"])
     except ValueError as exc:
         return err("E_RENDER", f"{TOOL} create: preview is not render-safe: {exc}")
-    return ok(
+    return with_state(ok(
         track=result["track"],
         plan=result["plan"],
         preview_svg=preview,
         preview_bytes=len(preview),
         notes=result["notes"],
         next="adjust with op:'adjust' + feedback phrases; the track drives a transform layer",
-    )
+    ), result)
 
 
 def _adjust(args: dict[str, Any]) -> dict[str, Any]:
@@ -64,14 +64,22 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", f"{TOOL} adjust: 'feedback' must be a non-empty list "
                             "of phrases like 'more handheld' / '更稳'")
     try:
-        result = adjust_track(brief, [str(p) for p in feedback])
-    except BriefError as exc:
+        result = adjust_track(
+            brief, [str(p) for p in feedback], args.get("params"))
+    except ValueError as exc:
         return err("E_ARG", f"{TOOL} adjust: {exc}", recovery="fix_args")
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
     try:
         preview = _preview(result["track"])
     except ValueError as exc:
         return err("E_RENDER", f"{TOOL} adjust: rebuilt preview is not render-safe: {exc}")
-    return ok(
+    return with_state(ok(
         track=result["track"],
         plan=result["plan"],
         brief=result["brief"],
@@ -79,7 +87,7 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         preview_bytes=len(preview),
         notes=result["notes"],
         next="op:'adjust' again to keep refining; the track drives a transform layer",
-    )
+    ), result)
 
 
 async def dispatch(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:

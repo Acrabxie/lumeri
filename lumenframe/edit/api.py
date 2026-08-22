@@ -24,10 +24,11 @@ the emitted plan.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from lumenframe.craft import new_rng, stable_digest
 from lumenframe.craft.determinism import round_floats
+from lumenframe.craft.feedback import reading_note, unread_note
 from lumenframe.edit import grammar
 from lumenframe.edit.params import SPACE, edit_feedback
 from lumenframe.edit.styles import STYLES
@@ -174,7 +175,7 @@ def build_cut_plan(brief: dict[str, Any]) -> dict[str, Any]:
 
     _floor_notes(clips, floor_ms, notes)
     if level.unknown_feelings:
-        notes.append("unrecognised feelings ignored: " + ", ".join(level.unknown_feelings))
+        notes.append(unread_note(level.unknown_feelings, edit_feedback()))
 
     plan = {
         "style": style_name,
@@ -316,7 +317,8 @@ def _floor_notes(clips: list[dict[str, Any]], floor_ms: int, notes: list[str]) -
 
 # ── feedback / adjust ──────────────────────────────────────────────────────
 
-def adjust_cut_plan(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any]:
+def adjust_cut_plan(brief: dict[str, Any], feedback: list[str],
+                    params: Mapping[str, float] | None = None) -> dict[str, Any]:
     """Fold feedback into the brief and re-derive with the same seed.
 
     Returns :func:`build_cut_plan`'s result plus ``brief`` (the adjusted brief to
@@ -324,12 +326,18 @@ def adjust_cut_plan(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any
     phrases are reported, never fatal. If recognised feedback moved nothing (the
     targeted axes were already at their limit) that is stated honestly.
     """
-    before = build_cut_plan(brief)
     vocab = edit_feedback()
-    new_brief, unknown = vocab.apply(
-        brief, feedback or [], resolve_axes=_resolve_axes)
+    if not params:
+        return vocab.propose(brief, list(feedback or []), _resolve_axes)
+    before = build_cut_plan(brief)
+    new_brief, unknown, readings = vocab.apply(
+        brief, feedback or [], resolve_axes=_resolve_axes, params=params)
     result = build_cut_plan(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    _note = reading_note(readings)
+    if _note:
+        result["notes"].append(_note)
 
     recognised = [p for p in (feedback or []) if p not in unknown]
     if recognised and result["plan"]["digest"] == before["plan"]["digest"]:
@@ -337,7 +345,5 @@ def adjust_cut_plan(brief: dict[str, Any], feedback: list[str]) -> dict[str, Any
             "feedback recognised but the plan did not change — the targeted "
             "parameters are already at their limit")
     if unknown:
-        result["notes"].append(
-            "unrecognised feedback ignored: " + ", ".join(unknown)
-            + " (known: " + ", ".join(vocab.vocabulary()[:12]) + ", …)")
+        result["notes"].append(unread_note(unknown, edit_feedback()))
     return result

@@ -29,12 +29,31 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from lumenframe.craft.feedback import reading_note
+from lumenframe.vector.feedback import feedback_guidance
 from lumenframe.vector import builders, choreography, feedback as vfeedback
 from lumenframe.vector import scene as vscene
 from lumenframe.vector.behaviors import apply_behavior
 from lumenframe.vector.params import ResolvedParams
 from lumenframe.vector.render import scene_svg_document, scene_to_html_layer  # noqa: F401 (re-export)
 from lumenframe.vector.styles import resolve_params, resolve_style_name, style_palette
+
+
+def _unread_note(phrases) -> str:
+    """Vector's version of :func:`lumenframe.craft.feedback.unread_note`."""
+    g = feedback_guidance()
+    anchors = g["anchors"]
+    sample = ", ".join(anchors[:12])
+    axes = "; ".join(f"{a} — {m}" for a, m in g["axes"].items())
+    return (
+        f"could not read: {', '.join(str(p) for p in phrases)} — nothing was "
+        f"applied for these. This engine hears: {sample}, … "
+        f"({len(anchors)} anchors, op='catalog' for all). Axes: {axes}. "
+        f"Re-express the user's wording as anchors (optionally 'more X' / "
+        f"'less X') or set params values in 0..1 directly, then tell the user "
+        f"which reading you used — do not proceed on defaults as if the "
+        f"wording had been understood."
+    )
 
 #: html layers render through HyperFrames, whose hard clip cap is 60s.
 MAX_DURATION = 58.0
@@ -111,7 +130,7 @@ def build_scene(brief: dict[str, Any]) -> dict[str, Any]:
     scene["meta"]["plan"] = plan
     notes: list[str] = []
     if level.unknown_feelings:
-        notes.append(f"unrecognised feelings ignored: {', '.join(level.unknown_feelings)}")
+        notes.append(_unread_note(level.unknown_feelings))
     if bad_overrides:
         notes.append(f"unknown behaviour overrides ignored: {', '.join(bad_overrides)}")
     if float(brief.get("duration") or duration) > MAX_DURATION:
@@ -119,18 +138,28 @@ def build_scene(brief: dict[str, Any]) -> dict[str, Any]:
     return {"scene": scene, "plan": plan, "notes": notes}
 
 
-def adjust_scene(brief: dict[str, Any], feedback_phrases: list[str]) -> dict[str, Any]:
-    """Apply human feedback to a brief and rebuild. Returns build_scene's
-    result plus ``brief`` (the adjusted brief to persist) and feedback notes."""
+def adjust_scene(brief: dict[str, Any], feedback_phrases: list[str],
+                 params: "dict[str, float] | None" = None) -> dict[str, Any]:
+    """Apply an agent-chosen degree to a brief and rebuild.
+
+    Without ``params`` this does not guess how far to move: it returns a
+    proposal naming the current axis values and which way each phrase points,
+    for the agent to size. With ``params`` it applies those absolute values and
+    reports what moved.
+    """
+    if not params:
+        return vfeedback.propose_feedback(brief, feedback_phrases)
     before = build_scene(brief)
-    new_brief, unknown = vfeedback.apply_feedback(brief, feedback_phrases)
+    new_brief, unknown, readings = vfeedback.apply_feedback(
+        brief, feedback_phrases, params)
     result = build_scene(new_brief)
     result["brief"] = new_brief
+    result["readings"] = readings
+    note = reading_note(readings)
+    if note:
+        result["notes"].append(note)
     if unknown:
-        result["notes"].append(
-            f"unrecognised feedback ignored: {', '.join(unknown)} "
-            f"(known: {', '.join(vfeedback.feedback_vocabulary()[:12])}, …)"
-        )
+        result["notes"].append(_unread_note(unknown))
     # Honesty: if recognised feedback moved nothing (every targeted axis was
     # already at its ceiling/floor), say so instead of silently no-op'ing.
     recognised = [p for p in (feedback_phrases or []) if p not in unknown]

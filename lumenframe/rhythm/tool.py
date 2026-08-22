@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok, tool_dispatch
+from lumenframe.craft import err, ok, with_state, tool_dispatch
 from lumenframe.rhythm.api import BriefError, adjust as _adjust, build as _build
 from lumenframe.rhythm.catalog import rhythm_catalog
 from lumenframe.rhythm.render import plan_to_timeline_ops
@@ -38,13 +38,13 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         result = _build(brief)
     except BriefError as exc:
         return err("E_ARG", f"{_TOOL} create: {exc}", recovery="fix_args")
-    return ok(
+    return with_state(ok(
         score=result["score"],
         plan=result["plan"],
         timeline_ops=plan_to_timeline_ops(result["score"]),
         notes=result["notes"],
         next="preview the cut plan on the timeline; adjust with op:'adjust' + feedback phrases",
-    )
+    ), result)
 
 
 def _adjust_op(args: dict[str, Any]) -> dict[str, Any]:
@@ -56,17 +56,25 @@ def _adjust_op(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", f"{_TOOL} adjust: 'feedback' must be a non-empty list of "
                             "phrases like 'more driving' / '更紧凑'")
     try:
-        result = _adjust(brief, [str(p) for p in feedback])
-    except BriefError as exc:
+        result = _adjust(
+            brief, [str(p) for p in feedback], args.get("params"))
+    except ValueError as exc:
         return err("E_ARG", f"{_TOOL} adjust: {exc}", recovery="fix_args")
-    return ok(
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
+    return with_state(ok(
         brief=result["brief"],
         score=result["score"],
         plan=result["plan"],
         timeline_ops=plan_to_timeline_ops(result["score"]),
         notes=result["notes"],
         next="preview the new cut plan; adjust again or accept",
-    )
+    ), result)
 
 
 async def dispatch(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:

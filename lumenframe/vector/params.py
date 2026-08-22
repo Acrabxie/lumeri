@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from lumenframe.craft.lexicon import ANCHORS, Interpretation, interpret
+
 SEMANTIC_AXES: tuple[str, ...] = (
     "energy", "smoothness", "playfulness", "elegance",
     "complexity", "density", "organicness",
@@ -31,46 +33,61 @@ SEMANTIC_AXES: tuple[str, ...] = (
 #: Neutral baseline when no style is chosen.
 NEUTRAL: dict[str, float] = {axis: 0.5 for axis in SEMANTIC_AXES}
 
-#: Feeling adjectives → axis nudges. Bilingual on purpose: the tool surface
-#: is used from Chinese and English briefs alike. Extend freely — unknown
-#: feelings are reported, not fatal.
-FEELINGS: dict[str, dict[str, float]] = {
-    # energy / drive
+#: Vector-specific readings layered over the shared lexicon. Two reasons a word
+#: lands here: this engine lacks an axis the shared anchor names (no ``warmth``
+#: or ``drama``, so "warm"/"dramatic" would otherwise be inert), or the word is
+#: native to vector motion ("organic", "geometric", "未来感").
+VECTOR_WORDS: dict[str, dict[str, float]] = {
+    # energy / drive — the shared anchors name axes this engine does not have
     "energetic": {"energy": +0.2, "playfulness": +0.1},
-    "dynamic": {"energy": +0.15},
-    "calm": {"energy": -0.2, "smoothness": +0.15},
-    "gentle": {"energy": -0.15, "smoothness": +0.2},
-    "bold": {"energy": +0.15, "complexity": -0.05},
-    "快": {"energy": +0.2},
     "活力": {"energy": +0.2, "playfulness": +0.1},
-    "平静": {"energy": -0.2, "smoothness": +0.15},
+    "bold": {"energy": +0.15, "complexity": -0.05},
+    "dramatic": {"energy": +0.15, "playfulness": +0.15},
+    "戏剧": {"energy": +0.15, "playfulness": +0.15},
+    "subtle": {"energy": -0.15, "density": -0.1, "elegance": +0.1},
+    "克制": {"energy": -0.15, "density": -0.1, "elegance": +0.1},
     # character
     "playful": {"playfulness": +0.2, "organicness": +0.05},
-    "fun": {"playfulness": +0.2},
-    "serious": {"playfulness": -0.2, "elegance": +0.1},
-    "俏皮": {"playfulness": +0.2},
     "creative": {"organicness": +0.1, "complexity": +0.1},
     "创意": {"organicness": +0.1, "complexity": +0.1},
     "intelligent": {"smoothness": +0.1, "elegance": +0.1},
     "智能": {"smoothness": +0.1, "elegance": +0.1},
     "futuristic": {"organicness": +0.15, "smoothness": +0.1},
     "未来": {"organicness": +0.15, "smoothness": +0.1},
+    "未来感": {"organicness": +0.15, "smoothness": +0.1},
     "premium": {"elegance": +0.2, "energy": -0.1},
     "高级": {"elegance": +0.2, "energy": -0.1},
     "elegant": {"elegance": +0.2, "smoothness": +0.1},
     "优雅": {"elegance": +0.2, "smoothness": +0.1},
-    "minimal": {"complexity": -0.2, "density": -0.15, "elegance": +0.1},
-    "极简": {"complexity": -0.2, "density": -0.15, "elegance": +0.1},
     "rich": {"density": +0.15, "complexity": +0.15},
     "丰富": {"density": +0.15, "complexity": +0.15},
-    "organic": {"organicness": +0.25},
-    "有机": {"organicness": +0.25},
-    "geometric": {"organicness": -0.2},
-    "几何": {"organicness": -0.2},
+    # form language — native to this engine
+    "organic": {"organicness": +0.25}, "有机": {"organicness": +0.25},
+    "geometric": {"organicness": -0.2}, "几何": {"organicness": -0.2},
+    "chaotic": {"complexity": +0.2, "smoothness": -0.15},
+    "乱": {"complexity": +0.2, "smoothness": -0.15},
+    "busy": {"density": +0.2, "complexity": +0.1},
+    "bouncy": {"playfulness": +0.25}, "弹": {"playfulness": +0.25},
+    # colour words have no colour axis here; read them as form/motion feel
     "warm": {"organicness": +0.1, "smoothness": +0.1},
-    "cinematic": {"elegance": +0.15, "energy": -0.05},
-    "电影感": {"elegance": +0.15, "energy": -0.05},
+    "暖": {"organicness": +0.1, "smoothness": +0.1},
+    "cool": {"organicness": -0.1, "smoothness": +0.05},
+    "冷": {"organicness": -0.1, "smoothness": +0.05},
 }
+
+#: Feeling adjectives → axis nudges: the shared lexicon, overridden by the
+#: vector readings above. :data:`lumenframe.vector.feedback.ADJUSTMENTS` is
+#: this same object, so a brief word and a feedback word can never disagree.
+FEELINGS: dict[str, dict[str, float]] = {**ANCHORS, **VECTOR_WORDS}
+
+def lookup_feeling(phrase: str) -> "Interpretation | None":
+    """Read a spoken phrase as ``(signed magnitude, axis nudges)``.
+
+    Shares :func:`lumenframe.craft.lexicon.candidates` with the point
+    libraries, so 「快一点」「别那么乱」「稍微高级一些」resolve here too.
+    """
+    return interpret(phrase, FEELINGS)
+
 
 #: Hard cap on particle instances per scene — SVG element count discipline.
 PARTICLE_CAP = 420
@@ -192,13 +209,16 @@ def resolve(
 
     unknown: list[str] = []
     for word in feelings or []:
-        key = str(word).strip().lower()
-        nudges = FEELINGS.get(key)
-        if nudges is None:
+        hit = lookup_feeling(word)
+        if hit is None:
             unknown.append(str(word))
             continue
+        magnitude, nudges = hit.magnitude, hit.nudges
         for axis, delta in nudges.items():
-            axes[axis] = clamp01(axes[axis] + delta)
+            # Shared anchors may name axes this engine does not declare
+            # (warmth, drama); those nudges are inert here, never fatal.
+            if axis in axes:
+                axes[axis] = clamp01(axes[axis] + delta * magnitude)
 
     bad = set(overrides or {}) - set(SEMANTIC_AXES)
     if bad:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lumenframe.craft import err, ok
+from lumenframe.craft import err, ok, with_state
 from lumenframe.craft.styles import StyleError
 
 from lumenframe.grade.api import BriefError, adjust_grade, build_grade
@@ -70,7 +70,7 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         validate_grade_svg(result["preview_svg"])
     except Exception as exc:  # never emit an unsafe / out-of-bounds grade
         return err("E_RENDER", f"grade create: output failed safety validation: {exc}")
-    return ok(
+    return with_state(ok(
         recipe=result["recipe"],
         plan=_plan_digest(result["plan"]),
         preview_svg=result["preview_svg"],
@@ -78,7 +78,7 @@ def _create(args: dict[str, Any]) -> dict[str, Any]:
         notes=result["notes"],
         next="preview the SVG swatch or feed ffmpeg_filter to the render pipeline; "
              "adjust with op:'adjust' + feedback phrases",
-    )
+    ), result)
 
 
 def _adjust(args: dict[str, Any]) -> dict[str, Any]:
@@ -90,15 +90,23 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         return err("E_ARG", "grade adjust: 'feedback' must be a non-empty list of "
                             "phrases like 'more teal' / '更暖'")
     try:
-        result = adjust_grade(brief, [str(p) for p in feedback])
+        result = adjust_grade(
+            brief, [str(p) for p in feedback], args.get("params"))
     except (BriefError, StyleError, ValueError) as exc:
         return err("E_ARG", f"grade adjust: {exc}", recovery="fix_args")
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
     try:
         validate_grade_recipe(result["recipe"])
         validate_grade_svg(result["preview_svg"])
     except Exception as exc:
         return err("E_RENDER", f"grade adjust: output failed safety validation: {exc}")
-    return ok(
+    return with_state(ok(
         recipe=result["recipe"],
         brief=result["brief"],
         plan=_plan_digest(result["plan"]),
@@ -106,4 +114,4 @@ def _adjust(args: dict[str, Any]) -> dict[str, Any]:
         ffmpeg_filter=result["ffmpeg_filter"],
         notes=result["notes"],
         next="preview the re-derived grade; adjust again or persist the brief",
-    )
+    ), result)

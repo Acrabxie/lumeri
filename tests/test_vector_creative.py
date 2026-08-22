@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from craft_agent_helper import decide
+
 from lumenframe.templates import theme
 from lumenframe.vector import behaviors, choreography, feedback, geometry, motion, styles
 from lumenframe.vector import api
@@ -381,16 +383,21 @@ def test_parse_feedback_maps_phrases_to_signed_deltas():
     deltas, unknown = feedback.parse_feedback(
         ["more playful", "much less chaotic", "premium", "更高级", "少一点乱"]
     )
+    # The adjust table is now the brief table (vector.params.FEELINGS), so a
+    # word means one thing in both paths. "playful" therefore reads as the
+    # brief reads it (playfulness + a touch of organicness), not the slightly
+    # different reading the old parallel adjust table carried.
     assert unknown == []
     assert deltas["playfulness"] == approx(0.2)
-    # +0.1 (playful) -0.1 (premium) -0.1 (更高级)
-    assert deltas["energy"] == approx(-0.1)
-    # -0.2*1.6 (much less chaotic) -0.2*0.5 (少一点乱)
-    assert deltas["complexity"] == approx(-0.42)
-    # +0.15*1.6 +0.15*0.5
-    assert deltas["smoothness"] == approx(0.315)
-    # +0.25 (premium) +0.25 (更高级)
-    assert deltas["elegance"] == approx(0.5)
+    assert deltas["organicness"] == approx(0.05)
+    # -0.1 (premium) -0.1 (更高级)
+    assert deltas["energy"] == approx(-0.2)
+    # -0.2*1.6 (much less chaotic) -0.2*0.6 (少一点乱)
+    assert deltas["complexity"] == approx(-0.44)
+    # +0.15*1.6 +0.15*0.6
+    assert deltas["smoothness"] == approx(0.33)
+    # +0.2 (premium) +0.2 (更高级)
+    assert deltas["elegance"] == approx(0.4)
 
 
 def test_parse_feedback_returns_unknown_phrases_verbatim():
@@ -402,14 +409,25 @@ def test_parse_feedback_returns_unknown_phrases_verbatim():
 def test_apply_feedback_writes_absolute_clamped_params_without_mutating_brief():
     brief = {"subject": {"kind": "title", "text": "Hi"},
              "style": "minimal", "params": {"energy": 0.9}}
-    new_brief, unknown = feedback.apply_feedback(
-        brief, ["much more energetic", "more playful"]
+    # Direction first: the engine says which way, never how far.
+    proposal = feedback.propose_feedback(brief, ["much more energetic", "more playful"])
+    assert proposal["needs"] == "degree"
+    assert {r["read_as"] for r in proposal["readings"]} == {"energetic", "playful"}
+    assert proposal["readings"][0]["targets"]["energy"]["direction"] == "up"
+
+    # Then the caller's chosen degree is what actually gets applied.
+    new_brief, unknown, readings = feedback.apply_feedback(
+        brief, ["much more energetic", "more playful"],
+        {"energy": 1.0, "playfulness": 0.46},
     )
     assert unknown == []
+    assert all(r["degree_set_by"] == "agent" for r in readings)
+    assert readings[0]["axes"]["energy"]["to"] == approx(1.0)
     # energy: 0.9 + (0.2×1.6 + 0.1) = 1.32 → clamped absolute 1.0
     assert new_brief["params"]["energy"] == approx(1.0)
-    # playfulness: minimal baseline 0.1 + 0.2 → absolute 0.3 (unclamped)
-    assert new_brief["params"]["playfulness"] == approx(0.3)
+    # playfulness: minimal baseline 0.1 + 0.1×1.6 (energetic) + 0.2 (playful)
+    # → 0.46. "energetic" carries a playfulness nudge in the shared table.
+    assert new_brief["params"]["playfulness"] == approx(0.46)
     # untouched axes are not written
     assert "elegance" not in new_brief["params"]
     # input brief untouched
@@ -420,7 +438,14 @@ def test_apply_feedback_writes_absolute_clamped_params_without_mutating_brief():
 def test_adjust_scene_changes_svg_and_reports_unknown_phrases():
     brief = _brief(style="minimal")
     base_svg = compile_scene(api.build_scene(brief)["scene"])
-    result = api.adjust_scene(brief, ["much more playful", "zorpy"])
+    proposal = api.adjust_scene(brief, ["much more playful", "zorpy"])
+    assert proposal["needs"] == "degree"
+    # the unreadable phrase is named right there, before anything is applied
+    assert any("zorpy" in u for u in proposal["unknown"])
+
+    # A real caller sizes every axis the reading points at, not just one.
+    result = api.adjust_scene(
+        brief, ["much more playful", "zorpy"], decide(proposal, step=0.4))
     adjusted_svg = compile_scene(result["scene"])
     assert adjusted_svg != base_svg
     assert result["brief"]["params"]["playfulness"] > 0.1

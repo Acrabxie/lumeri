@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lumenframe.craft.tool import current_axes
 from gemia.tools._context import ToolContext
 
 try:  # pragma: no cover - exercised via the E_NOT_AVAILABLE branch in tests
@@ -128,6 +129,7 @@ async def _create(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         "duration": html_layer["duration"],
         "svg_bytes": len(html_layer["props"]["html"]),
         "plan": result.get("plan"),
+        "axes": current_axes(result),
         "notes": result.get("notes", []),
         "next": "lumen_seek a frame or lumen_render_range to verify; adjust with op:'adjust' + feedback",
     }
@@ -153,9 +155,17 @@ async def _adjust(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         return _err("E_ARG", f"kinetic_type adjust: layer {layer_id!r} carries no kinetic_brief "
                              "(only kinetic_type-created layers adjust)")
     try:
-        result = _kinetic_adjust(brief, [str(p) for p in feedback])
+        result = _kinetic_adjust(
+            brief, [str(p) for p in feedback], args.get("params"))
     except ValueError as exc:
         return _err("E_ARG", f"kinetic_type adjust: {exc}", recovery="fix_args")
+    if result.get("needs") == "degree":
+        # Direction is settled; the size of the move is the agent's to decide,
+        # from the current values and the conversation. Nothing was applied.
+        return {"applied": False, **result,
+                "next": "choose how far, then call op:'adjust' again with the "
+                        "same brief plus params:{axis: 0..1}"}
+
 
     refreshed = _html_layer(result, result.get("brief", brief), id=target.get("id"),
                             name=target.get("name"), start=float(target.get("start") or 0.0),
@@ -183,6 +193,7 @@ async def _adjust(args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     return {
         "applied": True, "layer_id": layer_id,
         "adjusted_params": (result.get("brief", {}).get("params") or {}),
-        "plan": result.get("plan"), "notes": result.get("notes", []),
+        "plan": result.get("plan"), "axes": current_axes(result),
+        "readings": result.get("readings"), "notes": result.get("notes", []),
         "next": "lumen_seek / lumen_render_range to verify the new feel",
     }

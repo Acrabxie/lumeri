@@ -123,9 +123,22 @@ def test_feedback_apply_absolute_and_compounds():
     def resolve(b):
         return sp.resolve(overrides=b.get("params") or {})
 
-    nb, unknown = vocab.apply(brief, ["much warmer"], resolve)  # much=×1.5, warm=+0.2
+    # The engine resolves direction only; the degree comes in as params.
+    proposal = vocab.propose(brief, ["much warmer"], resolve)
+    assert proposal["needs"] == "degree"
+    assert proposal["readings"][0]["read_as"] == "warm"
+    assert proposal["readings"][0]["targets"]["warmth"]["direction"] == "up"
+    assert proposal["axes"]["warmth"] == pytest.approx(0.5)
+
+    nb, unknown, readings = vocab.apply(brief, ["much warmer"], resolve, {"warmth": 0.8})
     assert unknown == []
-    assert nb["params"]["warmth"] == pytest.approx(clamp01(0.5 + 0.2 * 1.5), abs=1e-4)
+    assert nb["params"]["warmth"] == pytest.approx(0.8, abs=1e-4)
+    # the move is reported in full, and attributed to the agent
+    assert readings[0]["read_as"] == "warm"
+    assert readings[0]["direction"] == "more"
+    assert readings[0]["axes"]["warmth"]["from"] == pytest.approx(0.5)
+    assert readings[0]["axes"]["warmth"]["to"] == pytest.approx(0.8, abs=1e-4)
+    assert readings[0]["degree_set_by"] == "agent"
     # original brief untouched
     assert brief["params"] == {}
 

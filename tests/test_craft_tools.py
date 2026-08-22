@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from craft_agent_helper import decide
+
 from gemia.tools import DISPATCHER
 from gemia.tools import layer as layer_module
 from gemia.tools._context import AssetRegistry, ToolContext
@@ -149,8 +151,11 @@ def test_kinetic_type_adds_and_readjusts_a_layer(ctx):
     assert created["applied"] and created.get("layer_id")
     after = len(layer_module._lumendoc(ctx)["root"]["children"])
     assert after == before + 1, "kinetic_type create did not add a layer"
-    # adjust the created layer from feedback and confirm it rebuilds in place
-    adjusted = _call("kinetic_type", {"op": "adjust", "layer_id": created["layer_id"],
-                                      "feedback": ["more energetic"]}, ctx)
+    # adjust is two steps: the tool proposes a direction, the caller sizes it
+    args = {"op": "adjust", "layer_id": created["layer_id"],
+            "feedback": ["more energetic"]}
+    proposal = _call("kinetic_type", args, ctx)
+    assert proposal["applied"] is False and proposal["needs"] == "degree"
+    adjusted = _call("kinetic_type", {**args, "params": decide(proposal)}, ctx)
     assert adjusted["applied"] and adjusted["layer_id"] == created["layer_id"]
     assert len(layer_module._lumendoc(ctx)["root"]["children"]) == after  # rebuilt, not duplicated

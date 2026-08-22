@@ -11,6 +11,8 @@ import asyncio
 
 import pytest
 
+from craft_agent_helper import agent_adjust, agent_dispatch
+
 from lumenframe.craft import stable_digest
 from lumenframe.craft.styles import StyleError
 from lumenframe.edit import build_cut_plan, adjust_cut_plan, edit_catalog
@@ -259,19 +261,19 @@ def test_style_alias_resolves():
 
 def test_feedback_moves_intended_axis():
     base = build_cut_plan(_brief(style="documentary", clips=_clips(6)))
-    res = adjust_cut_plan(_brief(style="documentary", clips=_clips(6)), ["more dramatic"])
+    res = agent_adjust(adjust_cut_plan, _brief(style="documentary", clips=_clips(6)), ["more dramatic"])
     assert res["plan"]["axes"]["drama"] > base["plan"]["axes"]["drama"]
     assert "params" in res["brief"]
 
 
 def test_feedback_more_seamless_raises_invisibility():
     base = build_cut_plan(_brief(style="commercial", clips=_clips(6)))
-    res = adjust_cut_plan(_brief(style="commercial", clips=_clips(6)), ["more seamless"])
+    res = agent_adjust(adjust_cut_plan, _brief(style="commercial", clips=_clips(6)), ["more seamless"])
     assert res["plan"]["axes"]["invisibility"] > base["plan"]["axes"]["invisibility"]
 
 
 def test_unknown_feedback_is_reported():
-    res = adjust_cut_plan(_brief(clips=_clips(6)), ["more zorble", "更快"])
+    res = agent_adjust(adjust_cut_plan, _brief(clips=_clips(6)), ["more zorble", "更快"])
     assert any("zorble" in n for n in res["notes"])
     # "更快" is recognised (faster) so it is NOT in the unrecognised note.
     assert not any("更快" in n and "unrecognised" in n for n in res["notes"])
@@ -342,7 +344,7 @@ def test_tool_returns_e_arg_for_bad_seed_params_and_style():
         res = asyncio.run(dispatch({"op": "create", "brief": b}))
         assert not res["applied"] and res["error_code"] == "E_ARG", b
     # adjust boundary is guarded too.
-    res = asyncio.run(dispatch({
+    res = asyncio.run(agent_dispatch(dispatch, {
         "op": "adjust", "brief": _brief(clips=_clips(3), seed="abc"),
         "feedback": ["more seamless"]}))
     assert not res["applied"] and res["error_code"] == "E_ARG"
@@ -381,7 +383,7 @@ def test_tool_create_adjust_catalog():
     assert create["applied"] and create["cut_plan"]
     cat = asyncio.run(dispatch({"op": "catalog"}))
     assert cat["applied"] and "transitions" in cat["catalog"]
-    adj = asyncio.run(dispatch({
+    adj = asyncio.run(agent_dispatch(dispatch, {
         "op": "adjust", "brief": _brief(clips=_clips(5)), "feedback": ["more seamless"]}))
     assert adj["applied"] and "brief" in adj
     bad = asyncio.run(dispatch({"op": "frobnicate"}))
