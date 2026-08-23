@@ -108,12 +108,7 @@ def _gate_text(content: Any) -> str:
 
 
 def _completion_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Recovery transitions reuse the completion_check transport event but are
-    # not the one-shot pre-delivery gate asserted by this module.
-    return [
-        e for e in events
-        if e.get("kind") == "completion_check" and "phase" not in e
-    ]
+    return [e for e in events if e.get("kind") == "completion_check"]
 
 
 def _make_loop(tmp_path: Path, client, events: list[dict[str, Any]]) -> AgentLoopV3:

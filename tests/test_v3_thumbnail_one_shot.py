@@ -4,13 +4,12 @@ import asyncio
 import base64
 import copy
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import gemia.agent_loop_v3 as loop_mod
-import pytest
 from gemia.agent_loop_v3 import AgentLoopV3
-
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
@@ -101,7 +100,7 @@ def test_ordinary_tool_thumbnail_is_consumed_by_exactly_one_model_call(
     )
 
 
-def test_thumbnail_is_reclaimed_when_stream_iterator_raises(
+def test_thumbnail_is_retained_for_retry_then_reclaimed_after_terminal_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     thumbnail = tmp_path / "thumb.png"
@@ -115,16 +114,22 @@ def test_thumbnail_is_reclaimed_when_stream_iterator_raises(
         }
 
     monkeypatch.setitem(loop_mod.DISPATCHER, "analyze_media", fake_analyze)
+    monkeypatch.setattr(loop_mod, "_STREAM_RECOVERY_BACKOFF_SECONDS", (0.0, 0.0))
     client = _RaisingAfterThumbnailClient()
+    events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
         session_id="thumbnail_raise",
         output_dir=tmp_path,
         gemini_client=client,  # type: ignore[arg-type]
-        emit_event=lambda event: None,
+        emit_event=events.append,
     )
 
-    with pytest.raises(RuntimeError, match="iterator failed"):
-        asyncio.run(loop.run_turn("分析素材"))
+    asyncio.run(loop.run_turn("分析素材"))
 
-    assert "data:image" in json.dumps(client.seen[-1], ensure_ascii=False)
+    assert client.calls == 3
+    assert all(
+        "data:image" in json.dumps(call, ensure_ascii=False)
+        for call in client.seen[1:]
+    )
     assert "data:image" not in json.dumps(loop._messages, ensure_ascii=False)
+    assert any(event.get("kind") == "turn_error" for event in events)

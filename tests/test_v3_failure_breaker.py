@@ -389,12 +389,13 @@ def test_error_enters_recovery_before_incomplete_stop(tmp_path: Path, monkeypatc
 
     assert dispatcher.calls == 2
     assert client.calls >= 4  # corrective call + normal completion check
-    recovery_checks = [
+    completion_checks = [
         event for event in events
         if event.get("kind") == "completion_check"
-        and event.get("phase") == "error_recovery"
     ]
-    assert len(recovery_checks) == 1
+    assert len(completion_checks) == 1
+    assert completion_checks[0].get("sections")
+    assert "phase" not in completion_checks[0]
     assert any(event.get("kind") == "turn_complete" for event in events)
     assert not any(event.get("kind") == "turn_error" for event in events)
     assert not any(event.get("reason") == "incomplete_goal" for event in events)
@@ -414,7 +415,7 @@ class _StreamFailsThenContinues:
         if self.calls == 1:
             yield {"kind": "error", "error": "temporary provider interruption"}
             return
-        assert any(
+        assert not any(
             message.get("role") == "user"
             and "Agent transport-recovery phase" in str(message.get("content"))
             for message in messages
@@ -423,7 +424,8 @@ class _StreamFailsThenContinues:
         yield {"kind": "finish", "reason": "stop"}
 
 
-def test_stream_error_is_retried_inside_agent_loop(tmp_path: Path) -> None:
+def test_stream_error_is_retried_inside_agent_loop(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(loop_mod, "_STREAM_RECOVERY_BACKOFF_SECONDS", (0.0, 0.0))
     client = _StreamFailsThenContinues()
     events: list[dict[str, Any]] = []
     loop = AgentLoopV3(
@@ -436,10 +438,6 @@ def test_stream_error_is_retried_inside_agent_loop(tmp_path: Path) -> None:
     asyncio.run(loop.run_turn("hi"))
 
     assert client.calls >= 2
-    assert any(
-        event.get("kind") == "completion_check"
-        and event.get("phase") == "stream_recovery"
-        for event in events
-    )
+    assert not any(event.get("kind") == "completion_check" for event in events)
     assert any(event.get("kind") == "turn_complete" for event in events)
     assert not any(event.get("kind") == "turn_error" for event in events)
