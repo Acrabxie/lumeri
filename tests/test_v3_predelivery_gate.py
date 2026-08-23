@@ -108,7 +108,12 @@ def _gate_text(content: Any) -> str:
 
 
 def _completion_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [e for e in events if e.get("kind") == "completion_check"]
+    # Recovery transitions reuse the completion_check transport event but are
+    # not the one-shot pre-delivery gate asserted by this module.
+    return [
+        e for e in events
+        if e.get("kind") == "completion_check" and "phase" not in e
+    ]
 
 
 def _make_loop(tmp_path: Path, client, events: list[dict[str, Any]]) -> AgentLoopV3:
@@ -171,10 +176,10 @@ def test_failure_disclosure_lists_failed_calls(tmp_path, monkeypatch):
     loop = _make_loop(tmp_path, client, events)
     asyncio.run(loop.run_turn("做个特效"))
 
-    # Tool failure + first prose stop + one-shot disclosure gate + full-route
+    # Tool failure + first prose stop + bounded recovery rounds + full-route
     # retry. Failure batches do not consume route no-progress budget before the
     # model can read their structured recovery payload.
-    assert client.calls == 4
+    assert client.calls == 7
     checks = _completion_events(events)
     assert len(checks) == 1
     assert "failure_disclosure" in checks[0]["sections"]

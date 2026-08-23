@@ -38,8 +38,11 @@ Contract — what this loop is and what it is NOT:
     via ``analyze_media`` explicitly. The single sanctioned exception is
     the pre-delivery gate below.
 
-  - When the model emits no tool_calls and the stream ends, the loop
-    runs a ONE-SHOT pre-delivery gate (per turn) before the honest stop:
+  - When the model emits no tool_calls and the stream ends, an unresolved
+    tool failure enters an explicit, bounded recovery phase first. The loop
+    feeds the failure ledger back to the model and asks it to continue with a
+    changed argument, tool, or approach. Only after recovery is exhausted does
+    the normal ONE-SHOT pre-delivery gate run before an honest stop:
     it injects a synthetic user message composed of (a) a visual
     self-check with 512px thumbnails of the visual assets this turn
     produced, (b) an explicit failure-disclosure list when tool calls
@@ -50,8 +53,10 @@ Contract — what this loop is and what it is NOT:
     call they are replaced in history with a text placeholder so base64
     payloads never ride the rolling window. After the gate (or when it
     is disabled), the loop emits ``turn_complete`` with the asset_ids
-    produced during this turn and returns. It does not retry, does not
-    "ask the user", does not synthesize a follow-up.
+    produced during this turn and returns. The recovery phase is deliberately
+    bounded so a provider/model that ignores the error cannot create an
+    unbounded token loop; the stop happens after recovery attempts, never at
+    the first ordinary tool error.
 """
 from __future__ import annotations
 
@@ -259,6 +264,16 @@ _MAX_CONSECUTIVE_TOOL_FAILURES = _REPEATED_FAILURE_NUDGE_THRESHOLD
 # needs to fix.
 _TRANSIENT_RETRY_NUDGE_THRESHOLD = 8
 
+# An ordinary tool failure is a recoverable state transition, not a terminal
+# turn result. This bounds only the extra model-only recovery rounds when the
+# model stops calling tools despite an unresolved failure. Tool calls remain
+# governed by the normal failure nudge and BudgetGuard paths.
+_ERROR_RECOVERY_MODEL_ROUNDS = 3
+# Provider stream errors use the same loop contract, but need fewer attempts:
+# the client already has its own transport retry/backoff before it emits an
+# error delta to this layer.
+_STREAM_RECOVERY_MODEL_ROUNDS = 2
+
 # Success-BLIND doom-loop guard (ported from opencode processor.ts,
 # DOOM_LOOP_THRESHOLD=3). The per-(tool, error_code) nudge above only tracks
 # FAILURES. But a loop can also get stuck repeating a call that keeps
@@ -350,6 +365,29 @@ class _StreamAccumulator:
     @property
     def tool_calls(self) -> list[_ToolCallAccumulator]:
         return [self.tool_calls_by_index[k] for k in sorted(self.tool_calls_by_index)]
+
+
+@dataclass
+class _RecoveryState:
+    """Per-turn state for the error-recovery phase.
+
+    ``TurnLedger.unresolved_failures`` remains the source of truth for what is
+    still broken. This object only tracks how many model recovery rounds have
+    been offered, so the host neither stops at the first error nor loops
+    forever when the model keeps answering in prose.
+    """
+
+    max_rounds: int
+    rounds: int = 0
+
+    def begin_round(self) -> int | None:
+        if self.rounds >= self.max_rounds:
+            return None
+        self.rounds += 1
+        return self.rounds
+
+    def reset(self) -> None:
+        self.rounds = 0
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1399,6 +1437,58 @@ class AgentLoopV3:
             }
         )
 
+    @staticmethod
+    def _build_error_recovery_prompt(
+        ledger: TurnLedger, *, attempt: int, max_attempts: int
+    ) -> str:
+        """Return the model-facing continuation instruction for open failures.
+
+        The structured failure payload already lives in the preceding
+        ``tool_result`` messages. This prompt is a state-machine transition,
+        not a second copy of the exception: it tells the model that a prose
+        stop is not yet a valid terminal state and points it back to the
+        ledger's unresolved facts.
+        """
+        failures = list(ledger.unresolved_failures.values())[-6:]
+        details: list[str] = []
+        for failure in failures:
+            summary = " ".join(str(failure.summary or "").split())
+            if len(summary) > 240:
+                summary = summary[:239].rstrip() + "…"
+            detail = f"{failure.tool_name}/{failure.error_code}"
+            if summary:
+                detail += f": {summary}"
+            details.append(f"- {detail}")
+        open_failures = "\n".join(details) or "- unresolved failure recorded in the turn ledger"
+        return (
+            f"Agent error-recovery phase (attempt {attempt}/{max_attempts}). "
+            "The previous tool failure is part of this agent loop, not a final "
+            "answer. Read the structured tool_result above and continue now "
+            "with a changed argument, a different tool, or a safe inspection "
+            "that identifies the root cause. Do not stop with a prose summary "
+            "while an unresolved failure remains and a safe recovery path exists. "
+            "If the failure genuinely needs user input or is blocked by policy "
+            "or budget, state that exact blocker instead of claiming success.\n"
+            "Unresolved failures:\n"
+            f"{open_failures}"
+        )
+
+    @staticmethod
+    def _build_stream_recovery_prompt(
+        error: str, *, attempt: int, max_attempts: int
+    ) -> str:
+        detail = " ".join(str(error or "model stream failed").split())
+        if len(detail) > 320:
+            detail = detail[:319].rstrip() + "…"
+        return (
+            f"Agent transport-recovery phase (attempt {attempt}/{max_attempts}). "
+            "The previous model stream failed before this turn finished. Treat "
+            "this as an in-loop recoverable error: continue the same request "
+            "from the durable state, do not claim success, and do not abandon "
+            "the task yet.\n"
+            f"Observed stream error: {detail}"
+        )
+
     def _new_visual_records(self, pre_asset_ids: set[str]) -> list[Any]:
         """Visual assets (image/video/lottie) registered during this turn,
         in registry (oldest→newest) order."""
@@ -1871,9 +1961,11 @@ class AgentLoopV3:
         """One turn: stream → dispatch any tool_calls → repeat → emit turn_complete.
 
         There is no fixed cap on the total number of tool steps in a turn.
-        ``visual_inspections_this_turn`` still caps analyze_media thumbnails,
-        and ``tool_fail_counts`` drives repeated-failure nudges. Genuine
-        cost/time stay bounded by BudgetGuard.
+        Ordinary tool failures enter a bounded model recovery phase instead of
+        ending the turn at the first error. ``visual_inspections_this_turn``
+        still caps analyze_media thumbnails, and ``tool_fail_counts`` drives
+        repeated-failure nudges. Genuine cost/time stay bounded by
+        BudgetGuard.
         """
         pre_asset_ids = {r.asset_id for r in self.registry.list_records()}
         routing_state = self._routing_state()
@@ -1933,6 +2025,13 @@ class AgentLoopV3:
         # not "the model's approach failed". Drives the failure-disclosure
         # section of the pre-delivery gate.
         failed_call_log: list[tuple[str, str]] = []
+        # An unresolved failure is a state that must be consumed by the agent
+        # loop. This counter bounds only model responses that contain no tool
+        # call after the host has already fed the structured error back.
+        error_recovery = _RecoveryState(_ERROR_RECOVERY_MODEL_ROUNDS)
+        # The provider client already retries transport failures internally;
+        # these are the final bounded continuation attempts at loop level.
+        stream_recovery = _RecoveryState(_STREAM_RECOVERY_MODEL_ROUNDS)
         # Once the full tool surface is active, allow one no-progress
         # result batch to be consumed by the model. This is essential for
         # enabling reads/elicit answers whose value only appears in the next
@@ -2123,6 +2222,27 @@ class AgentLoopV3:
                         one_shot_image_messages.remove(image_message)
 
             if stream_error is not None:
+                recovery_attempt = stream_recovery.begin_round()
+                if recovery_attempt is not None:
+                    self._messages.append(
+                        {
+                            "role": "user",
+                            "content": self._build_stream_recovery_prompt(
+                                stream_error,
+                                attempt=recovery_attempt,
+                                max_attempts=stream_recovery.max_rounds,
+                            ),
+                        }
+                    )
+                    self._emit(
+                        {
+                            "kind": "completion_check",
+                            "phase": "stream_recovery",
+                            "attempt": recovery_attempt,
+                            "max_attempts": stream_recovery.max_rounds,
+                        }
+                    )
+                    continue
                 self._emit({"kind": "turn_error", "error": stream_error})
                 self._emit_turn_wrapup(
                     "stream_error",
@@ -2197,6 +2317,43 @@ class AgentLoopV3:
                 turn_did_work = bool(
                     tools_succeeded or tools_failed or _assets_produced()
                 )
+
+                # A tool error is not a valid stopping point. The model may
+                # emit a prose response after seeing the structured error, but
+                # the host keeps the turn in the recovery state and asks for a
+                # corrective tool step before allowing normal completion logic.
+                # Successful corrective outcomes clear the ledger failure and
+                # reset this bounded counter in the dispatch path below.
+                if ledger.unresolved_failures:
+                    recovery_attempt = error_recovery.begin_round()
+                    if recovery_attempt is not None:
+                        self._messages.append(
+                            {
+                                "role": "user",
+                                "content": self._build_error_recovery_prompt(
+                                    ledger,
+                                    attempt=recovery_attempt,
+                                    max_attempts=error_recovery.max_rounds,
+                                ),
+                            }
+                        )
+                        self._emit(
+                            {
+                                "kind": "completion_check",
+                                "phase": "error_recovery",
+                                "attempt": recovery_attempt,
+                                "max_attempts": error_recovery.max_rounds,
+                                "unresolved_failures": list(
+                                    ledger.unresolved_failures
+                                ),
+                            }
+                        )
+                        continue
+                    # Recovery is exhausted, so let the ordinary one-shot
+                    # pre-delivery gate run once. It is the final model-facing
+                    # disclosure/review step before the unresolved blocker is
+                    # reported honestly; it is not an immediate stop at the
+                    # first error.
                 gate_applies = (
                     turn_did_work
                     or self.plan_mode
@@ -2787,6 +2944,8 @@ class AgentLoopV3:
                 if outcome.state == "success":
                     tool_fail_counts.pop(tc.name, None)
                     tools_succeeded += 1
+                    if not ledger.unresolved_failures:
+                        error_recovery.reset()
                 # Progress is assessed once for the complete assistant tool
                 # batch below. Per-call resets can otherwise hide a later
                 # irrelevant/noop call and prevent deterministic expansion.

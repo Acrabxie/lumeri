@@ -56,9 +56,10 @@ def test_repeated_failure_nudge_does_not_stop_turn(tmp_path: Path) -> None:
 
     # 5 consecutive build failures → a model-facing nudge is appended, but the
     # host does not stop AT the threshold. The fake model remains in control,
-    # emits text, then the completion ledger widens adjacent/full routes before
-    # honestly ending incomplete because the failures were never repaired.
-    assert client.calls == _REPEATED_FAILURE_NUDGE_THRESHOLD + 3
+    # emits text, then the error-recovery phase plus completion ledger widen
+    # adjacent/full routes before honestly ending incomplete because the
+    # failures were never repaired.
+    assert client.calls == _REPEATED_FAILURE_NUDGE_THRESHOLD + 6
     assert any(e.get("reason") == "incomplete_goal" for e in events)
     assert not [e for e in events if e.get("kind") == "turn_complete"]
     # Every attempt surfaced an error to the model — none silently dropped.
@@ -126,10 +127,10 @@ def test_failure_nudge_streak_resets_on_success(tmp_path: Path, monkeypatch) -> 
     # 4 fails, 1 success (resets streak), 4 fails — never 5 in a row. The turn
     # runs to natural completion (call #10 with no tool calls). Without the
     # reset, the streak would hit 5 on the 6th flaky call and produce a nudge.
-    # The final four failures remain unresolved, so after the one-shot gate and
-    # full-route retry the ledger ends incomplete (the success still reset the
-    # repeated-failure streak as asserted below).
-    assert client.calls == 12
+    # The final four failures remain unresolved, so after bounded error recovery
+    # and the full-route retry the ledger ends incomplete (the success still
+    # reset the repeated-failure streak as asserted below).
+    assert client.calls == 15
     assert any(e.get("reason") == "incomplete_goal" for e in events)
     assert not [e for e in events if e.get("kind") == "turn_complete"]
 
@@ -236,10 +237,10 @@ def test_failure_nudge_soft_resets_when_error_code_changes(tmp_path: Path, monke
 
     asyncio.run(loop.run_turn("keep adapting"))
 
-    # 9 tool turns + closing text + gate + full-route retry = 12; unresolved
-    # failures end incomplete, but alternating codes still never trigger the
-    # repeated-same-error guidance.
-    assert client.calls == 12
+    # 9 tool turns + closing text + bounded error recovery + full-route retry =
+    # 15; unresolved failures end incomplete, but alternating codes still never
+    # trigger the repeated-same-error guidance.
+    assert client.calls == 15
     assert any(e.get("reason") == "incomplete_goal" for e in events)
     assert not [e for e in events if e.get("kind") == "turn_complete"]
     assert sum(1 for e in events if e.get("kind") == "tool_exec_error") == 9
@@ -317,3 +318,128 @@ def test_noop_does_not_clear_an_unresolved_failure_streak(
         and "Repeated tool failure guidance" in str(message.get("content"))
     ]
     assert len(nudges) == 1
+
+
+class _FailsOnceThenSucceeds:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(self, args: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        del args, ctx
+        self.calls += 1
+        if self.calls == 1:
+            raise ToolError(
+                "the first attempt was invalid",
+                code="E_BAD_ARG",
+                recovery="fix_args",
+                hint="retry with corrected arguments",
+            )
+        return {"status": "success", "summary": "corrected attempt applied"}
+
+
+class _StopsOnceThenConsumesRecovery:
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del tools, temperature
+        self.calls += 1
+        if self.calls == 1:
+            yield {"kind": "tool_call_start", "index": 0, "id": "bad", "name": "recoverable_tool"}
+            yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{}"}
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        if self.calls == 2:
+            # This is the regression: the model tries to stop immediately after
+            # seeing a tool error. The host must keep the turn in recovery.
+            yield {"kind": "text_delta", "text": "I could not finish."}
+            yield {"kind": "finish", "reason": "stop"}
+            return
+        if self.calls == 3:
+            assert any(
+                message.get("role") == "user"
+                and "Agent error-recovery phase" in str(message.get("content"))
+                for message in messages
+            )
+            yield {"kind": "tool_call_start", "index": 0, "id": "fixed", "name": "recoverable_tool"}
+            yield {"kind": "tool_call_args_delta", "index": 0, "delta": "{\"fixed\":true}"}
+            yield {"kind": "finish", "reason": "tool_calls"}
+            return
+        yield {"kind": "text_delta", "text": "Recovered."}
+        yield {"kind": "finish", "reason": "stop"}
+
+
+def test_error_enters_recovery_before_incomplete_stop(tmp_path: Path, monkeypatch) -> None:
+    dispatcher = _FailsOnceThenSucceeds()
+    monkeypatch.setitem(loop_mod.DISPATCHER, "recoverable_tool", dispatcher)
+    client = _StopsOnceThenConsumesRecovery()
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="error_recovery_phase",
+        output_dir=tmp_path,
+        gemini_client=client,  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("do something"))
+
+    assert dispatcher.calls == 2
+    assert client.calls >= 4  # corrective call + normal completion check
+    recovery_checks = [
+        event for event in events
+        if event.get("kind") == "completion_check"
+        and event.get("phase") == "error_recovery"
+    ]
+    assert len(recovery_checks) == 1
+    assert any(event.get("kind") == "turn_complete" for event in events)
+    assert not any(event.get("kind") == "turn_error" for event in events)
+    assert not any(event.get("reason") == "incomplete_goal" for event in events)
+
+
+class _StreamFailsThenContinues:
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_turn(
+        self, messages: list[dict[str, Any]], *, tools=None, temperature: float = 0.7
+    ) -> AsyncIterator[dict[str, Any]]:
+        del tools, temperature
+        self.calls += 1
+        if self.calls == 1:
+            yield {"kind": "error", "error": "temporary provider interruption"}
+            return
+        assert any(
+            message.get("role") == "user"
+            and "Agent transport-recovery phase" in str(message.get("content"))
+            for message in messages
+        )
+        yield {"kind": "text_delta", "text": "继续处理。"}
+        yield {"kind": "finish", "reason": "stop"}
+
+
+def test_stream_error_is_retried_inside_agent_loop(tmp_path: Path) -> None:
+    client = _StreamFailsThenContinues()
+    events: list[dict[str, Any]] = []
+    loop = AgentLoopV3(
+        session_id="stream_recovery_phase",
+        output_dir=tmp_path,
+        gemini_client=client,  # type: ignore[arg-type]
+        emit_event=events.append,
+    )
+
+    asyncio.run(loop.run_turn("hi"))
+
+    assert client.calls >= 2
+    assert any(
+        event.get("kind") == "completion_check"
+        and event.get("phase") == "stream_recovery"
+        for event in events
+    )
+    assert any(event.get("kind") == "turn_complete" for event in events)
+    assert not any(event.get("kind") == "turn_error" for event in events)
