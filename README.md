@@ -65,21 +65,84 @@ If the prompt is vague, the model asks clarifying questions first (Ask mechanism
 
 ## Models
 
-Lumeri Video runs on Google's models. Nothing else is wired into the default path.
+Two layers, configured separately, because they are not interchangeable.
 
-| Role | Model |
-|---|---|
-| Planner | Google Gemini |
-| Image generation / editing | Nano Banana (Gemini image) |
-| Video generation | Veo |
-| Music / sound generation | Lyria |
+### The planner — pick any of five
 
-You point Lumeri at Google via one of two auth paths:
+The planner reads your prompt and every primitive's docstring, then writes the
+plan. It is a general reasoning model, so you can run it on whichever provider
+you already pay for. Set `lumeri_v3_provider` in `~/.lumeri/config.json` and add
+that provider's key:
 
-- **Gemini API key** — set `GEMINI_API_KEY` (from Google AI Studio).
-- **Vertex AI** — set `VERTEX_PROJECT` (uses your local `gcloud` ADC).
+| Provider | Value | Credential |
+|---|---|---|
+| Google Vertex AI | `vertex` | `vertex_project` + `gcloud` ADC, or a GCP VM service account with the *Vertex AI User* role |
+| Google AI Studio | `gemini` | `gemini_api_key` |
+| OpenAI | `openai` | `openai_api_key` (optional `openai_model`) |
+| Anthropic | `claude` | `anthropic_api_key` |
+| OpenRouter | `openrouter` | `openrouter_api_key` (optional `openrouter_model`) |
 
-That's the whole configuration surface. No third-party gateways, no key marketplaces.
+Run `python -m gemia setup` for an interactive walkthrough, or write the file
+yourself — the headless instructions print the exact JSON for each provider.
+
+### The generative models — Google, with one exception
+
+These produce actual pixels and audio, and they are wired to specific models
+rather than to an interface, so they are not a free choice:
+
+| Role | Model | Swappable |
+|---|---|---|
+| Image generation / editing | Nano Banana (Gemini image) on Vertex | Yes — point `image_base_url` at OpenRouter or any OpenAI-compatible endpoint |
+| Video generation | Veo on Vertex | No |
+| Music / sound generation | Lyria on Vertex | No |
+
+Video and audio carry a failover chain within the same family, so a preview
+model that goes away does not take the pipeline down with it.
+
+### Search — optional, keyless by default
+
+Web search needs no key. Left alone it auto-detects: if you have configured a
+key for `tavily`, `serper`, `brave`, `exa`, `google_cse` or `bing` it uses that
+one first — a present key is taken as having opted into that engine — then
+`searxng` if you have given it a `searxng_url`. With none of them configured it
+falls back to DuckDuckGo, which needs nothing and is never auto-selected over an
+engine you actually configured. Set `search_provider` explicitly to pin one.
+
+Behind a firewall, set `proxy` to an `http://host:port` and every outbound model
+call goes through it. Leave it empty in the cloud.
+
+---
+
+## Your keys, or an account
+
+Lumeri runs in two modes, and which one you are in decides who pays the model
+bill and who carries responsibility for what comes out.
+
+**Bring your own keys.** Put a provider key in `~/.lumeri/config.json` as above
+and everything runs against your account, on your quota, billed to you. Nothing
+is relayed through a Lumeri service. This is the mode the repository defaults
+to, and it is the whole story for a local install.
+
+**Sign in instead.** The desktop app can sign in with a Google account, after
+which provider credentials are resolved for you and you never hold a key. The
+generative calls then run on platform-held credentials rather than yours.
+
+The distinction is not cosmetic. When the platform pays for a generation, the
+platform is answerable for the pixels it hands back, so platform-funded image
+and video is routed through output screening on its way out — whether that
+screening is actually switched on is a deployment question, answered below, and
+not something to assume from this paragraph. When you bring your own key, only
+your input is checked and the output is yours. `platform_funded()` is the single predicate
+that decides which of the two you are in, and it is deliberately a named
+function rather than an inline `True` so that the day per-user keys or credits
+land, there is exactly one place to change.
+
+Output screening is a deployment setting, not an assumption. `/health` reports
+it as `output_moderation` in one of three states — enforcing, recording only, or
+no detector configured — because the failure mode is invisible from the outside:
+an unconfigured detector lets media through and simply records that nothing was
+screened. Any deployment that takes payment should be running it in enforcing
+mode and should verify that on `/health` rather than trusting a config file.
 
 ---
 
@@ -91,15 +154,28 @@ git clone https://github.com/Acrabxie/lumeri.git && cd lumeri
 # Python 3.12+, ffmpeg required
 pip install -e .
 
-# Point at Google
-export GEMINI_API_KEY="..."
+# Configure a model provider interactively...
+python -m gemia setup
+
+# ...or point at one directly
+export GEMINI_API_KEY="..."        # Google AI Studio
+# export OPENAI_API_KEY="..."      # or OpenAI
+# export ANTHROPIC_API_KEY="..."   # or Anthropic
+# export VERTEX_PROJECT="..."      # or Vertex AI, via your gcloud ADC
 ```
+
+Running with no provider configured prints the exact JSON for each of the five,
+rather than failing with a stack trace.
 
 Verify:
 
 ```bash
-python3 -m pytest tests/ -v    # ~258 tests, no GPU needed
+python -m pytest tests/ -q     # ~4,300 tests, no GPU needed
 ```
+
+Run it from the environment you installed into. A stray system interpreter
+resolves a different set of packages, and the failures that produces look like
+real ones.
 
 ---
 
@@ -208,7 +284,8 @@ User prompt
     │
     ▼
 ┌──────────────────────┐
-│  Planner (Gemini)     │  reads every primitive's docstring
+│  Planner              │  reads every primitive's docstring
+│  (your chosen model)  │
 └──────────┬───────────┘
            │ Plan JSON
            ▼
@@ -233,8 +310,8 @@ User prompt
 
 - ✅ Generative primitives — image (Nano Banana), video (Veo), music (Lyria)
 - ✅ Skills v2 — model tracking, parameterization
+- ✅ Desktop app — packaged macOS build with a managed local runtime
 - Skills UI — visual skill browser in the web interface
-- Desktop app — standalone macOS / Windows app
 - Sibling products — Lumeri Audio / Image / PPT / CAD on the same core
 
 ---
@@ -243,7 +320,10 @@ User prompt
 
 - Python 3.12+
 - ffmpeg / ffprobe in PATH
-- One of: `GEMINI_API_KEY` (Google AI Studio) or `VERTEX_PROJECT` (Vertex AI)
+- A planner credential — any one of `VERTEX_PROJECT`, `GEMINI_API_KEY`,
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENROUTER_API_KEY`
+- Generative image, video and audio additionally need Vertex access; without it
+  the editing primitives still run and only the generative verbs are unavailable
 
 ## Contributors
 
