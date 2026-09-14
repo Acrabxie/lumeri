@@ -23,6 +23,8 @@
   ·
   <a href="#architecture">Architecture</a>
   ·
+  <a href="#skills">Skills</a>
+  ·
   <a href="#use-lumeri-from-another-agent">MCP</a>
   ·
   <a href="CONTRIBUTING.md">Contribute</a>
@@ -54,6 +56,24 @@ re-roll the whole video.
 > The public product and GitHub repository name is **Lumeri**. The Python
 > package and some engineering paths still use the historical name `gemia`.
 
+## This repository and Lumeri.io
+
+[**lumeri.io**](https://lumeri.io/) is the product site for the Lumeri family,
+where the hosted service and its accounts live.
+
+**This repository is the local creative runtime** — the engine, the verbs, the
+project model, the layer core, and the web workspace, under the MIT license.
+Run it from here and you get one local workspace on your own computer, driven by
+your own model provider: no registration, no login, no account switching, no
+hosted email, and no billing. Your projects, media, and credentials stay on that
+machine.
+
+Hosted authentication, email delivery, cloud account management, billing, and
+subscription systems are deliberately **not** part of this codebase — see the
+public/private boundary in [SECURITY.md](SECURITY.md). Nothing in this
+repository phones home to a Lumeri account, and none of it requires one. For
+what the hosted service offers, see [lumeri.io](https://lumeri.io/).
+
 ## Why Lumeri
 
 - **Project-native** — work lives in a persistent project on your disk, not in a
@@ -63,10 +83,14 @@ re-roll the whole video.
 - **Two real document models** — a clip timeline for cutting and a layered
   composition for design work, bridged like precomps (see
   [Architecture](#architecture)).
-- **Local-first** — no account, no login, no hosted billing. One local workspace,
-  your own model provider, your own files.
-- **Open foundation** — the engine, the media verbs, the project model, the
-  layer core, and the web workspace are all here under the MIT license.
+- **Local-first** — one local workspace, your own model provider, your own
+  files, no account required (see [above](#this-repository-and-lumeriio)).
+- **Teachable** — the model routes over a keyword-indexed skill library, and
+  distills what worked into reusable skills of your own (see
+  [Skills](#skills)).
+- **Extensible** — third-party repositories register new layer types, ops, and
+  effects through `lumenframe.registry`, so the editing language grows without
+  forking the core.
 
 ## How it works
 
@@ -143,6 +167,35 @@ The Codex subscription option invokes the Codex CLI on the same machine and only
 accepts a local **Sign in with ChatGPT** session. Lumeri never reads, copies, or
 stores Codex credentials, and every person signs in with their own account.
 
+### macOS
+
+macOS is the reference platform. Nothing beyond the steps above is required —
+`brew install ffmpeg`, then `python server.py`.
+
+It is also the only platform where Lumeri will run model-generated code. The
+`build` and `run_shell` verbs execute under a two-tier `sandbox-exec` kernel
+profile: full read/write inside the workspace; outside it, read and create-new
+only, with pre-existing files protected from modification, truncation, deletion,
+and rename. That kernel boundary is the only enforcement Lumeri trusts, so where
+`sandbox-exec` is missing or unusable the verbs fail closed — refused outright
+rather than run unprotected. The profile still grants IOKit access, so Metal and
+Blender-backed effects can initialize the GPU without leaving the sandbox.
+
+Voiceover is local and free: `narrate` speaks through the built-in `say` engine,
+offline and with no API key. Pass `voice` to choose a system voice (`Ava`,
+`Samantha`, `Tingting`, `Meijia`, …) or omit it for the default.
+
+Permissions stay yours. macOS TCC consent is owned by the user, and Lumeri never
+reports a capability as granted merely because it launched a subprocess.
+
+For the Codex subscription provider, install and sign in to the CLI first:
+
+```bash
+brew install node        # or any Node.js LTS
+npm install -g @openai/codex
+codex login
+```
+
 ### Windows 10/11
 
 Install 64-bit Python 3.12+, Git, and a complete FFmpeg package whose `ffmpeg`
@@ -177,12 +230,19 @@ Reopen PowerShell after installing Node.js before running `npm`. API-key
 authentication reported by `codex login status` does not count as subscription
 access — complete **Sign in with ChatGPT** instead.
 
-Editing, rendering, export, local voiceover, Windows fonts, Blender discovery,
-and OpenTimelineIO bundles all run natively on Windows. Model-generated
+Editing, rendering, export, local voiceover (via Windows SAPI), Windows fonts,
+Blender discovery, and OpenTimelineIO bundles all run natively. Model-generated
 `build` / `run_shell` code stays locked by default, because native Windows has no
 equivalent of the macOS kernel sandbox Lumeri relies on. The local owner may
 explicitly disable **Sandbox** in the Lumeri menu to allow PowerShell and Python
 execution with full computer access; Lumeri never enables that mode on its own.
+
+### Linux
+
+Install FFmpeg from your package manager and run the same two commands as
+macOS. Editing, rendering, export, and OTIO interchange all work; voiceover
+falls back to `espeak` if it is installed. As on Windows, there is no
+`sandbox-exec`, so `build` / `run_shell` fail closed.
 
 ## Architecture
 
@@ -242,13 +302,68 @@ changes.
 | LayerPatch ops | 54 | `lumenframe/ops.py` |
 | Skill packs (+ 4 combos) | 24 | `gemia/ai/skills/` |
 
-Verbs are the model's API; primitives are the Python functions behind them.
-Skills keep the prompt small — a router picks a handful of relevant packs per
-request instead of describing 835 primitives every turn.
+Verbs are the model's API; primitives are the Python functions behind them, and
+[skills](#skills) are how the model finds the right one without carrying all 835
+in its prompt.
 
 Third-party repositories extend the layer core through `lumenframe.registry`
 (new layer types, ops, and effects), so the editing language grows without
 forking.
+
+## Skills
+
+835 primitives will not fit in a prompt, and a model that has to rediscover your
+house style on every task is not much of a collaborator. Skills solve both — in
+two layers.
+
+### The shipped library
+
+24 skill packs live in `gemia/ai/skills/`, one directory each, built around a
+`SKILL.md` whose YAML frontmatter declares what it is for and when to stay out
+of the way:
+
+```yaml
+id: timeline-ops
+description: 时间线结构编辑：裁剪、截取、加速、倒放…… 只改画面色彩用 color-grade。
+triggers:
+  primary: [裁剪, 截取, 加速, 倒放, trim, cut, speed, concat, reverse]
+  secondary: [时间轴, 片段, 区间, clip, timeline, retime]
+primitives: [gemia.video.timeline.cut, gemia.video.timeline.speed, ...]
+est_tokens: 520
+```
+
+Routing is progressive disclosure, cheapest path first: keyword match against the
+request, then an optional LLM fallback, then a static fallback set — a different
+one for prompt-only projects with no footage yet. At most three packs load per
+request, so the prompt carries a few hundred tokens of relevant craft instead of
+the whole catalog. Triggers are bilingual because requests are.
+
+Four `_combos/` entries cover skill pairs that keep co-occurring
+(`timeline-ops+color-grade`, `transition+color-grade`, …) with a ready plan
+template, skipping a planning round-trip. To see which packs are actually
+earning their place:
+
+```bash
+lumeri-skill-stats --days 7        # add --json for machine-readable output
+```
+
+### Skills you teach it
+
+The second layer is yours. When a multi-step task works, `save_skill` distills it
+into a compact recipe — `{name, when_to_use, steps, notes}` — stored as one
+`.lus` file per name under `~/.gemia/skills`. Re-distilling the same name updates
+it in place, so a skill sharpens over time instead of spawning near-duplicates.
+`recall_skills` searches your distilled skills *and* the shipped library before
+work begins.
+
+The store validates before it writes, and a rejection writes nothing: skills
+carrying secrets, absolute user paths, or no steps at all are refused with a
+typed `E_LUS_*` error. The `.lus` format itself is small and boring on purpose —
+64 KiB ceiling, canonical byte-stable serialization with a checksum, and metadata
+readable from the first 8 KiB so recall can scan many skills cheaply.
+
+Relevant environment variables: `GEMIA_SKILL_STORE_DIR` (relocate the store),
+`GEMIA_SKILL_ROUTER`, `GEMIA_SKILL_LLM_FALLBACK`.
 
 ## Use Lumeri from another agent
 
@@ -276,11 +391,12 @@ of megabytes of JSON on both sides and land in the model's context.
 - **Budget guard** — the only host-side spending gate. It tracks cumulative cost
   and elapsed time and returns a fixed-limit block; an approval cannot raise the
   cap, and the host never silently substitutes a cheaper tool.
-- **Sandbox** — model-generated code runs under a two-tier macOS `sandbox-exec`
-  profile: full read/write inside the workspace, read-and-create-only outside it,
-  with pre-existing files protected from modification or deletion. On Windows,
-  code execution is locked unless the owner explicitly disables it.
-- **No secrets in the repo** — provider credentials stay in local config.
+- **Sandbox** — model-generated code runs only under the macOS kernel profile
+  described under [macOS](#macos), and fails closed everywhere else.
+- **Skill validation** — a distilled skill carrying secrets or absolute user
+  paths is rejected before anything is written to disk.
+- **No secrets in the repo** — provider credentials stay in local config, never
+  in code or committed files.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
