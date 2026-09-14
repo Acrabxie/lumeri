@@ -21,6 +21,8 @@ import asyncio
 import base64
 import json
 import os
+import random
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -37,6 +39,85 @@ _BACKEND_ENV = "GEMIA_OUTPUT_MODERATION_BACKEND"
 _MODEL_ENV = "GEMIA_OUTPUT_MODERATION_MODEL"
 # Vertex serves the 3.x text/multimodal models on the global endpoint under
 # an OpenAI-style name; the direct API uses the bare identifier.
+# A verdict blocks a generation the user is waiting on, so the whole attempt
+# chain is capped rather than each socket: one 90s timeout used to cost more
+# wall clock than every retry here combined.
+_ATTEMPT_BUDGET_SECONDS = 30.0
+_MAX_ATTEMPTS = 3
+# Measured: a healthy verdict returns in about 2.3s, the slowest under 4s. A
+# call still open at 8s is stuck rather than slow, and waiting longer only eats
+# the budget a second attempt needs — at 8s three full attempts fit inside 30s,
+# at 15s only two do.
+_SINGLE_ATTEMPT_TIMEOUT = 8.0
+# Only what a retry can actually fix. A 400 or a 403 means the request itself is
+# wrong, and repeating it spends quota the next screening needs.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_RETRY_AFTER_CAP_SECONDS = 10.0
+
+
+def _retry_delay(attempt: int, error: urllib.error.HTTPError | None) -> float:
+    """How long to wait before attempt ``attempt + 1``.
+
+    The detector runs on a fixed quota, so a retry is never free — it spends
+    what the next generation needs. Backoff grows exponentially and carries
+    jitter so that several screenings rejected in the same second do not
+    resynchronise into a second burst against the same quota. A server-sent
+    ``Retry-After`` always wins over the local schedule, because it is the only
+    party that knows when capacity returns.
+    """
+    if error is not None and error.headers is not None:
+        header = error.headers.get("Retry-After")
+        if header:
+            try:
+                return max(0.0, min(float(header), _RETRY_AFTER_CAP_SECONDS))
+            except (TypeError, ValueError):
+                pass
+    base = 0.5 * (2**attempt)
+    return base + random.uniform(0.0, base * 0.5)
+
+
+def _post_json(opener: urllib.request.OpenerDirector, request: urllib.request.Request) -> dict:
+    """POST and decode JSON, retrying only transient refusals.
+
+    Raises:
+        OutputModerationUnavailable: When no attempt produced a response. Never
+            returns a partial or guessed result — an unanswered screening has to
+            reach the caller as "unavailable" so that required mode can refuse
+            rather than let the asset through.
+    """
+    deadline = time.monotonic() + _ATTEMPT_BUDGET_SECONDS
+    last: BaseException | None = None
+    attempts = 0
+
+    for attempt in range(_MAX_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        attempts = attempt + 1
+        try:
+            with opener.open(request, timeout=min(remaining, _SINGLE_ATTEMPT_TIMEOUT)) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:  # a subclass of URLError — catch first
+            last = exc
+            if exc.code not in _RETRYABLE_STATUS:
+                raise OutputModerationUnavailable(f"detector request failed: {exc}") from exc
+            delay = _retry_delay(attempt, exc)
+        except json.JSONDecodeError as exc:
+            # A body that is not JSON will not become JSON on a second ask.
+            raise OutputModerationUnavailable(f"detector returned non-JSON: {exc}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = exc
+            delay = _retry_delay(attempt, None)
+
+        if attempt == _MAX_ATTEMPTS - 1 or time.monotonic() + delay >= deadline:
+            break
+        time.sleep(delay)
+
+    raise OutputModerationUnavailable(
+        f"detector request failed after {attempts} attempt(s): {last}"
+    )
+
+
 _DEFAULT_VERTEX_MODEL = "google/gemini-3.5-flash"
 _DEFAULT_API_MODEL = "gemini-3.1-flash"
 
@@ -221,7 +302,12 @@ class GeminiOutputBackend:
         """(url, model, proxy) for the Vertex route, or None when unconfigured."""
         from gemia.gemini_client import _read_config_key  # local: heavy module
 
-        project = (os.environ.get("VERTEX_PROJECT") or _read_config_key("vertex_project") or "").strip()
+        project = (
+            os.environ.get("VERTEX_PROJECT")
+            or _read_config_key("vertex_project")
+            or _vertex_profile_key("vertex_project")
+            or ""
+        ).strip()
         if not project:
             return None
         location = (
@@ -229,6 +315,8 @@ class GeminiOutputBackend:
             or _read_config_key("lumeri_v3_location")
             or os.environ.get("VERTEX_LOCATION")
             or _read_config_key("vertex_location")
+            or _vertex_profile_key("vertex_location")
+            or _vertex_profile_key("location")
             or "global"
         ).strip()
         host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
@@ -292,11 +380,7 @@ class GeminiOutputBackend:
             if proxy
             else urllib.request.build_opener(urllib.request.ProxyHandler({}))
         )
-        try:
-            with opener.open(request, timeout=90) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-            raise OutputModerationUnavailable(f"detector request failed: {exc}") from exc
+        payload = _post_json(opener, request)
 
         choices = payload.get("choices") or []
         if not choices:
@@ -326,11 +410,7 @@ class GeminiOutputBackend:
             headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-            raise OutputModerationUnavailable(f"detector request failed: {exc}") from exc
+        payload = _post_json(urllib.request.build_opener(), request)
 
         candidates = payload.get("candidates") or []
         if not candidates:
@@ -342,6 +422,27 @@ class GeminiOutputBackend:
             if isinstance(part.get("text"), str) and part["text"].strip():
                 return part["text"]
         raise OutputModerationUnavailable("detector returned no text part")
+
+
+def _vertex_profile_key(field: str) -> str:
+    """Read a Vertex field from the configured provider profile.
+
+    This deployment keeps its Vertex project inside the ``vertex`` entry of
+    ``brain_provider_profiles`` rather than at the top level of the config. A
+    detector that reads only top-level keys therefore finds nothing on a fully
+    credentialed machine and reports itself as "no detector configured", which
+    is the one failure mode /health exists to make visible.
+    """
+    from gemia.gemini_client import _read_config_value  # local: heavy module
+
+    profiles = _read_config_value("brain_provider_profiles")
+    if not isinstance(profiles, dict):
+        return ""
+    vertex = profiles.get("vertex")
+    if not isinstance(vertex, dict):
+        return ""
+    value = vertex.get(field)
+    return value.strip() if isinstance(value, str) else ""
 
 
 def resolve_backend() -> OutputBackend | None:
