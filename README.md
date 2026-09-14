@@ -11,17 +11,19 @@
 </p>
 
 <p align="center">
-  An AI Creative Workflow Engine for turning an idea into a real, editable media project.
+  An AI creative workflow engine that turns an idea into a real, editable media project.
 </p>
 
 <p align="center">
   <a href="https://lumeri.io/"><strong>Official website</strong></a>
   ·
-  <a href="#product-loop">Product loop</a>
+  <a href="#how-it-works">How it works</a>
   ·
   <a href="#install">Install</a>
   ·
   <a href="#architecture">Architecture</a>
+  ·
+  <a href="#use-lumeri-from-another-agent">MCP</a>
   ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
@@ -39,54 +41,50 @@
 **Lumeri** is a family of AI creative tools built around a small vocabulary of
 clean, composable primitives that a model can plan and execute.
 
-**Lumeri Video** is the first product in the family. It is an agentic video
-workspace where the model works over a persistent timeline using structured
-tools while you watch, edit, and correct the result.
+**Lumeri Video** is the first product in the family: an agentic video workspace
+where the model works over a persistent project using structured tools while
+you watch, edit, and correct the result.
 
-More than a prompt box, Lumeri keeps the creative process inspectable: projects
-persist, tool calls are structured, timeline changes remain editable, and every
-preview can become the starting point for the next revision.
+The difference from a prompt box is that nothing is thrown away. Projects
+persist to disk, every tool call is structured and logged, every timeline change
+is an undoable patch, and any preview can become the starting point for the next
+revision. When the model gets something wrong, you fix that one clip — you do not
+re-roll the whole video.
 
 > The public product and GitHub repository name is **Lumeri**. The Python
 > package and some engineering paths still use the historical name `gemia`.
 
 ## Why Lumeri
 
-- **Project-native** — work lives in a persistent project and timeline, not a
+- **Project-native** — work lives in a persistent project on your disk, not in a
   disposable chat response.
-- **Structured by design** — the model plans with explicit media tools and
-  applies reviewable timeline patches instead of emitting opaque editor macros.
-- **Built for iteration** — preview, inspect, revise, and export from the same
-  creative loop.
-- **Open foundation** — the public engine, media tools, project model, and local
-  workspace are available here under the MIT license.
+- **Structured by design** — the model plans with explicit media verbs and
+  applies reviewable patches, instead of emitting opaque editor macros.
+- **Two real document models** — a clip timeline for cutting and a layered
+  composition for design work, bridged like precomps (see
+  [Architecture](#architecture)).
+- **Local-first** — no account, no login, no hosted billing. One local workspace,
+  your own model provider, your own files.
+- **Open foundation** — the engine, the media verbs, the project model, the
+  layer core, and the web workspace are all here under the MIT license.
 
-## Product loop
+## How it works
 
 ```text
 Import media
-→ Persist project and timeline
-→ Model calls media tools over multiple turns
-→ TimelinePatch updates the project
+→ Persist project, timeline, and layer document
+→ Model plans, then calls media verbs over multiple turns
+→ TimelinePatch / LayerPatch update the project
 → Render and inspect a preview
 → Revise from structured feedback
 → Export MP4 or OTIO
 ```
 
-## Architecture
-
-| Layer | Responsibility |
-|---|---|
-| `server.py` | Local HTTP entry point |
-| `gemia/v3_routes.py` | Session API and streaming |
-| `gemia/agent_loop_v3.py` | Multi-turn model/tool loop |
-| `gemia/tools/` | Media tools built on FFmpeg and Python |
-| `gemia/project_model.py` | Persistent timeline model |
-| `gemia/project_render.py` | Preview renderer |
-| `gemia/project_export.py` | Full-quality export |
-| `lumerai/patches.py` | Shared timeline patch vocabulary |
-| `lumerai/otio_adapter.py` | OpenTimelineIO interchange |
-| `static/v3/` | Local web interface |
+Each turn runs through the same host-side path: the plan gate decides whether
+the model may mutate anything, the budget guard accounts for real money and real
+time, the verb executes, and the turn ledger records what actually changed. The
+loop ends when the ledger says the acceptance criteria are met — completion is a
+derived fact, not something the model can simply claim.
 
 ## Install
 
@@ -104,83 +102,205 @@ brew install ffmpeg
 sudo apt-get install ffmpeg
 ```
 
-Configure a supported model provider through environment variables or the
-local setup UI, then start Lumeri:
+Start the workspace:
 
 ```bash
-python server.py
+python server.py          # or: python -m gemia serve
 # Open http://127.0.0.1:7788/
 ```
 
+Use `--port` (or `LUMERI_PORT`) if 7788 is taken. Projects and media live under
+`~/.gemia/`; render scratch goes to a temp directory you can redirect with
+`LUMERI_V3_OUTPUT_ROOT`.
+
+Optional extras:
+
+```bash
+pip install -e ".[interop]"   # EDL / FCP7 XML / FCPX interchange adapters
+pip install -e ".[mcp]"       # expose Lumeri to other agents over MCP
+```
+
+### Choose a model provider
+
+Lumeri does not ship a key. Open the provider setup panel in the workspace (or
+`POST /config`) and pick one:
+
+| Provider | Auth |
+|---|---|
+| OpenAI subscription via local Codex | this computer's own ChatGPT login — no API key |
+| Google Vertex AI | GCP ADC (`gcloud auth`) + project/region |
+| Google Gemini API | `GEMINI_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` (custom `base_url` allowed) |
+| Anthropic Claude | `ANTHROPIC_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| Custom | any OpenAI-compatible endpoint |
+
+Credentials are stored locally on that computer and are never committed to Git.
+**Test connection** in the same panel runs a real streaming probe with no side
+effects.
+
+The Codex subscription option invokes the Codex CLI on the same machine and only
+accepts a local **Sign in with ChatGPT** session. Lumeri never reads, copies, or
+stores Codex credentials, and every person signs in with their own account.
+
 ### Windows 10/11
 
-Install 64-bit Python 3.12 or newer, Git, and a complete FFmpeg package whose
-`ffmpeg` and `ffprobe` commands are on `PATH`. Then open PowerShell in the
-cloned repository:
+Install 64-bit Python 3.12+, Git, and a complete FFmpeg package whose `ffmpeg`
+and `ffprobe` are on `PATH`. Then, in PowerShell in the cloned repository:
 
 ```powershell
 .\scripts\windows\setup.ps1
 .\scripts\windows\start.ps1
 ```
 
-The start script runs the source checkout directly on
-`http://127.0.0.1:7788/` and opens the browser workspace. It does not build or
-install an EXE. Run `doctor.ps1` for a non-destructive prerequisite and port
-check, or pass `-Port 7790` to both doctor/start when 7788 is already occupied.
-
-PowerShell execution policy is left unchanged. If your machine blocks local
-scripts, review the scripts first and invoke them for the current process only:
+`start.ps1` runs the source checkout directly on `http://127.0.0.1:7788/` and
+opens the browser workspace — it does not build or install an EXE. Run
+`doctor.ps1` for a non-destructive prerequisite and port check, or pass
+`-Port 7790` to both `doctor` and `start` when 7788 is occupied. PowerShell
+execution policy is left unchanged; if your machine blocks local scripts, review
+them first and allow them for the current process only:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-The public build has no account system: no registration, login, account
-switching, hosted email, or Lumeri billing. It always opens one local workspace
-stored on the current computer. Model-provider configuration remains local to
-that computer and is never committed to Git.
-
-To use an existing ChatGPT plan instead of an API key, choose **OpenAI 订阅
-（本机 Codex）** in `/setup`. This option invokes the Codex CLI on the same
-computer and only accepts a local **Sign in with ChatGPT** session. Lumeri never
-reads, copies, or stores Codex login credentials, and every person must sign in
-with their own OpenAI account.
-
-On Windows, install and authenticate the Codex CLI before selecting that option:
+To use the Codex subscription provider on Windows, install and authenticate the
+CLI first:
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
 npm install -g @openai/codex
 codex login
-codex login status
 ```
 
-If Node.js was just installed, reopen PowerShell before running `npm`. The
-provider setup panel can open the `codex login` window and refresh the local
-status. API-key authentication shown by `codex login status` does not count as
-subscription access; complete **Sign in with ChatGPT** instead.
+Reopen PowerShell after installing Node.js before running `npm`. API-key
+authentication reported by `codex login status` does not count as subscription
+access — complete **Sign in with ChatGPT** instead.
 
-Media editing, rendering, export, local voiceover, Windows fonts, Blender
-discovery, and OpenTimelineIO bundles run natively on Windows. Arbitrary
-model-generated `build`/`run_shell` code stays locked by default because native
-Windows does not ship the macOS kernel sandbox used by Lumeri. The local owner
-may explicitly disable **Sandbox** in the Lumeri menu to allow PowerShell and
-Python execution with full computer access; Lumeri never enables that unsafe
-mode automatically.
+Editing, rendering, export, local voiceover, Windows fonts, Blender discovery,
+and OpenTimelineIO bundles all run natively on Windows. Model-generated
+`build` / `run_shell` code stays locked by default, because native Windows has no
+equivalent of the macOS kernel sandbox Lumeri relies on. The local owner may
+explicitly disable **Sandbox** in the Lumeri menu to allow PowerShell and Python
+execution with full computer access; Lumeri never enables that mode on its own.
+
+## Architecture
+
+### The two document models
+
+This is the part that makes Lumeri different from a chat wrapper, and the part
+worth understanding before reading the code.
+
+**The clip timeline** (`gemia/project_model.py`) is the familiar NLE document:
+video/overlay/audio tracks holding clips with in/out points, transitions, and
+effects. Every mutation — from the model *or* from a human dragging a clip in the
+UI — goes through the `TimelinePatch` vocabulary in `lumerai/patches.py`. One
+vocabulary means one undo stack and one audit log.
+
+**The layer document** (`lumenframe/`) is the compositing side: a tree of layers
+where a `composition` node holds children, time is a property of every layer
+(`start` / `duration` / `source_in` / `source_out` / `speed`), and 54 registered
+`LayerPatch` ops cover transforms, masks, clipping, adjustment layers, keyframes,
+grades, and effects.
+
+The two meet like After Effects precomps. `lumen_comp_to_timeline` renders a
+window of the layer document into a content-addressed cache file and places it on
+the timeline as an ordinary video clip carrying `metadata.comp_ref` provenance —
+so the renderer, the track invariants, and export need zero special cases. The
+reference stays live: export re-renders the window when the layer document's hash
+changes.
+
+### Layout
+
+| Path | Responsibility |
+|---|---|
+| `server.py` | Local HTTP entry point, static workspace, `/config` |
+| `gemia/v3_routes.py` | Session API (`/sessions/*`) and SSE streaming |
+| `gemia/agent_loop_v3.py` | Multi-turn model ↔ tool loop |
+| `gemia/tools/` | The verb dispatch table the model calls |
+| `gemia/registry.py` | Auto-discovered media primitives |
+| `gemia/ai/skills/` | Retrieval-routed skill packs |
+| `gemia/plan_mode.py` | Read-only planning gate |
+| `gemia/budget_guard.py` | Cost and time ceilings |
+| `gemia/turn_ledger.py` | Deterministic record of what changed |
+| `gemia/subtasks.py` | Bounded parallel sub-agent fan-out |
+| `gemia/project_model.py` · `project_store.py` | Timeline model and persistence |
+| `gemia/project_render.py` · `project_export.py` | Preview renderer and full-quality export |
+| `lumenframe/` | Layered composition core (`model.py`, `ops.py`, `registry.py`) |
+| `lumerai/patches.py` | TimelinePatch vocabulary |
+| `lumerai/otio_adapter.py` | OpenTimelineIO interchange |
+| `lumerai/sandbox.py` · `gemia/sandbox_v4.py` | Sandboxed execution |
+| `gemia/mcp/` | Lumeri as an MCP server |
+| `static/v3/` | Web workspace — timeline, chat, preview |
+
+### What the model can reach
+
+| Surface | Count | Where |
+|---|---|---|
+| Agent verbs (function-calling schemas) | 104 | `gemia/tools/_schema.py` |
+| Media primitives (picture / audio / video) | 835 | `gemia/picture`, `gemia/audio`, `gemia/video` |
+| LayerPatch ops | 54 | `lumenframe/ops.py` |
+| Skill packs (+ 4 combos) | 24 | `gemia/ai/skills/` |
+
+Verbs are the model's API; primitives are the Python functions behind them.
+Skills keep the prompt small — a router picks a handful of relevant packs per
+request instead of describing 835 primitives every turn.
+
+Third-party repositories extend the layer core through `lumenframe.registry`
+(new layer types, ops, and effects), so the editing language grows without
+forking.
+
+## Use Lumeri from another agent
+
+Lumeri can act as an MCP server, exposing a curated, frozen toolset — 13 read and
+timeline verbs, byte-identical to their internal names, plus 5 MCP-native session
+lifecycle tools. The verbs route through the same plan gate and budget guard as
+the in-app loop and mirror the usual SSE events with `origin: "mcp"`; the
+lifecycle tools wrap `SessionManager` directly and are gated separately.
+
+```bash
+pip install -e ".[mcp]"
+```
+
+The stdio entry point is `gemia.mcp.server:run_stdio`. Assets cross the boundary
+as `lumeri://session/{id}/asset/{aid}` resources that resolve to absolute paths —
+never base64, because a single large video would otherwise materialize hundreds
+of megabytes of JSON on both sides and land in the model's context.
+
+## Safety model
+
+- **Plan mode** — a per-session read-only gate. The allow/block split was derived
+  by reading every dispatcher, not by guessing from names: `inspect_timeline`,
+  `render_preview`, and `remember` are blocked because they register assets or
+  write durable files.
+- **Budget guard** — the only host-side spending gate. It tracks cumulative cost
+  and elapsed time and returns a fixed-limit block; an approval cannot raise the
+  cap, and the host never silently substitutes a cheaper tool.
+- **Sandbox** — model-generated code runs under a two-tier macOS `sandbox-exec`
+  profile: full read/write inside the workspace, read-and-create-only outside it,
+  with pre-existing files protected from modification or deletion. On Windows,
+  code execution is locked unless the owner explicitly disables it.
+- **No secrets in the repo** — provider credentials stay in local config.
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Tests
 
 ```bash
 python -m pytest tests/ -q
+ruff check .
 ```
 
-The suite covers tool contracts, timeline patches, render/export behavior,
-OpenTimelineIO interchange, self-correction, sandboxing, sessions, and the web
-server.
+48 test modules cover verb contracts, timeline and layer patches, render/export
+behavior, OTIO round-trips, self-correction, the turn ledger, sandbox isolation
+and escape attempts, plan-mode coverage, MCP toolset drift, sessions, and the web
+server. CI additionally runs a Windows job that exercises the documented
+`setup.ps1` / `start.ps1` path end to end.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) for the
+architectural rules, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Contributors
 
@@ -188,4 +308,4 @@ See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
