@@ -315,6 +315,78 @@ These constraints keep Lumeri's AI and editor from drifting apart:
 5. Completion is an observable protocol state, not an assumption inferred from
    a model response.
 
+## Skills
+
+835 primitives will not fit in a prompt, and a model that has to rediscover your
+house style on every task is not much of a collaborator. Skills solve both — in
+two layers.
+
+### The shipped library
+
+24 skill packs live in `gemia/ai/skills/`, one directory each, built around a
+`SKILL.md` whose YAML frontmatter declares what it is for and when to stay out
+of the way:
+
+```yaml
+id: timeline-ops
+description: 时间线结构编辑：裁剪、截取、加速、倒放…… 只改画面色彩用 color-grade。
+triggers:
+  primary: [裁剪, 截取, 加速, 倒放, trim, cut, speed, concat, reverse]
+  secondary: [时间轴, 片段, 区间, clip, timeline, retime]
+primitives: [gemia.video.timeline.cut, gemia.video.timeline.speed, ...]
+est_tokens: 520
+```
+
+Routing is progressive disclosure, cheapest path first: keyword match against the
+request, then an optional LLM fallback, then a static fallback set — a different
+one for prompt-only projects with no footage yet. At most three packs load per
+request, so the prompt carries a few hundred tokens of relevant craft instead of
+the whole catalog. Triggers are bilingual because requests are.
+
+Four `_combos/` entries cover skill pairs that keep co-occurring
+(`timeline-ops+color-grade`, `transition+color-grade`, …) with a ready plan
+template, skipping a planning round-trip. To see which packs are actually
+earning their place:
+
+```bash
+lumeri-skill-stats --days 7        # add --json for machine-readable output
+```
+
+### Skills you teach it
+
+The second layer is yours. When a multi-step task works, `save_skill` distills it
+into a compact recipe — `{name, when_to_use, steps, notes}` — stored as one
+`.lus` file per name under `~/.gemia/skills`. Re-distilling the same name updates
+it in place, so a skill sharpens over time instead of spawning near-duplicates.
+`recall_skills` searches your distilled skills *and* the shipped library before
+work begins.
+
+The store validates before it writes, and a rejection writes nothing: skills
+carrying secrets, absolute user paths, or no steps at all are refused with a
+typed `E_LUS_*` error. The `.lus` format itself is small and boring on purpose —
+64 KiB ceiling, canonical byte-stable serialization with a checksum, and metadata
+readable from the first 8 KiB so recall can scan many skills cheaply.
+
+Relevant environment variables: `GEMIA_SKILL_STORE_DIR` (relocate the store),
+`GEMIA_SKILL_ROUTER`, `GEMIA_SKILL_LLM_FALLBACK`.
+
+## Use Lumeri from another agent
+
+Lumeri can act as an MCP server, exposing a curated, frozen toolset — 13 read and
+timeline verbs, byte-identical to their internal names, plus 5 MCP-native session
+lifecycle tools. The verbs route through the same plan gate and budget guard as
+the in-app loop and mirror the usual SSE events with `origin: "mcp"`; the
+lifecycle tools wrap `SessionManager` directly and are gated separately.
+
+```bash
+pip install -e ".[mcp]"
+```
+
+The stdio entry point is `gemia.mcp.server:run_stdio`. Assets cross the boundary
+as `lumeri://session/{id}/asset/{aid}` resources that resolve to absolute paths —
+never base64, because a single large video would otherwise materialize hundreds
+of megabytes of JSON on both sides and land in the model's context.
+
 ## Local data and safety boundary
 
 The public repository is a local creative runtime, not Lumeri's hosted account
@@ -333,6 +405,15 @@ or commerce stack.
   explicitly enable unrestricted execution.
 - Runtime directories and secrets are ignored by Git. Review staged files
   before every commit.
+- **Plan mode** is a per-session read-only gate. The allow/block split was
+  derived by reading every dispatcher rather than inferred from names:
+  `inspect_timeline`, `render_preview` and `remember` are blocked because they
+  register assets or write durable files.
+- **The budget guard** is the only host-side spending gate. It tracks cumulative
+  cost and elapsed time and returns a fixed-limit block; an approval cannot
+  raise the cap, and the host never silently substitutes a cheaper tool.
+- **Skill validation** refuses a distilled skill that carries secrets or
+  absolute user paths before anything reaches disk.
 
 ## Development
 
