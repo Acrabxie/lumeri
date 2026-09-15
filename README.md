@@ -181,6 +181,47 @@ Provider configuration is stored locally in `~/.gemia/config.json`. Keep that
 file out of source control and never paste credentials into issues, logs, or
 test fixtures.
 
+To configure without the UI — for a container, a CI job, or a machine you only
+reach over SSH — write the same choice into that file directly. Set
+`lumeri_v3_provider` to one of the values below and supply its credential:
+
+| `lumeri_v3_provider` | Credential |
+|---|---|
+| `vertex` | `vertex_project`, authenticated by local `gcloud` ADC or a service account holding the *Vertex AI User* role |
+| `gemini` | `gemini_api_key` |
+| `openai` | `openai_api_key` (optional `openai_model`) |
+| `claude` | `anthropic_api_key` |
+| `openrouter` | `openrouter_api_key` (optional `openrouter_model`) |
+
+Starting with nothing configured prints the exact JSON for each of them instead
+of failing with a stack trace.
+
+### What the planner chooses, and what it does not
+
+The provider above is the *planner* — the model that reads your prompt and
+decides which tools to call. The models that generate pixels and audio are a
+separate matter, wired to specific models rather than to a shared interface:
+
+| Role | Model | Swappable |
+|---|---|---|
+| Image generation and editing | Gemini image on Vertex | Yes — point `image_base_url` at OpenRouter or any OpenAI-compatible endpoint |
+| Video generation | Veo on Vertex | No |
+| Music and sound | Lyria on Vertex | No |
+
+Without Vertex access the editing primitives still work in full; only the
+generative verbs are unavailable.
+
+### Search and outbound network
+
+Web search needs no key. Left alone it uses whichever engine you have
+configured a key for — `tavily`, `serper`, `brave`, `exa`, `google_cse` or
+`bing` — then `searxng` if you supplied a `searxng_url`, and otherwise falls
+back to DuckDuckGo, which needs nothing at all. Set `search_provider` to pin one
+explicitly.
+
+Behind a firewall, set `proxy` to an `http://host:port` and outbound model calls
+go through it.
+
 ### Use another port
 
 ```bash
