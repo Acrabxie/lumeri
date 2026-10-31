@@ -66,7 +66,7 @@ not where it ends.
 | | What it is | Where |
 |---|---|---|
 | **Lumeri Video** | From an idea to an editable timeline. Session, plan, media, preview and timeline in one project. | [video.lumeri.io](https://video.lumeri.io/) |
-| **Lumeri Quanta** | Structured, playable video: states, branches and loops, kept in a local-first `.luqu` file. | [quanta.lumeri.io](https://quanta.lumeri.io/) |
+| **Lumeri Quanta** | The next-gen PPT: scenes that play, wait, branch and remember, kept in a local-first `.qua` file. The [format](quanta/) is public domain. | [quanta.lumeri.io](https://quanta.lumeri.io/) |
 | **Lumeri CLI** | `luvi` and `luqu`: the same local runtime from a terminal, with the work streaming past as it happens. | [cli.lumeri.io](https://cli.lumeri.io/) |
 | **Lumeri Store** | Skills, point libraries and workflows their makers chose to publish. | [skills.lumeri.io](https://skills.lumeri.io/) |
 | **Docs** | Guides for creators, references for developers and integrations. | [docs.lumeri.io](https://docs.lumeri.io/) |
@@ -200,7 +200,8 @@ The open engine behind Lumeri Video: Python, FFmpeg, and a local web workspace.
 | `gemia/project_model.py` | Persistent timeline model |
 | `gemia/project_render.py` | Preview renderer |
 | `gemia/project_export.py` | Full-quality export |
-| `gemia/quanta/` | Quanta: structured, playable video |
+| `gemia/quanta/` | Quanta layout engine |
+| `quanta/format/` | The `.qua` file format and samples (CC0) |
 | `gemia/ai/skills/` | Built-in skills |
 | `gemia/mcp/` | MCP server |
 | `lumenframe/` | Composition engine and the craft libraries: grade, type, camera, framing, cutting, rhythm, vector motion |
@@ -318,4 +319,5 @@ See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## License
 
-MIT
+MIT, except [`quanta/format/`](quanta/format/): the `.qua` format specification
+and its samples are dedicated to the public domain under CC0 1.0.

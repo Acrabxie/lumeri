@@ -58,7 +58,7 @@
 | | 是什么 | 在哪 |
 |---|---|---|
 | **Lumeri Video** | 从想法到可编辑的时间线。会话、计划、素材、预览和时间线都在同一个项目里。 | [video.lumeri.io](https://video.lumeri.io/) |
-| **Lumeri Quanta** | 有结构、可播放的视频：状态、分支与回环，存成本地优先的 `.luqu` 文件。 | [quanta.lumeri.io](https://quanta.lumeri.io/) |
+| **Lumeri Quanta** | 下一代 PPT：会播放、会等待、会分支也有记忆的场景，存成本地优先的 `.qua` 文件。[文件格式](quanta/README.zh-CN.md)属于公有领域。 | [quanta.lumeri.io](https://quanta.lumeri.io/) |
 | **Lumeri CLI** | `luvi` 和 `luqu`：在终端里用同一个本机运行时，过程随时可见。 | [cli.lumeri.io](https://cli.lumeri.io/) |
 | **Lumeri Store** | 创作者明确选择公开的 Skill、Point Library 和 Workflow。 | [skills.lumeri.io](https://skills.lumeri.io/) |
 | **文档** | 给创作者的指南，给开发者和集成方的参考。 | [docs.lumeri.io](https://docs.lumeri.io/) |
@@ -169,7 +169,8 @@ Lumeri Video 背后的开放引擎：Python、FFmpeg，加一个本地网页工�
 | `gemia/project_model.py` | 持久的时间线模型 |
 | `gemia/project_render.py` | 预览渲染 |
 | `gemia/project_export.py` | 全质量导出 |
-| `gemia/quanta/` | Quanta：有结构、可播放的视频 |
+| `gemia/quanta/` | Quanta 排版引擎 |
+| `quanta/format/` | `.qua` 文件格式和样片（CC0） |
 | `gemia/ai/skills/` | 内置 Skill |
 | `gemia/mcp/` | MCP 服务 |
 | `lumenframe/` | 合成引擎与创作库：调色、标题、运镜、构图、剪辑、节奏、矢量动效 |
@@ -262,4 +263,4 @@ python -m pytest tests/ -q
 
 ## 许可
 
-MIT
+MIT。[`quanta/format/`](quanta/format/) 除外：`.qua` 格式规范和样片按 CC0 1.0 贡献给公有领域。
