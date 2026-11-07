@@ -1,0 +1,291 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.panel-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Panel resource and bridge adapter",
+  "summary": "Assemble verified package HTML, styles and scripts with the Host CSP and bridge, pin the assembled document, and permit only declared bridge APIs within the resolved edit boundary.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_workspace:PanelAdapter;panel_document;panel_call"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:472-543"
+      ],
+      "notes": "No deadline. Validates sandboxed-frame surface, locale titles, bounded size, bridge calls/events and package document paths. ValueError is mapped by Host.load to E_LUC_CAPABILITY_INVALID."
+    },
+    {
+      "name": "document",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost instance."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_PANEL_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:545-554"
+      ],
+      "notes": "No deadline. Reassembles and compares the loaded document pin; unsafe resource changes may also raise plain ValueError."
+    },
+    {
+      "name": "panel_document",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "Serving Host."
+          },
+          "entries": {
+            "type": "object"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "contained_in": {
+            "description": "Optional original workspace Host/entries tuple."
+          }
+        },
+        "required": [
+          "host",
+          "entries",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "luc": {
+            "type": "object"
+          },
+          "bridge": {
+            "type": "object"
+          },
+          "document": {
+            "type": "string"
+          },
+          "document_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "luc",
+          "bridge",
+          "document",
+          "document_sha256"
+        ]
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_PANEL_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:759-784",
+        "lumeri_runtime/luc_workspace.py:802-808"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "panel_call",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "Serving Host."
+          },
+          "entries": {
+            "type": "object"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "api": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "api",
+              "payload"
+            ],
+            "additionalProperties": false
+          },
+          "read_timeline": {
+            "description": "Session-bound callable returning status, snapshot."
+          },
+          "carriers": {
+            "description": "Session-bound bridge callables."
+          },
+          "contained_in": {
+            "description": "Optional original workspace containment tuple."
+          }
+        },
+        "required": [
+          "host",
+          "entries",
+          "capability_id",
+          "body",
+          "read_timeline"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "value": {}
+        },
+        "required": [
+          "ok",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_PROJECT",
+        "E_LUC_VIEW_TOO_LARGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:787-859"
+      ],
+      "notes": "No deadline or bridge-wide idempotency. Exact carriers can return additional Worker-specific errors. APIs carried by the editor cannot be invoked here. Value must fit 1 MiB; named write operations must fit effective editable reach."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "assembled_document",
+      "value": 2097152,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:523-525"
+      ]
+    },
+    {
+      "name": "bridge_answer",
+      "value": 1048576,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:83-84",
+        "lumeri_runtime/luc_workspace.py:857-858"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "document-pin",
+      "text": "The assembled Panel page returned after load must equal its loaded pin.",
+      "test": null
+    },
+    {
+      "id": "declared-bridge-only",
+      "text": "Only declared Runtime bridge calls execute; writes also pass the Panel operation/property/area check.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:528-554",
+      "lumeri_runtime/luc_workspace.py:831-859"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "This adapter refuses document changes; it does not implement automatic fallback itself. LucInteractions handles only layered pure Official Panels; the editor handles its built-in fallback.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:186-221"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

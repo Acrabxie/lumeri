@@ -1,0 +1,179 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.builtin-panels/v1",
+  "version": "1.0.2",
+  "area": "editor",
+  "title": "Built-in Panel views: the originals under the Panel Lucs",
+  "summary": "The editor's own views for the six Panel modules (outline, tasks, files, library, Skill Space, properties). They are what a module shows when no Panel Luc carries it, when a contained Panel is missing, and when an Official Panel fails. A module a Panel Luc draws goes by the Panel's name; when the Panel fails, the built-in view comes back under its own name.",
+  "carrier": {
+    "kind": "browser",
+    "surface": "workspace module",
+    "notes": "refreshPanel in static/v3/v3.js chooses the Panel or the built-in view for each module."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "They are the floor the iron rule falls back to for Panels: a broken Panel ends here. A Panel Luc replaces one by drawing on top of it, never by removing it.",
+    "decided": "self-Luc inventory 2.7 and row 96 (already the original-under-a-layer shape); docs/luc/self-luc-inventory.md:96"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "They are the editor itself and read through the editor's own Runtime routes."
+  },
+  "operations": [
+    {
+      "name": "render outline",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:14631",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    },
+    {
+      "name": "render tasks",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:14706",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    },
+    {
+      "name": "render files",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:14980",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    },
+    {
+      "name": "render library",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:15055",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    },
+    {
+      "name": "render skills",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:13612",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    },
+    {
+      "name": "render properties",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The module's body element."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3.js:8919",
+        "static/v3/v3.js:14192-14216"
+      ],
+      "notes": "What each view reads is not written down here; draft."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "panel-name-then-own",
+      "text": "A module a Panel draws goes by the Panel's name; when the Panel fails the built-in view comes back with its own name.",
+      "test": "tests/test_official_luc_skills_panel.py::test_the_module_goes_by_the_panels_name_and_the_built_in_one_comes_back_with_its_own"
+    },
+    {
+      "id": "kept-unless-fell-back",
+      "text": "After a Panel failure the editor keeps its built-in view unless the Runtime says the Panel fell back to its shipped version.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_the_editor_keeps_its_own_view_unless_the_runtime_says_it_fell_back"
+    }
+  ],
+  "failure": {
+    "break": [
+      "a built-in view cannot draw"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/v3.js:14203-14207"
+    ],
+    "notes": "Nothing is below them. A module only a Panel provides (a self-registered one) shows a could-not-load notice instead."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_skills_panel.py",
+      "tests/test_luc_panel_host_frontend.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

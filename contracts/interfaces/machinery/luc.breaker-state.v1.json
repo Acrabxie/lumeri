@@ -1,0 +1,88 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.breaker-state/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Persisted layer breaker rows",
+  "summary": "The Host-owned JSON file at <data_root>/luc/breaker.json. One row per nonempty module id, keyed to an exact layered hash; malformed input must not trip unrelated modules.",
+  "carrier": {
+    "kind": "file",
+    "surface": "<data_root>/luc/breaker.json"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "read",
+      "effect": "read",
+      "input": {
+        "description": "At most 256 KiB of JSON file bytes, or missing/unreadable input."
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.breaker.v1.json#/definitions/rows"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:39-102"
+      ],
+      "notes": "No deadline. Missing, unreadable, oversized, malformed or non-object file becomes empty rows. Invalid individual rows are omitted; valid sibling rows remain. Readers derive tripped from breaks >= 3."
+    },
+    {
+      "name": "write",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/machinery/luc.breaker.v1.json#/definitions/rows"
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:135-147"
+      ],
+      "notes": "No deadline. Serialized across processes via directory flock; writes sorted compact UTF-8 JSON, fsyncs the temporary file and replaces the target."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "hash-scoped",
+      "text": "A row trips only when both id and resolved_hash match the queried layer version.",
+      "test": "tests/test_luc_modules.py::test_breaker_derives_tripped_from_breaks_and_locks_across_processes"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_breaker.py:104-122"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_modules.py::test_breaker_derives_tripped_from_breaks_and_locks_across_processes"
+    ],
+    "notes": "Verified by unit and cross-process tests in test_luc_modules.py."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

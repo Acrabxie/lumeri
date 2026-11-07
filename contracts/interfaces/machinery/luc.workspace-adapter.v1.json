@@ -1,0 +1,190 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.workspace-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Workspace frame adapter",
+  "summary": "Validate workspace/v1 and workspace/v2 declarations, preserving preview and timeline, and publish which Panels occupy the frame. v2 additionally pins the Official editor resource tree.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_workspace:WorkspaceAdapter;WorkspaceFrontendAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_WORKSPACE",
+        "E_LUC_PRODUCT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:317-384"
+      ],
+      "notes": "No deadline. Requires workspace-frame, the Host product, 1..32 unique module names, core preview/timeline and valid core/native/luc slot fields. ui.mount must be granted; no API or editable authority."
+    },
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_WORKSPACE",
+        "E_LUC_PRODUCT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:387-436"
+      ],
+      "notes": "No deadline. v2 frontend has exactly root, entry=index.html and supported native_api. Pins at most 512 files, each <=16 MiB; v1 compile checks run first."
+    },
+    {
+      "name": "workspace_catalog",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost."
+          },
+          "entries": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "host",
+          "entries"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "const": "lumeri.workspace/v1"
+          },
+          "product": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "uncontained": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "inactive_workspaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "protocol",
+          "product",
+          "workspace",
+          "modules",
+          "uncontained"
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_UNAVAILABLE",
+        "E_LUC_PANEL_LIMIT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:652-756"
+      ],
+      "notes": "No deadline. These codes occur in returned rows, not exceptions. Official workspace sorts first; absent frame mounts nothing, uncontained Panels self-register up to the module limit."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "core-kept",
+      "text": "Every compiled frame retains preview and timeline.",
+      "test": null
+    },
+    {
+      "id": "official-precedence",
+      "text": "Official lumeri.workspace wins frame selection while it is loaded.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:338-384",
+      "lumeri_runtime/luc_workspace.py:652-756"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

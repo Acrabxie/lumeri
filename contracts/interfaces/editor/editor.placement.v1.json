@@ -1,0 +1,513 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.placement/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Workspace placement: which Panel fills which module",
+  "summary": "How the editor turns the loaded workspace framework and Panels into its modules. The Official framework wins; it places the Panels it names by Luc id and Panel id. A module the Official framework fills with a Panel is a role held to that Panel's interface (Acrab, 2026-10-24): another Luc's Panel named there fills it only while it keeps that interface, and otherwise the role's own Panel takes the module back. Every other loaded Panel registers itself as a module of its own; the editor holds 32 modules; a named Panel that is missing falls back to the built-in view when the module name is a built-in one. The editor then seeds order and default visibility from the catalog, and the creator's own arrangement wins after that.",
+  "carrier": {
+    "kind": "http",
+    "protocol": "lumeri.workspace/v1",
+    "notes": "The Runtime answers the catalog (GET /sessions/{session_id}/luc/workspace); the editor applies it (applyLucWorkspace in static/v3/v3.js). The Python resolution is iface:luc.workspace-adapter/v1's workspace_catalog (machinery area)."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Placement decides what is drawn where and what takes over when a Panel fails; the iron rule's fallback to the built-in view depends on it. A creator changes the arrangement, not the rules.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:94"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "GET /sessions/{session_id}/luc/workspace",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/editor/editor.placement.v1.json#/definitions/catalog"
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9360-9364",
+        "lumeri_runtime/worker.py:6321-6353",
+        "lumeri_runtime/luc_workspace.py:652-756",
+        "lumeri_runtime/luc_interface_gate.py:59-81"
+      ],
+      "notes": "A Panel whose layers broke at this start keeps its name and place and carries fell_back with the shipped descriptor; one whose layers tripped the breaker carries layers_held; a layer-only Panel whose package fell back is dropped. A module that is a role (carrier.workspace_module of a panel interface, shipped as ROLES_JSON in luc_interface_table) holds another Luc's Panel only while that Panel is loaded under the Luc named, keeps the role's protocol and surface, calls, edits and hears no more than the role's interface, and has not broken in use at this start (iface:luc.fallback/v1 fallen_seats). Otherwise the role's own Panel fills the module and carries fell_back with the code and the other Luc as its one layer. A Panel refused for its interface registers itself; one that broke in use is not shown again at this start. While another Panel fills a role, the role's own Panel waits as its fallback and is no module of its own."
+    },
+    {
+      "name": "applyLucWorkspace",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.placement.v1.json#/definitions/catalog"
+      },
+      "output": {
+        "type": "null",
+        "description": "No value. The editor's module set, order and shown tabs change as described in notes."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:13951-13961",
+        "static/v3/v3.js:13973-14029"
+      ],
+      "notes": "Only available luc modules with a lower-case name are mounted; preview, timeline and microtune never are. A module mounted under another capability or page hash is torn down. A Panel shown by default is added to the shown tabs once (remembered per Luc and capability, the last 64); the framework's order applies only until the creator arranges modules. With no framework (workspace null) the editor keeps its own layout."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "modules",
+      "value": 32,
+      "unit": "modules per workspace, placed plus self-registered",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:81",
+        "lumeri_runtime/luc_workspace.py:739-743"
+      ]
+    },
+    {
+      "name": "module_name_chars",
+      "value": 40,
+      "unit": "characters of a module name ([a-z][a-z0-9-]*)",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:124",
+        "lumeri_runtime/luc_workspace.py:635-643"
+      ]
+    },
+    {
+      "name": "seen_panels",
+      "value": 64,
+      "unit": "Luc and capability pairs the editor remembers having shown by default",
+      "evidence": [
+        "static/v3/v3.js:14025"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "official-wins",
+      "text": "When several frameworks load the Official lumeri.workspace is in force; the others are listed as inactive_workspaces.",
+      "test": "tests/test_official_luc_workspace.py::test_the_official_framework_wins_over_a_second_one"
+    },
+    {
+      "id": "placed-by-luc-and-panel",
+      "text": "A module that is no role names a Panel by Luc id and Panel id; a Panel of another Luc with the same Panel id does not take it.",
+      "test": "tests/test_official_luc_workspace.py::test_a_framework_module_naming_a_panel_of_another_luc_does_not_place_it"
+    },
+    {
+      "id": "self-registered",
+      "text": "A loaded Panel the framework does not name is added after the framework's modules under luc-<id>-<8 hex>, shown by default once.",
+      "test": "tests/test_official_luc_workspace.py::test_a_panel_no_framework_names_registers_itself"
+    },
+    {
+      "id": "thirty-two",
+      "text": "Past 32 modules a Panel is listed under uncontained with E_LUC_PANEL_LIMIT and is not served.",
+      "test": "tests/test_official_luc_workspace.py::test_the_editor_holds_32_modules_and_names_the_panels_past_that"
+    },
+    {
+      "id": "missing-falls-to-native",
+      "text": "A named Panel that is absent is available false with E_LUC_PANEL_UNAVAILABLE and fallback native when the module is a built-in one.",
+      "test": "tests/test_official_luc_workspace.py::test_safe_mode_keeps_the_framework_and_drops_the_panel_and_skills"
+    },
+    {
+      "id": "new-name-no-fallback",
+      "text": "A missing Panel under a module name the editor has no built-in view for has fallback null.",
+      "test": "tests/test_official_luc_workspace.py::test_a_creator_panel_module_has_no_native_fallback"
+    },
+    {
+      "id": "no-framework",
+      "text": "Without a framework the editor keeps its own layout and mounts no Panel; every Panel is uncontained.",
+      "test": "tests/test_official_luc_workspace.py::test_without_a_framework_the_editor_keeps_its_own_layout"
+    },
+    {
+      "id": "fell-back-in-place",
+      "text": "A Panel whose layers broke keeps its module name and place and is served as shipped.",
+      "test": "tests/test_luc_modules.py::test_a_real_worker_remounts_the_outline_as_it_shipped_and_records_why"
+    },
+    {
+      "id": "role-filled-by-interface",
+      "text": "Another Luc's Panel named in a role and keeping the role's interface fills the module; the role's own Panel is then no module of its own and is not served.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_that_keeps_the_roles_interface_fills_it_and_the_roles_own_panel_waits"
+    },
+    {
+      "id": "role-past-interface",
+      "text": "A Panel that would call or hear more than the role's interface gives the module back to the role's own Panel with fell_back E_LUC_INTERFACE_REACH or E_LUC_INTERFACE_EVENT, and registers itself.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_past_the_roles_interface_gives_the_module_back_and_registers_itself"
+    },
+    {
+      "id": "role-past-edit-ceiling",
+      "text": "A Panel whose editable boundary is wider than the role's gives the module back with E_LUC_INTERFACE_REACH.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_that_may_edit_past_the_role_gives_the_module_back"
+    },
+    {
+      "id": "role-missing",
+      "text": "A Panel named in a role that is not loaded under the Luc named gives the module back with E_LUC_PANEL_UNAVAILABLE; without the role's own Panel the module falls back to the built-in view.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_that_is_not_there_gives_the_module_back_and_without_the_roles_own_the_editor_keeps_its_view"
+    },
+    {
+      "id": "role-broken-in-use",
+      "text": "A Panel that breaks while it fills a role gives the module back to the role's own Panel for the rest of the start and is no longer served.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_real_worker_gives_a_broken_panels_role_back_and_records_why"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the catalog cannot be read",
+      "the catalog names a module the editor cannot mount"
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "static/v3/v3.js:13954-13960",
+      "static/v3/v3.js:13973-13983"
+    ],
+    "notes": "An unreadable catalog is applied as none: the editor keeps its built-in layout and views."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_workspace.py",
+      "tests/test_luc_modules.py",
+      "tests/test_luc_workspace_roles.py"
+    ]
+  },
+  "known_deviations": [
+    {
+      "text": "The editor words every fell_back notice as a Panel that stopped working (lucModuleFellBack), also when another Luc's Panel gave a role back because it was not loaded or does not keep the role's interface; only the code tells these apart. The catalog's fell_back carries the code, not the reason's message.",
+      "evidence": [
+        "static/v3/v3.js:13939-13949",
+        "lumeri_runtime/luc_workspace.py:730-731"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "panel_module": {
+      "type": "object",
+      "description": "One module of the catalog. A luc module that is available carries what the editor mounts; one that is not names why and whether the built-in view takes its place.",
+      "required": [
+        "module",
+        "kind",
+        "default_visible"
+      ],
+      "properties": {
+        "module": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}$"
+        },
+        "kind": {
+          "enum": [
+            "core",
+            "native",
+            "luc"
+          ]
+        },
+        "default_visible": {
+          "type": "boolean"
+        },
+        "registered": {
+          "const": "self"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "luc": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "title": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "zh-CN",
+              "zh-TW",
+              "en",
+              "es",
+              "fr",
+              "de",
+              "ja",
+              "ko",
+              "pt",
+              "ar"
+            ]
+          },
+          "required": [
+            "en"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "size": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "minimum": 16,
+              "maximum": 100
+            },
+            "height": {
+              "type": "number",
+              "minimum": 18,
+              "maximum": 100
+            },
+            "min_width_px": {
+              "type": "integer",
+              "minimum": 120,
+              "maximum": 1200
+            },
+            "min_height_px": {
+              "type": "integer",
+              "minimum": 120,
+              "maximum": 1200
+            }
+          },
+          "required": [
+            "width",
+            "height",
+            "min_width_px",
+            "min_height_px"
+          ],
+          "additionalProperties": false
+        },
+        "bridge": {
+          "type": "object",
+          "properties": {
+            "calls": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "project.view",
+                  "tasks.view",
+                  "tasks.stop",
+                  "files.view",
+                  "files.read",
+                  "panel.state",
+                  "timeline.edit",
+                  "skills.view",
+                  "library.view",
+                  "library.thumbnail",
+                  "library.notes",
+                  "library.place",
+                  "library.roughcut",
+                  "library.job",
+                  "library.roughcut.review",
+                  "workspace.context",
+                  "workspace.open",
+                  "selection.view"
+                ]
+              }
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "project.changed",
+                  "locale.changed",
+                  "theme.changed",
+                  "panel.visibility",
+                  "panel.resized",
+                  "tasks.changed",
+                  "selection.changed"
+                ]
+              }
+            }
+          },
+          "required": [
+            "calls",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        "document_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "code": {
+          "enum": [
+            "E_LUC_PANEL_UNAVAILABLE"
+          ]
+        },
+        "fallback": {
+          "enum": [
+            "native",
+            null
+          ]
+        },
+        "fell_back": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "required": [
+            "code",
+            "layers"
+          ],
+          "additionalProperties": false
+        },
+        "layers_held": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "const": "E_LUC_LAYER_TRIPPED"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "required": [
+            "code",
+            "layers"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "lumeri.workspace/v1"
+        },
+        "product": {
+          "type": "string"
+        },
+        "workspace": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "capability_id": {
+                  "type": "string"
+                },
+                "luc": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "capability_id",
+                "luc"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "modules": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$contract": "contracts/interfaces/editor/editor.placement.v1.json#/definitions/panel_module"
+          }
+        },
+        "uncontained": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "capability_id": {
+                "type": "string"
+              },
+              "luc": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "code": {
+                "const": "E_LUC_PANEL_LIMIT"
+              }
+            },
+            "required": [
+              "capability_id",
+              "luc"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "inactive_workspaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "protocol",
+        "product",
+        "workspace",
+        "modules",
+        "uncontained"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

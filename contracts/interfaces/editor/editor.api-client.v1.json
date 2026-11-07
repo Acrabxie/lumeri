@@ -1,0 +1,101 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.api-client/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Editor API client",
+  "summary": "The editor's one fetch (window.LumeriApi.fetch): it versions known roots under /api/v1, stamps X-Request-ID and X-Lumeri-Product, and on a cloud-session validation failure refreshes /auth/session once and replays the request only for the same account.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "static/v3/api-client.js, hand-written. The generated client static/v3/generated/runtime-v1.js (scripts/generate_runtime_contract.py) is not loaded by the page."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It carries the creator's account boundary into every request; a replacement could replay a request across accounts.",
+    "decided": "self-Luc spec v0.3 foundation (accounts and the editor page shell); docs/luc/self-luc-inventory.md:103"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "fetch",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "init": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "The Response."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/api-client.js:124-151"
+      ],
+      "notes": "Replays once only when the first answer is 401 cloud session not validated, the body is not a stream, and /auth/session confirms the same cloud account; a different account blocks recovery until reload."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "refresh-once",
+      "text": "A cloud-session validation failure refreshes the session and retries once.",
+      "test": "tests/test_v3_api_client.py::test_cloud_session_validation_failure_refreshes_and_retries_once"
+    },
+    {
+      "id": "never-across-accounts",
+      "text": "Revalidation never replays a request across accounts.",
+      "test": "tests/test_v3_api_client.py::test_revalidation_never_replays_a_request_across_accounts"
+    },
+    {
+      "id": "no-stream-replay",
+      "text": "A streaming request body is never replayed.",
+      "test": "tests/test_v3_api_client.py::test_streaming_request_body_is_never_replayed"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the account boundary cannot be established"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/api-client.js:99-122"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_v3_api_client.py"
+    ]
+  },
+  "known_deviations": [
+    {
+      "text": "The page uses a hand-written client and the 1.0 route names; the client generated from the Runtime contract is shipped beside it but unused, so the page is not held to the contract.",
+      "evidence": [
+        "static/v3/api-client.js:4-15",
+        "static/v3/index.html:483-500",
+        "scripts/generate_runtime_contract.py:1023"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

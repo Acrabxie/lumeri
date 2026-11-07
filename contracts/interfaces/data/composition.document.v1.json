@@ -1,0 +1,437 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:composition.document/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Composition compute and commit",
+  "summary": "Runtime separates engine computation of a LayerPatch from the governed write of its resulting composition into document.json. A compute or stage question never changes the Project.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.composition:validate_patches,bind_composition_compute,bind_composition_stage,bind_composition_commit",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The module holds Project integrity or trusted execution authority.",
+    "decided": "today's code: lumeri_runtime/composition.py:246-299"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "validate_patches",
+      "effect": "none",
+      "input": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "version": {
+                "const": 1
+              },
+              "ops": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "version",
+              "ops"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "const": 1
+                },
+                "ops": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "version",
+                "ops"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 1,
+            "maxItems": 64
+          }
+        ]
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "ops": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "version",
+            "ops"
+          ],
+          "additionalProperties": true
+        },
+        "minItems": 1,
+        "maxItems": 64
+      },
+      "errors": [
+        "composition_patch_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/composition.py:43-83"
+      ],
+      "notes": "No local deadline is enforced. Accept one mapping or a nonempty sequence; Runtime checks only version, ops and serialized byte ceiling, leaving each op vocabulary to the engine."
+    },
+    {
+      "name": "bind_composition_compute",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "const": 1
+                },
+                "ops": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "version",
+                "ops"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 1,
+            "maxItems": 64
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "document",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "patches"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/composition.py:184-219"
+      ],
+      "notes": "No local deadline is enforced. Returns a sealed runner for lumen-patch; calling it yields engine JSON, not a durable write. Runner serialization is a draft object projection."
+    },
+    {
+      "name": "bind_composition_stage",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "document",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "seconds",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/composition.py:141-181"
+      ],
+      "notes": "No local deadline is enforced. Returns a sealed runner for a measurement, without rendering or committing. Runner output representation is not JSON and is projected here."
+    },
+    {
+      "name": "bind_composition_commit",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "project_repository": {
+            "type": "object"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "composition": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "intent_suffix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "project_repository",
+          "product_id",
+          "composition",
+          "intent_suffix"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/composition.py:246-355"
+      ],
+      "notes": "No local deadline is enforced. Output is a bound Python runner. On execution it replaces only lumenframe and returns {lumenframe, applied} with revision and evidence. A governed commit advances the Project revision and can replay the exact execution. Document and descriptor are separate file replacements; there is no one crash-atomic commit of document, expected_project_revision and client_op_id result. This write cannot be layered under the self-Luc run gate today."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "patches",
+      "value": 64,
+      "unit": "patch envelopes",
+      "evidence": [
+        "lumeri_runtime/composition.py:43-44"
+      ]
+    },
+    {
+      "name": "request_bytes",
+      "value": 4194304,
+      "unit": "serialized UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/composition.py:43-44",
+        "lumeri_runtime/composition.py:80-82"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "The engine computes edits; only the trusted Project broker commits lumenframe at an exact Project revision.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/composition.py:246-299",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner exists for this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "A governed commit advances the Project revision and can replay the exact execution. Document and descriptor are separate file replacements; there is no one crash-atomic commit of document, expected_project_revision and client_op_id result. This write cannot be layered under the self-Luc run gate today.",
+      "evidence": [
+        "lumeri_runtime/composition.py:290-304",
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "composition": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "canvas": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            },
+            "fps": {
+              "type": "number"
+            },
+            "background": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "additionalProperties": true
+        },
+        "root": {
+          "type": "object",
+          "description": "Recursive composition layer tree; each layer may contain children, effects, keyframes, props, media ids, transform, mask and timing."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": true,
+      "description": "Composition as held by Runtime, which does not normalize or validate the whole tree at commit. The deterministic untouched Project uses version 1 and doc_project_default. Engine vocabulary is owned by iface:engine.gemia/v1, lumen-patch and lumen-canvas."
+    },
+    "patches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "ops": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "version",
+          "ops"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 1,
+      "maxItems": 64
+    }
+  }
+}

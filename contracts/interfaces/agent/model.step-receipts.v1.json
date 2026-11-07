@@ -1,0 +1,310 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:model.step-receipts/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Bind each executed step to its instructions and spending record",
+  "summary": "Record the actual profile id, hashes of prompt, fitted conversation and declarations, selected route and bounds in execution resource_scope. Run the governed model step using turn_id as the idempotency key; receipts remain Runtime-owned.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.worker:WorkerApplication.run_agent_model_step"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Step audit records, reservations and receipts are the spending foundation. A stand-in can alter its instructions, never the record of what was used.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_ingress.py:703-725"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "run_agent_model_step",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/AccountIdentity"
+          },
+          "root_turn_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "delegation_id": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          },
+          "tools": {
+            "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/declarations"
+          }
+        },
+        "required": [
+          "session_id",
+          "identity",
+          "root_turn_id",
+          "turn_id",
+          "trace_id",
+          "delegation_id",
+          "messages",
+          "tools"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ExecutionOutcome"
+          },
+          {
+            "oneOf": [
+              {
+                "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/reply"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        ],
+        "items": false,
+        "minItems": 3,
+        "maxItems": 3
+      },
+      "errors": [
+        "provider_execution_unavailable",
+        "provider_authority_changed"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:7826-7919",
+        "lumeri_runtime/worker.py:7922-7934"
+      ],
+      "notes": "No whole-step deadline enforced here. Additional preparation/account/governance/structured-output failures are delegated to their interfaces. Repeated turn_id is governed by exact scope and current balance: unchanged execution may replay, but changed recomputed authority can conflict instead of returning the old answer. Either way it must not pay twice. Reply is sanitized; a failed outcome returns null reply and an error."
+    },
+    {
+      "name": "settled_agent_model_step",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/AccountIdentity"
+          },
+          "root_turn_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "identity",
+          "root_turn_id",
+          "turn_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ExecutionOutcome"
+              },
+              {
+                "oneOf": [
+                  {
+                    "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/reply"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [
+        "reconciliation_required"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:7936-7985"
+      ],
+      "notes": "Read back an already-governed model step by turn_id from the execution journal without recomputing current_session_available_micros, so checkpoint recovery never conflicts on changed balance and never calls the provider twice. Raises SideEffectReconciliationPendingError when the step is in RESERVED state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "profile-recorded",
+      "text": "Stand-in steps record luc-agent-v1:<capability_id> and the whole framed prompt hash with the original spending ceiling.",
+      "test": "tests/test_luc_agent.py::test_the_step_goes_out_under_the_stand_in_and_its_record_says_so"
+    },
+    {
+      "id": "no-second-charge",
+      "text": "Repeating the same step after settlement is refused if its recomputed cost binding changes; only one provider execute occurs.",
+      "test": "tests/test_runtime_agent_step.py::test_the_same_step_is_never_asked_or_paid_for_twice"
+    },
+    {
+      "id": "settled-step-recovered-without-recharging",
+      "text": "Checkpoint recovery reads back a settled step by turn_id without recomputing balance or calling the provider again, and refuses to resend an unconfirmed step.",
+      "test": "tests/test_luc_agent_loop.py::test_checkpoint_is_read_back_after_crash_without_repeating_settled_model_steps_or_writes"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/model_ingress.py:703-725",
+      "lumeri_runtime/worker.py:7826-7985"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent.py::test_the_step_goes_out_under_the_stand_in_and_its_record_says_so",
+      "tests/test_runtime_agent_step.py::test_the_same_step_is_never_asked_or_paid_for_twice",
+      "tests/test_luc_agent_loop.py::test_checkpoint_is_read_back_after_crash_without_repeating_settled_model_steps_or_writes"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "Direct duplicate calls to run_agent_model_step recompute current balance and raise UsageConflictError when the balance changed after settlement; checkpoint recovery uses settled_agent_model_step to read the journal row directly without recomputing balance.",
+      "evidence": [
+        "lumeri_runtime/worker.py:7839-7846",
+        "lumeri_runtime/worker.py:7936-7985",
+        "tests/test_runtime_agent_step.py:159-173"
+      ],
+      "test": "tests/test_runtime_agent_step.py::test_the_same_step_is_never_asked_or_paid_for_twice"
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "scope": {
+      "type": "object",
+      "properties": {
+        "request_kind": {
+          "const": "agent_step"
+        },
+        "product_id": {
+          "const": "video"
+        },
+        "model_profile_id": {
+          "type": "string"
+        },
+        "provider_id": {
+          "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderId"
+        },
+        "provider_selection_revision": {
+          "type": "integer"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "system_prompt_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "conversation_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tools_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "message_count": {
+          "type": "integer"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "profile_max_cost_micros": {
+          "type": "integer"
+        },
+        "effective_max_cost_micros": {
+          "type": "integer"
+        },
+        "model_bounds_evidence_sha256": {
+          "type": "string"
+        },
+        "model_bounds_output_tokens": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_kind",
+        "product_id",
+        "model_profile_id",
+        "provider_id",
+        "provider_selection_revision",
+        "model_id",
+        "system_prompt_sha256",
+        "conversation_sha256",
+        "tools_sha256",
+        "message_count",
+        "max_tokens",
+        "profile_max_cost_micros",
+        "effective_max_cost_micros"
+      ],
+      "additionalProperties": false
+    },
+    "usage_receipt": {
+      "$contract": "contracts/runtime-v1/runtime-contract.json#/types/UsageReceipt"
+    },
+    "route_receipt": {
+      "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderRouteReceipt"
+    }
+  }
+}

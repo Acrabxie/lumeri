@@ -1,0 +1,608 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:timeline.render/v1",
+  "version": "1.3.0",
+  "area": "data",
+  "title": "Timeline render backend",
+  "summary": "Stage only timeline-referenced media, composite through lumeri-engine with FFmpeg, and verify the declared scratch output. The Worker separately imports finished media and tracks the rendered revision.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.timeline_render:stage_assets,bind_timeline_render",
+    "notes": "Original: lumeri_runtime.timeline_render:stage_assets,bind_timeline_render, running lumeri-engine timeline-render in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.timeline.render\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for lumeri-engine timeline-render: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/timeline_render.py:162-200; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "validate_quality",
+      "effect": "none",
+      "input": {
+        "anyOf": [
+          {
+            "enum": [
+              "preview",
+              "draft",
+              "480p",
+              "720p",
+              "1080p",
+              "4k"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "output": {
+        "enum": [
+          "preview",
+          "draft",
+          "480p",
+          "720p",
+          "1080p",
+          "4k"
+        ]
+      },
+      "errors": [
+        "timeline_render_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline_render.py:91-96"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "validate_encoder",
+      "effect": "none",
+      "input": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "output": {
+        "const": "mpeg4"
+      },
+      "errors": [
+        "timeline_render_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline_render.py:99-125"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "engine_quality",
+      "effect": "none",
+      "input": {
+        "enum": [
+          "preview",
+          "draft",
+          "480p",
+          "720p",
+          "1080p",
+          "4k"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline_render.py:144-149"
+      ],
+      "notes": "No local deadline is enforced. preview is draft with max_long_edge 640, every other quality passes through with no cap."
+    },
+    {
+      "name": "bind_timeline_render",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "toolchain": {
+            "type": "object"
+          },
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "quality": {
+            "enum": [
+              "preview",
+              "draft",
+              "480p",
+              "720p",
+              "1080p",
+              "4k"
+            ]
+          },
+          "encoder": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "timeout_sec": {
+            "type": "integer"
+          },
+          "verify_decode": {
+            "type": "boolean"
+          },
+          "cancelled": {},
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "toolchain",
+          "timeline",
+          "assets",
+          "quality",
+          "encoder",
+          "title",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "timeout_sec"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error",
+        "timeline_render_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/timeline_render.py:294-387"
+      ],
+      "notes": "No local deadline is enforced. Returns a runner. Executing declares timeline.mp4 in session scratch and keeps request revision unchanged. Nonempty scratch with lost receipt is UNKNOWN; no output is NOT_EXECUTED. No atomic durable Project commit occurs at this seam. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    },
+    {
+      "name": "export_analysis.measure_export",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "required": [
+          "app",
+          "response",
+          "session_id",
+          "identity",
+          "project_id",
+          "cancelled"
+        ],
+        "properties": {
+          "app": {
+            "type": "object"
+          },
+          "response": {
+            "type": "object"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {},
+          "project_id": {
+            "type": "string"
+          },
+          "cancelled": {
+            "description": "threading.Event checked before and after sandbox execution."
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "black",
+          "freeze",
+          "scene_changes",
+          "loudness"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "black": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "start",
+                "end",
+                "duration"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                },
+                "duration": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "freeze": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "start",
+                "end",
+                "duration"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                },
+                "duration": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "scene_changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "time",
+                "score"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "time": {
+                  "type": "number"
+                },
+                "score": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "loudness": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "integrated_lufs",
+              "lra",
+              "true_peak_dbtp"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "integrated_lufs": {
+                "type": "number"
+              },
+              "lra": {
+                "type": "number"
+              },
+              "true_peak_dbtp": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "export_analysis_artifact_escaped",
+        "export_analysis_blob_outside_cas",
+        "export_analysis_cancelled",
+        "export_analysis_evidence_mismatch",
+        "export_analysis_incomplete_loudness",
+        "export_analysis_incomplete_scene",
+        "export_analysis_invalid_filename",
+        "export_analysis_invalid_frame_duration",
+        "export_analysis_invalid_frames",
+        "export_analysis_invalid_interval",
+        "export_analysis_invalid_limits",
+        "export_analysis_invalid_loudness",
+        "export_analysis_invalid_metadata",
+        "export_analysis_invalid_number",
+        "export_analysis_invalid_probe",
+        "export_analysis_invalid_scene",
+        "export_analysis_invalid_scratch",
+        "export_analysis_missing_audio",
+        "export_analysis_missing_frames",
+        "export_analysis_negative_time",
+        "export_analysis_nonfinite_number",
+        "export_analysis_nonfinite_time",
+        "export_analysis_project_changed",
+        "export_analysis_sandbox_failed",
+        "export_analysis_toolchain_unavailable",
+        "export_analysis_unclosed_interval"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/export_analysis.py:21-45",
+        "lumeri_runtime/export_analysis.py:47-294",
+        "lumeri_runtime/export_analysis.py:297-379",
+        "lumeri_runtime/export_check.py:26-28",
+        "lumeri_runtime/export_check.py:114-120",
+        "lumeri_core/sandbox.py:114-123"
+      ],
+      "notes": "Runs FFmpeg blackdetect, freezedetect, scdet and ebur128 metadata filters inside the media_worker sandbox profile (600 s ceiling at lumeri_core/sandbox.py:114-123; when invoked by export_check.wrap, export_check.measurement_timeout bounds the wait to min(600.0, 60.0 + duration * 2.0) seconds). Returns a fresh dict and raises ExportAnalysisError on any failure (never returns None). Currently has no non-test callers in the repository."
+    },
+    {
+      "name": "export_check.wrap",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "required": [
+          "app",
+          "work",
+          "session_id",
+          "identity",
+          "project_id",
+          "quality",
+          "fields"
+        ],
+        "properties": {
+          "app": {
+            "type": "object"
+          },
+          "work": {
+            "description": "RenderWork callable returning the render receipt Mapping."
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {},
+          "project_id": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object"
+          },
+          "measure": {
+            "default": null,
+            "description": "Optional Measure callable; defaults to None (skips measurement when omitted)."
+          },
+          "timeout_sec": {
+            "type": "number",
+            "default": 60.0
+          },
+          "render_duration_sec": {
+            "type": "number",
+            "default": 0.0
+          },
+          "measurement_timeout_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "description": "Wrapped RenderWork callable returning the render receipt Mapping with optional self_check attached."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/export_check.py:25-33",
+        "lumeri_runtime/export_check.py:49-157",
+        "lumeri_runtime/export_check.py:159-259"
+      ],
+      "notes": "Wraps a RenderWork callable: for delivery qualities (not preview or draft) when lumeri.cut-check is loaded with video.cut.check, runs measurement in a daemon thread bounded by measurement_timeout (60-600 s) and invokes video.cut.check bounded by timeout_sec (default 60.0 s), attaching self_check or falling back to the unaugmented render receipt on any error. Currently has no non-test callers in the repository (delivery-render hook is not wired)."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.timeline.render"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "sandbox_runtime",
+      "value": 600,
+      "unit": "seconds when bound runner executes",
+      "evidence": [
+        "lumeri_core/sandbox.py:171-178"
+      ]
+    },
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "A preview uses the same renderer and the draft ladder with a 640-pixel long-edge cap; only mpeg4 is accepted.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: Its stdout is one JSON value and the file it declares exists; the Runtime's checks after the run hold them as they hold the engine's."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.timeline.render). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "A live composition clip is refused with E_COMP_CLIP until its owner refreshes it; the throwaway render store cannot perform that governed write.",
+      "evidence": [
+        "lumeri_engine_cli.py:813-824"
+      ],
+      "test": null
+    },
+    {
+      "text": "Long exports are bounded by the 600-second media profile; there is no backend execution here that survives the enclosing sandbox deadline. Scratch output and media import are not a single atomic write.",
+      "evidence": [
+        "lumeri_core/sandbox.py:171-178",
+        "lumeri_runtime/timeline_render.py:365-377"
+      ],
+      "test": null
+    },
+    {
+      "text": "Beyond one JSON value on stdout and the declared files, a program's answer meets the Runtime's own checks only after the run; a failure there is the request's, and the original does not run it again.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:445-491"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

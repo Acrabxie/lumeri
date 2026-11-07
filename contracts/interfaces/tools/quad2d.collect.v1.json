@@ -1,0 +1,245 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:quad2d.collect/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Ask for a quadrilateral",
+  "summary": "Collect four typed corner points on a Host-drawn surface. The capability declares preview-only geometry; it grants no Project write or warp apply.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.interaction/v1",
+    "surface": "quad2d",
+    "notes": "Reached through luc_invoke after discovery and description. Schemas describe the result before the wrapper; Runtime context and authority are supplied separately by the Host."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "interaction/v1 is an open data protocol. The Host owns the surface, primitive validation, continuation and confirmation machinery. A layer cannot acquire authority beyond the manifest boundary.",
+    "decided": "today's code: lumeri_runtime/luc_local.py:65-73"
+  },
+  "reach": {
+    "permissions": [
+      "ui.mount",
+      "project.read"
+    ],
+    "host_apis": [
+      "interaction.mount",
+      "interaction.update",
+      "project.read",
+      "canvas.inspect",
+      "canvas.preview"
+    ],
+    "editable": "none",
+    "notes": "The Host retains account/session binding and human confirmation. Optional Host APIs remain optional, not effective grants. The operation has no access to the editor native bridge."
+  },
+  "operations": [
+    {
+      "name": "collect",
+      "capability": "quad2d.collect",
+      "effect": "read",
+      "input": {
+        "$contract": "contracts/interfaces/tools/quad2d.collect.v1.json#/definitions/input"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/quad2d.collect.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_INVOKE_UNSUPPORTED",
+        "E_LUC_CONTEXT",
+        "E_LUC_BUSY",
+        "E_LUC_STOPPED",
+        "E_LUC_CONTINUATION_LOST",
+        "E_LUC_REVISION",
+        "E_LUC_IDENTITY_CHANGED",
+        "E_LUC_STATE",
+        "E_LUC_DELIVERY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:84-111",
+        "lumeri_runtime/luc.py:186-234",
+        "lumeri_runtime/luc_interactions.py:569-620",
+        "lumeri_runtime/luc_interactions.py:695-758"
+      ],
+      "notes": "No fixed human-wait deadline is enforced. invoke waits on the current interaction event. A new invocation is not idempotent and a second pending interaction in the same Session is refused. Submission_id receipts belong to the Host submission path, not to this invoke input. The original collector returns completed or cancelled after the wait; draft is the shared submission shape. It never applies a Project edit."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc_interaction_state",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/interaction_view"
+          }
+        },
+        "required": [
+          "interaction"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:462-493"
+      ],
+      "notes": "The Runtime stores and publishes the same state projection; binding and continuation remain Host-owned."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "state_bytes",
+      "value": 2097152,
+      "unit": "UTF-8 bytes for new durable Session interaction state",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:31-35"
+      ]
+    },
+    {
+      "name": "recent_draft_receipts",
+      "value": 32,
+      "unit": "receipts per active interaction",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:34"
+      ]
+    },
+    {
+      "name": "retained_terminal_interactions",
+      "value": 64,
+      "unit": "records per Session",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:35"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "collect-only",
+      "text": "The collector has editable none; accepting its value does not authorize or apply a Project change.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "Context, task, account, Project revision or target binding is no longer current.",
+      "Primitive validation, state persistence, preview or confirmed apply fails."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:609-620",
+      "lumeri_runtime/luc_interactions.py:828-850"
+    ],
+    "notes": "Cancellation resumes with {status: cancelled}; a failure invalidates preview and releases the wait with its error. There is no operation-level automatic layer-to-original retry at this interaction seam."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_interactions.py",
+      "tests/test_runtime_luc_interactions.py"
+    ],
+    "notes": "Existing tests were inspected, not executed. Structural checking does not establish live availability, GUI acceptance or replacement conformance."
+  },
+  "known_deviations": [
+    {
+      "text": "The embedded native quad input has a root-relative point2d reference below initial.$defs. In the full operation schema that reference does not resolve, so a valid quad is refused by schema resolution before the surface runs. This contract references the shared primitive rather than silently promising the broken embedding works.",
+      "evidence": [
+        "lumeri_runtime/luc.py:218-234",
+        "tests/test_official_luc_interactions.py:48-59"
+      ],
+      "test": "tests/test_official_luc_interactions.py::test_official_interaction_reuses_native_contract_authority_and_immutable_artifact"
+    }
+  ],
+  "open_questions": [
+    {
+      "for": "lumeri",
+      "text": "Repair the quad primitive reference context in a separately owned source change; preserve the failure as a known deviation until then."
+    }
+  ],
+  "definitions": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "initial": {
+          "$contract": "docs/luc/schemas/interaction-primitives-v1.schema.json#/$defs/quad2d"
+        },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "initial"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "draft"
+            },
+            "value": {
+              "$contract": "docs/luc/schemas/interaction-primitives-v1.schema.json#/$defs/quad2d"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "value": {
+              "$contract": "docs/luc/schemas/interaction-primitives-v1.schema.json#/$defs/quad2d"
+            },
+            "confirmation_token": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "cancelled"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

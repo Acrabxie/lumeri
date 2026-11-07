@@ -1,0 +1,684 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.conversation/v1",
+  "version": "1.3.0",
+  "area": "agent",
+  "title": "Persist and window an agent conversation",
+  "summary": "Store version-1 conversation snapshots beside the Session, remove unfinished trailing tool traffic on load, send the newest user-started window and clip long tool-result strings for the next model step. When more than a window follows the last summary, the model summarizes what leaves the window (agent-summary.json beside the conversation), and the window is that summary followed by what came after it; the full conversation stays on disk.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "sandbox-json-lines",
+    "notes": "Original: lumeri_runtime.agent_turn:ConversationStore. Replacement: a lumeri.agent.part/v1 capability with part \"conversation\", naming an executable file of its Luc, run by luc_sandbox; the Runtime writes one call line and reads one answer line per answer (luc_agent_parts)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It runs only as a child process in the code sandbox of iface:agent.loop/v1 (its own executable, the system libraries and the page size; no file, socket, credential or environment), only from a Luc that holds agent.loop, which Lumeri's review of its exact bytes grants, and only on a machine with a sandbox (macOS today). It speaks lumeri.agent.part/v1 (docs/luc/agent-parts.md): one process per answer, one call line in, one answer line out.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/agent_turn.py:313-511; Acrab 2026-10-26: answered by reviewed programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "agent.loop"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The child reaches nothing but its pipe. The Runtime checks every answer against what the original could have answered and keeps the stored conversation, the model, the budget and the events."
+  },
+  "operations": [
+    {
+      "name": "load",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:325-331",
+        "lumeri_runtime/agent_turn.py:351-361"
+      ],
+      "notes": "No deadline. Missing file, invalid JSON or missing messages yields an empty settled conversation; other filesystem errors propagate without a stable code. Read uses O_NOFOLLOW where available. Repeated reads reflect the most recent save."
+    },
+    {
+      "name": "save",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:333-334",
+        "lumeri_runtime/agent_turn.py:364-380"
+      ],
+      "notes": "No deadline. Writes a temporary file, fsyncs it, replaces agent-conversation.json, then fsyncs the directory. Same-message retry writes equivalent bytes, but there is no operation id or action ledger; caller must serialize writes."
+    },
+    {
+      "name": "settled_conversation",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:383-415",
+        "lumeri_runtime/luc_agent_parts.py:204-238"
+      ],
+      "notes": "No deadline; copies dict items, drops a trailing assistant with unanswered tool calls or its incomplete result run. This is tail repair, not full validation of every historic message. A program reads the newest 80 messages and answers with a prefix of them, followed by one tool result per call the last reply left unanswered, in order, each at most 6100 characters; older messages stay as stored, and the whole must leave no call unanswered."
+    },
+    {
+      "name": "model_window",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:418-426",
+        "lumeri_runtime/luc_agent_parts.py:241-256"
+      ],
+      "notes": "No deadline is enforced; this is a synchronous in-process call. A program answers with the newest 1..80 messages, starting at a user message, each exactly as given. The original turn reads it through summarized_window, which is model_window itself while no summary of this conversation exists."
+    },
+    {
+      "name": "_clipped",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:547-554",
+        "lumeri_runtime/luc_agent_parts.py:259-267"
+      ],
+      "notes": "No deadline; compact ensure_ascii=False JSON with default=str. At over 6000 characters, returns a valid JSON object {clipped, notice, preview} of at most 6000 characters. A program answers with any text of at most 6100 characters."
+    },
+    {
+      "name": "load_summary",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/summary"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:336-344",
+        "lumeri_runtime/agent_turn.py:351-361"
+      ],
+      "notes": "No deadline. Reads agent-summary.json beside the conversation with O_NOFOLLOW; a missing, unreadable or malformed document is no summary. Read once a turn, after the creator's message is saved. Lumeri's own: a conversation program is never asked for it. While a program answers model_window the turn reads the program's window of the whole conversation, and no summary is made or read."
+    },
+    {
+      "name": "save_summary",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/summary"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:346-348",
+        "lumeri_runtime/agent_turn.py:364-380"
+      ],
+      "notes": "No deadline. Written aside, fsynced, renamed over agent-summary.json, then the directory fsynced, as save is. Only the newest summary is kept; it covers everything before its through. Lumeri's own: a conversation program is never asked for it. While a program answers model_window the turn reads the program's window of the whole conversation, and no summary is made or read."
+    },
+    {
+      "name": "summarized_window",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/summary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "messages",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:450-478",
+        "lumeri_runtime/agent_turn.py:696-701"
+      ],
+      "notes": "No deadline. Without a summary, or with one whose anchor is not the sha256 of the canonical JSON of message through - 1 of these messages, it is model_window. Otherwise: one user message, the summary opener and the summary text, then every message after through while they are at most window_messages and start at a user or assistant message, else model_window of them. When no message the creator wrote follows the summary, the summary message ends with the creator's newest words before it, word for word. Lumeri's own: a conversation program is never asked for it. While a program answers model_window the turn reads the program's window of the whole conversation, and no summary is made or read."
+    },
+    {
+      "name": "compaction",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/summary"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:481-510",
+        "lumeri_runtime/agent_turn.py:703-763"
+      ],
+      "notes": "Before each model step of the original turn. When more than window_messages messages follow the summary (or the start), the summary ends at the first user or assistant message among the newest summary_keep_messages. The model is asked once, with no tools and the step's system prompt, under the idempotency key turn_id.s{step}: one user message of the instructions, the summary so far and at most summary_request_messages messages since, as text. On agent_request_too_large the older half of them is let go and it is asked again, at most four times. Any other refusal, a failed step, a tool call or empty text writes no summary: the window stays model_window and the summary is asked for again only once the conversation has grown by summary_keep_messages. A summary is kept to summary_chars characters. No editor event: the editor sees the turn as it was. Lumeri's own: a conversation program is never asked for it. While a program answers model_window the turn reads the program's window of the whole conversation, and no summary is made or read."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.conversation"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479"
+      ],
+      "notes": "Once per Session in a start: when the part's program broke (gate run), or when its Luc was left off for the part after three breaks (gate load). Codes: E_LUC_PART_START, E_LUC_PART_PROTOCOL, E_LUC_PART_ACTION, E_LUC_PART_RESULT, E_LUC_PART_LIMIT, E_LUC_PART_DEADLINE, E_LUC_PART_EXIT, E_LUC_PART_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "window_messages",
+      "value": 80,
+      "unit": "messages before dropping leading non-user messages",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:49",
+        "lumeri_runtime/agent_turn.py:418-426"
+      ]
+    },
+    {
+      "name": "tool_result_prefix_chars",
+      "value": 6000,
+      "unit": "maximum characters of a serialized tool result or its clipped JSON envelope",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:547-554"
+      ]
+    },
+    {
+      "name": "answer_deadline",
+      "value": 10000,
+      "unit": "ms per answer; host calls not counted",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:42"
+      ]
+    },
+    {
+      "name": "line_bytes",
+      "value": 4194304,
+      "unit": "bytes per JSON line, either way",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:39"
+      ]
+    },
+    {
+      "name": "refusal_message_chars",
+      "value": 2000,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:68"
+      ]
+    },
+    {
+      "name": "replacement_text_chars",
+      "value": 6100,
+      "unit": "characters of a result a program returns, clipped or answering an interrupted call: the whole string",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:65"
+      ],
+      "notes": "Resolves the open question for replacements (Acrab 2026-10-26: the whole string)."
+    },
+    {
+      "name": "summary_keep_messages",
+      "value": 40,
+      "unit": "newest messages kept word for word after a new summary; also the growth before a failed one is asked again",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:53"
+      ]
+    },
+    {
+      "name": "summary_request_messages",
+      "value": 120,
+      "unit": "messages at most in one summary request",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:56"
+      ]
+    },
+    {
+      "name": "summary_chars",
+      "value": 12000,
+      "unit": "characters of a kept summary",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:57"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "repair-unanswered-tail",
+      "text": "Reload drops a trailing unanswered assistant tool request.",
+      "test": "tests/test_runtime_agent_turn.py::test_an_unanswered_tool_request_is_dropped_on_reload"
+    },
+    {
+      "id": "repair-partial-results",
+      "text": "A half-answered final tool batch is removed together with its call.",
+      "test": "tests/test_runtime_agent_turn.py::test_a_half_answered_tool_request_is_dropped_with_its_answers"
+    },
+    {
+      "id": "clipped-result-is-valid-json",
+      "text": "_clipped returns valid JSON of at most 6000 characters even when the raw tool result exceeds 6000 characters.",
+      "test": "tests/test_luc_agent_parts.py::test_a_clipped_result_is_the_programs_text_up_to_its_bound"
+    },
+    {
+      "id": "window-pinned",
+      "text": "model_window considers only the newest 80 messages, then drops leading non-user messages; a conversation that outgrew it is summarized before the step.",
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    },
+    {
+      "id": "summary-of-this-conversation",
+      "text": "A summary is read only for the conversation whose message through - 1 it is anchored to; otherwise the window is model_window.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_without_a_summary_of_this_conversation_the_window_is_lumeris_own"
+    },
+    {
+      "id": "summary-keeps-the-record",
+      "text": "Summarizing drops nothing on disk and adds no editor event; the next step reads the summary, then every message after it word for word.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_a_conversation_that_outgrew_the_window_is_summarized_once_then_read_from_the_summary"
+    },
+    {
+      "id": "summary-failure-is-the-old-window",
+      "text": "A summary that could not be written leaves model_window and is not asked for again at the next step.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_without_a_summary_the_turn_goes_on_with_lumeris_own_window"
+    },
+    {
+      "id": "summary-unconfirmed-is-the-old-window",
+      "text": "A summary request whose answer is never confirmed writes no summary: the request keeps its reservation until its provider settles it, and the turn goes on with model_window.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_a_summary_whose_answer_never_came_back_leaves_the_window_as_it_was"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program does not start, or its bytes are not the ones its Luc loaded with",
+      "an answer is late, larger than a line, not one JSON value, or not a result, a refusal or a host call the part may make",
+      "a result the original could not have given (see the operation notes), or a refusal the operation does not list",
+      "more host calls than the bound, or the program ends before it answers"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent_parts.py:136-188",
+      "lumeri_runtime/luc_agent_parts.py:399-450",
+      "lumeri_runtime/luc_interactions.py:139-150",
+      "lumeri_runtime/agent_turn.py:690-701"
+    ],
+    "notes": "The original answers the same call, and every call of the part for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for this part at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.agent.conversation)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_parts.py",
+      "tests/test_runtime_agent_turn.py::test_an_unanswered_tool_request_is_dropped_on_reload",
+      "tests/test_runtime_agent_turn.py::test_a_half_answered_tool_request_is_dropped_with_its_answers",
+      "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools",
+      "tests/test_agent_plan_and_compaction.py"
+    ],
+    "notes": "tests/test_luc_agent_parts.py checks the Runtime's reading of each answer, runs a real Worker with programs that answer as Lumeri does (the same model requests and conversation), with one whose answer the model reads, and with one that breaks; the sandbox is tested with a fenced interpreter."
+  },
+  "known_deviations": [
+    {
+      "text": "Conversation saves are snapshots, not a crash-safe action/result checkpoint keyed to every tool write.",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:333-380"
+      ],
+      "test": null
+    },
+    {
+      "text": "A loop program's window (iface:agent.loop/v1, ask_model) is checked against Lumeri's own model_window, not a conversation part's answer.",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py"
+      ],
+      "test": null
+    },
+    {
+      "text": "A summary costs one more paid model step, at most once per summary_keep_messages new messages, under the Session budget like any step.",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:726-763"
+      ],
+      "test": null
+    },
+    {
+      "text": "The summary is the model's own words: what it leaves out of the messages before through is no longer in any window, though it stays on disk.",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:63-74"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "message": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "user"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "tool"
+            },
+            "tool_call_id": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "tool_call_id",
+            "content"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role": {
+              "const": "assistant"
+            },
+            "content": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_calls": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "function"
+                  },
+                  "function": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "arguments": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "function"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "document": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+          }
+        }
+      },
+      "required": [
+        "version",
+        "messages"
+      ],
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "through": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "anchor": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        }
+      },
+      "required": [
+        "version",
+        "through",
+        "anchor",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.canvas-inspector/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "LumenFrame canvas inspector or a sandboxed Canvas Inspector Panel",
+  "summary": "With a LumenFrame canvas open and no timeline clip selected, the properties module shows the canvas-inspector role Panel when a workspace layer places one, or the editor's built-in canvas inspector (layer list, transform and appearance).",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "editor_role": "canvas-inspector",
+    "notes": "keepsBuiltInInspector and renderPropertiesPanel in static/v3/v3.js; a workspace layer may place a lumeri.panel/v2 Panel in the canvas-inspector role."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement runs in a sandboxed Panel frame and reaches only the bridge calls and editable boundary declared for this role. When disabled or broken, the editor's built-in canvas inspector takes the properties module back.",
+    "decided": "lead review 2026-10-23 under charter rule 6 and W4 plan; docs/luc/self-luc-inventory.md:99"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "timeline.edit",
+      "workspace.context"
+    ],
+    "editable": {
+      "target_types": [
+        "timeline_clip"
+      ],
+      "properties": [
+        "clip.effects",
+        "clip.placement",
+        "clip.source_range"
+      ],
+      "areas": [
+        "timeline"
+      ]
+    },
+    "bridge_calls": [
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "timeline.edit",
+      "workspace.context"
+    ],
+    "notes": "bridge_calls and editable are the ceiling for a Panel placed in the canvas-inspector role."
+  },
+  "operations": [
+    {
+      "name": "mount",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:726-760",
+        "static/v3/v3.js:13931-13933",
+        "static/v3/v3.js:14348-14353"
+      ]
+    },
+    {
+      "name": "render",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "The properties module body."
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:8980-9005"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:606-618"
+      ]
+    },
+    {
+      "name": "selection.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/selection.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:585-597"
+      ]
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:15523-15532"
+      ]
+    },
+    {
+      "name": "theme.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/theme.changed"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "static/v3/v3.js:580-584"
+      ]
+    },
+    {
+      "name": "panel.resized",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.resized"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "priority-over-panel",
+      "text": "With a canvas open and no clip selected, the properties module shows the canvas-inspector role Panel when active, or the built-in canvas inspector when disabled or broken.",
+      "test": "tests/test_editor_w4_panels.py::test_canvas_inspector_role_on_off_break"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the canvas-inspector Panel exceeds role reach or faults at runtime",
+      "the inspector cannot draw"
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:726-760",
+      "lumeri_runtime/luc_interactions.py:340-368",
+      "static/v3/v3.js:8980-9005"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_w4_panels.py::test_canvas_inspector_role_on_off_break",
+      "tests/test_editor_w4_panels.py::test_canvas_inspector_role_disabled_returns_to_builtin",
+      "tests/test_editor_w4_panels.py::test_canvas_inspector_role_break_falls_back_with_notice"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

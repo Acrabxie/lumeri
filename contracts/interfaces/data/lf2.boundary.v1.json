@@ -1,0 +1,173 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lf2.boundary/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "LumenFrame 1.0/LF2 document normalization, catalog, and compilation boundary",
+  "summary": "In-tree Python boundary of the lumenframe package (model normalization, operation/effect/transition catalog, and compilation into a renderable LayerStack) across which the engine and LF2 handoff operate.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumenframe.model:normalize_doc,lumenframe.compile:compile_to_layer_stack,lumenframe.catalog:effect_types,transition_kinds",
+    "notes": "In-tree lumenframe/* package consumed by lumeri_engine_cli.py and gemia. Boundary contract only; the LF2 vector-scene authoring and LF on-demand handoff body on codex/lf2-lf-handoff-20261031 await the LF2 owner upon merge."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "lumenframe is the internal composition model and compiler inside lumeri-engine; external replacement happens at the sandboxed engine subcommand seams (iface:lumen.canvas/v1, iface:video.render/v1, iface:engine.gemia/v1).",
+    "decided": "self-Luc spec v0.3 foundation (engine internal library under sandboxed engine seams); docs/luc/self-luc-inventory.md:164"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "normalize_doc",
+      "effect": "none",
+      "input": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "Raw or partial lumenframe composition document dictionary."
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+      },
+      "errors": [
+        "WorkAreaError"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumenframe/model.py:204-255"
+      ],
+      "notes": "Returns a fresh normalized composition dictionary without mutating the input; raises WorkAreaError when an explicit canvas.work_area span violates in >= 0 and out > in."
+    },
+    {
+      "name": "compile_to_layer_stack",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "doc": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "strict": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "doc"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Compiled gemia.video.layers.LayerStack ready for render_frame() or render_to_video()."
+      },
+      "errors": [
+        "CompileError",
+        "WorkAreaError"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumenframe/compile.py:77-112"
+      ],
+      "notes": "Orders composition children by (lane, tree-index) and compiles transforms, keyframes, expressions, masks, effects, and transitions."
+    },
+    {
+      "name": "effect_types",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumenframe/catalog.py:425-452"
+      ],
+      "notes": "Returns the canonical set of built-in effect type strings matching lumenframe.compile.EFFECTS keys."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "min_compiled_frames",
+      "value": 1,
+      "unit": "frames",
+      "evidence": [
+        "lumenframe/compile.py:107"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "normalize-is-pure-and-json-serialisable",
+      "text": "normalize_doc never mutates its input and returns a valid JSON-serialisable document with a root composition layer.",
+      "test": "tests/test_lumenframe_core.py::test_empty_doc_is_valid_and_json_serialisable"
+    },
+    {
+      "id": "effects-catalog-matches-compiler-dispatch",
+      "text": "effect_types() in lumenframe.catalog equals the keys of lumenframe.compile.EFFECTS with zero drift.",
+      "test": "tests/test_lumenframe_effects_table.py::test_effects_table_matches_catalog_no_drift"
+    },
+    {
+      "id": "transition-kinds-match-renderer",
+      "text": "transition_kinds() in lumenframe.catalog covers the exact set of transition kinds implemented by the compiler.",
+      "test": "tests/test_lumenframe_transitions.py::test_transition_kinds_cover_the_renderer"
+    }
+  ],
+  "failure": {
+    "break": [
+      "An explicit canvas.work_area has in < 0 or out <= in (WorkAreaError).",
+      "strict=True is passed to compile_to_layer_stack and a layer's content cannot be resolved (CompileError)."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumenframe/model.py:250-255",
+      "lumenframe/compile.py:51-53",
+      "lumenframe/compile.py:89-90"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_lumenframe_core.py",
+      "tests/test_lumenframe_compile.py",
+      "tests/test_lumenframe_catalog.py",
+      "tests/test_lumenframe_effects_table.py",
+      "tests/test_lumenframe_transitions.py"
+    ],
+    "notes": "Covers the in-tree lumenframe boundary. The LF2 vector-scene authoring and LF on-demand handoff implementation on codex/lf2-lf-handoff-20261031 (5da36071) awaits the LF2 owner upon merge."
+  },
+  "known_deviations": [
+    {
+      "text": "Only the in-tree lumenframe/* boundary is contracted here; the LF2 scene authoring and LF on-demand handoff body on branch codex/lf2-lf-handoff-20261031 (5da36071) is owned by the LF2 lane and not merged into this branch.",
+      "evidence": [
+        "lumenframe/model.py:204-247",
+        "lumenframe/compile.py:77-112"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "for": "lumeri",
+      "text": "When branch codex/lf2-lf-handoff-20261031 merges, the LF2 owner should extend iface:lf2.boundary/v1 with the LF2 scene and LF handoff operations."
+    }
+  ]
+}

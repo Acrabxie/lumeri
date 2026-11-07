@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/authority-diff-v1.schema.json",
+  "title": "Host-computed Luc authority diff",
+  "type": "object",
+  "required": ["expansions", "reductions"],
+  "properties": {
+    "expansions": {"type": "array", "items": {"$ref": "#/$defs/change"}},
+    "reductions": {"type": "array", "items": {"$ref": "#/$defs/change"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "change": {"type": "object", "required": ["category", "value"], "additionalProperties": false, "properties": {"category": {"type": "string"}, "value": {"type": "string"}}}
+  }
+}

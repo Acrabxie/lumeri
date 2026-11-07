@@ -1,0 +1,161 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.native-point-library-adapter/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Native point library read binding",
+  "summary": "Refer to a Core-supplied gemia PointLibraryPackage by stable name, version and semantic contract hash. Catalog access receives no APIs, permissions or editable boundary. A layer may bring the library's catalog and verification record, which a read then answers with; the binding stays the native one.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_point_library_adapter:NativePointLibraryAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_CAPABILITY_INVALID",
+        "E_LUC_LANGUAGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:82-104",
+        "lumeri_runtime/luc_point_library_adapter.py:131-165"
+      ],
+      "notes": "No deadline. Exact name/version/hash and native-point-library-read surface required; schemas are Host-owned. With a library field, the layer's catalog and verification are read from its package files and held to a .lup's rules and to English, and their digest is recorded. Binding/surface/schema mismatches raise ValueError, which the Host loads as E_LUC_CAPABILITY_INVALID; a layer the agent could not read is E_LUC_LANGUAGE."
+    },
+    {
+      "name": "describe_capability",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Compiled capability with native_operations catalog/describe and editable_native_binding=false."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:188-190"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Host-owned Python context."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "ToolResult wrapping native package dispatch output."
+      },
+      "errors": [
+        "E_LUC_POINT_LIBRARY_READ_ONLY",
+        "E_LUC_LIBRARY_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:167-182",
+        "lumeri_runtime/luc_point_library_adapter.py:192-198"
+      ],
+      "notes": "No deadline. create/adjust/apply explicitly refuse as ToolRefused; other op values are delegated via asyncio.run to the native package, or with a layer to the native package carrying the layer's version, catalog and verification, re-read and checked against the digest taken at load (E_LUC_LIBRARY_CHANGED). Native dispatch errors/results depend on gemia and are not closed by this adapter."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-write-entry",
+      "text": "create, adjust and apply cannot reach native rendering or edit execution through this adapter.",
+      "test": "tests/test_official_luc_point_library.py::test_point_library_read_adapter_does_not_open_native_render_execution"
+    },
+    {
+      "id": "layer-is-data",
+      "text": "A layer's library is data the native read answers with; the binding to native code, and its pins, stay as they shipped.",
+      "test": "tests/test_luc_library_layer.py::test_a_layer_that_rebinds_the_library_to_other_code_is_left_off"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_point_library_adapter.py:131-198"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_point_library.py",
+      "tests/test_luc_library_layer.py"
+    ],
+    "notes": "The layer tests ran for this change (tests/test_luc_library_layer.py). Structural checking does not establish live availability."
+  },
+  "known_deviations": [
+    {
+      "text": "The public descriptor advertises catalog and describe, but invoke blocks only three write op names and otherwise delegates to native dispatch. The native package remains a required trust boundary.",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:188-198"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

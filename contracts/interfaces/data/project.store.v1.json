@@ -1,0 +1,383 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:project.store/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Project repository",
+  "summary": "Account-owned and product-scoped descriptors, revision fencing and trusted document mutations. This is integrity machinery, not a creator-editable data protocol.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.projects:ProjectRepository",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/projects.py:39-46"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "create",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "account_id",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:48-82"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Create revision zero. Single descriptor replacement; no client_op_id receipt transaction. A repeated explicit id is rejected; an omitted id creates a new Project."
+    },
+    {
+      "name": "get",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "account_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:84-117"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Wrong-account lookup is indistinguishable from absence; Python exceptions have no additional module-specific code here."
+    },
+    {
+      "name": "list",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:119-141"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "require_revision",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "project_id",
+          "account_id",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:143-152"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Mismatch raises ValueError; the HTTP caller maps a revision conflict to 409."
+    },
+    {
+      "name": "advance_revision",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mutation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "account_id",
+          "expected_revision",
+          "mutation_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:154-210"
+      ],
+      "notes": "No operation deadline is enforced at this seam. One atomic descriptor replacement increments revision and records intent. Retrying the old expected revision fails; this primitive does not deduplicate mutation_id."
+    },
+    {
+      "name": "apply_document_mutation",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "document_name": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mutation_id": {
+            "type": "string"
+          },
+          "default_document": {
+            "type": "object"
+          },
+          "mutate": {
+            "description": "Trusted Python callable(document) -> dict; not serializable JSON."
+          }
+        },
+        "required": [
+          "project_id",
+          "account_id",
+          "document_name",
+          "expected_revision",
+          "mutation_id",
+          "default_document",
+          "mutate"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object"
+          },
+          "descriptor": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document",
+          "descriptor",
+          "applied"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/projects.py:216-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate. Only the latest last_revision_intent_id is deduplicated by this primitive. Schema projects a Python callable as a descriptor, not a wire format."
+    },
+    {
+      "name": "read_document",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "document_name": {
+            "type": "string"
+          },
+          "default_document": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "account_id",
+          "document_name",
+          "default_document"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "document",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/projects.py:319-340"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Descriptor and document are read sequentially; this is not a single consistent snapshot across concurrent writers."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "owned-project",
+      "text": "A lookup never returns another account or product's Project.",
+      "test": null
+    },
+    {
+      "id": "exact-revision",
+      "text": "A fresh document mutation requires the exact expected revision and increments it by one.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/projects.py:39-46",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate.",
+      "evidence": [
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "read_document releases the descriptor read before reading the product document; the mutation lease does not make these two reads a transaction.",
+      "evidence": [
+        "lumeri_runtime/projects.py:329-339"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

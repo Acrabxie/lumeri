@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/local-registry-entry-v1.schema.json",
+  "title": "Local immutable Luc registry reference",
+  "type": "object",
+  "required": ["record_format", "kind", "identity", "source_hash", "manifest_hash", "artifact_hash", "author", "readme", "registered_at_utc", "origin", "format"],
+  "properties": {
+    "record_format": {"const": "lumeri.luc.registry-entry/v1"},
+    "kind": {"enum": ["luc", "extension"]},
+    "identity": {"type": "object", "required": ["id", "version"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}}, "additionalProperties": false},
+    "source_hash": {"$ref": "#/$defs/hash"},
+    "manifest_hash": {"$ref": "#/$defs/hash"},
+    "artifact_hash": {"$ref": "#/$defs/hash"},
+    "author": {"type": ["string", "null"]},
+    "readme": {"type": ["string", "null"]},
+    "registered_at_utc": {"type": "string", "format": "date-time"},
+    "origin": {"type": "string"},
+    "format": {"const": "lumeri.luc.distribution/v1"}
+  },
+  "additionalProperties": false,
+  "$defs": {"hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

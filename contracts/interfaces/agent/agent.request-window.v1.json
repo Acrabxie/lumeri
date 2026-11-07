@@ -1,0 +1,216 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.request-window/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Fit complete recent context into the selected request",
+  "summary": "Measure the actual selected route request; drop older user-started context first, then replace older tool results with a let_go marker without touching the newest result or stored conversation. Refuse when no legal window fits.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "sandbox-json-lines",
+    "notes": "Original: lumeri_runtime.model_ingress:_fitted_window. Replacement: a lumeri.agent.part/v1 capability with part \"request-window\", naming an executable file of its Luc, run by luc_sandbox; the Runtime writes one call line and reads one answer line per answer (luc_agent_parts)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It runs only as a child process in the code sandbox of iface:agent.loop/v1 (its own executable, the system libraries and the page size; no file, socket, credential or environment), only from a Luc that holds agent.loop, which Lumeri's review of its exact bytes grants, and only on a machine with a sandbox (macOS today). It speaks lumeri.agent.part/v1 (docs/luc/agent-parts.md): one process per answer, one call line in, one answer line out.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_ingress.py:539-565; Acrab 2026-10-26: answered by reviewed programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "agent.loop"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The child reaches nothing but its pipe. The Runtime checks every answer against what the original could have answered and keeps the stored conversation, the model, the budget and the events."
+  },
+  "operations": [
+    {
+      "name": "_fitted_window",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+        }
+      },
+      "errors": [
+        "agent_request_too_large"
+      ],
+      "deadline_ms": 10000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:539-565",
+        "lumeri_runtime/luc_agent_parts.py:285-324"
+      ],
+      "notes": "A program answers for the Runtime's fitting. It may ask the Runtime whether a window fits, up to 32 times, as a host call {\"method\": \"fits\", \"args\": {\"window\": [...]}} answered with {\"fits\": bool}; request_for and fits stay the Runtime's. Its window is a suffix of the conversation starting at a user message, each message unchanged or, for a tool result that is not the newest message, replaced by the let_go result; it must fit. Refusing agent_request_too_large refuses the step. The stored conversation is never changed."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.request-window"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479"
+      ],
+      "notes": "Once per Session in a start: when the part's program broke (gate run), or when its Luc was left off for the part after three breaks (gate load). Codes: E_LUC_PART_START, E_LUC_PART_PROTOCOL, E_LUC_PART_ACTION, E_LUC_PART_RESULT, E_LUC_PART_LIMIT, E_LUC_PART_DEADLINE, E_LUC_PART_EXIT, E_LUC_PART_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "credits_request_bytes",
+      "value": 16384,
+      "unit": "normalized signed request body bytes including system and declarations",
+      "evidence": [
+        "lumeri_runtime/accounts_client.py:173",
+        "lumeri_runtime/accounts_client.py:563-575"
+      ]
+    },
+    {
+      "name": "broker_request_bytes",
+      "value": 262144,
+      "unit": "canonical JSON bytes",
+      "evidence": [
+        "lumeri_runtime/model_broker_contract.py:192",
+        "lumeri_runtime/model_ingress.py:683-685"
+      ]
+    },
+    {
+      "name": "answer_deadline",
+      "value": 10000,
+      "unit": "ms per answer; host calls not counted",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:39"
+      ]
+    },
+    {
+      "name": "line_bytes",
+      "value": 4194304,
+      "unit": "bytes per JSON line, either way",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:36"
+      ]
+    },
+    {
+      "name": "refusal_message_chars",
+      "value": 2000,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:68"
+      ]
+    },
+    {
+      "name": "fits_calls",
+      "value": 32,
+      "unit": "windows measured per answer",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:62"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "keep-call-result",
+      "text": "Dropping old context never separates a tool result from the assistant call that requested it.",
+      "test": "tests/test_runtime_agent_step.py::test_a_tool_result_is_never_separated_from_its_call"
+    },
+    {
+      "id": "keep-newest-result",
+      "text": "If fitting would require releasing the newest result, refuse agent_request_too_large.",
+      "test": "tests/test_runtime_agent_step.py::test_the_newest_result_is_never_let_go"
+    },
+    {
+      "id": "store-unchanged",
+      "text": "Replacing older model-visible tool results with let_go leaves the original conversation untouched.",
+      "test": "tests/test_runtime_agent_step.py::test_one_long_run_of_steps_lets_go_of_its_oldest_results_not_the_turn"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program does not start, or its bytes are not the ones its Luc loaded with",
+      "an answer is late, larger than a line, not one JSON value, or not a result, a refusal or a host call the part may make",
+      "a result the original could not have given (see the operation notes), or a refusal the operation does not list",
+      "more host calls than the bound, or the program ends before it answers"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent_parts.py:136-188",
+      "lumeri_runtime/luc_agent_parts.py:399-450",
+      "lumeri_runtime/luc_interactions.py:139-150",
+      "lumeri_runtime/worker.py:8166-8174"
+    ],
+    "notes": "The original answers the same call, and every call of the part for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for this part at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.agent.request-window)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_parts.py",
+      "tests/test_runtime_agent_step.py::test_a_tool_result_is_never_separated_from_its_call",
+      "tests/test_runtime_agent_step.py::test_the_newest_result_is_never_let_go",
+      "tests/test_runtime_agent_step.py::test_one_long_run_of_steps_lets_go_of_its_oldest_results_not_the_turn"
+    ],
+    "notes": "tests/test_luc_agent_parts.py checks the Runtime's reading of each answer, runs a real Worker with programs that answer as Lumeri does (the same model requests and conversation), with one whose answer the model reads, and with one that breaks; the sandbox is tested with a fenced interpreter."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

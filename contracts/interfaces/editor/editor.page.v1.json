@@ -1,0 +1,164 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.page/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "The editor page as the Gateway serves it",
+  "summary": "The Video and Quanta editor pages are served by the Gateway under /video and /quanta. Native (with the Gateway token) or a renderer holding a frontend lease gets the Official framework's page when Native named the bridge version that page was written for; otherwise, or when the framework is off or does not verify, the App's own bundled copy. Each answer names its source and its pin.",
+  "carrier": {
+    "kind": "http",
+    "notes": "Gateway routes GET or HEAD /(video|quanta)/{asset}, GET /quanta/(core|editor)/..., and the Native handoff POST /runtime/v1/frontend/(video|quanta) that issues a frontend lease. Selection of the Official bytes is iface:luc.frontend-selection/v1 (machinery area)."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The page holds the App's native bridges, the creator's session and the account gate. Only Official bytes may be served as the editor, and the App's own copy is always the fallback.",
+    "decided": "Acrab 2026-10-04 (lumeri_runtime/luc_frontend.py:3-12); docs/luc/self-luc-inventory.md:93"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "GET /{product}/{asset}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "enum": [
+              "video",
+              "quanta"
+            ]
+          },
+          "asset": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string",
+        "contentEncoding": "binary",
+        "description": "The file, with Cache-Control no-store, the editor CSP, X-Lumeri-Frontend-Manifest (the pin) and X-Lumeri-Frontend-Source luc or app."
+      },
+      "errors": [
+        "gateway_auth_required",
+        "frontend_asset_not_found"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/gateway.py:1942-1954",
+        "lumeri_runtime/gateway.py:4360-4398"
+      ],
+      "notes": "asset defaults to index.html. Without the Gateway token or a frontend lease the answer is 401 gateway_auth_required. Native asks for the framework page by sending exactly one X-Lumeri-Frontend-Native-Api header equal to the page's native_api; a lease carries the binding it was issued with."
+    },
+    {
+      "name": "POST /runtime/v1/frontend/{product}",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "manifest_sha256": {
+            "type": "string"
+          },
+          "native_api": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          }
+        },
+        "required": [
+          "manifest_sha256"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "The frontend lease receipt (HTTP 201)."
+      },
+      "errors": [
+        "gateway_auth_required",
+        "account_auth_required"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/gateway.py:1908-1929"
+      ],
+      "notes": "Only Native, with the Gateway token and the creator's Accounts bearer, may issue or renew a lease; a renderer cookie cannot. The receipt shape and the refusal of a malformed body (ValueError) are not written down here; draft."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "handoff_body_bytes",
+      "value": 4096,
+      "unit": "bytes of the Native handoff body",
+      "evidence": [
+        "lumeri_runtime/gateway.py:1916"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "native-opt-in",
+      "text": "The framework page is served only when Native names the native API version it was written for.",
+      "test": "tests/test_luc_frontend.py::test_native_gets_the_framework_editor_only_when_it_offers_that_bridge"
+    },
+    {
+      "id": "lease-or-native",
+      "text": "Each request sees the page its lease or Native asked for.",
+      "test": "tests/test_luc_frontend.py::test_each_request_sees_the_editor_its_lease_or_native_asked_for"
+    },
+    {
+      "id": "off-keeps-app-copy",
+      "text": "A creator who switched the framework off keeps the App's own editor.",
+      "test": "tests/test_luc_frontend.py::test_a_creator_who_switched_the_framework_off_keeps_the_apps_own_editor"
+    },
+    {
+      "id": "broken-channel",
+      "text": "A channel framework brings its editor; a broken channel gives way to the bundled one.",
+      "test": "tests/test_luc_frontend.py::test_a_channel_framework_brings_its_editor_and_a_broken_channel_gives_way_to_the_bundled_one"
+    },
+    {
+      "id": "real-gateway",
+      "text": "A real Gateway serves the framework editor only to Native offering its bridge.",
+      "test": "tests/test_luc_frontend.py::test_a_real_gateway_serves_the_framework_editor_only_to_native_offering_its_bridge"
+    },
+    {
+      "id": "pinned-for-the-run",
+      "text": "The Gateway keeps the verified candidate until a new run; only the on or off choice is read again.",
+      "test": "tests/test_runtime_frontend_selection.py::test_gateway_keeps_the_verified_candidate_until_a_new_run"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the Official page does not verify, does not match its pin, or names another native API"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/gateway.py:471-494",
+      "lumeri_runtime/gateway.py:4360-4379",
+      "lumeri_runtime/luc_frontend.py:69-108"
+    ],
+    "notes": "The App's own copy (the frontend registry, a Native-owned registration) is served instead."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_frontend.py",
+      "tests/test_runtime_frontend_selection.py",
+      "tests/test_product_frontend_registry.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

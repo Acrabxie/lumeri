@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/activation-v1.schema.json",
+  "title": "Immutable Luc activation receipt",
+  "type": "object",
+  "required": ["record_format", "activation_id", "resolved_hash", "resolved_source_hash", "base", "extensions", "authority", "authority_diff", "runtime_version", "resolver_version", "safe_mode"],
+  "properties": {
+    "record_format": {"const": "lumeri.luc.activation/v1"},
+    "activation_id": {"$ref": "#/$defs/hash"},
+    "resolved_hash": {"$ref": "#/$defs/hash"},
+    "resolved_source_hash": {"$ref": "#/$defs/hash"},
+    "base": {"$ref": "#/$defs/layer"},
+    "extensions": {"type": "array", "items": {"$ref": "#/$defs/layer"}},
+    "authority": {"type": "object"},
+    "authority_diff": {"type": "object"},
+    "runtime_version": {"type": "string"},
+    "resolver_version": {"type": "string"},
+    "safe_mode": {"type": "boolean"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "layer": {"type": "object", "required": ["id", "version", "source_hash"], "additionalProperties": false, "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "source_hash": {"$ref": "#/$defs/hash"}}}
+  }
+}

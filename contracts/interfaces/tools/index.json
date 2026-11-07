@@ -1,0 +1,251 @@
+{
+  "format": "lumeri.interface-index/v1",
+  "area": "tools",
+  "modules": [
+    {
+      "module": "lumeri.timeline-inspector",
+      "inventory": "Timeline inspector tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:timeline.inspect/v1"
+      ]
+    },
+    {
+      "module": "lumeri.annotations",
+      "inventory": "Annotations tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.notes/v1"
+      ]
+    },
+    {
+      "module": "lumeri.delivery",
+      "inventory": "Delivery tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:delivery.contract/v1"
+      ]
+    },
+    {
+      "module": "lumeri.design",
+      "inventory": "Design tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:design.decisions/v1"
+      ]
+    },
+    {
+      "module": "lumeri.shotlist",
+      "inventory": "Shot list tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:storyboard.edit/v1"
+      ]
+    },
+    {
+      "module": "lumeri.quanta",
+      "inventory": "Quanta tool",
+      "status": "partly",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:quanta.tree/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline-editor",
+      "inventory": "Timeline editor tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:timeline.edit/v1"
+      ]
+    },
+    {
+      "module": "lumeri.project-media-inspector",
+      "inventory": "Media inspector tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.inspect/v1",
+        "iface:media.probe/v1"
+      ]
+    },
+    {
+      "module": "lumeri.captions",
+      "inventory": "Captions tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.caption/v1"
+      ]
+    },
+    {
+      "module": "lumeri.media-edit",
+      "inventory": "Media edit tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.edit/v1"
+      ]
+    },
+    {
+      "module": "lumeri.speech",
+      "inventory": "Speech tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.narrate/v1"
+      ]
+    },
+    {
+      "module": "lumeri.interchange",
+      "inventory": "Interchange tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:export.interchange/v1"
+      ]
+    },
+    {
+      "module": "lumeri.roughcut",
+      "inventory": "Rough cut tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.roughcut/v1",
+        "iface:media.roughcut.review/v1"
+      ]
+    },
+    {
+      "module": "lumeri.craft",
+      "inventory": "Craft tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:craft.ask/v1"
+      ]
+    },
+    {
+      "module": "lumeri.voices",
+      "inventory": "Voices tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.voices/v1"
+      ]
+    },
+    {
+      "module": "lumeri.cut-check",
+      "inventory": "Cut check tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:video.cut.check/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline-editing-skill",
+      "inventory": "Timeline editing Skill",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:skill.timeline-editing/v1"
+      ]
+    },
+    {
+      "module": "lumeri.transitions-skill",
+      "inventory": "Transitions Skill",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:skill.transitions/v1"
+      ]
+    },
+    {
+      "module": "lumeri.production-guides",
+      "inventory": "Production guides",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:skill.ground-creative-brief/v1",
+        "iface:skill.inventory-source-media/v1",
+        "iface:skill.design-promo-structure/v1",
+        "iface:skill.assemble-picture-cut/v1",
+        "iface:skill.craft-promo-visual-system/v1",
+        "iface:skill.build-sound-pass/v1",
+        "iface:skill.inspect-and-revise-cut/v1",
+        "iface:skill.verify-promo-delivery/v1",
+        "iface:workflow.product-promo/v1"
+      ]
+    },
+    {
+      "module": "lumeri.layout-adjust",
+      "inventory": "Layout adjust",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:layout.adjust/v1"
+      ]
+    },
+    {
+      "module": "lumeri.scalar-collect",
+      "inventory": "Scalar collect",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:scalar.collect/v1"
+      ]
+    },
+    {
+      "module": "lumeri.quad2d-collect",
+      "inventory": "Quad2D collect",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:quad2d.collect/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline-ops-skill",
+      "inventory": "Timeline ops Skill (1.0)",
+      "status": "luc",
+      "end_state": "replaceable",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:skill.timeline-ops/v1"
+      ]
+    },
+    {
+      "module": "lumeri.vector-motion-library",
+      "inventory": "Vector motion library",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:point.vector-motion.catalog/v1"
+      ]
+    },
+    {
+      "module": "lumeri.custom-backends",
+      "inventory": "Custom backends",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:custom.backend.snapshot/v1"
+      ]
+    },
+    {
+      "module": "lumeri.custom-pages",
+      "inventory": "Custom pages",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:custom.page/v1"
+      ]
+    }
+  ]
+}

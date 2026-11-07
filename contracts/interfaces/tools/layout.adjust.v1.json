@@ -1,0 +1,511 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:layout.adjust/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Ask for a text-layer layout",
+  "summary": "Let the creator adjust one existing static, center-anchored text layer. Position and uniform scale can be committed only with Native human confirmation; emphasis remains proposal data.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.interaction/v1",
+    "surface": "layout-adjust",
+    "notes": "Reached through luc_invoke after discovery and description. Schemas describe the result before the wrapper; Runtime context and authority are supplied separately by the Host."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "interaction/v1 is an open data protocol. The Host owns the surface, primitive validation, continuation and confirmation machinery. A layer cannot acquire authority beyond the manifest boundary.",
+    "decided": "today's code: lumeri_runtime/luc_local.py:65-73"
+  },
+  "reach": {
+    "permissions": [
+      "ui.mount",
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "canvas.inspect",
+      "canvas.preview",
+      "interaction.mount",
+      "interaction.update",
+      "canvas.transform.apply"
+    ],
+    "editable": {
+      "areas": [
+        "canvas"
+      ],
+      "properties": [
+        "transform.position",
+        "transform.scale"
+      ],
+      "target_types": [
+        "lumenframe_text_layer"
+      ]
+    },
+    "notes": "The Host retains account/session binding and human confirmation. Optional Host APIs remain optional, not effective grants. The operation has no access to the editor native bridge."
+  },
+  "operations": [
+    {
+      "name": "collect",
+      "capability": "layout.adjust",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/input"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_INVOKE_UNSUPPORTED",
+        "E_LUC_CONTEXT",
+        "E_LUC_BUSY",
+        "E_LUC_STOPPED",
+        "E_LUC_CONTINUATION_LOST",
+        "E_LUC_REVISION",
+        "E_LUC_IDENTITY_CHANGED",
+        "E_LUC_STATE",
+        "E_LUC_DELIVERY",
+        "E_LUC_TARGET",
+        "E_LUC_TARGET_LOCKED",
+        "E_LUC_TARGET_KEYFRAMED",
+        "E_LUC_TARGET_TRANSFORM_CONTEXT",
+        "E_LUC_TARGET_NOT_FOUND",
+        "E_LUC_CONFIRMATION_REQUIRED",
+        "E_LUC_APPLY_UNSUPPORTED",
+        "E_LUC_APPLY_FAILED",
+        "E_LUC_APPLY_READBACK"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:84-111",
+        "lumeri_runtime/luc.py:186-234",
+        "lumeri_runtime/luc_interactions.py:569-620",
+        "lumeri_runtime/luc_interactions.py:695-758",
+        "lumeri_runtime/luc_interactions.py:524-549",
+        "lumeri_runtime/luc_interactions.py:771-810"
+      ],
+      "notes": "There is deliberately no human-wait deadline: the same task blocks on its event until completion, cancellation, stop or failure. A new invocation is a new interaction, not a replay. Native confirmation binds the exact normalized proposal and revision. Apply uses interaction_id.apply as its key; submission retries reuse their submission_id receipts. Draft preview does not commit."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc_interaction_state",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "interaction": {
+            "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/interaction_view"
+          }
+        },
+        "required": [
+          "interaction"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:462-493"
+      ],
+      "notes": "The Runtime stores and publishes the same state projection; binding and continuation remain Host-owned."
+    },
+    {
+      "name": "luc_interaction_preview",
+      "payload": {
+        "$contract": "docs/luc/schemas/preview-event-v1.schema.json"
+      },
+      "evidence": [
+        "lumeri_runtime/luc_runtime_adapter.py:66-80"
+      ],
+      "notes": "An ephemeral projection, never a durable Project write or human confirmation."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "state_bytes",
+      "value": 2097152,
+      "unit": "UTF-8 bytes for new durable Session interaction state",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:31-35"
+      ]
+    },
+    {
+      "name": "recent_draft_receipts",
+      "value": 32,
+      "unit": "receipts per active interaction",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:34"
+      ]
+    },
+    {
+      "name": "retained_terminal_interactions",
+      "value": 64,
+      "unit": "records per Session",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:35"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "confirmed-transform-only",
+      "text": "Only a static unlocked text layer with no transformed/clipped parent and no transform keyframes can be changed; emphasis never becomes a Project edit.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "Context, task, account, Project revision or target binding is no longer current.",
+      "Primitive validation, state persistence, preview or confirmed apply fails."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:609-620",
+      "lumeri_runtime/luc_interactions.py:828-850"
+    ],
+    "notes": "Cancellation resumes with {status: cancelled}; a failure invalidates preview and releases the wait with its error. There is no operation-level automatic layer-to-original retry at this interaction seam."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_interactions.py",
+      "tests/test_runtime_luc_interactions.py"
+    ],
+    "notes": "Existing tests were inspected, not executed. Structural checking does not establish live availability, GUI acceptance or replacement conformance."
+  },
+  "known_deviations": [
+    {
+      "text": "The capability descriptor also permits a mounted handle, but Runtime 1.1 invoke waits for the human and returns the terminal result. Callers must distinguish a surface mount from a finished interaction.",
+      "evidence": [
+        "lumeri_runtime/luc.py:113-120",
+        "lumeri_runtime/luc_interactions.py:610-620"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "value": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "transform2d"
+        },
+        "position": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "point2d"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "space": {
+              "const": "composition.frame.pixels"
+            },
+            "origin": {
+              "const": "center"
+            },
+            "anchor": {
+              "const": "center"
+            },
+            "mode": {
+              "const": "absolute"
+            },
+            "reference": {
+              "const": "composition.frame"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "space",
+            "origin",
+            "anchor",
+            "mode",
+            "reference"
+          ],
+          "additionalProperties": false
+        },
+        "scale": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "scalar"
+            },
+            "value": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 2
+            },
+            "unit": {
+              "const": "ratio"
+            },
+            "mode": {
+              "const": "absolute"
+            },
+            "min": {
+              "const": 0.25
+            },
+            "max": {
+              "const": 2
+            }
+          },
+          "required": [
+            "type",
+            "value",
+            "unit",
+            "mode",
+            "min",
+            "max"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "position",
+        "scale"
+      ],
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "initial": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/value"
+            },
+            "proposal_only": {
+              "type": "object",
+              "properties": {
+                "emphasis": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "emphasis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "value",
+            "proposal_only"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "text",
+        "initial"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "draft"
+            },
+            "value": {
+              "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/value"
+            },
+            "proposal_only": {
+              "type": "object",
+              "properties": {
+                "emphasis": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "emphasis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "proposal_only"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "value": {
+              "$contract": "contracts/interfaces/tools/layout.adjust.v1.json#/definitions/value"
+            },
+            "proposal_only": {
+              "type": "object",
+              "properties": {
+                "emphasis": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "emphasis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "proposal_only"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "cancelled"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "interaction_view": {
+      "type": "object",
+      "properties": {
+        "binding": {
+          "$contract": "docs/luc/schemas/interaction-binding-v1.schema.json"
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "surface": {
+          "enum": [
+            "layout-adjust",
+            "scalar",
+            "quad2d"
+          ]
+        },
+        "input": {
+          "type": "object",
+          "description": "Input of the named capability; see iface:layout.adjust/v1, iface:scalar.collect/v1 and iface:quad2d.collect/v1."
+        },
+        "result": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Draft, completed or cancelled result of the named capability, or null before a draft is set."
+        },
+        "interaction_state": {
+          "enum": [
+            "pending",
+            "draft",
+            "awaiting_confirmation",
+            "confirmed",
+            "resuming",
+            "completed",
+            "cancelled",
+            "failed",
+            "restart_invalidated"
+          ]
+        },
+        "task_state": {
+          "enum": [
+            "executing",
+            "waiting_interaction",
+            "resuming",
+            "completed",
+            "stopped",
+            "failed"
+          ]
+        },
+        "writes_project": {
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applied_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "draft_revision": {
+          "type": "integer"
+        },
+        "delivery_warning": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding",
+        "capability_id",
+        "surface",
+        "input",
+        "result",
+        "interaction_state",
+        "task_state",
+        "writes_project",
+        "error",
+        "applied_revision",
+        "draft_revision"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

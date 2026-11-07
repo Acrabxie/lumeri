@@ -1,0 +1,69 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.settings/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Editor settings: model choice and provider setup",
+  "summary": "The editor's settings surface: which model the agent uses and how each provider is set up (including a creator's own key), through the Runtime's settings and config routes.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "static/v3/v3-settings.js (createSettings), given the editor's apiFetch."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It handles provider keys and the model route; model route, budgets and keys are Lumeri's foundation.",
+    "decided": "self-Luc spec v0.3 foundation (model route, budgets, receipts); docs/luc/self-luc-inventory.md:103"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "createSettings",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "description": "The editor's helpers: $, apiFetch, escapeHTML, normalizedByokProvider, getCurrentAuthSession."
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "static/v3/v3-settings.js:1-13"
+      ],
+      "notes": "The routes it calls and their bodies are not written down here; draft."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "localized-copy",
+      "text": "Settings copy has no direct Chinese literals; every string comes from the locale catalogs.",
+      "test": "tests/test_v3_settings_locale_contract.py::test_settings_user_visible_copy_has_no_direct_han_literals"
+    }
+  ],
+  "failure": {
+    "break": [
+      "a setting cannot be read or saved"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/v3-settings.js:6-12"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_v3_settings_locale_contract.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

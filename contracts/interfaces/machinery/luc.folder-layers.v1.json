@@ -1,0 +1,201 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.folder-layers/v1",
+  "version": "1.1.1",
+  "area": "machinery",
+  "title": "Local folder layer admission and ordering",
+  "summary": "Try folder Extensions in id order after selected activation-profile layers. Keep only those that preserve admitted authority and pass Host check-only load; leave each refused layer off without losing earlier accepted layers.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_local:layer_parent_reason, lay_on"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "layer_parent_reason",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#"
+          }
+        },
+        "required": [
+          "manifest"
+        ]
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$contract": "contracts/interfaces/machinery/luc.local-folder.v1.json#/definitions/refusal"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PROTOCOL_RESERVED",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_REVIEW_MISMATCH"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:373-393"
+      ],
+      "notes": "No deadline. Codes are returned refusal metadata. Parents with any reviewed permission take no folder layer, because its receipt names original bytes."
+    },
+    {
+      "name": "lay_on",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost."
+          },
+          "artifact": {
+            "description": "Verified original LucArtifact."
+          },
+          "layers": {
+            "description": "Sequence[(Extension LucArtifact, metadata row with identity)]."
+          },
+          "under": {
+            "description": "Ordered activation-profile artifacts already selected."
+          },
+          "approved": {
+            "description": "Authorized ResolvedLuc or None."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "api_registry": {
+            "description": "HostAPIRegistry."
+          },
+          "taken_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "neighbours": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "host",
+          "artifact",
+          "layers",
+          "runtime_version",
+          "grants",
+          "api_registry",
+          "taken_capabilities"
+        ]
+      },
+      "output": {
+        "description": "Tuple(resolved ResolvedLuc or None when no new layer accepted, laid metadata rows, held refusal rows)."
+      },
+      "errors": [
+        "E_LUC_PLATFORM",
+        "E_LUC_PROTOCOL_RESERVED",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_REVIEW_MISMATCH",
+        "E_LUC_REAUTH_REQUIRED",
+        "E_LUC_NAMESPACE",
+        "E_LUC_LOAD",
+        "E_LUC_REBASE_REQUIRED",
+        "E_LUC_LAYER_CONFLICT",
+        "E_LUC_LAYER_INVALID",
+        "E_LUC_INTERFACE_CLASS",
+        "E_LUC_INTERFACE_CAPABILITY",
+        "E_LUC_INTERFACE_INPUT",
+        "E_LUC_INTERFACE_OUTPUT",
+        "E_LUC_INTERFACE_EVENT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:435-501",
+        "lumeri_runtime/luc_interface_gate.py:84-167"
+      ],
+      "notes": "No deadline. Pure resolution and check-only Host validation, not live registration. Repeating same inputs is natural. Folder layers sort by id after under; duplicate source_hash already under is marked laid without reappending. One bad layer is reported and the next is tried on prior accepted state. Refusal metadata can preserve other E_LUC codes from Host/Resolver; exact union is not yet closed."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-authority-expansion",
+      "text": "Folder layers cannot add authority beyond shipped original or already-authorized profile state.",
+      "test": null
+    },
+    {
+      "id": "failure-is-local",
+      "text": "A refused layer does not change the original, accepted predecessors or processing of later layers.",
+      "test": null
+    },
+    {
+      "id": "reviewed-parent-held",
+      "text": "A reviewed Luc's original bytes cannot receive a folder layer.",
+      "test": null
+    },
+    {
+      "id": "interface-kept",
+      "text": "A folder layer that would change what callers see of an Official Luc (its capabilities, their protocol, surface, names and schemas, a Panel's bridge events) or that its module's replaceability class does not allow is left off with an E_LUC_INTERFACE_* code, and the Luc loads without it.",
+      "test": "tests/test_luc_interface_gate.py::test_a_folder_layer_that_lets_a_panel_hear_more_is_left_off"
+    },
+    {
+      "id": "gate-order-platform-api-interface",
+      "text": "Folder layer admission checks platform compatibility before Host API authority, and Host API authority before the interface gate.",
+      "test": "tests/test_luc_platform.py::test_folder_layer_gate_order_is_platform_then_host_api_then_interface"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_local.py:373-501"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Folder order is sorted identity, while profile order is explicitly selected. Filenames choose package versions but do not choose layer application order.",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:241-245",
+        "lumeri_runtime/luc_local.py:472-500"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/activation-plan-v1.schema.json",
+  "title": "Host-computed Luc activation and reauthorization plan",
+  "type": "object",
+  "required": ["format", "profile", "previous_activation_id", "resolved_hash", "safe_mode", "authority_diff", "requires_reauthorization", "authorization_hash", "status"],
+  "properties": {
+    "format": {"const": "lumeri.luc.activation-plan/v1"},
+    "profile": {"type": "string", "minLength": 1, "maxLength": 64},
+    "previous_activation_id": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+    "resolved_hash": {"$ref": "#/$defs/hash"},
+    "safe_mode": {"type": "boolean"},
+    "authority_diff": {
+      "type": "object", "required": ["expansions", "reductions"], "additionalProperties": false,
+      "properties": {
+        "expansions": {"$ref": "#/$defs/changeArray"},
+        "reductions": {"$ref": "#/$defs/changeArray"}
+      }
+    },
+    "requires_reauthorization": {"type": "boolean"},
+    "authorization_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+    "status": {"enum": ["ready", "reauth_required", "already_selected"]}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "changeArray": {"type": "array", "items": {"type": "object", "required": ["category", "value"], "additionalProperties": false, "properties": {"category": {"type": "string"}, "value": {"type": "string"}}}}
+  }
+}

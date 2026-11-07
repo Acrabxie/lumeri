@@ -1,0 +1,178 @@
+{
+  "format": "lumeri.interface-index/v1",
+  "area": "agent",
+  "modules": [
+    {
+      "module": "lumeri.agent.loop",
+      "inventory": "A1 Agent turn loop",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.loop/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.instructions",
+      "inventory": "A2 Step system prompt",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.instructions/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.standin-frame",
+      "inventory": "A3 Stand-in frame and cap",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.standin-frame/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.luc-discover",
+      "inventory": "A4 luc_discover, luc_describe, luc_invoke",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.luc-discover/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.luc-describe",
+      "inventory": "A4 luc_discover, luc_describe, luc_invoke",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.luc-describe/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.luc-invoke",
+      "inventory": "A4 luc_discover, luc_describe, luc_invoke",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.luc-invoke/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.use-skill",
+      "inventory": "A5 use_skill",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.use-skill/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.toolbox",
+      "inventory": "A6 Agent toolbox assembly",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:agent.toolbox/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.native-toolbox",
+      "inventory": "A7 Native agent toolbox",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.native-toolbox/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.policy",
+      "inventory": "A8 Turn bounds and conversation",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.policy/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.conversation",
+      "inventory": "A8 Turn bounds and conversation",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.conversation/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.step-bounds",
+      "inventory": "A9 Step bounds",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.step-bounds/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.request-window",
+      "inventory": "A10 Request window fitting",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:agent.request-window/v1"
+      ]
+    },
+    {
+      "module": "lumeri.agent.guidance",
+      "inventory": "A11 1.0 guidance text",
+      "status": "luc",
+      "end_state": "replaceable",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:agent.guidance/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.routing",
+      "inventory": "A12 Provider routing",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.routing/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.broker",
+      "inventory": "A13 Model Broker and providers",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.broker/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.providers",
+      "inventory": "A13 Model Broker and providers",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.providers/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.step-receipts",
+      "inventory": "A14 Step receipts",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.step-receipts/v1"
+      ]
+    },
+    {
+      "module": "lumeri.model.question-profile",
+      "inventory": "A15 Single-question model profile",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:model.question-profile/v1"
+      ]
+    }
+  ]
+}

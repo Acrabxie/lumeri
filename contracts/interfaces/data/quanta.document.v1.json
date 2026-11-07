@@ -1,0 +1,200 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:quanta.document/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Quanta presentation tree",
+  "summary": "Persisted Quanta version 2 default and bounded tree traversal used by Runtime. The quanta.tree Official tool owns graph patch rules; rendering goes to the isolated engine.",
+  "carrier": {
+    "kind": "file",
+    "surface": "document.json#/quanta; Python lumeri_runtime.quanta:walk"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The module holds Project integrity or trusted execution authority.",
+    "decided": "today's code: lumeri_runtime/quanta.py:55-74"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "default_quanta",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/quanta.document.v1.json#/definitions/quanta"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/quanta.py:19-35"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "node_kind",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "node": {
+            "type": "object"
+          },
+          "inside_content": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "node",
+          "inside_content"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "enum": [
+          "group",
+          "content",
+          "state"
+        ]
+      },
+      "errors": [
+        "quanta_tree_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/quanta.py:38-45"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "walk",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "object"
+            },
+            {
+              "enum": [
+                "group",
+                "content",
+                "state"
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "errors": [
+        "quanta_tree_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/quanta.py:48-74"
+      ],
+      "notes": "No local deadline is enforced. Input is root; output is depth-first tuples projected as arrays. Root is always group; a state has no children; content cannot nest inside content."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "tree_depth",
+      "value": 32,
+      "unit": "exclusive depth ceiling, root is zero",
+      "evidence": [
+        "lumeri_runtime/quanta.py:19-21",
+        "lumeri_runtime/quanta.py:64-65"
+      ]
+    },
+    {
+      "name": "nodes",
+      "value": 4096,
+      "unit": "nodes including root",
+      "evidence": [
+        "lumeri_runtime/quanta.py:68-69"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Content nodes cannot nest inside content nodes, and state nodes cannot carry children.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/quanta.py:55-74"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner exists for this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Quanta graph writes are delegated to the Official package through document.tools; this traversal supplies no staged write or automatic layer fallback. The shared document commit still has separate file replacements.",
+      "evidence": [
+        "lumeri_runtime/document_tools.py:64-74",
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "quanta": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer"
+        },
+        "theme": {
+          "type": "object"
+        },
+        "root": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "theme",
+        "root"
+      ],
+      "additionalProperties": true,
+      "description": "Default version 2, theme {tokens: {}, mood: empty string, aspect: 16:9}, root {id: root, children: []}. Groups contain groups or content nodes; blocks marks a content node; its children are leaf states. Traversal validates bounded depth and node count, not every property."
+    }
+  }
+}

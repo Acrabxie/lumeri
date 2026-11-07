@@ -1,0 +1,434 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.fallback/v1",
+  "version": "1.1.1",
+  "area": "machinery",
+  "title": "Original selection after a layered fault",
+  "summary": "Hold per-start fallback latches across Official Panels, Skills, Workflows, Point Libraries, Tool Programs, and reviewed agent modules. A layered Official package that breaks at run time gets a fresh Host of its shipped artifact and records a break in LucBreaker; another Luc's Panel that breaks while it fills a workspace role gives the module back to the role's own Panel for the rest of the start.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_interactions:LucInteractions.fall_back;note_official_package_break;panel_source;note_agent_break;fallen_seats;fell_back_at"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "fall_back",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "document_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "code",
+          "document_sha256"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.fallback.v1.json#/definitions/panel_result"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:226-360"
+      ],
+      "notes": "No deadline. Returns false for no original, non-Panel, stale page hash, mixed protocols, or original resolve/load refusal. First successful report counts one break and latches; repeat returns same answer without recount. A Panel of a Luc with no layers that fills a workspace role (iface:editor.placement/v1) gives the module back instead, when its page hash is current and the role's own Panel is loaded: the answer names the role's own Luc and the other Luc as its one layer, tripped false, and nothing is counted by the breaker."
+    },
+    {
+      "name": "panel_source",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id"
+        ]
+      },
+      "output": {
+        "description": "Tuple (original Host, entries stripped of layers) after fallback; otherwise (active Host, entries)."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:373-378"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "fallen_seats",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object",
+        "description": "Capability id -> {code} for every Panel of another Luc that broke in use in a workspace role at this start.",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:361-364"
+      ],
+      "notes": "The Worker passes it to workspace_catalog, panel_document and panel_call so a broken role Panel is neither placed nor served."
+    },
+    {
+      "name": "fell_back_at",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "string",
+        "description": "When the Panel gave way at this start (UTC, ending in Z), for its one luc.module_fell_back event."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:366-371"
+      ],
+      "notes": "Called only after fall_back answered fell_back true for the same capability id."
+    },
+    {
+      "name": "note_agent_break",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "layer"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:90-146"
+      ],
+      "notes": "No deadline. First latch returns true, repeat false; does not itself increment persistent breaker. Worker counts under lumeri.agent.instructions using the artifact_hash."
+    },
+    {
+      "name": "agent_fallback",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "None, or layer{id,version} and code; no internal notified_sessions set."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:148-153"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "layers_held",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package"
+        ]
+      },
+      "output": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "None or code=E_LUC_LAYER_TRIPPED with layer ids and versions where known."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:380-395"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "$contract": "contracts/interfaces/machinery/luc.fallback.v1.json#/definitions/event"
+      },
+      "evidence": [
+        "lumeri_runtime/worker.py:6407-6420",
+        "lumeri_runtime/worker.py:8238-8277"
+      ]
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "current-layer-only",
+      "text": "Stale document hashes do not change the active source or breaker.",
+      "test": null
+    },
+    {
+      "id": "shipped-panel",
+      "text": "A valid fault restores the exact shipped Panel and repeated reports do not count it twice.",
+      "test": "tests/test_luc_modules.py::test_a_broken_layered_panel_falls_back_to_the_outline_as_it_shipped"
+    },
+    {
+      "id": "seat-gives-way",
+      "text": "Another Luc's Panel that breaks in a role gives the module back to the role's own Panel; a page from before gives nothing back, and repeated reports give the same answer and count no break.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_from_the_folder_fills_a_role_its_profile_names_and_gives_it_back_when_it_breaks"
+    },
+    {
+      "id": "seat-needs-its-own",
+      "text": "Without the role's own Panel loaded a broken role Panel gives nothing back, and the editor's own view takes over.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_broken_panel_gives_nothing_back_when_the_roles_own_panel_is_not_there"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:226-378",
+      "lumeri_runtime/worker.py:8087-8132"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_modules.py::test_a_broken_layered_panel_falls_back_to_the_outline_as_it_shipped",
+      "tests/test_luc_modules.py::test_layered_official_skill_and_library_fall_back_on_runtime_break_and_trip_after_three",
+      "tests/test_luc_workspace_roles.py::test_a_panel_from_the_folder_fills_a_role_its_profile_names_and_gives_it_back_when_it_breaks"
+    ],
+    "notes": "Verified across Panels, Skills, Workflows, Point Libraries, Tool Programs, and workspace roles."
+  },
+  "known_deviations": [
+    {
+      "text": "Notices are best effort. Panel and agent payloads differ; event-store failure does not prevent the original from answering.",
+      "evidence": [
+        "lumeri_runtime/worker.py:6407-6420",
+        "lumeri_runtime/worker.py:8245-8257"
+      ],
+      "test": null
+    },
+    {
+      "text": "A role Panel's break holds for the start only and is not counted by luc_breaker, so the same Panel fills the role again at the next start and may break again; a layered Official Panel's breaks trip it after three.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:330-360"
+      ],
+      "test": null
+    },
+    {
+      "text": "A role Panel whose Luc has layers of its own first falls back to its Luc as shipped; if that page breaks too, the editor's own view takes over rather than the role's own Panel.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:316-329"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "panel_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "fell_back": {
+              "const": false
+            }
+          },
+          "required": [
+            "fell_back"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fell_back": {
+              "const": true
+            },
+            "luc": {
+              "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+            },
+            "capability_id": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "tripped": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "fell_back",
+            "luc",
+            "capability_id",
+            "code",
+            "layers",
+            "tripped"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "module": {
+              "type": "string"
+            },
+            "capability_id": {
+              "type": "string"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "gate": {
+              "const": "run"
+            },
+            "code": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "module",
+            "capability_id",
+            "layers",
+            "gate",
+            "code",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "module": {
+              "const": "lumeri.agent.instructions"
+            },
+            "layer": {
+              "type": "object"
+            },
+            "gate": {
+              "enum": [
+                "load",
+                "run"
+              ]
+            },
+            "code": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "module",
+            "layer",
+            "gate",
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

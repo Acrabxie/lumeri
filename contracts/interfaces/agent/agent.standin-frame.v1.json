@@ -1,0 +1,169 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.standin-frame/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Frame and validate reviewed stand-in instructions",
+  "summary": "The Runtime prepends its fixed English frame, limits instruction bytes, checks the loaded text hash and keeps the stand-in within its reviewed authority. This is the host frame, not editable instruction data.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_agent:AgentAdapter.compile_package"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The non-removable frame and the authority checks protect agent.replace; reviewed layers replace instruction text only.",
+    "decided": "Acrab, 2026-10-24; self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_agent.py:50-73"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "host_frame",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "luc": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "luc",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:50-73"
+      ],
+      "notes": "No deadline is enforced; this is a synchronous in-process call."
+    },
+    {
+      "name": "compile_package",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "Agent capability declaration compiled by the Host. See iface:luc.host/v1."
+          },
+          "files": {
+            "type": "object",
+            "description": "Python mapping of package paths to bytes; instructions names a .md file. No file contents are copied into this contract."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Compiled capability with instructions_sha256 and host-owned empty-input/any-output schemas. See iface:luc.host/v1."
+      },
+      "errors": [
+        "E_LUC_PRODUCT",
+        "E_LUC_LANGUAGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:114-147"
+      ],
+      "notes": "No deadline is enforced. ValueError also rejects invalid surface/name/title/path, empty or overlong instructions and excessive authority; Host translates validation exceptions into its own load refusals. This contract does not invent codes for those exceptions."
+    },
+    {
+      "name": "instructions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "object",
+            "description": "Loaded LucHost. See iface:luc.host/v1."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "E_LUC_AGENT_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:153-166"
+      ],
+      "notes": "No deadline is enforced; this is a synchronous in-process call."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "instruction_bytes",
+      "value": 2400,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:46",
+        "lumeri_runtime/luc_agent.py:136-141"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "frame-and-bounds-kept",
+      "text": "The complete stand-in prompt is the Runtime frame followed by reviewed text, with the original product, max_tokens and max_cost_micros.",
+      "test": "tests/test_luc_agent.py::test_a_reviewed_luc_stands_in_inside_lumeris_frame_and_bounds"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent.py:50-73",
+      "lumeri_runtime/luc_agent.py:114-166"
+    ],
+    "notes": "Compile failures are handled by the Host load gate; runtime text changes become E_LUC_AGENT_CHANGED, then Worker fallback. The frame itself has no replacement seam."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent.py::test_a_reviewed_luc_stands_in_inside_lumeris_frame_and_bounds"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

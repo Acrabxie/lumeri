@@ -1,0 +1,299 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:engine.sandbox/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Runtime process sandbox",
+  "summary": "Trusted macOS Seatbelt process isolation, profile-specific allowlists, resource monitoring, cancellation, JSON result projection and declared artifact evidence. No creator layer may replace this enforcement.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.sandbox:MacOSSandboxExecutor.run,bind_capability"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The sealed dispatcher, execution broker or sandbox is trusted integrity machinery.",
+    "decided": "today's code: lumeri_runtime/sandbox.py:159-175"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "run",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "profile": {
+            "type": "object"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "environment": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "extra_readable_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cancelled": {}
+        },
+        "required": [
+          "argv",
+          "profile",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/engine.sandbox.v1.json#/definitions/result"
+      },
+      "errors": [
+        "sandbox_backend_unavailable",
+        "sandbox_command_forbidden",
+        "sandbox_command_invalid",
+        "sandbox_command_not_allowed",
+        "sandbox_network_profile_unsupported",
+        "sandbox_launch_failed",
+        "sandbox_execution_failed",
+        "sandbox_timeout",
+        "sandbox_cancelled",
+        "sandbox_stdout_limit",
+        "sandbox_stderr_limit",
+        "sandbox_resource_monitor_failed",
+        "sandbox_process_limit",
+        "sandbox_memory_limit",
+        "sandbox_background_process",
+        "sandbox_output_monitor_failed"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:159-221",
+        "lumeri_runtime/sandbox.py:240-294",
+        "lumeri_runtime/sandbox.py:697-864"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Profile supplies variable runtime/RSS/process/stdout/stderr limits; the monitor kills/reaps the process group on breach or cancellation. No shell/interpreter entrypoint. Native bytes, profile and callback serialization remain draft. Sandbox writes are not a staged atomic Project transaction."
+    },
+    {
+      "name": "bind_capability",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "environment": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "extra_readable_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "result_spec": {
+            "$contract": "contracts/interfaces/data/engine.sandbox.v1.json#/definitions/result_spec"
+          },
+          "cancelled": {}
+        },
+        "required": [
+          "argv",
+          "profile_id",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "result_spec"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "sandbox_profile_missing",
+        "sandbox_output_invalid",
+        "sandbox_artifact_escaped",
+        "sandbox_artifact_missing"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:310-460",
+        "lumeri_runtime/sandbox.py:493-529"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Returns a sealed SandboxedCapabilityRunner, not an execution. When run, errors from run also apply. A proven pre-process refusal becomes SideEffectNotStartedError so the Gate releases it; an identical request replays that failure. Declared artifacts are hashed; stdout JSON must decode as one value with no NaN/Infinity. Opaque runner/profile/callback projections are draft."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "error_evidence_bytes",
+      "value": 4096,
+      "unit": "bytes per stdout/stderr exception field",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:88-102"
+      ]
+    },
+    {
+      "name": "profile_runtime_range",
+      "value": "1..3600",
+      "unit": "seconds, actual profile value is enforced",
+      "evidence": [
+        "lumeri_core/sandbox.py:45-48"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Every sandbox entrypoint is a canonical absolute allowlisted regular executable; resource ceilings are monitored and child processes are reaped.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:159-175"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Only contract/schema checking exists here; no replacement conformance runner."
+  },
+  "known_deviations": [
+    {
+      "text": "The backend is macOS-only; unsupported platform or missing system sandbox refuses instead of running unsandboxed.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:164-175"
+      ],
+      "test": null
+    },
+    {
+      "text": "Process failure stores bounded stderr but does not preserve stdout at the nonzero-exit branch; structured domain refusal data printed there may not reach the caller.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:287-293"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "result": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returncode": {
+          "type": "integer"
+        },
+        "stdout": {
+          "description": "Native bytes, opaque JSON projection."
+        },
+        "stderr": {
+          "description": "Native bytes, opaque JSON projection."
+        },
+        "profile_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "argv",
+        "returncode",
+        "stdout",
+        "stderr",
+        "profile_id"
+      ],
+      "additionalProperties": false
+    },
+    "result_spec": {
+      "type": "object",
+      "properties": {
+        "output": {},
+        "project_revision_after": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_from_stdout_json": {
+          "type": "boolean"
+        },
+        "produced_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "artifacts_root": {
+          "enum": [
+            "project_root",
+            "session_temp"
+          ]
+        }
+      },
+      "required": [
+        "output",
+        "project_revision_after"
+      ],
+      "additionalProperties": false,
+      "description": "Python dataclass. Artifact paths are bounded 512-character plain relative slash-separated paths, no empty/dot/dot-dot segments or backslashes. stdout projection requires output None."
+    }
+  }
+}

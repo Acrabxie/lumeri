@@ -1,0 +1,144 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.toolbox/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Assemble the tools offered to an agent",
+  "summary": "Build a toolbox from the verified Luc set and any unmigrated native compatibility tools. Libraries are checked before Skills; unavailable rows accompany the three wrappers; use_skill appears only with ready reads.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:toolbox_from_official_set"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Assembly decides which Lucs reach the agent: it applies the Luc set, safe mode and the stand-in's visibility. That is the layering machinery. The replaceable part is the reviewed policy's tools.hide (iface:agent.policy/v1), not the assembly.",
+    "decided": "Acrab, 2026-10-24 (assembly stays Lumeri's, also once the code sandbox exists); docs/luc/agent-protocol.md:40-43"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "toolbox_from_official_set",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "loaded": {
+            "type": "object",
+            "description": "Loaded OfficialLucSet, including safe_mode and migrated_tool_ids. See iface:luc.bootstrap/v1."
+          },
+          "native_toolbox": {
+            "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/toolbox"
+          }
+        },
+        "required": [
+          "loaded",
+          "native_toolbox"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/toolbox"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1142-1158"
+      ],
+      "notes": "No deadline enforced. Returns a live Python Toolbox; definitions describe its declaration projection, while run callables and Host references remain process-local. An empty candidate/readiness/unavailable set returns compatibility directly. Reassembly reads current loaded state and may update readiness withholding."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "four-default-tools",
+      "text": "With the default Official set, declarations contain exactly luc_discover, luc_describe, luc_invoke and use_skill and are English.",
+      "test": "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_four_tools_and_its_plan_declared_in_english"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:1107-1111",
+      "lumeri_runtime/official_luc.py:1142-1165"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_four_tools_and_its_plan_declared_in_english"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "Safe mode retains the original prompt but loads only recovery Lucs and omits use_skill; the complete request fingerprint differs from the no-layer baseline.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1142-1158",
+        "docs/luc/self-luc-combined-report.md"
+      ],
+      "test": "tests/test_luc_self_luc_combined.py::test_safe_mode_agent_fingerprint_matches_the_no_layer_baseline"
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Should safe mode load all verified originals without layers, or keep the current recovery-only set and its smaller agent toolbox?",
+      "for": "acrab"
+    }
+  ],
+  "definitions": {
+    "declaration": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "parameters": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    },
+    "toolbox": {
+      "type": "object",
+      "description": "Python Toolbox. tools is a tuple of AgentTool with executable run callbacks; declaration projection is the array defined here, not a serializable Toolbox. See definitions/declarations."
+    },
+    "declarations": {
+      "type": "array",
+      "items": {
+        "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/declaration"
+      }
+    }
+  }
+}

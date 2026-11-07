@@ -1,0 +1,121 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.skill-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Skill text adapter",
+  "summary": "Load a packaged Markdown instruction and declared tool references as data for use_skill. Skills are hidden from discovery, hold no APIs or permissions and never execute tools themselves.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_workspace:SkillAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:560-610"
+      ],
+      "notes": "No deadline. Checks short handle, description/title, nonempty bounded Markdown and 1..32 uses references, records text hash and Host-owned empty input/object output. ValueError maps at Host load."
+    },
+    {
+      "name": "instructions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost instance."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_SKILL_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:612-620"
+      ],
+      "notes": "No deadline. Reads the same package text and checks its pin. Resource/size errors can raise plain ValueError before hash comparison."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "text-no-authority",
+      "text": "Skills request no permission, no Host API and editable none.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:603-620"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Instruction reads may raise ValueError for malformed or oversized changed text rather than E_LUC_SKILL_CHANGED; there is no generic Skill run fallback here.",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:593-619"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

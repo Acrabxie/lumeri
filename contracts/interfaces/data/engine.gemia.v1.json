@@ -1,0 +1,1882 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:engine.gemia/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Engine subcommand JSON contracts",
+  "summary": "Seventeen Runtime-called subcommands over request-file JSON and stdout JSON. Artifacts remain under the authorized sandbox roots. The engine never owns account identity, Project governance, budgets or durable result publication.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "lumeri-engine <subcommand> <request.json> [<output-root>]",
+    "notes": "Original: lumeri-engine <subcommand> <request.json> [<output-root>], running lumeri-engine, for its other subcommands in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.engine.gemia\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for lumeri-engine, for its other subcommands: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_engine_cli.py:99-137; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "quanta",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "integer"
+          },
+          "quanta": {
+            "$contract": "contracts/interfaces/data/quanta.document.v1.json#/definitions/quanta"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "output_dir": {
+            "type": "string"
+          },
+          "image_sources": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "scale": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quanta",
+          "frames"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "frames"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_engine_cli.py:1559-1573",
+        "gemia/quanta/render_cli.py:40-70"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. One PNG per declared visible state; exact frame count and output-root confinement checked. Runtime bounds frame count to 2048; failures are nonzero process exits."
+    },
+    {
+      "name": "lumenframe",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "integer"
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "frame_in": {
+            "type": "integer"
+          },
+          "frame_out": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "output_dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document",
+          "frame_in",
+          "frame_out",
+          "frames"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "frames"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_engine_cli.py:1559-1573",
+        "lumenframe/render_cli.py:43-81"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Half-open range, step defaults 1. A clamped short result is refused by exact declared frame count; paths must stay under output root."
+    },
+    {
+      "name": "craft",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "enum": [
+              "grade",
+              "camera",
+              "compose",
+              "rhythm",
+              "edit"
+            ]
+          },
+          "args": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "library",
+          "args"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:142-147",
+        "lumeri_engine_cli.py:185-216"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Library dispatch reply and its error codes are library-dependent. Draft gap: per-library arg/reply schemas and all dynamic refusal codes are not enumerated here."
+    },
+    {
+      "name": "lumen-patch",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "document",
+          "patches"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "applied": {
+                "const": true
+              },
+              "document": {
+                "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+              }
+            },
+            "required": [
+              "applied",
+              "document"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "applied": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "applied",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_ARG",
+        "E_CONTAINER",
+        "E_CYCLE",
+        "E_DOC",
+        "E_DUP_ID",
+        "E_GROUP_PARENT",
+        "E_ID",
+        "E_MASK",
+        "E_NOT_FOUND",
+        "E_OP",
+        "E_OP_UNKNOWN",
+        "E_PATCH",
+        "E_RANGE",
+        "E_ROOT",
+        "E_SPEED",
+        "E_TYPE",
+        "E_UNSAFE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:219-269"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. LayerPatchError becomes applied false with its exact code and exit zero. Other exceptions exit 3. Inner operation grammar remains a draft gap: only the engine validates each LayerPatch."
+    },
+    {
+      "name": "lumen-stage",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document",
+          "seconds"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "answered": {
+                "const": true
+              },
+              "report": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "answered",
+              "report"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "answered": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "answered",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:272-317"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Default detail normal. Draft gap: report shape depends on grammar detail and error_code can be an arbitrary caught exception class name."
+    },
+    {
+      "name": "timeline-otio",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "format": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeline",
+          "assets"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "written": {
+                "const": true
+              },
+              "name": {
+                "type": "string"
+              },
+              "format": {
+                "type": "string"
+              },
+              "clips": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "written",
+              "name",
+              "format",
+              "clips"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "written": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "written",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_EMPTY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:320-404"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Defaults otio and Untitled Project; output name timeline plus format extension. Empty timeline is E_EMPTY. Draft gap: conversion exception names become error_code and complete format/asset grammar is delegated to the canonical exporter."
+    },
+    {
+      "name": "luvi-import",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "package"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "read": {
+                "const": true
+              },
+              "title": {
+                "type": "string"
+              },
+              "manifest": {
+                "type": "object"
+              },
+              "seed": {
+                "type": "object"
+              },
+              "state": {
+                "type": "object"
+              },
+              "lumenframe": {},
+              "lumenframe_history": {},
+              "assets": {},
+              "media": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "dropped": {
+                "const": [
+                  "history",
+                  "redo"
+                ]
+              }
+            },
+            "required": [
+              "read",
+              "title",
+              "manifest",
+              "seed",
+              "state",
+              "lumenframe",
+              "lumenframe_history",
+              "assets",
+              "media",
+              "dropped"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "read": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "read",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_LUVI"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:407-505"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Parses package and stages media; media paths must be relative to output root or exit 4. Draft gap: imported manifest/seed/state/assets are canonical parser shapes not closed here, and unexpected exception class names are returned."
+    },
+    {
+      "name": "luvi-export",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "lumenframe": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "timeline",
+          "assets"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "written": {
+                "const": true
+              },
+              "name": {
+                "const": "project.luvi"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "written",
+              "name",
+              "size_bytes",
+              "title"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "written": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "written",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_LUVI"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:510-625"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Defaults Untitled Project, project id project. Builds throwaway store; exports package with given assets. Draft gap: canonical asset records and dynamic exception-name refusal set are not closed."
+    },
+    {
+      "name": "lumen-canvas",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "enum": [
+              "metadata",
+              "frame",
+              "op"
+            ]
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "frame": {
+            "type": "integer"
+          },
+          "body": {
+            "type": "object"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "layer_id": {}
+        },
+        "required": [
+          "action",
+          "document"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "canvas": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "ok",
+              "canvas"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "frame": {
+                "type": "integer"
+              },
+              "name": {
+                "const": "frame.png"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ok",
+              "frame",
+              "name",
+              "revision"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "patch": {
+                "type": "object"
+              },
+              "response": {
+                "type": "object"
+              },
+              "label": {
+                "type": "string"
+              },
+              "document": {
+                "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ok",
+              "patch",
+              "response",
+              "label",
+              "document",
+              "revision"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ok",
+              "error_code",
+              "error_message",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_ARG",
+        "E_BAD_ARG",
+        "E_CONTAINER",
+        "E_CYCLE",
+        "E_DOC",
+        "E_DUP_ID",
+        "E_GROUP_PARENT",
+        "E_ID",
+        "E_LAYER_LOCKED",
+        "E_MASK",
+        "E_NOT_FOUND",
+        "E_OP",
+        "E_OP_UNKNOWN",
+        "E_PATCH",
+        "E_RANGE",
+        "E_ROOT",
+        "E_SPEED",
+        "E_TYPE",
+        "E_UNSAFE",
+        "E_UNSUPPORTED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:632-754"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. op requires body; metadata/frame default frame 0. op undo/redo returns E_UNSUPPORTED. Edits return patch/document only. Draft gap: body, metadata and patch/report details are engine-owned and not closed here."
+    },
+    {
+      "name": "timeline-render",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "quality": {
+            "type": "string"
+          },
+          "video_encoder": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          },
+          "max_long_edge": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 2,
+            "maximum": 16384
+          },
+          "verify_decode": {
+            "type": "boolean"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "produced_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeline",
+          "assets",
+          "video_encoder"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "rendered": {
+                "const": true
+              },
+              "name": {
+                "type": "string"
+              },
+              "quality": {
+                "type": "string"
+              },
+              "video_encoder": {
+                "type": "string"
+              },
+              "verify_decode": {
+                "type": "boolean"
+              },
+              "duration": {},
+              "resolution": {}
+            },
+            "required": [
+              "rendered",
+              "name",
+              "quality",
+              "video_encoder",
+              "verify_decode",
+              "duration",
+              "resolution"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "rendered": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "rendered",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_COMP_CLIP",
+        "E_NO_OUTPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:757-877"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Timeout defaults 300 seconds and is passed to export_project; enclosing media profile also enforces 600 seconds. Draft gap: exporter refusal strings and arbitrary caught exception names have no closed finite set."
+    },
+    {
+      "name": "point-library",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "bundle_path": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "described": {
+                "const": true
+              },
+              "summary": {
+                "type": "object"
+              },
+              "catalog": {
+                "type": "object"
+              },
+              "verification": {
+                "type": "object"
+              },
+              "shape": {},
+              "implementation": {
+                "type": "object"
+              },
+              "operations": {
+                "type": "object"
+              },
+              "content_sha256": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "described",
+              "summary",
+              "catalog",
+              "verification",
+              "shape",
+              "implementation",
+              "operations",
+              "content_sha256",
+              "members"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "described": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "described",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_NO_BUNDLE",
+        "E_NOT_BUILTIN",
+        "E_ARG",
+        "PointLibraryValidationError"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:880-958"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Default op describe parses bundle_path; builtin reads a named built-in. Never installs or executes a bundle. Draft gap: caught exception names and complete catalog schemas are not closed."
+    },
+    {
+      "name": "media-edit-plan",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "params": {
+            "type": "object"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "additionalProperties": true
+            },
+            "minItems": 1
+          },
+          "video_encoder": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "operation",
+          "sources",
+          "video_encoder"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "planned": {
+                "const": true
+              }
+            },
+            "required": [
+              "planned"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "planned": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "planned",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_NO_SOURCE",
+        "E_BAD_ARG",
+        "E_BAD_ARITY",
+        "E_BAD_ENCODER",
+        "E_NO_FFPROBE",
+        "E_PROBE_FAILED",
+        "E_UNSUPPORTED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:961-1014"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Probes sources and describes output before an artifact is declared. Draft gap: operation-specific params/plan fields and caught exception names are not closed."
+    },
+    {
+      "name": "speech-voices",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "voices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "locale": {
+                      "type": "string"
+                    },
+                    "language": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "locale",
+                    "language"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "script": {
+                "type": "string"
+              },
+              "for_script": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "voices",
+              "count"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "planned": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "planned"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "planned": {
+                    "const": false
+                  },
+                  "error_code": {
+                    "type": "string"
+                  },
+                  "error_message": {
+                    "type": "string"
+                  },
+                  "valid_options": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "planned",
+                  "error_code",
+                  "error_message"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          }
+        ]
+      },
+      "errors": [
+        "E_NO_TTS"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:1017-1053"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Lists sandbox-visible names, optional script filter; NarrationError uses the planned false refusal helper. Draft gap: complete library refusal set awaits precise speech schema."
+    },
+    {
+      "name": "narrate",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {},
+          "voice": {},
+          "rate": {},
+          "produced_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "produced_name"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "spoken": {
+                "const": true
+              },
+              "produced": {
+                "type": "string"
+              },
+              "duration_sec": {
+                "type": "number"
+              },
+              "voice": {
+                "type": "string"
+              },
+              "voice_listed": {
+                "type": "boolean"
+              },
+              "rate_wpm": {},
+              "script": {
+                "type": "string"
+              },
+              "units": {}
+            },
+            "required": [
+              "spoken",
+              "produced",
+              "duration_sec",
+              "voice",
+              "voice_listed",
+              "rate_wpm",
+              "script",
+              "units"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "spoken": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "spoken",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_SILENT_NARRATION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:1056-1158"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Requires bare produced_name. Synthesis failures exit 2 for E_NO_TEXT/E_BAD_RATE and 3 otherwise. Silent output retains a real artifact with spoken false. Draft gap: text/voice/rate/units grammar remains speech-owned."
+    },
+    {
+      "name": "roughcut",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "object",
+            "properties": {
+              "asset_id": {}
+            },
+            "required": [
+              "asset_id"
+            ],
+            "additionalProperties": true
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "additionalProperties": true
+          },
+          "language": {
+            "type": "string",
+            "minLength": 1
+          },
+          "create_proxy": {
+            "type": "boolean"
+          },
+          "resume": {
+            "type": "boolean"
+          },
+          "proxy_resolution": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "asset",
+          "source"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "reused": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "duration_sec": {},
+          "segments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "silences": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cleanup_suggestions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "proxy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "manifest",
+          "asset_id",
+          "reused",
+          "status",
+          "language",
+          "duration_sec",
+          "segments",
+          "silences",
+          "cleanup_suggestions",
+          "proxy"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_engine_cli.py:1161-1259"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Defaults auto language, create_proxy/resume true, resolution 540. Runs CPU-only transcription and writes roughcut.json; reports actual manifest counts. RoughcutError exits 4, OSError exits 3. Asset and source domain details remain extensible."
+    },
+    {
+      "name": "caption",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "style": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "object"
+          },
+          "produced_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "video_encoder": {
+            "type": "string"
+          },
+          "look": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "text": {},
+          "cues": {},
+          "word_timings": {}
+        },
+        "required": [
+          "style",
+          "source",
+          "produced_name",
+          "video_encoder"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "captioned": {
+                "const": true
+              },
+              "produced": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "captioned",
+              "produced"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "captioned": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              },
+              "valid_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "captioned",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_BAD_ARG",
+        "E_BAD_COLOR",
+        "E_BAD_SOURCE",
+        "E_BAD_STYLE",
+        "E_CAPTION_DOES_NOT_FIT",
+        "E_NO_CAPTIONED_FRAMES",
+        "E_NO_FFMPEG",
+        "E_NO_FFPROBE",
+        "E_NO_FONT_FOR_SCRIPT",
+        "E_NO_WORDS",
+        "E_PROBE_FAILED",
+        "E_RENDER_FAILED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:1262-1361"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Uses PIL captions because shipped FFmpeg lacks subtitles/ass/drawtext. Refused CaptionError prints JSON and exits 4; missing output exits 3. Draft gap: cue/look/report grammar remains caption-owned."
+    },
+    {
+      "name": "media-edit",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "params": {
+            "type": "object"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "additionalProperties": true
+            },
+            "minItems": 1
+          },
+          "video_encoder": {
+            "type": "string",
+            "minLength": 1
+          },
+          "produced_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timeout_sec": {}
+        },
+        "required": [
+          "operation",
+          "sources",
+          "video_encoder",
+          "produced_name"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "edited": {
+                "const": true
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "video_encoder": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "duration_sec": {},
+              "metadata": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "edited",
+              "name",
+              "operation",
+              "kind",
+              "video_encoder",
+              "label",
+              "duration_sec",
+              "metadata"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "rendered": {
+                "const": false
+              },
+              "error_code": {
+                "type": "string"
+              },
+              "error_message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "rendered",
+              "error_code",
+              "error_message"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "errors": [
+        "E_BAD_ARG",
+        "E_BAD_ARITY",
+        "E_BAD_ENCODER",
+        "E_FFMPEG",
+        "E_NO_FFMPEG",
+        "E_NO_FFPROBE",
+        "E_NO_OUTPUT",
+        "E_NO_SOURCE",
+        "E_PROBE_FAILED",
+        "E_TIMEOUT",
+        "E_UNSUPPORTED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_engine_cli.py:1382-1507"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. Failure flag is rendered, success flag edited. FFmpeg timeout uses valid 1..3600 seconds or defaults 300. Plan chooses suffix then moves result to produced_name. Draft gap: operation-specific params/source/metadata shape remains engine-owned."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.engine.gemia"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "quanta_composition_profile",
+      "value": 300,
+      "unit": "seconds in lumeri_engine",
+      "evidence": [
+        "lumeri_core/sandbox.py:131-146"
+      ]
+    },
+    {
+      "name": "media_profile",
+      "value": 600,
+      "unit": "seconds in lumeri_engine_media",
+      "evidence": [
+        "lumeri_core/sandbox.py:156-178"
+      ]
+    },
+    {
+      "name": "speech_profile",
+      "value": 300,
+      "unit": "seconds in lumeri_engine_speech",
+      "evidence": [
+        "lumeri_core/sandbox.py:187-204"
+      ]
+    },
+    {
+      "name": "transcribe_profile",
+      "value": 600,
+      "unit": "seconds in lumeri_engine_transcribe",
+      "evidence": [
+        "lumeri_core/sandbox.py:212-238"
+      ]
+    },
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "A subcommand computes or writes scratch artifacts only; Runtime retains final Project commit and revision authority.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: Its stdout is one JSON value and the files it declares exist; the Runtime's checks after the run hold them as they hold the engine's."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.engine.gemia). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "Several subcommands serialize arbitrary caught exception class names as error_code. The listed codes are known literals on those paths, not a claim that the set is closed; affected operations remain draft until stable error envelopes are defined.",
+      "evidence": [
+        "lumeri_engine_cli.py:379-391",
+        "lumeri_engine_cli.py:457-469",
+        "lumeri_engine_cli.py:607-610",
+        "lumeri_engine_cli.py:848-851"
+      ],
+      "test": null
+    },
+    {
+      "text": "Beyond one JSON value on stdout and the declared files, a program's answer meets the Runtime's own checks only after the run; a failure there is the request's, and the original does not run it again.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:445-491"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

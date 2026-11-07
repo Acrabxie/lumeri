@@ -1,0 +1,239 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:point.vector-motion.catalog/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Read the native vector-motion catalog",
+  "summary": "Read the existing native vector-motion Point Library catalog or descriptor without installing a Project library, rendering motion or granting a write. The adapter checks native version and semantic contract identity. A layer may bring the library's data: the read then answers with the layer's version, catalog and verification, and with the layer off, with Lumeri's own.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri-point-library/v1",
+    "surface": "native-point-library-read",
+    "notes": "Reached through luc_invoke after discovery and description. Schemas describe the result before the wrapper; Runtime context and authority are supplied separately by the Host. A layer names its data on the capability as library {version, catalog, verification}."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The Luc pins the existing native PointLibraryPackage. Its dispatcher is in-process gemia code supplied only by trusted Host bindings; the new open library/v1 recipe protocol is a different carrier. The code stays behind trusted Host bindings until the code sandbox (Acrab, 2026-10-24). A layer may bring the library's data in its place: installing a point library is laying a layer on this Luc, and taking it off brings Lumeri's own back (Acrab, 2026-10-24, decision 3A). Such a layer adds only the catalog and verification its capability names and changes no pin.",
+    "decided": "Acrab, 2026-10-24 (code behind trusted Host bindings until the code sandbox; decision 3A, a .lup is a data layer on this Luc); today's code: lumeri_runtime/luc_interface_gate.py:36-39"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "read_native_catalog",
+      "capability": "point.vector-motion.catalog",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {}
+        },
+        "additionalProperties": true
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/point.vector-motion.catalog.v1.json#/definitions/answer"
+      },
+      "errors": [
+        "E_LUC_POINT_LIBRARY_READ_ONLY",
+        "E_ARG",
+        "E_LUC_LIBRARY_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:30-33",
+        "lumeri_runtime/luc_point_library_adapter.py:167-198",
+        "gemia/point_library.py:324-352"
+      ],
+      "notes": "No timeout is enforced on the in-process dispatch. Missing/falsy op defaults to catalog; op is stringified, stripped and lowercased; describe returns the same payload. Unknown operations return applied=false/E_ARG as data; create, adjust and apply raise the read-only refusal. Other input keys are accepted and ignored by the read path. Repeated reads leave the native catalog unchanged. With a layer, the answer is the native answer with the layer's version, catalog and verification; a layer whose data changed after load is refused (E_LUC_LIBRARY_CHANGED)."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "layer_catalog_bytes",
+      "value": 262144,
+      "unit": "bytes of a layer's catalog file",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:37-41"
+      ]
+    },
+    {
+      "name": "layer_verification_bytes",
+      "value": 65536,
+      "unit": "bytes of a layer's verification file",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:37-41"
+      ]
+    },
+    {
+      "name": "layer_catalog_entries",
+      "value": 128,
+      "unit": "entries in a layer's catalog",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:37-41"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "render-is-refused",
+      "text": "create, adjust and apply never enter the native renderer through this adapter.",
+      "test": "tests/test_official_luc_point_library.py::test_point_library_read_adapter_does_not_open_native_render_execution"
+    },
+    {
+      "id": "layer-answers-with-its-data",
+      "text": "With a layer on, catalog and describe answer with the layer's version, catalog and verification in the native answer's shape; with it switched off or taken away, the native answer.",
+      "test": "tests/test_luc_library_layer.py::test_with_the_layer_on_the_library_answers_with_its_data_and_with_it_off_lumeris_own"
+    },
+    {
+      "id": "layer-is-data-only",
+      "text": "A layer adds only the catalog and verification files its library names, changes no file of the Luc and no pin; any other layer is left off and the native library answers.",
+      "test": "tests/test_luc_library_layer.py::test_a_layer_that_brings_a_file_no_library_names_is_left_off"
+    },
+    {
+      "id": "layer-read-by-the-agent",
+      "text": "A layer the agent would read in a language other than English is left off (E_LUC_LANGUAGE).",
+      "test": "tests/test_luc_library_layer.py::test_a_layer_the_agent_could_not_read_is_left_off"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The trusted binding is absent, changed or refuses the invocation.",
+      "An input, result or Host context fails validation.",
+      "A layer's data fails its check at load: the layer is left off and the native library answers.",
+      "A layer's data changed after load: the read is refused (E_LUC_LIBRARY_CHANGED)."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/agent_turn.py:851-860",
+      "lumeri_runtime/luc_point_library_adapter.py:155-182"
+    ],
+    "notes": "Disabling this Official Luc removes its capability. There is no automatic native substitute or unlayered-original retry at this invocation seam. A layer that does not load lies on nothing, and the Luc answers as it shipped."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_point_library.py",
+      "tests/test_luc_library_layer.py"
+    ],
+    "notes": "Both files ran for this change. Structural checking does not establish live availability or GUI acceptance."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded adapter publishes only an object output schema. The structured catalog and returned native error are therefore not checked against their real shapes yet.",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:17-19",
+        "lumeri_runtime/luc_point_library_adapter.py:69-81"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Native entry identities, parameters and verification metadata are preserved exactly as the registered catalog supplies them."
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "additionalProperties": true
+    },
+    "answer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "applied": {
+              "const": true
+            },
+            "point_library": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "shape": {
+              "type": "string"
+            },
+            "catalog": {
+              "$contract": "contracts/interfaces/tools/point.vector-motion.catalog.v1.json#/definitions/catalog"
+            },
+            "verification": {
+              "type": "object",
+              "properties": {
+                "deterministic": {},
+                "taste_floor": {},
+                "tests": {}
+              },
+              "required": [
+                "deterministic",
+                "taste_floor",
+                "tests"
+              ],
+              "additionalProperties": false
+            },
+            "next": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "applied",
+            "point_library",
+            "version",
+            "shape",
+            "catalog",
+            "verification",
+            "next"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "applied": {
+              "const": false
+            },
+            "error_code": {
+              "const": "E_ARG"
+            },
+            "error_message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "const": true
+            }
+          },
+          "required": [
+            "applied",
+            "error_code",
+            "error_message",
+            "recoverable"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

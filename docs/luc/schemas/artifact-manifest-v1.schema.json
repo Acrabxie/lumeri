@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/artifact-manifest-v1.schema.json",
+  "title": "Lumeri Luc distribution manifest v1",
+  "type": "object",
+  "required": ["format", "kind", "identity", "compatibility", "files", "integrity"],
+  "properties": {
+    "format": {"const": "lumeri.luc.distribution/v1"},
+    "kind": {"enum": ["luc", "extension"]},
+    "identity": {
+      "type": "object", "required": ["id", "version"], "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,159}$"},
+        "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"}
+      }
+    },
+    "author": {"type": "string", "maxLength": 160},
+    "summary": {"type": "string", "maxLength": 1000},
+    "readme": {"type": "string", "minLength": 1},
+    "compatibility": {
+      "type": "object", "required": ["runtime"], "additionalProperties": false,
+      "properties": {"runtime": {"type": "string", "minLength": 1, "maxLength": 120}}
+    },
+    "extends": {
+      "type": "object", "required": ["luc", "version", "base_source_hash"], "additionalProperties": false,
+      "properties": {
+        "luc": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,159}$"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 120},
+        "base_source_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "host": {
+      "type": "object", "required": ["protocols", "apis", "permissions", "editable", "capabilities"], "additionalProperties": false,
+      "properties": {
+        "protocols": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/protocol"}},
+        "apis": {
+          "type": "object", "required": ["required", "optional"], "additionalProperties": false,
+          "properties": {
+            "required": {"$ref": "#/$defs/stringArray"},
+            "optional": {"$ref": "#/$defs/stringArray"}
+          }
+        },
+        "permissions": {"$ref": "#/$defs/stringArray"},
+        "editable": {
+          "oneOf": [
+            {"const": "none"},
+            {
+              "type": "object", "required": ["target_types", "properties", "areas"], "additionalProperties": false,
+              "properties": {
+                "target_types": {"$ref": "#/$defs/nonEmptyStringArray"},
+                "properties": {"$ref": "#/$defs/nonEmptyStringArray"},
+                "areas": {"$ref": "#/$defs/nonEmptyStringArray"}
+              }
+            }
+          ]
+        },
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}}
+      }
+    },
+    "manifest_patches": {"type": "array", "items": {"$ref": "#/$defs/manifestPatch"}},
+    "file_operations": {"type": "array", "items": {"$ref": "#/$defs/fileOperation"}},
+    "source_patches": {"type": "array", "items": {"$ref": "#/$defs/sourcePatch"}},
+    "files": {
+      "type": "object",
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {
+        "type": "object", "required": ["sha256", "mode"], "additionalProperties": false,
+        "properties": {"sha256": {"$ref": "#/$defs/hash"}, "mode": {"enum": [420, 493]}}
+      }
+    },
+    "integrity": {
+      "type": "object", "required": ["source_hash"], "additionalProperties": false,
+      "properties": {"source_hash": {"$ref": "#/$defs/hash"}}
+    },
+    "metadata": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "luc"}}},
+      "then": {"required": ["host"], "not": {"anyOf": [{"required": ["extends"]}, {"required": ["manifest_patches"]}, {"required": ["file_operations"]}, {"required": ["source_patches"]}]}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "extension"}}},
+      "then": {
+        "required": ["extends"],
+        "not": {"anyOf": [{"required": ["host"]}, {"required": ["apis"]}, {"required": ["permissions"]}, {"required": ["editable"]}, {"required": ["capabilities"]}]}
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "protocol": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,63}(?:/[a-z0-9][a-z0-9._-]{0,31})?$"},
+    "capability": {
+      "type": "object", "required": ["id", "protocol"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9.-]{0,63}$"},
+        "protocol": {"$ref": "#/$defs/protocol"}
+      }
+    },
+    "stringArray": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "nonEmptyStringArray": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "manifestPatch": {
+      "type": "object", "required": ["op", "path", "value", "base_value_hash"], "additionalProperties": false,
+      "properties": {
+        "op": {"enum": ["add", "replace", "remove"]},
+        "path": {"type": "string", "pattern": "^/"},
+        "value": {},
+        "base_value_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "fileOperation": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["op", "path", "source", "result_sha256"], "additionalProperties": false,
+          "properties": {"op": {"const": "add"}, "path": {"type": "string"}, "source": {"type": "string"}, "result_sha256": {"$ref": "#/$defs/hash"}}
+        },
+        {
+          "type": "object", "required": ["op", "path", "source", "base_sha256", "result_sha256"], "additionalProperties": false,
+          "properties": {"op": {"const": "replace"}, "path": {"type": "string"}, "source": {"type": "string"}, "base_sha256": {"$ref": "#/$defs/hash"}, "result_sha256": {"$ref": "#/$defs/hash"}}
+        },
+        {
+          "type": "object", "required": ["op", "path", "base_sha256"], "additionalProperties": false,
+          "properties": {"op": {"const": "delete"}, "path": {"type": "string"}, "base_sha256": {"$ref": "#/$defs/hash"}}
+        }
+      ]
+    },
+    "sourcePatch": {
+      "type": "object", "required": ["file", "base_sha256", "before", "after", "context_before_sha256", "context_after_sha256"], "additionalProperties": false,
+      "properties": {
+        "file": {"type": "string"},
+        "base_sha256": {"$ref": "#/$defs/hash"},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string"},
+        "context_before_sha256": {"$ref": "#/$defs/hash"},
+        "context_after_sha256": {"$ref": "#/$defs/hash"}
+      }
+    }
+  }
+}

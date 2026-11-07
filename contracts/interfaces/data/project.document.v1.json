@@ -1,0 +1,119 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:project.document/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Project document envelope",
+  "summary": "One persisted document.json carries timeline, Quanta, composition and storyboard sections. project.json is a separate Runtime governance descriptor. Missing product documents read as a deterministic default.",
+  "carrier": {
+    "kind": "file",
+    "surface": "document.json"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/project_document.py:17-35"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "default_document",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/project_document.py:22-35",
+        "lumeri_runtime/project_document.py:48-100"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "one-envelope",
+      "text": "Timeline, Quanta, composition and shotlist share one Project document; their own modules own their vocabularies.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/project_document.py:17-35"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "The envelope has deterministic defaults but ProjectRepository does not enforce this schema on arbitrary stored documents. Legacy or incomplete stored objects can be read unchanged.",
+      "evidence": [
+        "lumeri_runtime/projects.py:319-340"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "document": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "gemia.project"
+        },
+        "version": {
+          "const": 1
+        },
+        "timeline": {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+        },
+        "timeline_history": {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/history"
+        },
+        "quanta": {
+          "$contract": "contracts/interfaces/data/quanta.document.v1.json#/definitions/quanta"
+        },
+        "lumenframe": {
+          "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+        },
+        "shotlist": {
+          "type": "object",
+          "description": "Storyboard owned by the tools area; see iface:storyboard.edit/v1."
+        }
+      },
+      "required": [
+        "schema",
+        "version",
+        "timeline",
+        "quanta",
+        "lumenframe",
+        "shotlist"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

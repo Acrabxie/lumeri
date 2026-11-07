@@ -1,0 +1,320 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.activation/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Activation receipts and history",
+  "summary": "Immutable activation receipts identify one resolved selection, while Registry state records the active history cursor and health pointers. Approval is exact-resolution authorization, not a general grant.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_distribution.activation:ActivationStore"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "plan_activation",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "description": "Canonical frozen ResolvedLuc; public receipt shape is iface:luc.resolver/v1."
+          },
+          "safe_mode": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolved"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-plan-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_SAFE_MODE",
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:40-43",
+        "lumeri_runtime/luc_distribution/activation.py:97-132"
+      ],
+      "notes": "No deadline. Computes approval hash bound to previous selection, exact resolution and mode. Profile/receipt corruption can propagate E_LUC_PROFILE_CORRUPT or E_LUC_ACTIVATION_CORRUPT."
+    },
+    {
+      "name": "activate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "description": "Canonical frozen ResolvedLuc; public receipt shape is iface:luc.resolver/v1."
+          },
+          "authorized_activation_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "safe_mode": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolved"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_SAFE_MODE",
+        "REAUTH_REQUIRED",
+        "E_LUC_AUTHORIZATION",
+        "E_LUC_ACTIVATION_COLLISION",
+        "E_LUC_ACTIVATION_CORRUPT",
+        "E_LUC_PROFILE_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:45-95"
+      ],
+      "notes": "No deadline. Same selection reuses immutable receipt and adds no history entry. Exact fresh hash required for expansions; a stale or unnecessary authorization is refused. No live Runtime restart."
+    },
+    {
+      "name": "rollback",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          }
+        }
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_ROLLBACK",
+        "E_LUC_ROLLBACK_EMPTY",
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:134-156"
+      ],
+      "notes": "No deadline. Every retry moves the cursor backward again; sources remain untouched."
+    },
+    {
+      "name": "redo",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          }
+        }
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_ROLLBACK",
+        "E_LUC_REDO_EMPTY",
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:158-179"
+      ],
+      "notes": "No deadline. Every retry moves the cursor forward again."
+    },
+    {
+      "name": "current",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:181-184"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "last_known_good",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:190-192"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "mark_healthy",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "activation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_ACTIVATION_STATE",
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:194-205"
+      ],
+      "notes": "No deadline. Repeating on the same selected activation naturally records it healthy and pins last-known-good; this is explicit health bookkeeping, not a probe."
+    },
+    {
+      "name": "mark_failed",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "activation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_ACTIVATION_STATE",
+        "E_LUC_LKG_EMPTY",
+        "E_LUC_PROFILE_CORRUPT",
+        "E_LUC_ACTIVATION_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:207-238"
+      ],
+      "notes": "No deadline. Can select a distinct last-known-good receipt. If none, records failed validation then raises E_LUC_LKG_EMPTY. Retrying with old activation_id may fail because selected activation changed."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "history-not-patching",
+      "text": "Rollback/redo select immutable receipts without reverse-patching sources.",
+      "test": "tests/test_luc_distribution.py::test_activation_is_atomic_reference_selection_and_rollback_does_not_patch_sources"
+    },
+    {
+      "id": "health-is-explicit",
+      "text": "Last-known-good is populated only by explicit mark_healthy, not merely by selection.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_distribution/activation.py:134-238"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_distribution.py::test_activation_is_atomic_reference_selection_and_rollback_does_not_patch_sources"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "mark_failed and last_known_good have no production Runtime caller. They may restore an earlier layer set, so they are not the self-Luc original-fallback path.",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/activation.py:190-238",
+        "lumeri_runtime/luc_interactions.py:212-230",
+        "lumeri_runtime/worker.py:8087-8132"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

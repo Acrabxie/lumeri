@@ -1,0 +1,447 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:point.libraries/v1",
+  "version": "1.0.1",
+  "area": "data",
+  "title": "Project Point Library registry",
+  "summary": "Project-owned installed versions and active versions in libraries.json. Engine vouches for bundle contents; Runtime keeps integrity and records which exact bytes the Project uses.",
+  "carrier": {
+    "kind": "file",
+    "surface": "libraries.json; Python lumeri_runtime.point_libraries:validate_registry,apply_patch,bind_registry_patch",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project ownership, durable integrity or trusted execution authority.",
+    "decided": "today's code: lumeri_runtime/point_libraries.py:54-66"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "default_registry",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/registry"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:86-93"
+      ],
+      "notes": "No local operation deadline is enforced. "
+    },
+    {
+      "name": "validate_registry",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/registry"
+      },
+      "errors": [
+        "point_library_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:110-192"
+      ],
+      "notes": "No local operation deadline is enforced. Checks whole registry, all records, ids and versions. Active version must be installed. Current schema_version coercion can raise a built-in ValueError for nonnumeric input."
+    },
+    {
+      "name": "validate_patch",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/patch"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/patch"
+      },
+      "errors": [
+        "point_library_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:195-219"
+      ],
+      "notes": "No local operation deadline is enforced. install additionally requires asset_id and described. Unknown input fields are ignored when producing the cleaned patch."
+    },
+    {
+      "name": "apply_patch",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/registry"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/patch"
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "registry",
+          "patch",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/registry"
+      },
+      "errors": [
+        "point_library_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:222-276"
+      ],
+      "notes": "No local operation deadline is enforced. Pure. Install records engine description and activates it; same name/version with different digest is refused. Repeating with the same at and bytes is deterministic."
+    },
+    {
+      "name": "active_libraries",
+      "effect": "read",
+      "input": {
+        "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/registry"
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": {
+          "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/record"
+        }
+      },
+      "errors": [
+        "point_library_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:279-288"
+      ],
+      "notes": "No local operation deadline is enforced. "
+    },
+    {
+      "name": "bind_describe",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "bundle_path": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "bundle_path",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:388-424"
+      ],
+      "notes": "No local operation deadline is enforced. Returns sealed read runner, exact engine point-library schema is engine.gemia. No Project revision change. Opaque callable output projection is draft."
+    },
+    {
+      "name": "bind_registry_patch",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "project_repository": {
+            "type": "object"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/patch"
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "project_repository",
+          "product_id",
+          "patch",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "point_library_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:446-550"
+      ],
+      "notes": "No local operation deadline is enforced. Returns a trusted broker for libraries.json. Exact Gate identity replays and successful new write advances Project revision. libraries.json and project.json are separate replacements; no crash-atomic client_op_id result commit."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "libraries",
+      "value": 64,
+      "unit": "libraries per Project",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:76-77"
+      ]
+    },
+    {
+      "name": "versions",
+      "value": 32,
+      "unit": "versions per library",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:76-77"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "An active version is installed, and one library name/version cannot stand for two different bundle digests.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/point_libraries.py:54-66",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Registry edits are revision-fenced and replayable but still use the two-file Project mutation, not the self-Luc atomic result commit.",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:489-503",
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    },
+    {
+      "text": "The Project registry still installs and activates a .lup per Project beside the Luc layers. In 1.1 nothing reads it for the library the agent uses (the Luc and its layers answer), so a Project install changes no answer, and taking a Luc layer off does not touch it. A .lup is installed as a Luc (iface:point.library.package/v1).",
+      "evidence": [
+        "lumeri_runtime/point_libraries.py:279-288",
+        "lumeri_runtime/luc_point_library_adapter.py:167-182"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "registry": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "lumeri.point-library-registry"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "libraries": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "active_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "versions": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 32,
+                "additionalProperties": {
+                  "$contract": "contracts/interfaces/data/point.libraries.v1.json#/definitions/record"
+                }
+              }
+            },
+            "required": [
+              "active_version",
+              "versions"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "schema_version",
+        "libraries"
+      ],
+      "additionalProperties": false
+    },
+    "record": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "content_sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "shape": {
+          "enum": [
+            "A",
+            "B"
+          ]
+        },
+        "installed_at": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "object"
+        },
+        "catalog": {
+          "type": "object"
+        },
+        "verification": {
+          "type": "object"
+        },
+        "implementation": {
+          "type": "object"
+        },
+        "operations": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "asset_id",
+        "content_sha256",
+        "shape",
+        "installed_at",
+        "summary",
+        "catalog",
+        "verification",
+        "implementation",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "patch": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "install",
+            "activate"
+          ]
+        },
+        "library_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+){0,3}(?:-[0-9A-Za-z.]+)?$"
+        },
+        "asset_id": {
+          "type": "string"
+        },
+        "described": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "op",
+        "library_id",
+        "version"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

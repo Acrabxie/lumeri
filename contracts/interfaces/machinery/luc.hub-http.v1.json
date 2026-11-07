@@ -1,0 +1,998 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.hub-http/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Luc Hub web and App HTTP boundary",
+  "summary": "Serve public/owner package pages and bearer-only App upload/reviewer routes over LucHub. Browser forms and App bearer calls use distinct authentication and proof boundaries.",
+  "carrier": {
+    "kind": "http",
+    "surface": "lumeri_runtime/luc_cloud/hub_site.py:HubSite.handle /api/v1 and browser routes; lumeri_runtime/luc_hub_upload.py:publish_local_luc"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "GET /api/v1/me",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "Bearer account access credential in Authorization; cookies do not authenticate this API."
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "may_add": {
+            "type": "boolean"
+          },
+          "reviewer": {
+            "type": "boolean"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "luc_bytes": {
+                "type": "integer"
+              },
+              "account_bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "luc_bytes",
+              "account_bytes"
+            ]
+          },
+          "choose_handle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle",
+          "may_add",
+          "reviewer",
+          "limits",
+          "choose_handle"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_HUB_ORIGIN",
+        "E_LUC_HUB_NOT_FOUND",
+        "E_LUC_HUB_METHOD",
+        "E_LUC_HUB_SIGNIN"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:543-570"
+      ],
+      "notes": "No route deadline. Requires configured sessions.bearer callback. Missing callback returns 404; cross-origin request 403, absent/invalid bearer 401. HEAD is normalized to GET."
+    },
+    {
+      "name": "POST /api/v1/lucs",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "content_type": {
+            "const": "application/vnd.lumeri.luc"
+          },
+          "body": {
+            "description": "Raw .luc bytes, authenticated by bearer."
+          }
+        },
+        "required": [
+          "content_type",
+          "body"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "listing": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "artifact_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle",
+          "name",
+          "version",
+          "visibility",
+          "listing",
+          "url",
+          "artifact_hash"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_HUB_ORIGIN",
+        "E_LUC_HUB_NOT_FOUND",
+        "E_LUC_HUB_METHOD",
+        "E_LUC_HUB_SIGNIN",
+        "E_LUC_HUB_CONTENT_TYPE",
+        "E_LUC_HUB_EMPTY",
+        "E_LUC_HUB_LUC_SIZE",
+        "E_LUC_HUB_HANDLE_NEEDED",
+        "E_LUC_HUB_ADDING_CLOSED",
+        "E_LUC_HUB_ACCOUNT_FULL",
+        "E_LUC_HUB_FULL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:543-563",
+        "lumeri_runtime/luc_cloud/hub_site.py:592-612"
+      ],
+      "notes": "No route deadline. 201 on publication; optional name query is normalized. Inherits Hub/Cloud validation errors, so list is not closed. Re-uploading same version refuses; response does not make a private or in-review version publicly listed."
+    },
+    {
+      "name": "publish_local_luc",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "required": [
+          "folder",
+          "file_name",
+          "access_token"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "folder": {
+            "description": "Local Lucs folder Path."
+          },
+          "file_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.luc$"
+          },
+          "access_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hub": {
+            "type": "string",
+            "default": "https://luc.lumeri.io"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "platform": {
+            "enum": [
+              "desktop",
+              "android",
+              null
+            ],
+            "default": null
+          },
+          "language": {
+            "type": "string",
+            "default": "en"
+          },
+          "runtime_version": {
+            "type": "string",
+            "default": "unknown"
+          },
+          "timeout": {
+            "type": "number",
+            "default": 30.0
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "status",
+          "handle",
+          "name",
+          "version",
+          "visibility",
+          "listing",
+          "url",
+          "platform"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "PUBLISHED"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "listing": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        }
+      },
+      "errors": [
+        "E_LUC_HUB_URL",
+        "E_LUC_HUB_SIGNIN",
+        "E_LUC_HUB_PLATFORM",
+        "E_LUC_LOCAL_NAME",
+        "E_LUC_LOCAL_NOT_FOUND",
+        "E_LUC_LOCAL_SIZE",
+        "E_LUC_LOCAL_INVALID",
+        "E_LUC_PLATFORM",
+        "E_LUC_HUB_UNREACHABLE",
+        "E_LUC_HUB_ANSWER"
+      ],
+      "deadline_ms": 30000,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_hub_upload.py:31-177"
+      ],
+      "notes": "App-side publisher for POST /api/v1/lucs: verifies a single regular non-symlink .luc in the local Lucs folder against MAX_LOCAL_LUC_BYTES and the target or current Runtime platform, checks HTTPS or loopback Hub origin, sends Bearer token with no redirect following, redacts credentials from errors, and validates the 201 receipt. Remote 4xx E_LUC_* error payloads returned by POST /api/v1/lucs are redacted via clean and raised as LucHubUploadError (lumeri_runtime/luc_hub_upload.py:158-168), so the error union is draft."
+    },
+    {
+      "name": "GET /api/v1/console",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "description": "Bearer authenticated reviewer."
+      },
+      "output": {
+        "type": "object",
+        "description": "Counts and public review/report projections; reviewer console payload still lacks a dedicated schema."
+      },
+      "errors": [
+        "E_LUC_HUB_ORIGIN",
+        "E_LUC_HUB_NOT_FOUND",
+        "E_LUC_HUB_METHOD",
+        "E_LUC_HUB_SIGNIN"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:571-578",
+        "lumeri_runtime/luc_cloud/hub_site.py:614-619"
+      ],
+      "notes": "No route deadline. Non-reviewer is not-found, not forbidden. Full console nested projection needs a schema; only its access boundary is defined here."
+    },
+    {
+      "name": "POST /api/v1/reports/{id}/handled",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Report projection id, handle, name, version, reason, details, reporter handle, status and timestamps."
+      },
+      "errors": [
+        "E_LUC_HUB_ORIGIN",
+        "E_LUC_HUB_NOT_FOUND",
+        "E_LUC_HUB_METHOD",
+        "E_LUC_HUB_SIGNIN"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:571-578",
+        "lumeri_runtime/luc_cloud/hub.py:331-349"
+      ],
+      "notes": "No route deadline. Reviewer-only; repeated handling preserves handled state. Missing report and non-reviewer are both 404."
+    },
+    {
+      "name": "GET /",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /search",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /c/{code}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/v/{version}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/versions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/files/{version}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/files/{version}/{path}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/raw/{version}/{path}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "GET /{handle}/{name}/download/{version}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "object"
+          },
+          "cookie": {
+            "description": "Optional Hub session credential; never an example value."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:276-357"
+      ],
+      "notes": "No route deadline. Viewer-aware Hub access; absent/private addresses are indistinguishable to a non-owner. HTML or redirected page except raw/download bytes. Route-specific HTML representation is deliberately draft; path/query parameters follow the cited route. HEAD is normalized to GET; body suppression belongs to the HTTP transport."
+    },
+    {
+      "name": "POST /signout",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-306"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Authenticated session proof; clears browser session cookie. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /new",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "body": {
+            "description": "Raw .luc bytes; X-Luc-Hub-Token carries session proof."
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:680-705"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Optional name query; JSON upload location or localized error. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /settings/handle",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-678"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Claim immutable handle or show validation error. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /reviews/reports/{id}",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:316-320"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Reviewer-only handling; redirect to reviews. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /report",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "luc": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:482-539"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Readable version only; anonymous proof is a site-signed time stamp, authenticated proof is session-bound. Invalid/old proof returns 403. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /{handle}/{name}/settings",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ]
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:339-340"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Owner-only visibility change. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    },
+    {
+      "name": "POST /{handle}/{name}/v/{version}/review",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub-http.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:247-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:303-340",
+        "lumeri_runtime/luc_cloud/hub_site.py:664-722",
+        "lumeri_runtime/luc_cloud/hub_site.py:466-478"
+      ],
+      "notes": "No route deadline. Browser POST checks same-origin when provided; signed-in changes require session proof. Reviewer-only; rejected decision requires note. HTML/redirect representation and complete transitive failure vocabulary are still draft."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "bearer-api",
+      "text": "App API authentication accepts only the Accounts bearer callback, never a browser session cookie.",
+      "test": null
+    },
+    {
+      "id": "origin-fixed",
+      "text": "Requests for unconfigured Host names receive 421; cross-origin App calls and browser POST changes are refused.",
+      "test": null
+    },
+    {
+      "id": "private-hiding",
+      "text": "All page/source/artifact reads delegate to Hub's viewer-aware access rules.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_cloud/hub_site.py:217-256",
+      "lumeri_runtime/luc_cloud/hub_site.py:543-563"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Browser and App failures have different shapes: browser forms use HTML or message-only JSON in several paths, while App errors include stable codes. Replacements must preserve the selected route's behavior rather than assume a single envelope.",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub_site.py:252-256",
+        "lumeri_runtime/luc_cloud/hub_site.py:592-605",
+        "lumeri_runtime/luc_cloud/hub_site.py:688-705"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "description": "Header name/value pair."
+          }
+        },
+        "body": {
+          "description": "bytes."
+        }
+      },
+      "required": [
+        "status",
+        "headers",
+        "body"
+      ]
+    }
+  }
+}

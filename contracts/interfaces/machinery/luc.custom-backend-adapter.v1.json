@@ -1,0 +1,169 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.custom-backend-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Declarative backend adapter",
+  "summary": "Bind an allowlisted backend definition to trusted Host ports, validate its exact schemas and authority, and interpret read-only JSON steps with checked references and output schemas.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_custom:CustomBackendAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:348-363"
+      ],
+      "notes": "No deadline. Uses the registered backend definition's exact schemas; packages cannot override them."
+    },
+    {
+      "name": "validate_authority",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "resolution": {
+            "description": "APIResolution."
+          }
+        },
+        "required": [
+          "capability",
+          "resolution"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_AUTHORITY",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:277-285",
+        "lumeri_runtime/luc_custom.py:365-367"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Host-owned Python context."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "Registered backend output_schema instance."
+      },
+      "errors": [
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_OUTPUT",
+        "E_LUC_CUSTOM_REFERENCE",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:306-341",
+        "lumeri_runtime/luc_custom.py:372-373"
+      ],
+      "notes": "No deadline. Exact port callbacks can propagate further LucError codes; that embedding-specific set is not closed here. Binding is revalidated before each call. An unavailable optional API may use its declared fallback data."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "declarative-read-only",
+      "text": "Backend definitions carry data plans over existing read APIs; they cannot widen permissions or edit authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_custom.py:175-218",
+      "lumeri_runtime/luc_custom.py:277-341"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The adapter is reserved and its Official package is off; a declared runtime_bound flag is not proof a particular embedding attached working Host ports.",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:369-373",
+        "lumeri_runtime/luc_local.py:97-98"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

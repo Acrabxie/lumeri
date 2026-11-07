@@ -1,0 +1,254 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:sessions.http/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Session HTTP facade",
+  "summary": "Lifecycle and transcript HTTP projection over account-scoped Session repositories and governance. Turn execution belongs to the agent/process areas.",
+  "carrier": {
+    "kind": "http",
+    "surface": "/runtime/v1/{product}"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/worker.py:9376-9391"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "GET /sessions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionListResponse"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:1208-1221",
+        "lumeri_runtime/worker.py:9412-9419"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. May ensure a missing governance ledger and adds active-turn visibility fields; this is not a pure storage read."
+    },
+    {
+      "name": "POST /sessions",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionCreateRequest"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [
+        "invalid_request"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/worker.py:1166-1206"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Checks expected_project_revision, defaulting to current; creates snapshot then budget ledger. No atomic client_op_id Project/result transaction. Optional session_id is accepted; retry without an id creates another Session. Code derives budget from budget_limit_usd, not the documented budget_limit_micros field."
+    },
+    {
+      "name": "GET /sessions/{session_id}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "session_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9965-9972"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Returns resolved Session snapshot."
+    },
+    {
+      "name": "DELETE /sessions/{session_id}",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "session_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionActionResult"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:6966-6982",
+        "lumeri_runtime/worker.py:9973-9975"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Closes snapshot, expires approvals and syncs governance separately. No atomic Project/client_op_id commit or Project revision advance."
+    },
+    {
+      "name": "POST /sessions/{session_id}/resume",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ResumeRequest"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:7100-7116",
+        "lumeri_runtime/worker.py:10009-10015"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Resumes under mutation/stop locks, clears stop fence and adds agent visibility. Body is ignored. No atomic Project/client_op_id commit."
+    },
+    {
+      "name": "POST /sessions/{session_id}/fork",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ForkRequest"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:7118-7143"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. HTTP 201; same-product snapshot fork then governance fork/sync. Optional requested session_id. No atomic transaction across stores or client_op_id deduplication."
+    },
+    {
+      "name": "POST /sessions/{session_id}/compact",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/CompactRequest"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:7145-7160"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Requires summary object and an existing through_event_id. Stores Session compaction, not a Project document/revision commit."
+    },
+    {
+      "name": "GET /sessions/{session_id}/transcript",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "after_event_id": {
+            "type": "string"
+          },
+          "Last-Event-ID": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "session_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/TranscriptPage"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:8671-8684",
+        "lumeri_runtime/worker.py:10018-10044"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Header cursor takes precedence over query cursor; returns events and next_event_id, retaining supplied cursor when no new events."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "account-scope",
+      "text": "Project and Session access is resolved using verified account identity; a path id alone supplies no ownership authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/worker.py:9412-9427",
+      "lumeri_runtime/worker.py:9963-10044"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "SessionCreateRequest advertises budget_limit_micros as preferred, but create_session computes the limit only from budget_limit_usd. It also accepts session_id absent from that descriptor.",
+      "evidence": [
+        "contracts/runtime-v1/runtime-contract.json:2003-2022",
+        "lumeri_runtime/worker.py:1166-1206"
+      ],
+      "test": null
+    },
+    {
+      "text": "Session creation/fork/lifecycle spans separate Session and governance writes; it does not expose staged patch plus atomic expected_project_revision/client_op_id result semantics.",
+      "evidence": [
+        "lumeri_runtime/worker.py:1184-1206",
+        "lumeri_runtime/worker.py:7127-7138"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

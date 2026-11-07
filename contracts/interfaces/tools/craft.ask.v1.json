@@ -1,0 +1,241 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:craft.ask/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Ask a craft library",
+  "summary": "Ask grade, camera, compose, rhythm or edit for a catalog or a recipe. It runs the pure craft dispatcher in the engine sandbox and returns advice without editing media or the timeline.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read"
+    ],
+    "host_apis": [
+      "project.read",
+      "engine.ask"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "ask_craft",
+      "capability": "craft.ask",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "string",
+            "enum": [
+              "camera",
+              "compose",
+              "edit",
+              "grade",
+              "rhythm"
+            ],
+            "description": "grade: colour. camera: camera moves. compose: framing and safe areas. rhythm: cutting to a beat. edit: edit grammar."
+          },
+          "args": {
+            "type": "object",
+            "description": "The brief. {\"op\": \"catalog\"} lists what the library offers and how to ask it."
+          }
+        },
+        "required": [
+          "library",
+          "args"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "enum": [
+              "camera",
+              "compose",
+              "edit",
+              "grade",
+              "rhythm"
+            ]
+          },
+          "reply": {
+            "type": "object",
+            "description": "Library-specific craft engine answer, including applied and catalog, plan, brief, notes, axes/readings, needs or error/recovery fields as applicable; see iface:engine.gemia/v1."
+          }
+        },
+        "required": [
+          "library",
+          "reply"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "craft_query_error",
+        "craft_engine_unavailable",
+        "craft_unanswered",
+        "engine_job_invalid",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/craft/tools.py:18-56",
+        "lumeri_runtime/luc_packaged_tools.py:370-390",
+        "lumeri_engine_cli.py:139-147",
+        "lumeri_engine_cli.py:185-216",
+        "lumenframe/craft/tool.py:18-59",
+        "lumenframe/craft/tool.py:84-96",
+        "lumeri_runtime/luc_host_api.py:590-602"
+      ],
+      "notes": "No end-to-end call deadline is enforced. A retry is another pure question, possibly repeating the subprocess. Only the five named libraries can be imported; kinetic is excluded because it writes. A structured error inside reply remains returned data, not a ToolRefused. There is a 300-second engine execution ceiling, not an end-to-end Python-call timeout."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.craft"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "brief_bytes",
+      "value": 262144,
+      "unit": "UTF-8 JSON bytes",
+      "evidence": [
+        "official_luc/craft/tools.py:18-37"
+      ]
+    },
+    {
+      "name": "engine_run_seconds",
+      "value": 300,
+      "unit": "seconds per question",
+      "evidence": [
+        "lumeri_core/sandbox.py:131-146",
+        "lumeri_runtime/sandbox.py:731-747"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "no-arbitrary-import",
+      "text": "Only the allowlisted craft libraries can be selected; arbitrary module names are refused.",
+      "test": "tests/test_runtime_craft.py::test_a_caller_cannot_steer_what_gets_imported"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_craft.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing tests were inspected, not run. The checker proves input equality and structural coverage, not replacement behavior or provider readiness. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

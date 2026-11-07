@@ -1,0 +1,222 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.breaker/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Layer break accounting",
+  "summary": "Runtime-owned bookkeeping at <data_root>/luc/breaker.json, indexed by module/package id and exact layered hash. Three breaks hold that version at next load; reset removes its row.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_breaker:LucBreaker"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "rows",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.breaker.v1.json#/definitions/rows"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:83-102"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "tripped",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "resolved_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package",
+          "resolved_hash"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:104-107"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "note_break",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "resolved_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "package",
+          "resolved_hash"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:109-122"
+      ],
+      "notes": "No deadline. Serialized across threads and processes via directory flock. Each call increments, resetting to one when the hash differs."
+    },
+    {
+      "name": "reset",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:124-133"
+      ],
+      "notes": "No deadline. First deletion returns true; repeat returns false without writing. Existing loaded fallback latches are not cleared; next start applies reset."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "trip_after",
+      "value": 3,
+      "unit": "breaks",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:30-33"
+      ]
+    },
+    {
+      "name": "read_limit",
+      "value": 262144,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_breaker.py:85-94"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "third-break-trips",
+      "text": "Only the exact module and layered hash with at least three recorded breaks are held.",
+      "test": "tests/test_luc_modules.py::test_the_third_break_of_one_layered_version_trips_it"
+    },
+    {
+      "id": "new-hash-and-reset",
+      "text": "A new hash starts at one; reset forgets only the selected module.",
+      "test": "tests/test_luc_modules.py::test_a_new_layered_version_starts_at_zero_and_reset_forgets"
+    },
+    {
+      "id": "unreadable-does-not-trip",
+      "text": "Absent, unreadable, malformed or oversized input reports no trips.",
+      "test": "tests/test_luc_modules.py::test_a_file_that_does_not_read_trips_nothing"
+    },
+    {
+      "id": "derived-tripped-and-cross-process-lock",
+      "text": "Readers derive tripped from breaks >= 3 and writers lock across processes.",
+      "test": "tests/test_luc_modules.py::test_breaker_derives_tripped_from_breaks_and_locks_across_processes"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_breaker.py:61-147"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_modules.py::test_a_file_that_does_not_read_trips_nothing",
+      "tests/test_luc_modules.py::test_a_new_layered_version_starts_at_zero_and_reset_forgets",
+      "tests/test_luc_modules.py::test_the_third_break_of_one_layered_version_trips_it",
+      "tests/test_luc_modules.py::test_breaker_derives_tripped_from_breaks_and_locks_across_processes"
+    ],
+    "notes": "Verified by unit and cross-process tests in test_luc_modules.py."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "row": {
+      "type": "object",
+      "properties": {
+        "resolved_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "breaks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tripped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resolved_hash",
+        "breaks",
+        "tripped"
+      ],
+      "additionalProperties": false
+    },
+    "rows": {
+      "type": "object",
+      "additionalProperties": {
+        "$contract": "contracts/interfaces/machinery/luc.breaker.v1.json#/definitions/row"
+      }
+    }
+  }
+}

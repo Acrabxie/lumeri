@@ -1,0 +1,107 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.interaction-renderer/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Interaction surface renderer",
+  "summary": "The editor's one renderer for interaction surfaces a Luc opens (lumeri.interaction/v1). Packages run no code here: they describe a surface with the canonical primitives and the editor draws it, previews it on the canvas and submits the creator's result, through the native confirmation bridge where the App offers one.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "static/v3/luc-ui.js (window.LumeriLucUI). The relay on the Runtime side is iface:luc.interaction-relay/v1 (machinery area)."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It turns a Luc's request into the creator's confirmation, and on the App it carries the native confirmation bridge; replacing it would let a Luc confirm for the creator.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell and its native bridge); docs/luc/self-luc-inventory.md:98"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "GET /sessions/{session_id}/luc/interactions/current",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/endpoints/20"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/luc-ui.js:186-195"
+      ],
+      "notes": "Read again on reconnect to restore an open interaction."
+    },
+    {
+      "name": "POST /sessions/{session_id}/luc/interactions/{interaction_id}/result",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionSubmission"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionResponse"
+      },
+      "errors": [
+        "E_LUC_REVISION",
+        "E_LUC_ALREADY_SETTLED",
+        "E_LUC_STOPPED",
+        "E_LUC_BACKEND_RESTART",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "static/v3/luc-ui.js:129-160"
+      ],
+      "notes": "Each submission carries a submission_id and draft_revision; a lost reply is retried with the identical submission while it is still the newest draft. A completed result for an interaction that writes the Project needs a confirmation token from the native bridge lumeriLucConfirmation; without that bridge it is not sent, and a native cancel becomes a cancelled submission. On the listed refusals the renderer restores the current interaction."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "refusal-returns-controls",
+      "text": "A refused confirmation hands the controls back.",
+      "test": "tests/test_luc_ui_submit.py::test_a_refused_confirmation_hands_the_controls_back"
+    },
+    {
+      "id": "lost-reply-replays",
+      "text": "Retrying a lost reply replays the identical submission.",
+      "test": "tests/test_luc_ui_submit.py::test_retrying_a_lost_reply_replays_the_identical_submission"
+    },
+    {
+      "id": "newer-draft-new-submission",
+      "text": "Retrying after a newer draft sends the current values as a new submission.",
+      "test": "tests/test_luc_ui_submit.py::test_retrying_after_a_newer_draft_sends_the_current_values_as_a_new_submission"
+    }
+  ],
+  "failure": {
+    "break": [
+      "a surface cannot be drawn or submitted"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/luc-ui.js:150-158"
+    ],
+    "notes": "Nothing is applied without the creator's submission; the interaction stays open or is cancelled."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_ui_submit.py"
+    ],
+    "notes": "The primitives are docs/luc/schemas/interaction-primitives-v1.schema.json; no test checks the renderer draws each one."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

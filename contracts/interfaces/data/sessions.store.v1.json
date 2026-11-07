@@ -1,0 +1,553 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:sessions.store/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Session repository",
+  "summary": "Session snapshots, lifecycle and append-only event projection are product/project scoped. The Runtime event schema remains authoritative. Lifecycle writes are not product-document edits.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.sessions:SessionRepository"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/sessions.py:27-39"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "create",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "budget": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "provider_selection": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderSelection"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:41-77"
+      ],
+      "notes": "No operation deadline is enforced at this seam. An explicit existing id fails; an omitted id is minted. Session event/snapshot transition uses the selected stores, not a Project revision commit."
+    },
+    {
+      "name": "get",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:79-89"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "list",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:132-152"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "close",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:154-160"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Session lifecycle transition under its lock, not a product-document mutation. No staged client_op_id result commit or automatic Project revision advance at this repository seam."
+    },
+    {
+      "name": "stop",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:162-168"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Session lifecycle transition under its lock, not a product-document mutation. No staged client_op_id result commit or automatic Project revision advance at this repository seam."
+    },
+    {
+      "name": "resume",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:170-176"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Session lifecycle transition under its lock, not a product-document mutation. No staged client_op_id result commit or automatic Project revision advance at this repository seam."
+    },
+    {
+      "name": "fork",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "new_session_id": {
+            "type": "string"
+          },
+          "target_product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:178-224"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Cannot fork across products or reuse an existing target. Source/target locks are ordered; a new id creates a different fork. No Project write transaction."
+    },
+    {
+      "name": "compact",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "through_event_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id",
+          "through_event_id",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:226-253"
+      ],
+      "notes": "No operation deadline is enforced at this seam. The cursor must exist; stores a lifecycle compaction transition. Not an atomic Project revision/client_op_id commit."
+    },
+    {
+      "name": "update_state",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "expected_snapshot_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending_tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "budget": {
+            "type": "object"
+          },
+          "provider_selection": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderSelection"
+          },
+          "plan_mode_enabled": {
+            "type": "boolean"
+          },
+          "approvals": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id",
+          "expected_snapshot_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:255-285"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Snapshot revision is an independent optimistic fence. project_revision is supplied by callers after durable Runtime writes; this does not itself edit the Project."
+    },
+    {
+      "name": "record_event",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "turn_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id",
+          "kind",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "snapshot": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/SessionSnapshot"
+          },
+          "event": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/RuntimeEvent"
+          }
+        },
+        "required": [
+          "snapshot",
+          "event"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/sessions.py:303-350"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Python returns a tuple, projected as named fields here. Explicit event_id requires trace_id and exact retry matching; without it each call appends a new event. No client_op_id Project commit."
+    },
+    {
+      "name": "transcript",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "after_event_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/runtime-v1/runtime-contract.json#/types/RuntimeEvent"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/sessions.py:287-301"
+      ],
+      "notes": "No operation deadline is enforced. Returns a native tuple of RuntimeEvent after the optional event cursor. No Project mutation."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "product-isolation",
+      "text": "A Session fork cannot cross products and cannot overwrite its source or an existing target.",
+      "test": null
+    },
+    {
+      "id": "explicit-event-replay",
+      "text": "An event projection with explicit event_id and trace_id only replays an exactly matching event.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/sessions.py:27-39"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "The self-Luc staged write/result-record/client_op_id protocol is not exposed by SessionRepository. Its lifecycle writes change Session state, not Project revision.",
+      "evidence": [
+        "lumeri_runtime/sessions.py:154-176",
+        "lumeri_runtime/sessions.py:303-350"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

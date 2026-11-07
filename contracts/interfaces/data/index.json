@@ -1,0 +1,309 @@
+{
+  "format": "lumeri.interface-index/v1",
+  "area": "data",
+  "modules": [
+    {
+      "module": "lumeri.project.store",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:project.store/v1"
+      ]
+    },
+    {
+      "module": "lumeri.project.document",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:project.document/v1"
+      ]
+    },
+    {
+      "module": "lumeri.project.files",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:project.files/v1"
+      ]
+    },
+    {
+      "module": "lumeri.sessions.store",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:sessions.store/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline.document",
+      "inventory": "Timeline document",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:timeline.document/v1"
+      ]
+    },
+    {
+      "module": "lumeri.document.tools",
+      "inventory": "Document tools",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:document.tools/v1"
+      ]
+    },
+    {
+      "module": "lumeri.composition.document",
+      "inventory": "Composition and Lumen canvas",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:composition.document/v1"
+      ]
+    },
+    {
+      "module": "lumeri.lumen.canvas",
+      "inventory": "Composition and Lumen canvas",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:lumen.canvas/v1"
+      ]
+    },
+    {
+      "module": "lumeri.render.backend",
+      "inventory": "Render, encode, timeline render",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:render.backend/v1"
+      ]
+    },
+    {
+      "module": "lumeri.encode.backend",
+      "inventory": "Render, encode, timeline render",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:encode.backend/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline.render",
+      "inventory": "Render, encode, timeline render",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:timeline.render/v1"
+      ]
+    },
+    {
+      "module": "lumeri.engine.jobs",
+      "inventory": "Engine jobs",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:engine.jobs/v1"
+      ]
+    },
+    {
+      "module": "lumeri.engine.cli",
+      "inventory": "lumeri-engine and sandbox",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:engine.cli/v1"
+      ]
+    },
+    {
+      "module": "lumeri.engine.sandbox",
+      "inventory": "lumeri-engine and sandbox",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:engine.sandbox/v1"
+      ]
+    },
+    {
+      "module": "lumeri.media.store",
+      "inventory": "Media store and facts",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:media.store/v1"
+      ]
+    },
+    {
+      "module": "lumeri.media.facts",
+      "inventory": "Media store and facts",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.facts/v1"
+      ]
+    },
+    {
+      "module": "lumeri.media.thumbnails",
+      "inventory": "Media store and facts",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:media.thumbnails/v1"
+      ]
+    },
+    {
+      "module": "lumeri.media.luvi",
+      "inventory": "Media store and facts",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:media.luvi/v1"
+      ]
+    },
+    {
+      "module": "lumeri.library.search",
+      "inventory": "Library search",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:library.search/v1"
+      ]
+    },
+    {
+      "module": "lumeri.point.library.package",
+      "inventory": "Project point libraries (.lup)",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:point.library.package/v1"
+      ]
+    },
+    {
+      "module": "lumeri.point.libraries",
+      "inventory": "Project point libraries (.lup)",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:point.libraries/v1"
+      ]
+    },
+    {
+      "module": "lumeri.transcriber.backend",
+      "inventory": "Transcriber",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:transcriber.backend/v1"
+      ]
+    },
+    {
+      "module": "lumeri.quanta.document",
+      "inventory": "Quanta product",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:quanta.document/v1"
+      ]
+    },
+    {
+      "module": "lumeri.legacy.roughcut",
+      "inventory": "Legacy rough cut and history",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:legacy.roughcut/v1"
+      ]
+    },
+    {
+      "module": "lumeri.legacy.history",
+      "inventory": "Legacy rough cut and history",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:legacy.history/v1"
+      ]
+    },
+    {
+      "module": "lumeri.engine.gemia",
+      "inventory": "gemia engine subcommands",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:engine.gemia/v1"
+      ]
+    },
+    {
+      "module": "lumeri.gemia.point.catalog",
+      "inventory": "In-process gemia",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:gemia.point.catalog/v1"
+      ]
+    },
+    {
+      "module": "lumeri.gemia.skill.context",
+      "inventory": "In-process gemia",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:gemia.skill.context/v1"
+      ]
+    },
+    {
+      "module": "lumeri.gemia.panel.binding",
+      "inventory": "In-process gemia",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:gemia.panel.binding/v1"
+      ]
+    },
+    {
+      "module": "lumeri.project.http",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:project.http/v1"
+      ]
+    },
+    {
+      "module": "lumeri.sessions.http",
+      "inventory": "Sessions, projects, documents",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:sessions.http/v1"
+      ]
+    },
+    {
+      "module": "lumeri.timeline.http",
+      "inventory": "Timeline document",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:timeline.http/v1"
+      ]
+    },
+    {
+      "module": "lumeri.lf2.boundary",
+      "inventory": "Composition and Lumen canvas",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:lf2.boundary/v1"
+      ],
+      "notes": "Boundary for the in-tree lumenframe composition model, catalog, and compiler; LF2 body awaits the LF2 owner."
+    }
+  ]
+}

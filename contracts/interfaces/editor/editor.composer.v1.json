@@ -1,0 +1,127 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.composer/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Composer and Session stream ingress",
+  "summary": "Where the creator's words, attached context and approvals enter a Session, and where the Session's event stream is opened. The composer sends one turn with a client turn id and the revision it read; the stream follows the Session's events from the last event id it saw.",
+  "carrier": {
+    "kind": "http",
+    "notes": "Through the 1.0 compatibility routes (/sessions/{id}/turn and /sessions/{id}/stream), which the Gateway names for a Session (gateway.py:4153-4160). The Runtime contract's own endpoints are submit_turn and stream_events."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It speaks for the creator: what it sends is the creator's message, context and approval. A replacement could act in the creator's name.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:100"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "POST /sessions/{session_id}/turn",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "object"
+          },
+          "client_turn_id": {
+            "type": "string"
+          },
+          "expected_project_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "message",
+          "client_turn_id"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_REVISION_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:12186-12219"
+      ],
+      "notes": "A turn runs the agent and may spend model budget. On E_REVISION_CONFLICT the editor syncs once and retries the same durable turn id."
+    },
+    {
+      "name": "GET /sessions/{session_id}/stream",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "last_event_id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/RuntimeEvent"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:4348-4361"
+      ],
+      "notes": "Server-sent events; resumes from last_event_id."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "context_refs",
+      "value": 12,
+      "unit": "context references per Session in the composer",
+      "evidence": [
+        "static/v3/v3.js:7737"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "same-turn-retry",
+      "text": "A turn refused for a stale revision is retried once with the same client turn id, never as a new turn.",
+      "test": "tests/test_editor_w4_panels.py::test_composer_declaration_and_bounds"
+    }
+  ],
+  "failure": {
+    "break": [
+      "a turn cannot be sent",
+      "the stream drops"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/v3.js:12224-12239",
+      "static/v3/v3.js:4403-4407"
+    ],
+    "notes": "The stream reconnects; a turn that could not be sent is shown as such."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_w4_panels.py::test_composer_declaration_and_bounds",
+      "tests/test_editor_w4_panels.py::test_composer_official_files_hash_verified"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

@@ -1,0 +1,135 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.native-panel-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Native Panel v1 binding",
+  "summary": "Mount or destroy an existing native UI Panel by its immutable Core descriptor; no package renderer is imported.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.native_skill_panel:NativeUIPanelAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:201-245"
+      ],
+      "notes": "No deadline. native-ui-panel surface and canonical native descriptor must match. Requires interaction.mount/update, ui.mount, no optional APIs and editable none. Validation mismatches use ValueError."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Context whose app is exactly the bound application."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.native-panel-adapter.v1.json#/definitions/arguments"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_PANEL_RUNTIME_UNBOUND",
+        "E_LUC_PANEL_HOST_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:260-266"
+      ],
+      "notes": "No deadline. Delegates mount/destroy to the bound trusted lifecycle; its full result/error and retry semantics depend on the embedding and remain unverified."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "same-host-only",
+      "text": "Only a context for the adapter's bound app can use its lifecycle.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/native_skill_panel.py:260-266"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "mount",
+            "destroy"
+          ]
+        },
+        "mount_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

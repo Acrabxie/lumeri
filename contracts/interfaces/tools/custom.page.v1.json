@@ -1,0 +1,563 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:custom.page/v1",
+  "version": "1.0.1",
+  "area": "tools",
+  "title": "Run a declarative custom page",
+  "summary": "Create, load, mount, interact with and unmount a bounded native-control page. Its actions call only the declared project.snapshot-card backend; there is no HTML, script or Project write surface.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.custom-page/v1",
+    "surface": "luc_invoke",
+    "notes": "Reached through luc_invoke after discovery and description. Schemas describe the result before the wrapper; Runtime context and authority are supplied separately by the Host."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "Page lifecycle records and renderer/backend ports are trusted Runtime adapters. A creator's layer on the Official package may add a sandboxed program (luc_tool_program) that answers for the capability while keeping its pinned backend_ids, input/output schemas and authority.",
+    "decided": "Acrab, 2026-10-24; sandboxed program replacement wired via luc_tool_program (lumeri_runtime/luc_custom.py:507-582, lumeri_runtime/luc_interface_gate.py:35-44)"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "project.read",
+      "interaction.mount",
+      "interaction.update"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "page_lifecycle",
+      "capability": "custom.page",
+      "effect": "process",
+      "input": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "create"
+              },
+              "request_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 192
+              },
+              "document": {
+                "$contract": "contracts/interfaces/tools/custom.page.v1.json#/definitions/page"
+              }
+            },
+            "required": [
+              "operation",
+              "request_id",
+              "document"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "load"
+              },
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 192
+              }
+            },
+            "required": [
+              "operation",
+              "page_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "mount"
+              },
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 192
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "operation",
+              "page_id",
+              "expected_revision"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "interact"
+              },
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 192
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "event": {
+                "type": "object",
+                "properties": {
+                  "control_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 192
+                  },
+                  "value": {}
+                },
+                "required": [
+                  "control_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "operation",
+              "page_id",
+              "expected_revision",
+              "event"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "unmount"
+              },
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 192
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "operation",
+              "page_id",
+              "expected_revision"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/custom.page.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_CONFLICT",
+        "E_LUC_CUSTOM_CAPACITY",
+        "E_LUC_CUSTOM_NOT_FOUND",
+        "E_LUC_CUSTOM_BUSY",
+        "E_LUC_CUSTOM_REVISION",
+        "E_LUC_CUSTOM_STATE",
+        "E_LUC_CUSTOM_OUTPUT",
+        "E_LUC_CUSTOM_AUTHORITY",
+        "E_LUC_CUSTOM_REFERENCE",
+        "E_LUC_CUSTOM_DECLARATION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:405-447",
+        "lumeri_runtime/luc_custom.py:469-491",
+        "lumeri_runtime/luc_custom.py:555-674",
+        "lumeri_runtime/luc_custom.py:450-466"
+      ],
+      "notes": "No timeout is enforced on synchronous lifecycle/renderer calls. create requires exactly operation/request_id/document and is deduplicated by capability, proven binding and request_id; different bytes conflict. load takes exactly operation/page_id. mount and unmount also require expected_revision; interact adds event. Later operations check scope, busy/state and revision. Retried unmount is natural only with the current revision. Interaction is not generally idempotent. Records and create replay mapping are in-memory and invalidated by restart. The data schema gives per-control field sets; number values must also lie between their bounds, select values must name an option, button actions must exist, identifiers must be unique and titles/labels must be trimmed nonempty strings."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:43",
+        "lumeri_runtime/agent_turn.py:547-554"
+      ]
+    },
+    {
+      "name": "controls",
+      "value": 32,
+      "unit": "controls per page, minimum one",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:410-414"
+      ]
+    },
+    {
+      "name": "actions",
+      "value": 16,
+      "unit": "actions per page",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:413-414"
+      ]
+    },
+    {
+      "name": "page_records",
+      "value": 256,
+      "unit": "records across the adapter lifetime",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:598-599"
+      ]
+    },
+    {
+      "name": "session_page_records",
+      "value": 64,
+      "unit": "records per Session",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:598-599"
+      ]
+    },
+    {
+      "name": "json_depth",
+      "value": 16,
+      "unit": "nesting levels",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:56-74"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "plain-controls-only",
+      "text": "The page declaration permits only bounded text, number, toggle, select and button controls; HTML and scripts are refused.",
+      "test": "tests/test_official_luc_custom.py::CustomTests::test_page_manifest_html_script_and_backend_escape_rejected"
+    },
+    {
+      "id": "explicit-unmount",
+      "text": "The renderer explicitly acknowledges mount/update/unmount. Successful unmount is reflected in the lifecycle result.",
+      "test": "tests/test_official_luc_custom.py::CustomTests::test_page_create_load_mount_interact_unmount"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A replacement program exits, exceeds its deadline or returns an invalid result/refusal.",
+      "The trusted binding is absent, changed or refuses the invocation.",
+      "An input, result or Host context fails validation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_custom.py:306-315",
+      "lumeri_runtime/luc_custom.py:567-582",
+      "lumeri_runtime/luc_tool_program.py:294-348"
+    ],
+    "notes": "When a layer's program breaks, the adapter records the break in LucBreaker and falls back to the Official custom-page implementation for the rest of the start."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_custom.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Verified across Official adapter tests and sandboxed program on/off/break replacement tests."
+  },
+  "known_deviations": [
+    {
+      "text": "Page records and create replay receipts are in-memory only. A restart invalidates page_id and cannot restore the page; after a renderer/backend LucError the operation returns status=error rather than automatically retrying the original.",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:513-517",
+        "lumeri_runtime/luc_custom.py:605-607",
+        "lumeri_runtime/luc_custom.py:668-672"
+      ],
+      "test": "tests/test_official_luc_custom.py::CustomTests::test_revoked_scope_and_restart_refuse_retained_page_state"
+    },
+    {
+      "text": "Host ports may be absent even after the capability loads. A page cannot mount until a trusted renderer/dispatcher is explicitly integrated.",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:322-329",
+        "lumeri_runtime/luc_custom.py:701-705"
+      ],
+      "test": "tests/test_official_luc_custom.py::CustomTests::test_unbound_actual_runtime_is_explicitly_blocked"
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "control": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+            },
+            "type": {
+              "const": "text"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+            },
+            "type": {
+              "const": "number"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "value": {
+              "type": "number"
+            },
+            "minimum": {
+              "type": "number"
+            },
+            "maximum": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "label",
+            "value",
+            "minimum",
+            "maximum"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+            },
+            "type": {
+              "const": "toggle"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+            },
+            "type": {
+              "const": "select"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "value": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              }
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "label",
+            "value",
+            "options"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9.-]{0,63}$"
+            },
+            "type": {
+              "const": "button"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "action": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "label",
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160,
+          "minLength": 1
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/tools/custom.page.v1.json#/definitions/control"
+          },
+          "minItems": 1,
+          "maxItems": 32
+        },
+        "actions": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "backend_id": {
+                "const": "project.snapshot-card"
+              },
+              "input": {
+                "type": "object",
+                "description": "Bounded local values template for the registered snapshot backend input."
+              }
+            },
+            "required": [
+              "backend_id",
+              "input"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "title",
+        "controls",
+        "actions"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "created",
+            "loaded",
+            "mounted",
+            "unmounted",
+            "error"
+          ]
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "document": {
+          "$contract": "contracts/interfaces/tools/custom.page.v1.json#/definitions/page"
+        },
+        "result": {
+          "$contract": "contracts/interfaces/tools/custom.backend.snapshot.v1.json#/definitions/result"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "page_id",
+        "revision"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

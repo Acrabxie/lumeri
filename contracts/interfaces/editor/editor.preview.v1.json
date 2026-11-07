@@ -1,0 +1,188 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.preview/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Preview module: the editor's monitor or a sandboxed Preview Panel",
+  "summary": "The preview region of every workspace: the timeline at the playhead, played from the Project's media, or a sandboxed Panel placed in the preview role by a workspace layer. When disabled or broken, the editor's built-in preview takes the region back.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "editor_role": "preview",
+    "notes": "Built-in preview drawn by static/v3/v3.js; a workspace layer may place a lumeri.panel/v2 Panel in the preview module."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement runs in a sandboxed Panel frame with no network and reaches the Project only through the bridge calls this role allows (project.view, selection.view, panel.state, workspace.context). When disabled or broken, the editor's built-in preview answers.",
+    "decided": "self-Luc spec v0.3 and W4 plan; docs/luc/self-luc-inventory.md:95"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "workspace.context"
+    ],
+    "editable": "none",
+    "bridge_calls": [
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "workspace.context"
+    ],
+    "notes": "bridge_calls is the ceiling for a Panel placed in the preview role."
+  },
+  "operations": [
+    {
+      "name": "mount",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:726-760",
+        "static/v3/v3.js:14025-14098"
+      ]
+    },
+    {
+      "name": "POST /sessions/{session_id}/timeline/preview",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "The preview job or asset for that revision; E_BUSY while another runs."
+      },
+      "errors": [
+        "E_BUSY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:2790-2831"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:14025-14098"
+      ]
+    },
+    {
+      "name": "selection.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/selection.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:585-597"
+      ]
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:15510-15518"
+      ]
+    },
+    {
+      "name": "theme.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/theme.changed"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "static/v3/v3.js:580-584"
+      ]
+    },
+    {
+      "name": "panel.resized",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.resized"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "revision-scoped",
+      "text": "A preview is requested for one Project revision and a stale answer is not painted into another Session; a broken Preview Panel falls back to the built-in monitor.",
+      "test": "tests/test_editor_w4_panels.py::test_preview_role_on_off_break"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the preview Panel exceeds role reach or faults at runtime",
+      "the preview cannot be drawn"
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:726-760",
+      "lumeri_runtime/luc_interactions.py:340-368",
+      "static/v3/v3.js:14025-14098"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_w4_panels.py::test_preview_role_on_off_break",
+      "tests/test_editor_w4_panels.py::test_preview_role_disabled_returns_to_core",
+      "tests/test_editor_w4_panels.py::test_preview_role_break_falls_back_with_notice"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

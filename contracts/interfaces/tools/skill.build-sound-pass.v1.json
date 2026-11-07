@@ -1,0 +1,169 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:skill.build-sound-pass/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Read build sound pass guidance",
+  "summary": "Building the sound of a piece: voiceover or speech first, then music and the few effects that mark a moment, measured and placed against the picture.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.skill/v2",
+    "surface": "agent-instructions",
+    "notes": "The capability is read by name through use_skill. It is deliberately hidden from luc_discover and is not a tool-execution grant."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "This protocol carries bounded instruction data, no package code, permissions or Host API authority. Folder and approved data layers can extend the Official Luc under the existing load checks.",
+    "decided": "today's code: lumeri_runtime/luc_local.py:65-73; self-Luc spec v0.3 (2026-10-18)"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "uses names dependencies whose own permissions still apply. Reading guidance does not invoke those capabilities."
+  },
+  "operations": [
+    {
+      "name": "use_skill",
+      "capability": "skill.build-sound-pass",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "const": "build-sound-pass"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/skill.build-sound-pass.v1.json#/definitions/answer"
+      },
+      "errors": [
+        "arguments_invalid",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_SKILL_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:575-620",
+        "lumeri_runtime/official_luc.py:1062-1078",
+        "official_luc/production-guides/skills/build-sound-pass.md:1-12"
+      ],
+      "notes": "No deadline is enforced on this bounded file read. Repeating it returns the loaded instruction text, or refuses if the text changed. The capability uses media.inspect, media.probe, media.voices, media.narrate, media.edit, timeline.inspect, timeline.add-track, timeline.insert-clip, timeline.set-clip-effects, timeline.trim-clip, timeline.move-clip. Readiness diagnostics E_LUC_SKILL_USES/NAME/LIMIT withhold the handle; they are not errors raised by this read."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "instruction_chars",
+      "value": 4800,
+      "unit": "characters of instruction text; workflow includes guidance and all stages",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112-115"
+      ]
+    },
+    {
+      "name": "whole_answer_chars",
+      "value": 6000,
+      "unit": "characters of compact JSON; oversized guidance is refused, never clipped",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:597-600"
+      ]
+    },
+    {
+      "name": "description_chars",
+      "value": 300,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112-115"
+      ]
+    },
+    {
+      "name": "ready_skills",
+      "value": 24,
+      "unit": "ready Skill and Workflow handles across the Host",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112",
+        "lumeri_runtime/official_luc.py:1002-1005"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reading-is-not-executing",
+      "text": "Reading guidance carries no permission and changes no Project; capabilities it names are called separately under their own authority.",
+      "test": "tests/test_official_luc_production_guides.py::test_it_is_eight_skills_and_one_workflow_with_no_authority"
+    },
+    {
+      "id": "only-when-ready",
+      "text": "use_skill offers this handle only while every declared dependency is available; a Workflow also needs all named stage Skills to be ready.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The package text is unavailable, invalid or changed since load.",
+      "use_skill is asked for a handle absent from its current ready set."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:1062-1078",
+      "lumeri_runtime/agent_turn.py:851-860"
+    ],
+    "notes": "Load-time layer refusal leaves the Official package. At this data read seam a run-time error reaches the agent as refusal; automatic fallback to the unlayered instructions is not implemented here."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_production_guides.py",
+      "tests/test_luc_guides.py"
+    ],
+    "notes": "Behavior tests were inspected, not executed. Contract checking is structural; no replacement conformance runner validates every instruction answer."
+  },
+  "known_deviations": [
+    {
+      "text": "The adapter publishes an empty input and a bare object output for the capability descriptor; the actual agent call is use_skill {skill}, whose response schema is recorded here.",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:588-590",
+        "lumeri_runtime/official_luc.py:1062-1078",
+        "lumeri_runtime/official_luc.py:1094-1099"
+      ],
+      "test": null
+    },
+    {
+      "text": "Ready-set preflight swallows instruction LucError and substitutes empty text. A missing/changed file can therefore remain offered until the actual read refuses, without restoring the original at this seam.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:991-1010",
+        "lumeri_runtime/official_luc.py:1014-1031"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "answer": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "const": "build-sound-pass"
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4800
+        }
+      },
+      "required": [
+        "skill",
+        "instructions"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.quanta-page/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Quanta viewer page",
+  "summary": "The standalone Quanta viewer: it presents a Session's quanta frames from the query string (session_id, product, up to 512 frame entries of slide:build:asset) and loads each frame as a Session asset.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "static/v3/quanta.html and quanta.js (window.LumeriQuanta); its own CSP allows only same-origin images, scripts and styles."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It is a product page shell served as the editor is; only the quanta.tree tool is a Luc today.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:102"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "parseQuantaQuery",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+          },
+          "product": {
+            "enum": [
+              "video",
+              "quanta"
+            ]
+          },
+          "frame": {
+            "type": "array",
+            "maxItems": 512,
+            "items": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*):(0|[1-9][0-9]*):([A-Za-z0-9_-]{1,64})$"
+            }
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "ok with sessionId, productId and frames, or ok false with an errorKey."
+      },
+      "errors": [
+        "quantaUnsupportedParameter",
+        "quantaInvalidSession",
+        "quantaInvalidProduct",
+        "quantaFrameLimit",
+        "quantaInvalidFrameEntry",
+        "quantaFrameIndexOutOfRange"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/quanta.js:13-62"
+      ]
+    },
+    {
+      "name": "GET /sessions/{session_id}/assets/{asset_id}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "enum": [
+              "video",
+              "quanta"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string",
+        "contentEncoding": "binary"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/quanta.js:64-70"
+      ]
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "frames",
+      "value": 512,
+      "unit": "frames per presentation",
+      "evidence": [
+        "static/v3/quanta.js:7",
+        "static/v3/quanta.js:31-34"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "strict-query",
+      "text": "Any query parameter other than session_id, product and frame is refused.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "the query is refused or names no frame",
+      "a frame does not load"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/quanta.js:13-62",
+      "static/v3/quanta.js:158-170"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_quanta_editor_i18n_contract.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

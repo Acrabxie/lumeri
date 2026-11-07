@@ -1,0 +1,160 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.resolver/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Immutable layer resolution",
+  "summary": "Resolve one verified standalone Luc and an explicitly ordered Extension list onto detached data. Recompute canonical manifest/files, conflicts, API authority, diff and identity under the Runtime and Host policy.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_distribution.resolver:resolve_luc;ResolvedLuc.public"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "resolve_luc",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "extension_inputs": {
+            "type": "array",
+            "items": {
+              "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+            }
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registry": {
+            "description": "Optional HostAPIRegistry; default Core policy."
+          },
+          "every_platform": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "base_input",
+          "runtime_version",
+          "host_grants"
+        ]
+      },
+      "output": {
+        "description": "Canonical frozen ResolvedLuc; public receipt shape is iface:luc.resolver/v1."
+      },
+      "errors": [
+        "E_LUC_LAYER_SKIP",
+        "E_LUC_COMPATIBILITY",
+        "E_LUC_PLATFORM",
+        "E_LUC_EXTENSION_DUPLICATE",
+        "E_LUC_PATCH_BASE",
+        "E_LUC_FILE_OP",
+        "E_LUC_FILE_OP_HASH",
+        "E_LUC_FILE_OP_BASE",
+        "E_LUC_SOURCE_PATCH_BASE",
+        "E_LUC_LAYER_CONFLICT",
+        "E_LUC_PARENT_ID",
+        "E_LUC_PARENT_VERSION",
+        "E_LUC_PARENT_HASH",
+        "E_LUC_AUTHORITY_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/resolver.py:88-129",
+        "lumeri_runtime/luc_distribution/resolver.py:239-323"
+      ],
+      "notes": "No deadline. Ordered immutable inputs produce a deterministic resolution; accepts artifacts or paths. Path verification and manifest/source-patch helpers can raise further distribution codes. Draft only for the transitive error union, not composition order."
+    },
+    {
+      "name": "public",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "description": "Canonical frozen ResolvedLuc; public receipt shape is iface:luc.resolver/v1."
+          }
+        },
+        "required": [
+          "self"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/resolved-identity-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/resolver.py:71-85"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "originals-unchanged",
+      "text": "Manifest/file patches produce detached derived output, preserving Base and Extension source bytes.",
+      "test": "tests/test_luc_distribution.py::test_manifest_patch_and_file_operations_resolve_without_mutating_sources"
+    },
+    {
+      "id": "one-base",
+      "text": "Only a standalone Luc can be the Base and each Extension names that exact Base, never another Extension.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_distribution/resolver.py:88-117",
+      "lumeri_runtime/luc_distribution/resolver.py:310-323"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_distribution.py::test_manifest_patch_and_file_operations_resolve_without_mutating_sources"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "manifest": {
+      "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#"
+    },
+    "resolved_identity": {
+      "$contract": "docs/luc/schemas/resolved-identity-v1.schema.json#"
+    },
+    "authority_diff": {
+      "$contract": "docs/luc/schemas/authority-diff-v1.schema.json#"
+    }
+  }
+}

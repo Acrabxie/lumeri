@@ -1,0 +1,238 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:panel.properties/v1",
+  "version": "1.0.1",
+  "area": "editor",
+  "title": "Properties Panel: one region of the editor, drawn by a sandboxed Panel",
+  "summary": "The selected clip's position, scale and rotation on the canvas and its start, duration, in and out points. A changed value goes through the same revision check, approval and undo history as an edit made on the timeline. What a Properties Panel promises the editor: it draws in a sandboxed frame, answers init within 3 seconds, and reaches the Project only through the bridge calls it declares (selection.view, timeline.edit).",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "workspace_module": "properties",
+    "notes": "Shipped as lumeri.properties-panel 0.1.0; placed in the workspace module properties. The page is assembled by the Host (iface:luc.panel-adapter/v1) and talks only through iface:editor.panel-bridge/v1."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "panel/v2 is an open protocol. A replacement is a page with no network in a sandboxed frame; it reaches the Project only through bridge calls it declares, each authorized by the Host, never more than this interface's bridge_calls. A layered Panel that breaks falls back to the Official Panel as shipped.",
+    "decided": "self-Luc inventory 1a, Reserved no (panel/v2 is open): docs/luc/self-luc-inventory.md:71"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "selection.view",
+      "timeline.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "timeline_clip"
+      ],
+      "properties": [
+        "clip.effects",
+        "clip.placement",
+        "clip.source_range"
+      ],
+      "areas": [
+        "timeline"
+      ]
+    },
+    "bridge_calls": [
+      "selection.view",
+      "timeline.edit"
+    ],
+    "notes": "bridge_calls is the ceiling: a replacement for this role may declare fewer calls, never others."
+  },
+  "operations": [
+    {
+      "name": "mount",
+      "capability": "panel.properties",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/properties-panel/manifest.json",
+        "static/v3/luc-panel-host.js:183-213",
+        "static/v3/luc-panel-host.js:367-413",
+        "lumeri_runtime/luc_workspace.py:189-205"
+      ],
+      "notes": "The editor mounts the Panel's page in its module and posts init; the Panel answers alive (or the shim answers fault) within 3000 ms and from then on draws, calls and listens through the bridge. The errors are the editor's names for a mount that failed. With a LumenFrame canvas open and no clip selected, the editor shows its own canvas inspector in this module instead of the Panel (iface:editor.canvas-inspector/v1)."
+    }
+  ],
+  "events": [
+    {
+      "name": "selection.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/selection.changed"
+      },
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    }
+  ],
+  "bounds": [
+    {
+      "name": "width_percent",
+      "value": 19,
+      "unit": "percent of the workspace width it opens at",
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "height_percent",
+      "value": 64,
+      "unit": "percent of the workspace height it opens at",
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "min_width_px",
+      "value": 240,
+      "unit": "CSS pixels",
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "min_height_px",
+      "value": 180,
+      "unit": "CSS pixels",
+      "evidence": [
+        "official_luc/properties-panel/manifest.json"
+      ]
+    },
+    {
+      "name": "title_chars",
+      "value": 40,
+      "unit": "characters per title locale; English required; only the 10 editor languages",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:45-47",
+        "lumeri_runtime/luc_workspace.py:271-280",
+        "lumeri_runtime/luc_workspace.py:491"
+      ]
+    },
+    {
+      "name": "document_bytes",
+      "value": 2097152,
+      "unit": "bytes of the assembled page",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:83",
+        "lumeri_runtime/luc_workspace.py:523-525"
+      ]
+    },
+    {
+      "name": "alive_ms",
+      "value": 3000,
+      "unit": "milliseconds to answer init",
+      "evidence": [
+        "static/v3/luc-panel-host.js:49-51"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "declared-with-boundary",
+      "text": "It declares selection.view and timeline.edit with a boundary of timeline_clip effects, placement and source range.",
+      "test": "tests/test_official_luc_properties_panel.py::test_the_workspace_contains_the_properties_panel_with_its_bridge_and_boundary"
+    },
+    {
+      "id": "one-patch-on-revision-read",
+      "text": "A typed value is one timeline patch on the revision the Panel read.",
+      "test": "tests/test_official_luc_properties_panel.py::test_a_typed_value_is_one_timeline_patch_on_the_revision_read"
+    },
+    {
+      "id": "boundary-holds",
+      "text": "The Runtime carries only its edits inside the boundary.",
+      "test": "tests/test_official_luc_properties_panel.py::test_the_runtime_carries_only_its_edits_inside_the_boundary"
+    },
+    {
+      "id": "alive-or-fail",
+      "text": "A Panel that does not answer init within 3000 ms is removed and reported as E_LUC_PANEL_SILENT.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_a_panel_that_never_answers_fails_silent_after_three_seconds"
+    },
+    {
+      "id": "role",
+      "text": "The properties module of the Official workspace is this interface's role: another Luc's Panel fills it only while it keeps this interface, within its reach, and otherwise this Panel takes the module back.",
+      "test": "tests/test_luc_workspace_roles.py::test_a_panel_that_may_edit_past_the_role_gives_the_module_back"
+    }
+  ],
+  "failure": {
+    "break": [
+      "no alive within 3000 ms of the page or of init (E_LUC_PANEL_SILENT)",
+      "an uncaught script error or rejection before init (E_LUC_PANEL_SCRIPT)",
+      "the frame navigates away from its page (E_LUC_PANEL_NAVIGATED)",
+      "the served page does not match the catalog's hash (E_LUC_PANEL_CHANGED)"
+    ],
+    "fallback": "official-panel",
+    "evidence": [
+      "static/v3/v3.js:567-574",
+      "static/v3/v3.js:13916-13934",
+      "lumeri_runtime/luc_interactions.py:186-235",
+      "lumeri_runtime/worker.py:6384-6421",
+      "static/v3/v3.js:14192-14216"
+    ],
+    "notes": "A layered version that breaks gives way to the Official Panel as shipped, in the same place (luc.module_fell_back). When the Official Panel itself fails, the editor's built-in view of this module takes over (iface:editor.builtin-panels/v1). Breaks after the page is up (a later exception, a hung call) are not detected."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_properties_panel.py",
+      "tests/test_luc_panel_host_frontend.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

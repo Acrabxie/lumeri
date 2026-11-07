@@ -1,0 +1,520 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.notes/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Write footage notes",
+  "summary": "Write, remove or replace source-owned annotations beside one library asset. The package owns annotations.json; each accepted write advances the Project revision.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "document.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "project_document"
+      ],
+      "properties": [
+        "document.content"
+      ],
+      "areas": [
+        "project"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "note_media",
+      "capability": "media.notes",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "enum": [
+              "upsert_annotation",
+              "remove_annotation",
+              "replace_source"
+            ],
+            "description": "upsert_annotation writes or rewrites one note; remove_annotation takes one away; replace_source swaps every note one source left about the asset for a new set."
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "The asset the notes are about."
+          },
+          "annotation_id": {
+            "type": "string",
+            "description": "remove_annotation: the note."
+          },
+          "data": {
+            "type": "object",
+            "description": "upsert_annotation: {annotation}. replace_source: {source, annotations}.",
+            "properties": {
+              "annotation": {
+                "type": "object",
+                "properties": {
+                  "annotation_id": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "enum": [
+                      "asset",
+                      "frame",
+                      "time_range"
+                    ]
+                  },
+                  "start_sec": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "end_sec": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "frame": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "source": {
+                    "enum": [
+                      "gemini",
+                      "gemini_vision",
+                      "heuristic",
+                      "import",
+                      "roughcut",
+                      "system",
+                      "user"
+                    ]
+                  },
+                  "language": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "annotation_id"
+                ]
+              },
+              "source": {
+                "enum": [
+                  "gemini",
+                  "gemini_vision",
+                  "heuristic",
+                  "import",
+                  "roughcut",
+                  "system",
+                  "user"
+                ]
+              },
+              "annotations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "annotation_id": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "enum": [
+                        "asset",
+                        "frame",
+                        "time_range"
+                      ]
+                    },
+                    "start_sec": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "end_sec": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "frame": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "category": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "source": {
+                      "enum": [
+                        "gemini",
+                        "gemini_vision",
+                        "heuristic",
+                        "import",
+                        "roughcut",
+                        "system",
+                        "user"
+                      ]
+                    },
+                    "language": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "annotation_id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "op",
+          "asset_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "annotations": {
+            "$contract": "contracts/interfaces/tools/media.notes.v1.json#/definitions/annotations"
+          },
+          "project_revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "annotations",
+          "project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "annotation_patch_refused",
+        "approval_required",
+        "document_edit_failed",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_PROGRAM_BROKE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/annotations/tools.py:188-245",
+        "official_luc/annotations/tools.py:270-344",
+        "official_luc/annotations/tools.py:370-410",
+        "lumeri_runtime/luc_packaged_tools.py:405-452",
+        "lumeri_runtime/luc_host_api.py:590-602",
+        "official_luc/annotations/tools.py:170-185"
+      ],
+      "notes": "No end-to-end call deadline is enforced. The Runtime derives the write key from turn_id, tool_call_id and document capability. Retrying the same call uses that key; a new call can write again. remove_annotation refuses an absent id; replace_source preserves all other sources. Shape validation is stricter than the shipped input schema."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.annotations"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "annotated_assets",
+      "value": 4096,
+      "unit": "assets",
+      "evidence": [
+        "official_luc/annotations/tools.py:39-43"
+      ]
+    },
+    {
+      "name": "notes_per_asset",
+      "value": 1024,
+      "unit": "annotations",
+      "evidence": [
+        "official_luc/annotations/tools.py:39-43"
+      ]
+    },
+    {
+      "name": "tags_per_note",
+      "value": 32,
+      "unit": "tags",
+      "evidence": [
+        "official_luc/annotations/tools.py:39-43"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "upsert-revises-id",
+      "text": "Writing an annotation_id again updates that note rather than duplicating it.",
+      "test": "tests/test_runtime_annotations.py::test_writing_the_same_id_again_revises_it_rather_than_repeating_it"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_annotations.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing behavior tests cover parts of this interface. They were inspected, not run in this documentation task; no replacement conformance runner exists yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "The input schema permits patches the implementation refuses, including unrecognized fields and missing annotation labels. A replacement must retain these semantic refusals; annotate_media remains unported.",
+      "evidence": [
+        "official_luc/annotations/tools.py:45-49",
+        "official_luc/annotations/tools.py:101-118",
+        "official_luc/annotations/tools.py:188-209"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "annotation": {
+      "type": "object",
+      "properties": {
+        "annotation_id": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "asset",
+            "time_range",
+            "frame"
+          ]
+        },
+        "start_sec": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "end_sec": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "frame": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "category": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "source": {
+          "enum": [
+            "gemini",
+            "user",
+            "import",
+            "system",
+            "gemini_vision",
+            "heuristic",
+            "roughcut"
+          ]
+        },
+        "language": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "scope",
+        "start_sec",
+        "end_sec",
+        "frame",
+        "label",
+        "note",
+        "tags",
+        "category",
+        "confidence",
+        "source",
+        "language"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "lumeri.media-annotations"
+        },
+        "version": {
+          "const": 1
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/tools/media.notes.v1.json#/definitions/annotation"
+            }
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "version",
+        "assets"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:engine.cli/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Sealed lumeri-engine dispatcher",
+  "summary": "The only engine entrypoint offered to the sandbox. Dispatch chooses a fixed subcommand, reads one JSON object from its request file, and writes a report to stdout with an exit status. Per-command JSON shapes belong to engine.gemia.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "lumeri-engine <subcommand> <request.json> [<output-root>]"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The sealed dispatcher, execution broker or sandbox is trusted integrity machinery.",
+    "decided": "today's code: lumeri_engine_cli.py:1510-1573"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "main",
+      "effect": "process",
+      "input": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1
+      },
+      "output": {
+        "enum": [
+          0,
+          2,
+          3,
+          4
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_engine_cli.py:94-137",
+        "lumeri_engine_cli.py:1510-1573"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. argv includes executable name. Queries require three argv items and artifact commands four. Exit 0 can carry a domain refusal; 2 is usage/input, 3 unavailable engine or unexpected execution error, 4 declared render/artifact mismatch. CLI itself has no execution_id replay or atomic Project commit; only scratch outputs are permitted by its Runtime sandbox."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "The dispatcher imports only fixed engine entrypoints; a request cannot name arbitrary Python code.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_engine_cli.py:1510-1573"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Only contract/schema checking exists here; no replacement conformance runner."
+  },
+  "known_deviations": [
+    {
+      "text": "A nonzero exit and a JSON refusal are different contracts. sandbox.run currently raises on nonzero and keeps stderr while discarding stdout from that exception path, so caption options printed to stdout can be lost.",
+      "evidence": [
+        "lumeri_engine_cli.py:1332-1349",
+        "lumeri_runtime/sandbox.py:287-293"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "subcommand": {
+      "enum": [
+        "quanta",
+        "lumenframe",
+        "timeline-otio",
+        "timeline-render",
+        "media-edit",
+        "roughcut",
+        "narrate",
+        "caption",
+        "luvi-import",
+        "luvi-export",
+        "lumen-canvas",
+        "speech-voices",
+        "media-edit-plan",
+        "point-library",
+        "craft",
+        "lumen-patch",
+        "lumen-stage"
+      ]
+    }
+  }
+}

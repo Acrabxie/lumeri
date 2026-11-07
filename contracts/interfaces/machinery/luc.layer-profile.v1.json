@@ -1,0 +1,296 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.layer-profile/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Desired layer selection",
+  "summary": "Store ordered immutable Extension references and enabled flags in LocalRegistry. Safe mode changes the derived selection, preserving desired layers and original bytes.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_distribution.layers:LayerProfileStore"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "attach",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extension": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "base",
+          "runtime_version",
+          "host_grants",
+          "extension"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_PROFILE_BASE",
+        "E_LUC_EXTENSION_DUPLICATE",
+        "E_LUC_EXTENSION_ORDER"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:29-68"
+      ],
+      "notes": "No deadline. Resolves before persisting the selected profile; Resolver/Registry errors propagate in addition to listed direct refusals. Safe-mode profile retains desired references but selects Base-only. attach/detach are not retry-idempotent. This mutates local state only, not a running Worker."
+    },
+    {
+      "name": "detach",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extension_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "runtime_version",
+          "host_grants",
+          "extension_id"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_PROFILE_BASE",
+        "E_LUC_EXTENSION_NOT_ATTACHED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:70-91"
+      ],
+      "notes": "No deadline. Resolves before persisting the selected profile; Resolver/Registry errors propagate in addition to listed direct refusals. Safe-mode profile retains desired references but selects Base-only. attach/detach are not retry-idempotent. This mutates local state only, not a running Worker."
+    },
+    {
+      "name": "disable_user_layers",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "base",
+          "runtime_version",
+          "host_grants"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_PROFILE_BASE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:93-101"
+      ],
+      "notes": "No deadline. Resolves before persisting the selected profile; Resolver/Registry errors propagate in addition to listed direct refusals. Safe-mode profile retains desired references but selects Base-only. attach/detach are not retry-idempotent. This mutates local state only, not a running Worker."
+    },
+    {
+      "name": "restore_user_layers",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "base",
+          "runtime_version",
+          "host_grants"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_PROFILE_BASE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:103-113"
+      ],
+      "notes": "No deadline. Resolves before persisting the selected profile; Resolver/Registry errors propagate in addition to listed direct refusals. Safe-mode profile retains desired references but selects Base-only. attach/detach are not retry-idempotent. This mutates local state only, not a running Worker."
+    },
+    {
+      "name": "set_enabled",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extension_id": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "base",
+          "runtime_version",
+          "host_grants",
+          "extension_id",
+          "enabled"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_REGISTRY_STATE",
+        "E_LUC_PROFILE_BASE",
+        "E_LUC_EXTENSION_NOT_ATTACHED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:115-153"
+      ],
+      "notes": "No deadline. Resolves before persisting the selected profile; Resolver/Registry errors propagate in addition to listed direct refusals. Safe-mode profile retains desired references but selects Base-only. attach/detach are not retry-idempotent. This mutates local state only, not a running Worker."
+    },
+    {
+      "name": "read",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object",
+        "description": "Empty object if absent, otherwise layer profile schema."
+      },
+      "errors": [
+        "E_LUC_PROFILE_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/layers.py:155-173"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "safe-selection-only",
+      "text": "Disable/restore preserves ordered desired layers and Base identity; no source is rewritten.",
+      "test": "tests/test_luc_distribution.py::test_layer_profile_attach_detach_and_safe_mode_are_selection_only"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_distribution/layers.py:93-113"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_distribution.py::test_layer_profile_attach_detach_and_safe_mode_are_selection_only"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

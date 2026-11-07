@@ -1,0 +1,737 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.cloud/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Luc Cloud private source registry HTTP API",
+  "summary": "Authenticated account namespace metadata, immutable two-phase publication, source inspection and update assessment. The service supplies bytes and declared authority, never Runtime grants or activation.",
+  "carrier": {
+    "kind": "http",
+    "surface": "lumeri_runtime/luc_cloud/http.py:LucCloudHandler /v1/luc"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "GET /healthz",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "const": "luc-cloud-dev"
+          },
+          "status": {
+            "const": "ready"
+          }
+        },
+        "required": [
+          "service",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:52-62"
+      ],
+      "notes": "No route deadline. Public readiness of this process only; HEAD is also accepted."
+    },
+    {
+      "name": "POST /v1/luc/uploads",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "$contract": "docs/luc/cloud-schemas/publish-request-v1.schema.json#"
+          },
+          "body": {
+            "description": "Raw .luc bytes sent with application/vnd.lumeri.luc; owner, name and visibility are query parameters."
+          }
+        },
+        "required": [
+          "metadata",
+          "body"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.cloud.v1.json#/definitions/upload"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_CONTENT_TYPE",
+        "E_LUC_CLOUD_REQUEST_SIZE",
+        "E_LUC_CLOUD_VISIBILITY",
+        "E_LUC_CLOUD_UPLOAD_SIZE",
+        "E_LUC_CLOUD_OWNER",
+        "E_LUC_CLOUD_PACKAGE",
+        "E_LUC_CLOUD_METADATA",
+        "E_LUC_CLOUD_SECRET_RISK"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:88-102",
+        "lumeri_runtime/luc_cloud/service.py:62-114"
+      ],
+      "notes": "No route deadline. 201 creates a new temporary upload on each retry; metadata schema uses package_name, mapped to HTTP query name. Canonical verifier and store errors also propagate. This does not publish or grant local authority."
+    },
+    {
+      "name": "POST /v1/luc/uploads/{upload_id}/publish",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "upload_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id"
+        ],
+        "description": "No request body or Transfer-Encoding."
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/publish-result-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_REQUEST_BODY",
+        "E_LUC_CLOUD_UPLOAD_CORRUPT",
+        "E_LUC_CLOUD_VERSION_IMMUTABLE",
+        "E_LUC_CLOUD_PACKAGE_IDENTITY",
+        "E_LUC_CLOUD_OBJECT_COLLISION",
+        "E_LUC_CLOUD_INTEGRITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:103-107",
+        "lumeri_runtime/luc_cloud/http.py:231-237",
+        "lumeri_runtime/luc_cloud/service.py:116-153",
+        "lumeri_runtime/luc_cloud/store.py:114-157"
+      ],
+      "notes": "No route deadline. 201 commits an immutable version. Consumes upload in finally even after a rejected publish attempt. Retry of consumed upload returns not-found; re-uploading same version refuses immutable version. Additional canonical, parent, metadata and store codes are not closed here."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/package-metadata-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:120-128"
+      ],
+      "notes": "No route deadline. Authenticated namespace read; HEAD omits body. Input-validation and metadata-verification codes may additionally propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/versions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/version-list-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:127-129"
+      ],
+      "notes": "No route deadline. Same authenticated namespace read and HEAD behavior; transitive validator codes are not closed."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:145-148"
+      ],
+      "notes": "No route deadline. Immutable version record; validates stored artifact/metadata consistency through service.inspect. Additional verifier errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}/artifact",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "if_none_match": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "description": "Exact .luc bytes; 200 with artifact-hash ETag, or empty 304 when If-None-Match matches or is *. HEAD omits bytes."
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL",
+        "E_LUC_CLOUD_INTEGRITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:150-158"
+      ],
+      "notes": "No route deadline. Does not install or activate locally. Additional record verification errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}/manifest",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:159-161",
+        "lumeri_runtime/luc_cloud/service.py:278-280"
+      ],
+      "notes": "No route deadline. JSON projection of canonical verified manifest; additional verifier errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}/files",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "files": {
+            "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#/properties/source_files"
+          }
+        },
+        "required": [
+          "owner",
+          "package_name",
+          "version",
+          "files"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:162-164",
+        "lumeri_runtime/luc_cloud/service.py:282-289"
+      ],
+      "notes": "No route deadline; inert source-tree metadata. Additional verifier errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}/files/{path}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version",
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/source-file-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL",
+        "E_LUC_CLOUD_SOURCE_PATH"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:165-170",
+        "lumeri_runtime/luc_cloud/service.py:291-325"
+      ],
+      "notes": "No route deadline. UTF-8 text or Base64 data, render_policy plain_text_no_html. Additional verifier errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/{version}/readme",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/source-file-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL",
+        "E_LUC_CLOUD_README"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:172-174",
+        "lumeri_runtime/luc_cloud/service.py:327-335"
+      ],
+      "notes": "No route deadline. Missing README is not-found; non-UTF-8 README refuses. Additional verifier errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/search",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "luc",
+              "extension"
+            ]
+          },
+          "capability": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/search-result-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_QUERY",
+        "E_LUC_CLOUD_PROTOCOL",
+        "E_LUC_CLOUD_ROLE",
+        "E_LUC_CLOUD_CAPABILITY",
+        "E_LUC_CLOUD_INTERNAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:108-119"
+      ],
+      "notes": "No route deadline. Namespace-scoped search with optional filters, not Hub public search. Metadata-validation errors may propagate."
+    },
+    {
+      "name": "GET /v1/luc/{owner}/{name}/updates",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "current": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "pinned": {
+            "enum": [
+              "true",
+              "false"
+            ]
+          },
+          "extension_source_hash": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "current"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/update-status-v2.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_CLOUD_STORE_CORRUPT",
+        "E_LUC_CLOUD_INTERNAL",
+        "E_LUC_CLOUD_QUERY",
+        "E_LUC_CLOUD_UPDATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:130-144"
+      ],
+      "notes": "No route deadline. Repeat extension_source_hash query key; metadata and authority comparison only. PINNED preserves candidate assessment; no local state changes. Transitive store/validator errors may propagate."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "request-bytes",
+      "value": 536870912,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/service.py:79-80",
+        "lumeri_runtime/luc_cloud/http.py:208-229"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "namespace-account-bound",
+      "text": "Principal namespaces derive from an active Accounts identity or an explicitly injected dev authenticator.",
+      "test": null
+    },
+    {
+      "id": "immutable-publish",
+      "text": "Every owner/package/version is immutable; even identical bytes cannot republish that version.",
+      "test": null
+    },
+    {
+      "id": "source-only",
+      "text": "Publishing, downloading or checking an update never activates a Runtime or grants Host authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_cloud/auth.py:15-76",
+      "lumeri_runtime/luc_cloud/store.py:114-157"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Publish consumes its upload on failure as well as success; an HTTP client cannot safely retry the same upload id as if commit had a persistent idempotency receipt.",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/service.py:116-153"
+      ],
+      "test": null
+    },
+    {
+      "text": "HTTP routes catch unexpected exceptions as E_LUC_CLOUD_INTERNAL, but service/Python exceptions and transitive validator codes are not yet a complete closed error vocabulary.",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:176-185",
+        "lumeri_runtime/luc_cloud/service.py:837-845"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "details": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "details"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "upload": {
+      "type": "object",
+      "properties": {
+        "upload_id": {
+          "type": "string"
+        },
+        "status": {
+          "const": "validated_pending_publish"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "package_name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "artifact_role": {
+          "$contract": "docs/luc/cloud-schemas/artifact-role-v1.schema.json#"
+        },
+        "integrity": {
+          "type": "object",
+          "properties": {
+            "source_hash": {
+              "type": "string"
+            },
+            "artifact_hash": {
+              "type": "string"
+            },
+            "artifact_size_bytes": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source_hash",
+            "artifact_hash",
+            "artifact_size_bytes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "upload_id",
+        "status",
+        "owner",
+        "package_name",
+        "version",
+        "artifact_role",
+        "integrity"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

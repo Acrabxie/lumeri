@@ -1,0 +1,297 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.native-toolbox/v1",
+  "version": "1.2.0",
+  "area": "agent",
+  "title": "Return the Runtime's own toolbox",
+  "summary": "Every supported product receives the Runtime's own toolbox: one tool, update_plan, with which the model keeps the steps of the creator's request and how far each has come. It changes nothing in the Project; the model reads its own plan back in the conversation and the editor is handed the plan with the call's result. Video tools come from verified Luc packages and wrappers instead; disabling a Luc does not restore a native implementation.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "sandbox-json-lines",
+    "notes": "Original: lumeri_runtime.agent_tools:toolbox_for. Replacement: a lumeri.agent.part/v1 capability with part \"native-toolbox\", naming an executable file of its Luc, run by luc_sandbox; the Runtime writes one call line and reads one answer line per answer (luc_agent_parts)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It runs only as a child process in the code sandbox of iface:agent.loop/v1 (its own executable, the system libraries and the page size; no file, socket, credential or environment), only from a Luc that holds agent.loop, which Lumeri's review of its exact bytes grants, and only on a machine with a sandbox (macOS today). It speaks lumeri.agent.part/v1 (docs/luc/agent-parts.md): one process per answer, one call line in, one answer line out.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/agent_tools.py:1-119; Acrab 2026-10-26: answered by reviewed programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "agent.loop"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The child reaches nothing but its pipe. The Runtime checks every answer against what the original could have answered and keeps the stored conversation, the model, the budget and the events."
+  },
+  "operations": [
+    {
+      "name": "toolbox_for",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "enum": [
+              "video",
+              "quanta"
+            ]
+          }
+        },
+        "required": [
+          "product_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/toolbox"
+      },
+      "errors": [],
+      "deadline_ms": 10000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_tools.py:110-116",
+        "lumeri_runtime/luc_agent_parts.py:327-360",
+        "lumeri_runtime/worker.py:8063-8074"
+      ],
+      "notes": "No deadline. ProductId conversion rejects an invalid product with ValueError, without a coded error. Returned Toolbox.tools is always the one tool update_plan, the same for every product; repeated calls return equivalent toolboxes. A program answers with at most 16 declarations {\"type\": \"function\", \"function\": {name, description, parameters}}: a lowercase name of at most 48 characters other than luc_discover, luc_describe, luc_invoke and use_skill; an English description of at most 1024 characters; an object JSON Schema of at most 16384 bytes. It is asked once a start."
+    },
+    {
+      "name": "call",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "tool",
+          "arguments"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "tool_refused"
+      ],
+      "deadline_ms": 10000,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:363-396",
+        "lumeri_runtime/agent_tools.py:65-107"
+      ],
+      "notes": "The agent's call of one of the program's own tools. The Runtime checks the arguments against the declared parameters first (invalid_arguments, without asking the program). The answer is an object of at most 65536 bytes, or tool_refused. A break hands the call to the original's tool of the same name (update_plan), and refuses it with E_LUC_PART_BROKE when the original has no such tool; the next start's toolbox is the original's. The program reaches nothing outside its pipe, so the call changes nothing in Lumeri. The original's update_plan takes {plan: 1..20 steps of {step: text of 1..200 characters, status: pending | in_progress | completed}, explanation?: text of at most 500 characters}, with at most one step in_progress; it answers the model {updated: true, steps, completed} and hands the editor {plan, explanation?} in tool_exec_result, or refuses with plan_invalid."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.native-toolbox"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479"
+      ],
+      "notes": "Once per Session in a start: when the part's program broke (gate run), or when its Luc was left off for the part after three breaks (gate load). Codes: E_LUC_PART_START, E_LUC_PART_PROTOCOL, E_LUC_PART_ACTION, E_LUC_PART_RESULT, E_LUC_PART_LIMIT, E_LUC_PART_DEADLINE, E_LUC_PART_EXIT, E_LUC_PART_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "native_tools",
+      "value": 1,
+      "unit": "tools",
+      "evidence": [
+        "lumeri_runtime/agent_tools.py:110-116"
+      ]
+    },
+    {
+      "name": "answer_deadline",
+      "value": 10000,
+      "unit": "ms per answer; host calls not counted",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:39"
+      ]
+    },
+    {
+      "name": "line_bytes",
+      "value": 4194304,
+      "unit": "bytes per JSON line, either way",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:36"
+      ]
+    },
+    {
+      "name": "refusal_message_chars",
+      "value": 2000,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:68"
+      ]
+    },
+    {
+      "name": "program_tools",
+      "value": 16,
+      "unit": "tools a program declares",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:69"
+      ]
+    },
+    {
+      "name": "tool_description_chars",
+      "value": 1024,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:70"
+      ]
+    },
+    {
+      "name": "tool_parameters_bytes",
+      "value": 16384,
+      "unit": "bytes of JSON Schema",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:71"
+      ]
+    },
+    {
+      "name": "tool_result_bytes",
+      "value": 65536,
+      "unit": "bytes of the answer object",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:72"
+      ]
+    },
+    {
+      "name": "plan_steps",
+      "value": 20,
+      "unit": "steps in the original's update_plan",
+      "evidence": [
+        "lumeri_runtime/agent_tools.py:25"
+      ]
+    },
+    {
+      "name": "plan_step_chars",
+      "value": 200,
+      "unit": "characters of one step",
+      "evidence": [
+        "lumeri_runtime/agent_tools.py:26"
+      ]
+    },
+    {
+      "name": "plan_explanation_chars",
+      "value": 500,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/agent_tools.py:27"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "plan-only-native",
+      "text": "VIDEO_TOOLS and every returned native Toolbox.tools are exactly update_plan; off means no native restoration of an Official Luc's tool.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_every_product_has_the_plan_and_its_parameters_are_a_schema"
+    },
+    {
+      "id": "plan-changes-nothing",
+      "text": "update_plan writes nothing to the Project; the model reads back how far the plan has come and the editor is handed the steps.",
+      "test": "tests/test_agent_plan_and_compaction.py::test_the_agent_plans_through_the_real_worker_and_the_editor_sees_the_steps"
+    },
+    {
+      "id": "broken-program-plan",
+      "text": "A program's tool that breaks is answered by the original's tool of that name when there is one.",
+      "test": "tests/test_luc_agent_parts.py::test_a_programs_tool_that_breaks_is_answered_by_lumeris_own_of_that_name"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program does not start, or its bytes are not the ones its Luc loaded with",
+      "an answer is late, larger than a line, not one JSON value, or not a result, a refusal or a host call the part may make",
+      "a result the original could not have given (see the operation notes), or a refusal the operation does not list",
+      "more host calls than the bound, or the program ends before it answers"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent_parts.py:136-188",
+      "lumeri_runtime/luc_agent_parts.py:399-450",
+      "lumeri_runtime/luc_interactions.py:139-150"
+    ],
+    "notes": "The original answers the same call, and every call of the part for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for this part at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.agent.native-toolbox)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_parts.py",
+      "tests/test_agent_plan_and_compaction.py"
+    ],
+    "notes": "tests/test_luc_agent_parts.py checks the Runtime's reading of each answer, runs a real Worker with programs that answer as Lumeri does (the same model requests and conversation), with one whose answer the model reads, and with one that breaks; the sandbox is tested with a fenced interpreter."
+  },
+  "known_deviations": [
+    {
+      "text": "A program's tool makes no host calls: it answers from its arguments alone, so it can neither read nor change the Project. Tools that edit stay the Official Lucs' (iface:agent.toolbox/v1).",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:363-396"
+      ],
+      "test": null
+    },
+    {
+      "text": "Safe mode leaves the native toolbox out, update_plan included: a turn in safe mode has no plan tool.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1118-1122",
+        "lumeri_runtime/official_luc.py:1153-1154"
+      ],
+      "test": "tests/test_luc_self_luc_combined.py::test_safe_mode_uses_the_original_agent_and_only_loads_recovery_lucs"
+    }
+  ],
+  "open_questions": []
+}

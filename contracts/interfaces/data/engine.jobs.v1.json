@@ -1,0 +1,563 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:engine.jobs/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Official engine job runner",
+  "summary": "Validate package job descriptions, stage only requested assets, bind questions/plans/runs to exact execution authority, and distinguish finished evidence from mere process entry.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.engine_jobs:engine_job_from,stage_source,bind_engine_job",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The sealed dispatcher, execution broker or sandbox is trusted integrity machinery.",
+    "decided": "today's code: lumeri_runtime/engine_jobs.py:55-120"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "engine_job_from",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/data/engine.jobs.v1.json#/definitions/job_spec"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "engine_job_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:268-335"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Checks declared fields, plain names, needs/source kinds, source count, artifact/produces/plan, and trusted callbacks. Full Python callable representation is draft."
+    },
+    {
+      "name": "engine_question_from",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "request": {
+            "type": "object"
+          },
+          "request_name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "label",
+          "capability",
+          "profile",
+          "command",
+          "request_name"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "engine_job_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:159-177"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Request and scope must be plain JSON objects; only declared machine needs are allowed. Returns EngineQuestion dataclass projected as an object."
+    },
+    {
+      "name": "stage_source",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "object"
+          },
+          "media_store": {
+            "type": "object"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "staging_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "media_store",
+          "product_id",
+          "project_id",
+          "project_root",
+          "staging_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_BAD_SOURCE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:359-415"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Verified private copies only; source kind comes from content type. Multiple staging copies are not an atomic durable Project write or revision advance. Full EngineJob input projection is draft."
+    },
+    {
+      "name": "artifact_is_ready",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "object"
+          },
+          "session_temp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "session_temp"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:480-500"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Manifest requires status ready, not mere existence; without manifest, produced file must exist and be nonempty."
+    },
+    {
+      "name": "read_artifact",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "object"
+          },
+          "session_temp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "session_temp"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:503-511"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Missing/malformed manifest can raise built-in exceptions. A non-ready manifest uses dynamic <label>_incomplete. Finite returned-code set and opaque job input await package specialization."
+    },
+    {
+      "name": "bind_engine_question",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": "object"
+          },
+          "toolchain": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "transcriber": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "question": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "toolchain",
+          "transcriber",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "engine_job_invalid",
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:180-215"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Returns a sealed runner, not execution output. Job execution writes declared scratch artifacts and keeps the request Project revision. A ready artifact with lost receipt is UNKNOWN; otherwise NOT_EXECUTED. Media import or notes follow through their own governed writes. No client_op_id atomic Project commit here. Exact callable/input projection is draft."
+    },
+    {
+      "name": "bind_engine_plan",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": "object"
+          },
+          "toolchain": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "transcriber": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object"
+          },
+          "staged": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "toolchain",
+          "transcriber",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "job",
+          "staged"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "engine_job_invalid",
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:537-575"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Returns a sealed runner, not execution output. Job execution writes declared scratch artifacts and keeps the request Project revision. A ready artifact with lost receipt is UNKNOWN; otherwise NOT_EXECUTED. Media import or notes follow through their own governed writes. No client_op_id atomic Project commit here. Exact callable/input projection is draft."
+    },
+    {
+      "name": "bind_engine_job",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": "object"
+          },
+          "toolchain": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "transcriber": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object"
+          },
+          "staged": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "toolchain",
+          "transcriber",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly",
+          "job",
+          "staged"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "engine_job_invalid",
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:578-651"
+      ],
+      "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Returns a sealed runner, not execution output. Job execution writes declared scratch artifacts and keeps the request Project revision. A ready artifact with lost receipt is UNKNOWN; otherwise NOT_EXECUTED. Media import or notes follow through their own governed writes. No client_op_id atomic Project commit here. Exact callable/input projection is draft."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "explicit_sources",
+      "value": 16,
+      "unit": "assets per package spec",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:29-34"
+      ]
+    },
+    {
+      "name": "read_sources",
+      "value": 2048,
+      "unit": "assets derived from Project reads",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:49-52"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Job artifacts must be declared before process entry; staging copies and scratch output do not themselves change durable Project revision.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/engine_jobs.py:55-120",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Only contract/schema checking exists here; no replacement conformance runner."
+  },
+  "known_deviations": [
+    {
+      "text": "Job request/finish/plan are Python callbacks and errors include label-derived codes; a closed JSON replacement protocol does not exist today.",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:460-477",
+        "lumeri_runtime/engine_jobs.py:503-511"
+      ],
+      "test": null
+    },
+    {
+      "text": "Process success is separate from subsequent media import or notes writes; the full job is not one atomic client_op_id Project commit.",
+      "evidence": [
+        "lumeri_runtime/engine_jobs.py:619-631"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "job_spec": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,31}$"
+        },
+        "capability": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "source": {},
+        "source_kinds": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "video",
+              "audio",
+              "image"
+            ]
+          }
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "ffmpeg",
+              "transcriber"
+            ]
+          }
+        },
+        "request": {},
+        "request_name": {
+          "type": "string"
+        },
+        "artifact": {},
+        "discard": {},
+        "intent": {},
+        "scope": {},
+        "finish": {},
+        "reply": {},
+        "result_key": {},
+        "notes_source": {},
+        "produces": {},
+        "sources": {},
+        "source_suffixes": {},
+        "check": {},
+        "plan": {},
+        "reads": {
+          "type": "array",
+          "items": {
+            "const": "timeline"
+          }
+        }
+      },
+      "required": [
+        "label",
+        "capability",
+        "profile",
+        "command",
+        "request",
+        "request_name",
+        "finish"
+      ],
+      "additionalProperties": false,
+      "description": "Python package spec: request/finish/check and optional plan are trusted callables, sources can be a callable over declared Project reads. This is not a serializable wire shape."
+    }
+  }
+}

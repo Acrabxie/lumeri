@@ -1,0 +1,245 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.local-folder/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Local Luc folder admission",
+  "summary": "Read ordinary .luc files beside this machine's config, import immutable bytes, select the newest version and report refused packages independently.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_local:local_folder, reserved_reason, read_local_lucs"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "local_folder",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "description": "Path or None."
+          }
+        },
+        "required": [
+          "config"
+        ]
+      },
+      "output": {
+        "description": "config.parent / lucs, or None."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:119-121"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "reserved_reason",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#"
+          },
+          "official_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "manifest"
+        ]
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$contract": "contracts/interfaces/machinery/luc.local-folder.v1.json#/definitions/refusal"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PROTOCOL_RESERVED",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_NAMESPACE",
+        "E_LUC_AGENT_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:124-155"
+      ],
+      "notes": "No deadline. Refusal codes are returned in a mapping, not raised. Unknown protocols are reserved as well as the explicitly reserved table."
+    },
+    {
+      "name": "read_local_lucs",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Path or None; symlink folders are ignored."
+          },
+          "registry": {
+            "description": "LocalRegistry instance."
+          },
+          "official_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "official_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "switches": {
+            "type": "object",
+            "description": "Mapping of Luc/layer id to bool."
+          },
+          "now": {
+            "description": "datetime or None."
+          }
+        },
+        "required": [
+          "folder",
+          "registry",
+          "official_ids",
+          "official_capabilities",
+          "runtime_version",
+          "switches"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.local-folder.v1.json#/definitions/local_lucs"
+      },
+      "errors": [
+        "E_LUC_LOCAL_FILE",
+        "E_LUC_LOCAL_LIMIT",
+        "E_LUC_NAMESPACE",
+        "E_LUC_ARTIFACT",
+        "E_LUC_COMPATIBILITY",
+        "E_LUC_PLATFORM",
+        "E_LUC_PROTOCOL_RESERVED",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_AGENT_CONFLICT",
+        "E_LUC_REVIEW_REQUIRED",
+        "E_LUC_REVIEW_MISMATCH",
+        "E_LUC_REGISTRY_IMMUTABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:181-213",
+        "lumeri_runtime/luc_local.py:216-356"
+      ],
+      "notes": "No deadline. Retry rechecks folder/config and imports same identities naturally. Other verifier, review and Registry codes are returned as refused rows; this list is not closed. Newest semantic version wins; sorted filename breaks equal-version ties. Existing disabled state carries forward; an explicit switch wins. The Registry import is a side effect even though this is called a reader."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "folder-files",
+      "value": 64,
+      "unit": "files",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:62-63",
+        "lumeri_runtime/luc_local.py:187-198"
+      ]
+    },
+    {
+      "name": "artifact-bytes",
+      "value": 33554432,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_local.py:62-63"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reserved-foundation",
+      "text": "Local packages cannot use lumeri. identities, Official capability names, unknown/reserved protocols or reserved permissions.",
+      "test": null
+    },
+    {
+      "id": "review-is-file-bound",
+      "text": "Reviewed authority is granted only by an in-date receipt bound to the bytes held in the Registry.",
+      "test": null
+    },
+    {
+      "id": "platform-before-registry-import",
+      "text": "A local Luc or folder layer targeting another platform is refused with E_LUC_PLATFORM before being imported into the Local Registry.",
+      "test": "tests/test_luc_platform.py::test_local_folder_layer_platform_refusal_does_not_install_into_registry"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_local.py:59-99",
+      "lumeri_runtime/luc_local.py:158-173"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "refusal": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "identity": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "local_lucs": {
+      "description": "Frozen LocalLucs dataclass: active tuple of (LucArtifact, provenance dict); states Mapping[id,bool]; off and refused tuples of metadata dicts; layers tuple of (Extension artifact, {file,identity,extends}). Identity is artifact-manifest-v1 /properties/identity. These Python tuples and artifact instances are not JSON wire values."
+    }
+  }
+}

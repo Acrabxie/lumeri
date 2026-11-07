@@ -1,0 +1,829 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.loop/v1",
+  "version": "1.2.0",
+  "area": "agent",
+  "title": "Decide the next action of an agent turn",
+  "summary": "The decisions of an agent turn: ask the model with a window of the conversation, run or skip the next tool call it asked for, or end the turn. The original is AgentTurn's own code. A reviewed Luc may bring a program that decides instead, over one JSON line in and one out per action, fenced in the operating system's sandbox; the Runtime checks and performs every action, and keeps the model, the tools, the conversation, the budget, the receipts and the events. A program that breaks is stopped and the original carries the turn on from the last performed action.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "sandbox-json-lines",
+    "notes": "Original: lumeri_runtime.agent_turn:AgentTurn.run. Replacement: a lumeri.agent.loop/v1 capability naming an executable file of its Luc, run by luc_sandbox under sandbox-exec with an empty environment; the Runtime writes one request line and reads one answer line per action (luc_agent_loop.drive)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It runs only as a child process in the code sandbox: it reads its own executable, the system libraries and the page size, writes nothing, opens no file or socket, and holds no credential. It runs only from a Luc that holds agent.loop, which Lumeri's review of its exact bytes grants, and only on a machine with a sandbox (macOS today).",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; Acrab 2026-10-25: agent core as a Luc; Acrab 2026-10-26: the code sandbox and its numbers approved"
+  },
+  "reach": {
+    "permissions": [
+      "agent.loop"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The child cannot use network, filesystem, account or provider credentials (luc_sandbox.sandbox_profile). It suggests actions only; the Runtime validates and performs every model step and tool call under the turn's delegation. Hints (tools, budget) are information, not authority."
+  },
+  "operations": [
+    {
+      "name": "run",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/AccountIdentity"
+          },
+          "root_turn_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "delegation_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "session_id",
+          "identity",
+          "root_turn_id",
+          "trace_id",
+          "delegation_id",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:594-652",
+        "lumeri_runtime/agent_turn.py:804-830",
+        "lumeri_runtime/agent_turn.py:837-970"
+      ],
+      "notes": "Original Python constructor also receives live app, toolbox, store, optional on_finish and the optional loop (a LoopRun from WorkerApplication._agent_loop); those are Runtime-owned dependencies, not child inputs. No whole-turn deadline or step cap exists; the Session budget bounds paid steps. Re-running run with an active checkpoint for the same root_turn_id resumes from the checkpoint without repeating settled model steps or governed writes."
+    },
+    {
+      "name": "exchange",
+      "effect": "process",
+      "input": {
+        "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/request"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/response"
+      },
+      "errors": [],
+      "deadline_ms": 10000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py:627-768",
+        "lumeri_runtime/luc_agent_loop.py:567-624",
+        "lumeri_runtime/luc_sandbox.py:267-339"
+      ],
+      "notes": "One request line, one answer line. The Runtime sends turn_start (the creator's message and the settled history before it, at most window_messages - 1 messages), then model_reply after each model step, tool_result after each answered call (content is the exact text the conversation keeps), and guidance when the creator spoke before a model step. A model step that the Runtime refuses, that fails, or whose answer is never confirmed ends the turn without asking the program, and none of these is a break. Checks: run_call and skip_call name only the next unanswered call; ask_model only once every call is answered, with a window that equals the newest 1..window_messages messages of the Runtime's conversation and starts at a user message; a completed end only right after a model reply in words with no calls; a failed end only with a reason the program may give. Anything else is a break. 1.1.0 settled the draft envelope at its first implementation: optional history and content fields; an end that completes carries no reason; a failed end's reasons narrowed to the program's own; skip reasons bounded."
+    },
+    {
+      "name": "checkpoint",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/checkpoint"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "persisted": {
+            "const": true
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "persisted",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py:228-256",
+        "lumeri_runtime/luc_agent_loop.py:345-564",
+        "lumeri_runtime/luc_agent_loop.py:655-658"
+      ],
+      "notes": "Runtime-only. Before the Runtime performs an action it writes the action, the program's state and the idempotency key (turn_id.m{step} for a model step, turn_id.t{step}.{index} for a call, turn_id.end for an end) with committed false; after the result is in the conversation it writes the result with committed true. One file per Session (agent-loop-checkpoint.json), written aside, renamed and synced, and read back by recover_checkpoint on crash recovery."
+    },
+    {
+      "name": "cancel",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "const": 1
+          },
+          "turn_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "v",
+          "turn_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "const": 1
+          },
+          "terminated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "v",
+          "terminated"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": 2000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:341-360",
+        "lumeri_runtime/luc_agent_loop.py:663-670"
+      ],
+      "notes": "Carried as end of input: when the creator stops the turn, or the turn ends, the Runtime closes the program's stdin, waits the grace interval and then kills its process group. terminated is true when it ended by itself. The creator's stop answers every unanswered call with a stopped result, as the original does."
+    },
+    {
+      "name": "process_exit",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "const": 1
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "v",
+          "turn_id",
+          "exit_code"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/checkpoint"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py:769-774",
+        "lumeri_runtime/agent_turn.py:854-864",
+        "lumeri_runtime/worker.py:8440-8500"
+      ],
+      "notes": "Every break (a program that does not start, answers late, out of shape or too large, exceeds its memory or CPU bound, asks for an action it may not take, or ends) stops the program; the original carries the turn on from the last performed action, finishing the reply in hand from its first unanswered call, so no model step is asked twice and no call runs twice. The module falls back for the rest of this start, the breaker counts one break, and the Session hears luc.module_fell_back once."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.loop"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/worker.py:8510-8535"
+      ],
+      "notes": "Once per Session in a start: when the program broke (gate run), or when its Luc was left off after three breaks (gate load)."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "line_bytes",
+      "value": 4194304,
+      "unit": "bytes per JSON line, either way",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:39"
+      ],
+      "notes": "Approved by Acrab 2026-10-26."
+    },
+    {
+      "name": "state_bytes",
+      "value": 262144,
+      "unit": "bytes of serialized program state",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py:61"
+      ],
+      "notes": "Approved by Acrab 2026-10-26."
+    },
+    {
+      "name": "action_deadline",
+      "value": 10000,
+      "unit": "ms per answer; model and tool time not counted",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:42"
+      ],
+      "notes": "Approved by Acrab 2026-10-26."
+    },
+    {
+      "name": "cancel_grace",
+      "value": 2000,
+      "unit": "ms from end of input to kill",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:44"
+      ],
+      "notes": "Approved by Acrab 2026-10-26."
+    },
+    {
+      "name": "executable_bytes",
+      "value": 16777216,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    },
+    {
+      "name": "memory_bytes",
+      "value": 268435456,
+      "unit": "bytes of physical memory footprint per sandboxed child process",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:48"
+      ]
+    },
+    {
+      "name": "cpu_seconds",
+      "value": 5,
+      "unit": "seconds of cumulative user+system CPU time per sandboxed child process",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:49"
+      ]
+    },
+    {
+      "name": "skip_reason_chars",
+      "value": 500,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_loop.py:63"
+      ]
+    },
+    {
+      "name": "window_messages",
+      "value": 80,
+      "unit": "messages",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:49"
+      ]
+    },
+    {
+      "name": "doom_loop_repeats",
+      "value": 3,
+      "unit": "identical calls running",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:46"
+      ],
+      "notes": "Held by the Runtime for any program: after the third identical call it ends the turn itself."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "doom-stop",
+      "text": "The original stops after three identical tool name and argument strings in the recent-call tail, checked after a model step.",
+      "test": "tests/test_runtime_agent_turn.py::test_the_same_call_three_times_running_ends_the_turn"
+    },
+    {
+      "id": "doom-stop-for-any-program",
+      "text": "With a program deciding, the Runtime still ends the turn after the third identical call, without asking it.",
+      "test": "tests/test_luc_agent_loop.py::test_a_doom_loop_is_stopped_by_the_runtime_whatever_the_program_decides"
+    },
+    {
+      "id": "unconfirmed-step",
+      "text": "A model step that was sent and whose answer is never confirmed ends the original's turn with model_result_unconfirmed; the step keeps its reservation until its provider settles it and is never sent again.",
+      "test": "tests/test_runtime_chatgpt_bridge.py::test_an_answer_lost_on_its_way_back_ends_the_turn_by_name_and_is_never_asked_again"
+    },
+    {
+      "id": "unconfirmed-step-for-any-program",
+      "text": "With a program deciding, such a step ends the turn the same way, without asking the program and without counting a break.",
+      "test": "tests/test_luc_agent_loop.py::test_a_step_whose_answer_never_came_back_ends_the_turn_by_name_and_is_no_break"
+    },
+    {
+      "id": "checkpoint-before-handoff",
+      "text": "Before the Runtime performs an action it has persisted the action, state and idempotency key; after, the result.",
+      "test": "tests/test_luc_agent_loop.py::test_each_action_is_written_down_before_the_runtime_performs_it"
+    },
+    {
+      "id": "checkpoint-recovered-after-crash",
+      "text": "An in-flight checkpoint is read back on crash recovery without re-sending settled or unconfirmed model steps or re-running governed writing tool calls.",
+      "test": "tests/test_luc_agent_loop.py::test_checkpoint_is_read_back_after_crash_without_repeating_settled_model_steps_or_writes"
+    },
+    {
+      "id": "fallback-asks-nothing-twice",
+      "text": "After a break the original carries the turn on: the model steps sent are the ones the original alone sends, each once, and each call runs once.",
+      "test": "tests/test_luc_agent_loop.py::test_a_program_that_breaks_hands_the_turn_to_lumeris_own_loop_asking_nothing_twice"
+    },
+    {
+      "id": "same-steps-as-the-original",
+      "text": "A program that decides as the original does produces the same model requests, events and conversation.",
+      "test": "tests/test_luc_agent_loop.py::test_a_reviewed_loop_runs_the_turn_exactly_as_lumeris_own_loop_would"
+    },
+    {
+      "id": "answers-as-the-contract",
+      "text": "The Runtime accepts exactly the answers this contract's response schema allows.",
+      "test": "tests/test_luc_agent_loop.py::test_the_runtime_accepts_exactly_the_answers_the_contract_allows"
+    },
+    {
+      "id": "sandboxed",
+      "text": "The program reads no file but its own and the system libraries, and no system setting but the page size; it writes nothing, reaches no network and has an empty environment.",
+      "test": "tests/test_luc_agent_loop.py::test_the_program_reads_no_file_writes_nothing_reaches_no_network_and_has_no_environment"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program does not start, or its bytes are not the ones its Luc loaded with",
+      "an answer is late, larger than a line, not one JSON value, or outside the response schema",
+      "the program exceeds its physical memory or CPU-time bound",
+      "an action the Runtime may not take at that point (see exchange notes)",
+      "the program ends before the turn does"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent_loop.py:769-774",
+      "lumeri_runtime/agent_turn.py:854-864",
+      "lumeri_runtime/luc_interactions.py:116-120"
+    ],
+    "notes": "The fallback latches for the rest of the start (luc_interactions.note_loop_break); three breaks of the same bytes leave the Luc off at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.agent.loop)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_loop.py",
+      "tests/test_runtime_agent_turn.py::test_the_same_call_three_times_running_ends_the_turn"
+    ],
+    "notes": "tests/test_luc_agent_loop.py runs a real Worker with a scripted model; the programs there are Python objects speaking the protocol, the sandbox is tested with a fenced interpreter, and the Codex-derived program is run when it is built."
+  },
+  "known_deviations": [
+    {
+      "text": "Only the original summarizes a conversation that outgrew the window (iface:agent.conversation/v1, compaction: a model step with no tools under turn_id.s{step}). A program deciding asks with windows of the conversation as stored, so on a conversation of more than window_messages messages its turn sends no summary request and reads no summary.",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:703-725",
+        "lumeri_runtime/agent_turn.py:880"
+      ],
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {},
+        "observation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "turn_start"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "history": {
+                  "type": "array",
+                  "maxItems": 79,
+                  "items": {
+                    "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "model_reply"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "tool_calls": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "arguments": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "finish_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "content",
+                "tool_calls",
+                "finish_reason"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "tool_result"
+                },
+                "call_id": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "model": {
+                  "type": "object"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "call_id",
+                "ok",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "guidance"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "hints": {
+          "type": "object",
+          "properties": {
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "budget_left_micros": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "window_messages": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 80
+            },
+            "doom_loop_repeats": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 3
+            }
+          },
+          "required": [
+            "tools",
+            "budget_left_micros",
+            "window_messages",
+            "doom_loop_repeats"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "turn_id",
+        "step",
+        "state",
+        "observation",
+        "hints"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "state": {},
+        "action": {
+          "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/action"
+        }
+      },
+      "required": [
+        "v",
+        "state",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "action": {
+          "$contract": "contracts/interfaces/agent/agent.loop.v1.json#/definitions/action"
+        },
+        "result": {},
+        "state": {},
+        "committed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "turn_id",
+        "step",
+        "idempotency_key",
+        "action",
+        "result",
+        "state",
+        "committed"
+      ],
+      "additionalProperties": false
+    },
+    "reply": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "arguments": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "arguments"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "finish_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "content",
+        "tool_calls",
+        "finish_reason"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "ask_model"
+            },
+            "window": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 80,
+              "items": {
+                "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "window"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "run_call"
+            },
+            "call_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "call_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "skip_call"
+            },
+            "call_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "required": [
+            "kind",
+            "call_id",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "end"
+            },
+            "outcome": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "kind",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "end"
+            },
+            "outcome": {
+              "const": "failed"
+            },
+            "reason": {
+              "enum": [
+                "doom_loop",
+                "model_output_truncated",
+                "model_protocol_error"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "outcome",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

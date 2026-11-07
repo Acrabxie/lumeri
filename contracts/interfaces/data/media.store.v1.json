@@ -1,0 +1,636 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.store/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Content-addressed media store",
+  "summary": "Immutable global SHA-256 blobs and explicit product/Project authorization references; uploads are quarantined until a governed staged import. Typed local exceptions do not invent wire error codes.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.media_cas:ContentAddressedMediaStore",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project ownership, durable integrity or trusted execution authority.",
+    "decided": "today's code: lumeri_runtime/media_cas.py:147-160"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "stage_upload_admitted",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "input_stream": {
+            "description": "Trusted binary read(length) stream, not serializable JSON."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "capacity_limit_bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "account_id",
+          "product_id",
+          "project_id",
+          "session_id",
+          "project_revision",
+          "idempotency_key",
+          "input_stream",
+          "length",
+          "filename",
+          "content_type",
+          "capacity_limit_bytes"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/staged"
+          },
+          {
+            "type": "boolean"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:290-358"
+      ],
+      "notes": "No local operation deadline is enforced. Reserves physical quarantine capacity before reading fresh bytes. Retained exact retry is rehashed without creating another file; conflicting or reclaimed identity raises MediaStagingConflictError. Typed staging/integrity exceptions have no code attribute. Multi-file quarantine does not advance Project revision and is not the visible import. Stream/record projection is draft."
+    },
+    {
+      "name": "stage_upload",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "input_stream": {
+            "description": "Trusted binary read(length) stream, not serializable JSON."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "product_id",
+          "project_id",
+          "session_id",
+          "project_revision",
+          "idempotency_key",
+          "input_stream",
+          "length",
+          "filename",
+          "content_type"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/staged"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:1383-1425"
+      ],
+      "notes": "No local operation deadline is enforced. Low-level quarantine primitive without admission capacity enforcement. Creates staged files but no visible asset or Project revision. Input stream and full metadata projection are draft."
+    },
+    {
+      "name": "import_file",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2114-2146"
+      ],
+      "notes": "No local operation deadline is enforced. Hashes source, ensures immutable blob and writes Project-local reference. Same bytes map to asset_<first 32 sha256 chars>; this low-level primitive does not itself advance Project revision or persist client_op_id. Blob and reference are separate writes."
+    },
+    {
+      "name": "import_staged",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "staging_id": {
+            "type": "string"
+          },
+          "intent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "product_id",
+          "project_id",
+          "session_id",
+          "project_revision",
+          "idempotency_key",
+          "staging_id",
+          "intent_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+          },
+          {
+            "type": "boolean"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:1775-1825",
+        "lumeri_runtime/media_cas.py:2722-2732"
+      ],
+      "notes": "No local operation deadline is enforced. Claims and promotes bytes under exact request/intent; returns reference and reference_preexisting. The broker then advances revision separately for a new reference and marks staging committed. Cross-store serialization and reconciliation are not one client_op_id atomic commit."
+    },
+    {
+      "name": "reference",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2148-2167"
+      ],
+      "notes": "No local operation deadline is enforced. Verifies blob against the reference; returns metadata without a host path. Integrity or missing-file exceptions fail closed."
+    },
+    {
+      "name": "list_references",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "verify_content": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2169-2184"
+      ],
+      "notes": "No local operation deadline is enforced. Default hashes content. verify_content false skips rehashing only; file type, single link, read-only mode and size checks remain."
+    },
+    {
+      "name": "resolve",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2563-2580"
+      ],
+      "notes": "No local operation deadline is enforced. Returns a verified read-only Path projected as a string. This is not a grant to another product."
+    },
+    {
+      "name": "open_verified",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2582-2611"
+      ],
+      "notes": "No local operation deadline is enforced. Context manager yields (binary handle, reference), closing the already verified descriptor on exit. Opaque handle projection is draft; no JSON stream encoding is defined."
+    },
+    {
+      "name": "materialize_private_copy",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "project_id",
+          "asset_id",
+          "project_root",
+          "destination"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2613-2664"
+      ],
+      "notes": "No local operation deadline is enforced. Creates a checked private copy with mode 0600, never grants mutable access to a shared blob. This staging write is not an atomic governed Project revision/result commit."
+    },
+    {
+      "name": "handoff",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "source_product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "source_project_id": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "target_product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "target_project_id": {
+            "type": "string"
+          },
+          "target_project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "source_product_id",
+          "source_project_id",
+          "asset_id",
+          "target_product_id",
+          "target_project_id",
+          "target_project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2229-2267"
+      ],
+      "notes": "No local operation deadline is enforced. Verifies source and writes only a receiving reference with provenance; blobs stay shared and immutable. This primitive does not commit receiving Project revision or a client_op_id result together."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "A shared blob never becomes authorized to another product without an explicit receiving reference; mutation uses a private copy.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/media_cas.py:147-160",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Staged import, reference promotion, Project revision advance and committed staging marker are separate recoverable writes. They are not the self-Luc one atomic client_op_id result commit.",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2722-2799"
+      ],
+      "test": null
+    },
+    {
+      "text": "A duplicate staged import whose reference already exists intentionally keeps expected_revision unchanged. The every-durable-write-advances rule applies to new visible state, not a duplicate no-op.",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2770-2775"
+      ],
+      "test": null
+    },
+    {
+      "text": "Raw import_file and handoff write references without advancing Project revision; callers must use governed wrappers before offering these as replaceable Project writes.",
+      "evidence": [
+        "lumeri_runtime/media_cas.py:2114-2144",
+        "lumeri_runtime/media_cas.py:2229-2267"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "reference": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "product_id": {
+          "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "imported_at": {
+          "type": "string"
+        },
+        "handoff": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "filename": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "sha256",
+        "size",
+        "product_id",
+        "project_id",
+        "imported_at",
+        "handoff"
+      ],
+      "additionalProperties": true
+    },
+    "staged": {
+      "type": "object",
+      "description": "Quarantined staged upload metadata: staging_id, sha256, size, request identity, pending/claimed/reference_committed/committed state and bound intent; internal record validation belongs to the store."
+    }
+  }
+}

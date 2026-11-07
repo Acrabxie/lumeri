@@ -1,0 +1,180 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.library-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Recipe library adapter",
+  "summary": "Compile a JSON recipe catalog and optional guidance; read catalog pages or one recipe with immutable resource pins. Reading a recipe never invokes its listed capabilities.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_guides:LibraryAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:244-325"
+      ],
+      "notes": "No deadline. point-library surface, declared uses, bounded entries/steps and result-fit checks; rejects recipes naming undeclared capabilities. ValueError maps at Host load."
+    },
+    {
+      "name": "contents",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost instance."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "description": "Tuple (entry list, guidance string or None)."
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_LIBRARY_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:327-343"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Unused."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.library-adapter.v1.json#/definitions/arguments"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "ToolResult with bounded catalog page or complete recipe."
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_LIBRARY_CHANGED",
+        "arguments_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:350-376"
+      ],
+      "notes": "No deadline; reads do not execute recipe steps. Catalog query uses English keywords and whole rows are removed until the answer fits; entry and query selectors cannot be mixed."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "recipes-are-data",
+      "text": "Library recipes hold no independent authority and are not executed by reading them.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_guides.py:320-376"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "catalog",
+            "entry"
+          ],
+          "description": "catalog lists what this library has; entry returns one recipe."
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "With catalog: English keywords; the entries that match come first."
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "With entry: an id from the catalog."
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

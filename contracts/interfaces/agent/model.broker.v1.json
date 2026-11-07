@@ -1,0 +1,427 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:model.broker/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Execute or read back a durably bound provider intent",
+  "summary": "The local Model Broker claims each immutable intent before provider I/O, freezes exact price/quota authority, signs results and uses readback for ambiguous execution. Pending never means safe to regenerate.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.model_broker:ModelBroker"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Broker provider authority, quotas, cash ceilings and signed receipts belong to Lumeri's spending foundation.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_broker.py:180-265"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "execute",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "intent": {
+            "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/intent"
+          },
+          "request": {
+            "type": "object",
+            "description": "Validated exact text/agent request bound to intent.request_hash; see iface:model.step-bounds/v1 for agent preparation."
+          }
+        },
+        "required": [
+          "account_id",
+          "intent",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/result"
+      },
+      "errors": [
+        "intent_conflict",
+        "quota_policy_changed",
+        "intent_not_found",
+        "settlement_conflict"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_broker.py:180-239",
+        "lumeri_runtime/model_broker_store.py:99-148"
+      ],
+      "notes": "No whole-operation deadline. Default provider transports use a 30-second socket timeout, not an aggregate deadline. Same key and same frozen binding return the durable result; changed intent/request/authority conflicts. Pre-I/O rejection is persisted as not_executed diagnostics; ambiguous post-I/O exceptions remain pending. Validation failures are ValueError, not invented codes."
+    },
+    {
+      "name": "readback",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "intent": {
+            "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/intent"
+          }
+        },
+        "required": [
+          "account_id",
+          "intent"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/result"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_broker.py:241-265",
+        "lumeri_runtime/model_broker_store.py:90-97"
+      ],
+      "notes": "No aggregate deadline. Missing intents read as pending with intent_not_found diagnostic. Subscription readback may query its authenticated bridge and settle the existing intent, but must never start another generation. Google pending stays pending. Provider failures cannot prove nonexecution."
+    },
+    {
+      "name": "model_bounds",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "type": "object",
+            "description": "Already authorized product/account lease; never a credential value."
+          },
+          "query": {
+            "type": "object",
+            "properties": {
+              "product_id": {
+                "enum": [
+                  "video",
+                  "quanta"
+                ]
+              },
+              "provider_id": {
+                "const": "openai_subscription"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "selection_revision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "product_id",
+              "provider_id",
+              "model_id",
+              "selection_revision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "lease",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/subscription_bounds"
+      },
+      "errors": [
+        "provider_authority_unavailable"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_broker.py:267-284"
+      ],
+      "notes": "No deadline. Reads enrolled local evidence only, with no provider I/O, credential resolution or reservation. Repeated reads may differ after authority or expiry changes."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "max_wire_bytes",
+      "value": 2097152,
+      "unit": "JSON wire bytes",
+      "evidence": [
+        "lumeri_runtime/model_broker_contract.py:20"
+      ]
+    },
+    {
+      "name": "max_agent_request_bytes",
+      "value": 262144,
+      "unit": "canonical JSON bytes",
+      "evidence": [
+        "lumeri_runtime/model_broker_contract.py:192"
+      ]
+    },
+    {
+      "name": "max_agent_step_calls",
+      "value": 16,
+      "unit": "tool calls in one assistant message, executed serially by Runtime",
+      "evidence": [
+        "lumeri_runtime/model_broker_contract.py:194",
+        "lumeri_runtime/model_broker_contract.py:216-229"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "one-generation",
+      "text": "Signed execute replay and fresh receipt verification do not regenerate an already settled call.",
+      "test": "tests/test_runtime_model_broker.py::test_signed_execute_replay_and_independent_receipt_readback"
+    },
+    {
+      "id": "ambiguous-stays-pending",
+      "text": "A post-I/O crash reopens as pending and execute replay never regenerates it.",
+      "test": "tests/test_runtime_model_broker.py::test_pending_crash_reopens_without_regeneration"
+    },
+    {
+      "id": "readback-never-reposts",
+      "text": "Subscription pending readback can settle through readback only, without another execution POST.",
+      "test": "tests/test_runtime_model_broker.py::test_subscription_pending_readback_never_reposts"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/model_broker.py:180-265",
+      "lumeri_runtime/model_broker_store.py:90-148"
+    ],
+    "notes": "Durable pending retains reservation. Only authenticated settlement or nonexecution evidence may settle or release. HTTP dispatch separately authorizes a local lease and signs a nonce-bound envelope; signatures and secret values are never exposed here."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_model_broker.py::test_signed_execute_replay_and_independent_receipt_readback",
+      "tests/test_runtime_model_broker.py::test_pending_crash_reopens_without_regeneration",
+      "tests/test_runtime_model_broker.py::test_subscription_pending_readback_never_reposts"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "The JSON result schema describes fields; matching account/intent, conditional receipt absence, exact provider/idempotency/cost bindings and signature validity still require semantic validators.",
+      "evidence": [
+        "lumeri_runtime/model_broker_contract.py:374-399"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "intent": {
+      "type": "object",
+      "properties": {
+        "intent_id": {
+          "type": "string"
+        },
+        "product_id": {
+          "enum": [
+            "video",
+            "quanta"
+          ]
+        },
+        "usage_category": {
+          "enum": [
+            "model",
+            "title",
+            "retry"
+          ]
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "provider_id": {
+          "enum": [
+            "google",
+            "openai_subscription"
+          ]
+        },
+        "selection_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "request_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "max_cost_micros": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reserved_cost_micros": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "client_idempotency_key": {
+          "type": "string"
+        },
+        "execution_id": {
+          "type": "string"
+        },
+        "reservation_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "root_turn_id": {
+          "type": "string"
+        },
+        "provider_idempotency_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent_id",
+        "product_id",
+        "usage_category",
+        "capability_id",
+        "provider_id",
+        "selection_revision",
+        "model_id",
+        "request_hash",
+        "max_cost_micros",
+        "reserved_cost_micros",
+        "client_idempotency_key",
+        "execution_id",
+        "reservation_id",
+        "session_id",
+        "turn_id",
+        "root_turn_id",
+        "provider_idempotency_key"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "pending",
+            "settled",
+            "not_executed"
+          ]
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "intent": {
+          "$contract": "contracts/interfaces/agent/model.broker.v1.json#/definitions/intent"
+        },
+        "receipt": {
+          "oneOf": [
+            {
+              "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderRouteReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "response_body": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "diagnostic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "account_id",
+        "intent",
+        "receipt",
+        "response_body",
+        "diagnostic"
+      ],
+      "additionalProperties": false
+    },
+    "subscription_bounds": {
+      "type": "object",
+      "properties": {
+        "account_id": {
+          "type": "string"
+        },
+        "product_id": {
+          "enum": [
+            "video",
+            "quanta"
+          ]
+        },
+        "provider_id": {
+          "const": "openai_subscription"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "selection_revision": {
+          "type": "integer"
+        },
+        "input_token_limit": {
+          "type": "integer"
+        },
+        "output_token_limit": {
+          "type": "integer"
+        },
+        "hard_output_cap_parameter": {
+          "enum": [
+            "max_output_tokens",
+            "none"
+          ]
+        },
+        "evidence_sha256": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "account_id",
+        "product_id",
+        "provider_id",
+        "model_id",
+        "selection_revision",
+        "input_token_limit",
+        "output_token_limit",
+        "hard_output_cap_parameter",
+        "evidence_sha256",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

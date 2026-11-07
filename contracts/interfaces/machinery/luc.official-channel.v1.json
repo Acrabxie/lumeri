@@ -1,0 +1,331 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.official-channel/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Verified Official channel installation",
+  "summary": "Authenticate a monotonically sequenced signed index and stage all hash-pinned artifacts before selecting its directory for the next bootstrap.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_channel:verify_channel, OfficialChannelStore, sync_official_channel"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "verify_channel",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/machinery/luc.official-channel.v1.json#/definitions/document"
+          },
+          "public_keys": {
+            "description": "Tuple of trusted encoded public keys or None for pinned keys; key values are intentionally absent."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.official-channel.v1.json#/definitions/payload"
+      },
+      "errors": [
+        "E_OFFICIAL_CHANNEL_NO_KEY",
+        "E_OFFICIAL_CHANNEL_MALFORMED",
+        "E_OFFICIAL_CHANNEL_SIGNATURE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:142-176"
+      ],
+      "notes": "No deadline. Validates envelope/signature and basic payload fields; full package-index validation is deferred to install."
+    },
+    {
+      "name": "load_current",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "data_root": {
+            "type": "string"
+          },
+          "public_keys": {
+            "description": "Optional trusted public-key tuple."
+          }
+        },
+        "required": [
+          "data_root"
+        ]
+      },
+      "output": {
+        "description": "AcceptedChannel(root Path, sequence int, published_at str), or None."
+      },
+      "errors": [
+        "E_OFFICIAL_CHANNEL_STORED",
+        "E_OFFICIAL_CHANNEL_NO_KEY",
+        "E_OFFICIAL_CHANNEL_MALFORMED",
+        "E_OFFICIAL_CHANNEL_SIGNATURE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:208-246"
+      ],
+      "notes": "No deadline. Rechecks envelope and canonical index on every load; pinned artifact bytes are verified later by bootstrap."
+    },
+    {
+      "name": "install",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/machinery/luc.official-channel.v1.json#/definitions/document"
+          },
+          "fetch_artifact": {
+            "description": "Callable(artifact_hash str) -> bytes."
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "public_keys": {
+            "description": "Optional trusted public-key tuple."
+          }
+        },
+        "required": [
+          "document",
+          "fetch_artifact",
+          "runtime_version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "UP_TO_DATE",
+              "UPDATED"
+            ]
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "previous_sequence": {
+            "type": "integer"
+          },
+          "packages": {
+            "type": "integer"
+          },
+          "downloaded": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "sequence"
+        ]
+      },
+      "errors": [
+        "E_OFFICIAL_CHANNEL_NO_KEY",
+        "E_OFFICIAL_CHANNEL_MALFORMED",
+        "E_OFFICIAL_CHANNEL_SIGNATURE",
+        "E_OFFICIAL_CHANNEL_INDEX",
+        "E_OFFICIAL_CHANNEL_ARTIFACT",
+        "E_OFFICIAL_CHANNEL_INCOMPATIBLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:179-196",
+        "lumeri_runtime/official_channel.py:248-304"
+      ],
+      "notes": "No deadline on arbitrary fetch callback. Same or older sequence returns UP_TO_DATE. Verifies all bytes before replacing current; a failed staging leaves selection unchanged. File-system errors and callback exceptions can propagate. Keeps two channel directories."
+    },
+    {
+      "name": "sync_official_channel",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "data_root": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "public_keys": {
+            "description": "Optional trusted public-key tuple."
+          },
+          "timeout": {
+            "type": "number",
+            "default": 20.0
+          }
+        },
+        "required": [
+          "base_url",
+          "data_root",
+          "runtime_version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Same installation result as install."
+      },
+      "errors": [
+        "E_OFFICIAL_CHANNEL_URL",
+        "E_OFFICIAL_CHANNEL_FETCH",
+        "E_OFFICIAL_CHANNEL_MALFORMED",
+        "E_OFFICIAL_CHANNEL_INDEX",
+        "E_OFFICIAL_CHANNEL_NO_KEY",
+        "E_OFFICIAL_CHANNEL_SIGNATURE",
+        "E_OFFICIAL_CHANNEL_ARTIFACT",
+        "E_OFFICIAL_CHANNEL_INCOMPATIBLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:336-381"
+      ],
+      "notes": "No aggregate deadline: timeout is passed to each urllib request, default 20 seconds, not a whole sync timeout. HTTPS or explicit localhost/127.0.0.1 HTTP only. Retrying an accepted sequence returns UP_TO_DATE."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "retained-channels",
+      "value": 2,
+      "unit": "directories",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:208-214"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "switch-last",
+      "text": "All package hashes, identities and Runtime compatibility must verify before current changes.",
+      "test": null
+    },
+    {
+      "id": "monotonic-selection",
+      "text": "Sequences at or below current do not replace selected bytes.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_channel.py:248-304"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "verify_channel checks only that index has the format marker; install applies full index structure checks. Its published_at field is only checked as a string.",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:165-175",
+        "lumeri_runtime/official_channel.py:260-269"
+      ],
+      "test": null
+    },
+    {
+      "text": "The file consumer verifies basic signed payload shape before full index validation. A valid signature alone is not evidence the packages are loadable.",
+      "evidence": [
+        "lumeri_runtime/official_channel.py:165-175",
+        "lumeri_runtime/official_channel.py:263-269"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "document": {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "key_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "payload",
+        "signature",
+        "key_id"
+      ],
+      "description": "Base64 payload and Ed25519 signature with a syntactically valid key_id. No signing material is part of this interface.",
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "lumeri.official-luc-channel/v1"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "published_at": {
+          "type": "string"
+        },
+        "index": {
+          "type": "object",
+          "properties": {
+            "format": {
+              "const": "lumeri.official-luc-index/v1"
+            },
+            "packages": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "required": [
+            "format",
+            "packages"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "sequence",
+        "published_at",
+        "index"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

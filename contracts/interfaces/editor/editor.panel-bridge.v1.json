@@ -1,0 +1,2296 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.panel-bridge/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Panel host bridge: what a Panel can ask and hear",
+  "summary": "The one way out of a Panel's sandboxed frame. The editor hands the frame a private MessageChannel port in an init message; over it the Panel makes the bridge calls its manifest declares and hears the lifecycle events it subscribed to. The editor carries three calls itself (workspace.context, workspace.open, selection.view) and relays the other fifteen to the Runtime, which authorizes each against the Panel's Host API resolution and editable boundary and hands it to the Worker's own operation for the caller. Every Panel is written against this interface.",
+  "carrier": {
+    "kind": "browser",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "notes": "Frame side: the bridge shim in every Panel page (window.lumeri: ready, call, on, dragContext, dragAsset). Editor side: static/v3/luc-panel-host.js. Runtime side: POST /sessions/{session_id}/luc/panels/{capability_id}/call, owner-checked against the Session (HTTP 404 E_LUC_NOT_FOUND; 403 for E_LUC_API_UNDECLARED, E_LUC_API_PERMISSION, E_LUC_API_UNAVAILABLE, E_LUC_EDIT_BOUNDARY; 400 otherwise; worker.py:6294-6305)."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The bridge is the boundary every Panel is held to: it decides which calls leave the frame, checks each payload and edit boundary, and binds each call to the creator's identity. If a Panel or a layer could replace it, a Panel could reach what it never declared.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell and its native bridge stay Lumeri's); docs/luc/self-luc-inventory.md:97"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write",
+      "session.control",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "project.view",
+      "tasks.view",
+      "tasks.stop",
+      "files.view",
+      "files.read",
+      "panel.state",
+      "timeline.edit",
+      "skills.view",
+      "library.view",
+      "library.thumbnail",
+      "library.notes",
+      "library.place",
+      "library.roughcut",
+      "library.job",
+      "library.roughcut.review",
+      "workspace.context",
+      "workspace.open",
+      "selection.view"
+    ],
+    "editable": "none",
+    "bridge_calls": [
+      "project.view",
+      "tasks.view",
+      "tasks.stop",
+      "files.view",
+      "files.read",
+      "panel.state",
+      "timeline.edit",
+      "skills.view",
+      "library.view",
+      "library.thumbnail",
+      "library.notes",
+      "library.place",
+      "library.roughcut",
+      "library.job",
+      "library.roughcut.review",
+      "workspace.context",
+      "workspace.open",
+      "selection.view"
+    ],
+    "notes": "The bridge carries at most what the calling Panel declared and was granted; it holds no authority of its own. The permissions are the union a Panel may ask for through it."
+  },
+  "operations": [
+    {
+      "name": "init",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:189-205",
+        "lumeri_runtime/luc_workspace.py:150-154",
+        "static/v3/luc-panel-host.js:388-410",
+        "static/v3/luc-panel-host.js:299-311"
+      ],
+      "notes": "The editor starts a 3000 ms timer when it hands over the page and again after init; no alive in time is E_LUC_PANEL_SILENT, a fault is E_LUC_PANEL_SCRIPT whatever code the frame names, a second load of the frame is E_LUC_PANEL_NAVIGATED. The shim answers only the first init from the parent window; a later init gets no answer."
+    },
+    {
+      "name": "GET /sessions/{session_id}/luc/panels/{capability_id}/document",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/panel_document"
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9370-9375",
+        "lumeri_runtime/worker.py:6364-6371",
+        "lumeri_runtime/luc_workspace.py:802-808",
+        "lumeri_runtime/luc_workspace.py:545-554",
+        "static/v3/luc-panel-host.js:367-387"
+      ],
+      "notes": "Only for a Panel that is a module of the catalog, placed or self-registered (E_LUC_NOT_FOUND, HTTP 404). The page is re-assembled from the loaded package and must hash to the pinned document_sha256 (E_LUC_PANEL_CHANGED, 400). The editor refuses an answer naming another capability or hash (E_LUC_PANEL_CHANGED) and reports any failed fetch as E_LUC_PANEL_UNAVAILABLE. It caches 8 pages by capability and hash."
+    },
+    {
+      "name": "POST /sessions/{session_id}/luc/panels/{capability_id}/fault",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault_request"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault_answer"
+      },
+      "errors": [
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9382-9387",
+        "lumeri_runtime/worker.py:6384-6421",
+        "lumeri_runtime/luc_interactions.py:186-278",
+        "static/v3/v3.js:13916-13934"
+      ],
+      "notes": "The editor reports a Panel it could not show. Only a layered Panel of an Official Luc whose served page hash matches falls back: its Luc as shipped answers from then on, one break is counted (see iface:luc.breaker/v1), and the Session records luc.module_fell_back once. A repeated report of the same break changes nothing; any other report answers fell_back false. A Panel of another Luc that fills a workspace role gives the module back to the role's own Panel instead, for the rest of the start and with no break counted (iface:luc.fallback/v1). The editor reloads the catalog only on fell_back true."
+    },
+    {
+      "name": "project.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "enum": [
+              "shotlist",
+              "timeline"
+            ]
+          }
+        },
+        "required": [
+          "view"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "view": {
+            "enum": [
+              "shotlist",
+              "timeline"
+            ]
+          },
+          "data": {}
+        },
+        "required": [
+          "revision",
+          "view",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_PROJECT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:691-697",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/luc_workspace.py:843-851"
+      ],
+      "notes": "Host API project.view 1.0.0, permission project.read; carried out by the Runtime. data is the stored shotlist or timeline (see iface:timeline.document/v1 for the timeline's shape)."
+    },
+    {
+      "name": "tasks.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:706-713",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6452-6453",
+        "lumeri_runtime/worker.py:6656-6661"
+      ],
+      "notes": "Host API tasks.view 1.0.0, permission project.read; carried out by the Runtime. Every Session of the caller's account with a turn in progress or running jobs, across its Projects."
+    },
+    {
+      "name": "tasks.stop",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "job_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "session_id",
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "cancel_requested_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "job_id",
+          "cancel_requested_at"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_TASK_SESSION_NOT_FOUND",
+        "E_LUC_TASK_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:714-721",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6455-6464"
+      ],
+      "notes": "Host API tasks.stop 1.0.0, permission session.control; carried out by the Runtime. Stopping is a request: the job reads running until its work ends. Another account's Session reads as missing. Worker refusals arrive as E_LUC_TASK_<reason> (worker.py:6427-6434)."
+    },
+    {
+      "name": "files.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_FILES_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:722-728",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6466-6469"
+      ],
+      "notes": "Host API files.view 1.0.0, permission project.read; carried out by the Runtime. One folder of the Session's Project, one level deep; path defaults to the Project root. Refusals arrive as E_LUC_FILES_<reason>, for example a path outside the Project."
+    },
+    {
+      "name": "files.read",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_FILES_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:729-735",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6471-6474"
+      ],
+      "notes": "Host API files.read 1.0.0, permission project.read; carried out by the Runtime. One text file of the Session's Project."
+    },
+    {
+      "name": "panel.state",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "enum": [
+              "get",
+              "set"
+            ]
+          },
+          "value": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "value": {}
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_PANEL_STATE_TOO_LARGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:744-750",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6476-6477",
+        "lumeri_runtime/worker.py:6681-6700"
+      ],
+      "notes": "Host API panel.state 1.0.0, permission ui.mount; carried out by the Runtime. op get returns the stored value or null; op set needs value (else E_LUC_API_INPUT) and stores it whole, at most 16 KiB of JSON, per account, product and Panel capability, replaced atomically."
+    },
+    {
+      "name": "timeline.edit",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "patch": {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "op"
+            ]
+          },
+          {
+            "required": [
+              "revision",
+              "patch"
+            ]
+          }
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "applied"
+              },
+              "revision": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "approval_required"
+              },
+              "revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "revision"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_TIMELINE_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:137-143",
+        "lumeri_runtime/luc_host_api.py:692-702",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/luc_workspace.py:85-103",
+        "lumeri_runtime/luc_workspace.py:787-799",
+        "lumeri_runtime/worker.py:6510-6534"
+      ],
+      "notes": "Host API timeline.edit 1.0.0, permission project.write; carried out by the Runtime. The payload is revision (the Project revision the Panel read) plus one timeline patch either nested as patch: {op, ...} or flat as {op, ...} (see iface:timeline.document/v1); the Host API schema checks revision and patch/op and the Worker refuses a payload without an integer revision >= 0 (E_LUC_API_INPUT). The op must be in PANEL_EDIT_REACH and inside the Panel's editable boundary. The patch takes the creator's own edit path (revision check, approval, durable receipt) with a fresh turn id per call, so a retry is a new edit; after an applied edit the retry is refused as stale (E_LUC_TIMELINE_PROJECT_REVISION_CHANGED) rather than applied twice."
+    },
+    {
+      "name": "skills.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "skills"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:736-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6479-6485"
+      ],
+      "notes": "Host API skills.view 1.0.0, permission ui.mount; carried out by the Runtime. The reading use_skill is built from: each Skill ready or saying what it lacks; never the instructions."
+    },
+    {
+      "name": "library.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "object"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assets",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:768-775",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6525-6534",
+        "lumeri_runtime/luc_library.py:16"
+      ],
+      "notes": "Host API library.view 1.0.0, permission project.read; carried out by the Runtime. At most 500 assets; truncated says more exist. No bytes."
+    },
+    {
+      "name": "library.thumbnail",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "picture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "asset_id",
+          "picture"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_LIBRARY_ASSET_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:776-783",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6536-6555",
+        "lumeri_runtime/luc_library.py:20-21"
+      ],
+      "notes": "Host API library.thumbnail 1.0.0, permission project.read; carried out by the Runtime. picture is a data: URL (a JPEG still of a video or image, or an SVG up to 256 KiB shown as itself) or null when there is none to be had."
+    },
+    {
+      "name": "library.notes",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "roughcut": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "asset_id",
+          "notes",
+          "roughcut"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_LIBRARY_ASSET_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:784-790",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6557-6565"
+      ],
+      "notes": "Host API library.notes 1.0.0, permission project.read; carried out by the Runtime."
+    },
+    {
+      "name": "library.place",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "track_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "client_op_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "applied",
+              "approval_required"
+            ]
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clip_id": {
+            "type": "string"
+          },
+          "track_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "revision",
+          "clip_id",
+          "track_id",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_LIBRARY_ASSET_NOT_FOUND",
+        "E_LUC_LIBRARY_NOT_PLACEABLE",
+        "E_LUC_LIBRARY_NO_TRACK",
+        "E_LUC_LIBRARY_TRACK_KIND",
+        "E_LUC_LIBRARY_TRACK_NOT_FOUND",
+        "E_LUC_LIBRARY_*",
+        "E_LUC_TIMELINE_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:147-151",
+        "lumeri_runtime/luc_host_api.py:803-813",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6590-6615",
+        "lumeri_runtime/luc_library.py:84-99"
+      ],
+      "notes": "Host API library.place 1.0.0, permission project.write; carried out by the Runtime. One insert_clip after the last clip of the named track, or of the first track that takes the media kind, through the same governed patch as timeline.edit. When revision is named it is checked against the Project revision; when client_op_id is named the clip id and turn id are derived deterministically so a retried call replays the placement instead of placing the asset twice."
+    },
+    {
+      "name": "library.roughcut",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^(auto|[a-z]{2,3})$"
+          }
+        },
+        "required": [
+          "asset_id",
+          "language"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "started"
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_LIBRARY_ASSET_NOT_FOUND",
+        "E_LUC_LIBRARY_NOT_TRANSCRIBABLE",
+        "E_LUC_LIBRARY_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:847-858",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6594-6607"
+      ],
+      "notes": "Host API library.roughcut 1.0.0, permission project.write; carried out by the Runtime. Starts 1.0's roughcut of a video or sound as a job (see iface:media.roughcut/v1). Each call carries a fresh idempotency key, so a retried call starts another job."
+    },
+    {
+      "name": "library.job",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "running",
+              "stopped",
+              "done",
+              "approval_required",
+              "failed"
+            ]
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "error": {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/error"
+          }
+        },
+        "required": [
+          "status",
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_LIBRARY_JOB_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:859-865",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6609-6629"
+      ],
+      "notes": "Host API library.job 1.0.0, permission project.read; carried out by the Runtime. Only a roughcut job this Session started. error comes only with failed, as E_LUC_LIBRARY_<reason> and at most 500 characters of message."
+    },
+    {
+      "name": "library.roughcut.review",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "target_type": {
+            "enum": [
+              "cleanup",
+              "transcript",
+              "take"
+            ]
+          },
+          "target_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "action": {
+            "enum": [
+              "accept",
+              "reject",
+              "correct",
+              "select",
+              "alternative"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "asset_id",
+          "target_type",
+          "target_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "roughcut": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "roughcut"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_VIEW_TOO_LARGE",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_LIBRARY_ASSET_NOT_FOUND",
+        "E_LUC_LIBRARY_NO_ROUGHCUT",
+        "E_LUC_LIBRARY_*"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:866-875",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/luc_workspace.py:811-859",
+        "static/v3/luc-panel-host.js:275-296",
+        "lumeri_runtime/worker.py:6631-6648"
+      ],
+      "notes": "Host API library.roughcut.review 1.0.0, permission project.write; carried out by the Runtime. Records one decision about a roughcut (see iface:media.roughcut.review/v1); a later decision about the same target replaces the earlier one. A decision the roughcut refuses is E_LUC_API_INPUT."
+    },
+    {
+      "name": "workspace.context",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/context_ref"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "added": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "added"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:698-705",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "static/v3/luc-panel-host.js:73-88",
+        "static/v3/luc-panel-host.js:266-274",
+        "static/v3/v3.js:545-549",
+        "static/v3/v3.js:7666-7681"
+      ],
+      "notes": "Host API workspace.context 1.0.0, permission ui.mount; carried out by the editor page. The editor adds the ref to the composer of the Session it shows (one per key; past 12 the oldest drops) and answers added. The same thing through a drag: window.lumeri.dragContext."
+    },
+    {
+      "name": "workspace.open",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/open_ref"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "opened"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:751-758",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "static/v3/luc-panel-host.js:97-102",
+        "static/v3/luc-panel-host.js:247-255",
+        "static/v3/v3.js:553-557"
+      ],
+      "notes": "Host API workspace.open 1.0.0, permission ui.mount; carried out by the editor page. The editor decides; today it opens the named Session of the same account."
+    },
+    {
+      "name": "selection.view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "selection": {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/selection"
+          }
+        },
+        "required": [
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:759-767",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "static/v3/luc-panel-host.js:256-265",
+        "static/v3/v3.js:610-652"
+      ],
+      "notes": "Host API selection.view 1.0.0, permission project.read; carried out by the editor page. Takes {}; any field is E_LUC_API_INPUT. Changes still go through timeline.edit."
+    }
+  ],
+  "events": [
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:166-176",
+        "static/v3/v3.js:601-608"
+      ],
+      "notes": "Sent when the editor redraws the module and, to a Panel in a region of its own, whenever the Project revision moves."
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:15364-15369"
+      ]
+    },
+    {
+      "name": "theme.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/theme.changed"
+      },
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:76-79",
+        "docs/luc/workspace-panel-skill.md:263"
+      ],
+      "notes": "Declarable but never sent: a Panel gets the theme only at init."
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:352-357",
+        "static/v3/luc-panel-host.js:405-408",
+        "static/v3/v3.js:579-582"
+      ],
+      "notes": "Once after init, then on every change."
+    },
+    {
+      "name": "panel.resized",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.resized"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:332-340",
+        "static/v3/luc-panel-host.js:360-365"
+      ],
+      "notes": "Once after init, then at most every 100 ms while the frame's box changes, in whole CSS pixels."
+    },
+    {
+      "name": "tasks.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/tasks.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:14197-14201"
+      ],
+      "notes": "Sent to the tasks module instead of project.changed."
+    },
+    {
+      "name": "selection.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/selection.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:583-596"
+      ]
+    }
+  ],
+  "bounds": [
+    {
+      "name": "calls_in_flight",
+      "value": 8,
+      "unit": "Runtime calls per mounted Panel; the ninth is E_LUC_BRIDGE_BUSY",
+      "evidence": [
+        "static/v3/luc-panel-host.js:46",
+        "static/v3/luc-panel-host.js:275-278"
+      ]
+    },
+    {
+      "name": "payload_chars",
+      "value": 65536,
+      "unit": "characters of JSON per call payload",
+      "evidence": [
+        "static/v3/luc-panel-host.js:47",
+        "static/v3/luc-panel-host.js:240-246"
+      ]
+    },
+    {
+      "name": "call_id_chars",
+      "value": 40,
+      "unit": "characters; a longer id gets no answer",
+      "evidence": [
+        "static/v3/luc-panel-host.js:48",
+        "static/v3/luc-panel-host.js:233-234"
+      ]
+    },
+    {
+      "name": "alive_ms",
+      "value": 3000,
+      "unit": "milliseconds from the page being handed over, and again from init, to alive",
+      "evidence": [
+        "static/v3/luc-panel-host.js:49-51",
+        "static/v3/luc-panel-host.js:299-303"
+      ]
+    },
+    {
+      "name": "answer_bytes",
+      "value": 1048576,
+      "unit": "bytes of UTF-8 JSON per Runtime answer; more is E_LUC_VIEW_TOO_LARGE",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:84",
+        "lumeri_runtime/luc_workspace.py:857-858"
+      ]
+    },
+    {
+      "name": "panel_state_bytes",
+      "value": 16384,
+      "unit": "bytes of JSON kept per account, product and Panel",
+      "evidence": [
+        "lumeri_runtime/worker.py:6428-6429",
+        "lumeri_runtime/worker.py:6693-6695"
+      ]
+    },
+    {
+      "name": "library_assets",
+      "value": 500,
+      "unit": "assets per library.view answer",
+      "evidence": [
+        "lumeri_runtime/luc_library.py:16"
+      ]
+    },
+    {
+      "name": "svg_picture_bytes",
+      "value": 262144,
+      "unit": "bytes of an SVG shown as its own picture",
+      "evidence": [
+        "lumeri_runtime/luc_library.py:20-21"
+      ]
+    },
+    {
+      "name": "theme_value_chars",
+      "value": 200,
+      "unit": "characters per theme token",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:181-188",
+        "static/v3/luc-panel-host.js:104-113"
+      ]
+    },
+    {
+      "name": "resize_interval_ms",
+      "value": 100,
+      "unit": "milliseconds between panel.resized events at most",
+      "evidence": [
+        "static/v3/luc-panel-host.js:360-363"
+      ]
+    },
+    {
+      "name": "cached_pages",
+      "value": 8,
+      "unit": "Panel pages the editor keeps by capability and hash",
+      "evidence": [
+        "static/v3/luc-panel-host.js:137-138",
+        "static/v3/luc-panel-host.js:385-387"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "declared-calls-only",
+      "text": "A call the Panel did not declare is refused in the frame, by the editor and by the Runtime (E_LUC_API_UNDECLARED); nothing is read.",
+      "test": "tests/test_official_luc_workspace.py::test_a_bridge_call_outside_the_declaration_never_reads_the_project"
+    },
+    {
+      "id": "host-matches-runtime",
+      "text": "The editor relays exactly the calls BRIDGE_CALLS gives to the Runtime and carries exactly those it gives to the editor.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_the_host_relays_exactly_the_calls_the_runtime_names"
+    },
+    {
+      "id": "payload-fits-host-api",
+      "text": "A Runtime call's payload is checked against its Host API input schema before any carrier runs.",
+      "test": "tests/test_official_luc_workspace.py::test_a_bridge_payload_must_fit_the_host_api_schema"
+    },
+    {
+      "id": "answer-size",
+      "text": "A Runtime answer over 1 MiB is refused with E_LUC_VIEW_TOO_LARGE; an unreadable Project is E_LUC_PROJECT.",
+      "test": "tests/test_official_luc_workspace.py::test_a_project_view_too_large_for_the_bridge_is_refused"
+    },
+    {
+      "id": "own-carrier-only",
+      "text": "Each Runtime call reaches only its own Worker operation, with the authorized payload.",
+      "test": "tests/test_official_luc_workspace.py::test_each_runtime_call_reaches_only_its_own_carrier_with_an_authorized_payload"
+    },
+    {
+      "id": "caller-only",
+      "text": "tasks, files and panel.state answer for the calling account only.",
+      "test": "tests/test_official_luc_workspace.py::test_the_worker_carries_tasks_files_and_panel_state_for_the_caller_only"
+    },
+    {
+      "id": "edit-boundary",
+      "text": "A write outside the Panel's editable boundary never reaches the Worker (E_LUC_EDIT_BOUNDARY).",
+      "test": "tests/test_official_luc_workspace.py::test_a_panel_edit_outside_its_boundary_never_reaches_the_worker"
+    },
+    {
+      "id": "edit-through-worker",
+      "text": "A Panel's timeline edit goes through the Worker's own timeline patch.",
+      "test": "tests/test_official_luc_workspace.py::test_the_worker_applies_a_panel_edit_through_its_own_timeline_patch"
+    },
+    {
+      "id": "reload-after-change",
+      "text": "After an applied edit or placement, a roughcut decision or a finished roughcut the editor reloads its timeline; after a read it does not.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_every_change_a_panel_made_reloads_the_editors_project_and_a_read_does_not"
+    },
+    {
+      "id": "alive-or-fail",
+      "text": "A Panel that does not answer init with alive within 3000 ms fails as E_LUC_PANEL_SILENT and its frame is removed.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_a_panel_that_never_answers_fails_silent_after_three_seconds"
+    },
+    {
+      "id": "init-answered-once",
+      "text": "The shim answers only the editor's first init, once.",
+      "test": "tests/test_official_luc_workspace.py::test_the_bridge_answers_init_once_with_alive_when_its_panel_came_up"
+    },
+    {
+      "id": "script-fault",
+      "text": "An error the page's scripts left uncaught before init is answered as fault E_LUC_PANEL_SCRIPT.",
+      "test": "tests/test_official_luc_workspace.py::test_the_bridge_answers_init_with_a_fault_when_its_panel_script_broke"
+    },
+    {
+      "id": "sandboxed-page",
+      "text": "The page is the Panel CSP (no network), then the bridge, then the Panel; it is shown in a frame with sandbox allow-scripts.",
+      "test": "tests/test_official_luc_workspace.py::test_the_panel_document_is_the_sandbox_policy_then_the_bridge_then_the_panel"
+    },
+    {
+      "id": "selection-is-editors",
+      "text": "selection.view is answered by the editor and takes no input.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_the_editor_answers_selection_view_itself_and_takes_no_input"
+    },
+    {
+      "id": "fault-reported-only-well-formed",
+      "text": "The editor reports a fault only with an E_LUC_ code and a 64-hex page hash, and remounts only when the Runtime says it fell back.",
+      "test": "tests/test_luc_panel_host_frontend.py::test_the_editor_reports_only_a_fault_the_runtime_can_take"
+    }
+  ],
+  "failure": {
+    "break": [
+      "a Runtime call that should be carried raises anything but a refusal with a listed code",
+      "the editor relays a call the Panel did not declare, or an answer reaches another Panel"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "static/v3/luc-panel-host.js:293-295",
+      "lumeri_runtime/worker.py:6308-6319"
+    ],
+    "notes": "A call that fails reaches the Panel as a refusal (E_LUC_BRIDGE when the Runtime could not be reached). The bridge has no replacement to fall back from."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_workspace.py",
+      "tests/test_luc_panel_host_frontend.py",
+      "tests/test_luc_modules.py"
+    ],
+    "notes": "No test validates each Runtime answer against the output schemas here; the Host API registry's own output schemas are mostly {status} or {type: object}."
+  },
+  "known_deviations": [
+    {
+      "text": "workspace.context: the Host API registry's input schema allows the kinds outline_scene, outline_shot and timeline_clip only, but the editor (the carrier) also accepts skill, the doc lists it, and the Official Skills Panel depends on it. Editor-carried calls are never checked against the registry schema, so the registry under-states the interface.",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:91-106",
+        "static/v3/luc-panel-host.js:19",
+        "docs/luc/workspace-panel-skill.md:182",
+        "official_luc/skills-panel/panel/skills.js:153",
+        "official_luc/skills-panel/panel/skills.js:173"
+      ],
+      "test": null
+    },
+    {
+      "text": "A Runtime call has no deadline: a call whose answer never comes holds one of the Panel's 8 slots for as long as the Panel is mounted.",
+      "evidence": [
+        "static/v3/luc-panel-host.js:279-296"
+      ],
+      "test": null
+    },
+    {
+      "text": "library.job: the doc says approval_required comes with approval; the carrier returns only status and job_id.",
+      "evidence": [
+        "docs/luc/workspace-panel-skill.md:198",
+        "lumeri_runtime/worker.py:6624-6625"
+      ],
+      "test": null
+    },
+    {
+      "text": "The Panel routes (workspace, permissions, panels document/call/fault, modules) are not in the Runtime contract; only the interaction routes are, so the generated clients do not know them.",
+      "evidence": [
+        "lumeri_runtime/worker.py:9360-9392",
+        "contracts/runtime-v1/runtime-contract.json"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "for": "lumeri",
+      "text": "Add the Panel routes to contracts/runtime-v1/runtime-contract.json?"
+    }
+  ],
+  "definitions": {
+    "theme": {
+      "type": "object",
+      "description": "Editor colour and shape tokens a Panel may style itself with; each becomes the CSS variable --lumeri-<name> inside the frame. Names are THEME_SOURCES plus font.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,39}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "init_message": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "lumeri.panel/v2"
+        },
+        "type": {
+          "const": "init"
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string",
+          "description": "The editor's language today: zh-CN or en (static/v3/v3-locale.js:6-9)."
+        },
+        "theme": {
+          "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/theme"
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "project.view",
+              "tasks.view",
+              "tasks.stop",
+              "files.view",
+              "files.read",
+              "panel.state",
+              "timeline.edit",
+              "skills.view",
+              "library.view",
+              "library.thumbnail",
+              "library.notes",
+              "library.place",
+              "library.roughcut",
+              "library.job",
+              "library.roughcut.review",
+              "workspace.context",
+              "workspace.open",
+              "selection.view"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "project.changed",
+              "locale.changed",
+              "theme.changed",
+              "panel.visibility",
+              "panel.resized",
+              "tasks.changed",
+              "selection.changed"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "protocol",
+        "type",
+        "capability_id",
+        "locale",
+        "theme",
+        "calls",
+        "events"
+      ],
+      "additionalProperties": false,
+      "description": "The one message the editor posts to the frame after its page loads. It transfers a private MessageChannel port as ports[0]; every later call and event uses that port only. calls and events are the Panel's declaration, filtered to what the bridge carries."
+    },
+    "alive": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "alive"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "description": "The bridge shim's answer to init when no script error happened before it."
+    },
+    "fault": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "fault"
+        },
+        "code": {
+          "const": "E_LUC_PANEL_SCRIPT"
+        }
+      },
+      "required": [
+        "type",
+        "code"
+      ],
+      "additionalProperties": false,
+      "description": "The shim's answer to init when the page's own scripts left an error or a rejection uncaught before init."
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E_LUC_[A-Z0-9_]{1,60}$"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "call_message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "call"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "api": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "api"
+      ],
+      "additionalProperties": false,
+      "description": "A Panel's call, sent by window.lumeri.call(api, payload). An id longer than 40 characters is dropped without an answer."
+    },
+    "result_message": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "result"
+            },
+            "id": {
+              "type": "string"
+            },
+            "ok": {
+              "const": true
+            },
+            "value": {}
+          },
+          "required": [
+            "type",
+            "id",
+            "ok",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "result"
+            },
+            "id": {
+              "type": "string"
+            },
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/error"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "ok",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event_message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "name": {
+          "enum": [
+            "project.changed",
+            "locale.changed",
+            "theme.changed",
+            "panel.visibility",
+            "panel.resized",
+            "tasks.changed",
+            "selection.changed"
+          ]
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Sent only for events the Panel declared."
+    },
+    "drag_message": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "drag"
+            },
+            "api": {
+              "const": "workspace.context"
+            },
+            "payload": {
+              "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/context_ref"
+            }
+          },
+          "required": [
+            "type",
+            "api",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "drag"
+            },
+            "api": {
+              "const": "library.place"
+            },
+            "payload": {
+              "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/asset_ref"
+            }
+          },
+          "required": [
+            "type",
+            "api",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "dragend"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "context_ref": {
+      "type": "object",
+      "description": "One thing a Panel puts into the creator's next message. The editor keeps only these fields and drops any other; a ref that fails a rule is refused whole.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "outline_scene",
+            "outline_shot",
+            "timeline_clip",
+            "skill"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "scene_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "asset_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "track_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "label"
+      ]
+    },
+    "asset_ref": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "media_kind": {
+          "enum": [
+            "video",
+            "image",
+            "audio"
+          ]
+        }
+      },
+      "required": [
+        "asset_id",
+        "media_kind"
+      ],
+      "additionalProperties": false,
+      "description": "A library asset a Panel drags toward the timeline; the editor decides where it lands and places it as its own drop does."
+    },
+    "open_ref": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "session"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        }
+      },
+      "required": [
+        "kind",
+        "session_id"
+      ],
+      "description": "Something a Panel asks the editor to open. Other fields are dropped."
+    },
+    "selection": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "timeline_clip"
+            },
+            "id": {
+              "type": "string"
+            },
+            "track_id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "media_kind": {
+              "type": "string"
+            },
+            "revision": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "fps": {
+              "type": "number"
+            },
+            "editable": {
+              "type": "boolean"
+            },
+            "time": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "number"
+                },
+                "duration": {
+                  "type": "number"
+                },
+                "source_in": {
+                  "type": "number"
+                },
+                "source_out": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "start",
+                "duration",
+                "source_in",
+                "source_out"
+              ],
+              "additionalProperties": false
+            },
+            "geometry": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "x",
+                    "y",
+                    "scale",
+                    "rotation",
+                    "base_width",
+                    "base_height",
+                    "motion",
+                    "rotation_editable"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "scale": {
+                      "type": "number"
+                    },
+                    "rotation": {
+                      "type": "number"
+                    },
+                    "base_width": {
+                      "type": "number"
+                    },
+                    "base_height": {
+                      "type": "number"
+                    },
+                    "motion": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        },
+                        "rotation": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y",
+                        "rotation"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "rotation_editable": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "track_id",
+            "label",
+            "media_kind",
+            "revision",
+            "fps",
+            "editable",
+            "time",
+            "geometry"
+          ],
+          "additionalProperties": false,
+          "description": "The selected timeline clip as the editor shows it. revision is the Project revision the editor's timeline was read at; editable is false without one."
+        }
+      ]
+    },
+    "panel_document": {
+      "type": "object",
+      "properties": {
+        "capability_id": {
+          "type": "string"
+        },
+        "luc": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "bridge": {
+          "type": "object",
+          "properties": {
+            "calls": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "calls",
+            "events"
+          ],
+          "additionalProperties": false
+        },
+        "document": {
+          "type": "string",
+          "description": "The assembled page: Panel CSP, base style, Panel styles, bridge shim, Panel HTML, Panel scripts."
+        },
+        "document_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "capability_id",
+        "luc",
+        "bridge",
+        "document",
+        "document_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "fault_request": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^E_LUC_[A-Z_]{1,40}$"
+        },
+        "document_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "code",
+        "document_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "fault_answer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "fell_back": {
+              "const": false
+            }
+          },
+          "required": [
+            "fell_back"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fell_back": {
+              "const": true
+            },
+            "luc": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capability_id": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "tripped": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "fell_back",
+            "luc",
+            "capability_id",
+            "code",
+            "layers",
+            "tripped"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event_payloads": {
+      "type": "object",
+      "description": "The data each lifecycle event carries.",
+      "properties": {
+        "project.changed": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": true,
+          "description": "Empty from the editor: read the Project again."
+        },
+        "locale.changed": {
+          "type": "object",
+          "properties": {
+            "locale": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "locale"
+          ],
+          "additionalProperties": false
+        },
+        "theme.changed": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false,
+          "description": "Reserved; the editor never sends it today."
+        },
+        "panel.visibility": {
+          "type": "object",
+          "properties": {
+            "visible": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "visible"
+          ],
+          "additionalProperties": false
+        },
+        "panel.resized": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "additionalProperties": false
+        },
+        "tasks.changed": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": true
+        },
+        "selection.changed": {
+          "type": "object",
+          "properties": {
+            "selection": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/context_ref"
+                }
+              ]
+            }
+          },
+          "required": [
+            "selection"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

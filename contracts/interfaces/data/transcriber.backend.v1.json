@@ -1,0 +1,409 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:transcriber.backend/v1",
+  "version": "1.1.0",
+  "area": "data",
+  "title": "Local transcriber discovery",
+  "summary": "Resolve whisper-cli and a local Whisper model, returning a Transcriber or a reason for absence; and whisper-cli's run inside the engine's roughcut, which writes whisper's JSON of the sound it is handed. Discovery invokes no model; the run is the engine's.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.transcriber:resolve_transcriber,library_roots",
+    "notes": "Original: lumeri_runtime.transcriber:resolve_transcriber,library_roots finding whisper-cli, which the engine's roughcut runs inside its own run, named by LUMERI_WHISPER_CLI. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.transcriber.backend\", naming an executable file of its Luc, which the engine runs in whisper's place: LUMERI_WHISPER_CLI names it, and the run writes only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability nested, engine_jobs.bind_engine_job)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for whisper-cli: the engine runs it with whisper's arguments, environment and sandbox profile, inside the engine's own run, which may write only the session scratch. It runs only on a machine with a sandbox (macOS today) and with whisper.cpp and a model installed (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/transcriber.py:114-157, gemia/roughcut.py:331-342; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what whisper may read (the sound in the scratch, the model) and writes only the session scratch; it runs only what whisper may run, with no network. The Runtime checks what it leaves, and keeps the Project, the notes and the events."
+  },
+  "operations": [
+    {
+      "name": "resolve_transcriber",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "search_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environ": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/data/transcriber.backend.v1.json#/definitions/transcriber"
+          },
+          {
+            "$contract": "contracts/interfaces/data/transcriber.backend.v1.json#/definitions/absent"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/transcriber.py:114-157"
+      ],
+      "notes": "No local deadline is enforced. Missing binary/model returns absence as data, not an exception. Model precedence: LUMERI_WHISPER_MODEL then the two small-model candidates. No overall timeout; individual otool library lookups enforce 30 seconds."
+    },
+    {
+      "name": "library_roots",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "executable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/transcriber.py:65-111"
+      ],
+      "notes": "No local deadline is enforced. Recursively follows linked libraries. A failed otool lookup is treated as no dependencies; this is not proof of a complete runtime closure."
+    },
+    {
+      "name": "transcribe",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "sound": {
+            "type": "string"
+          },
+          "output_base": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "model",
+          "sound",
+          "output_base",
+          "language"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/transcriber.backend.v1.json#/definitions/whisper_answer"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "gemia/roughcut.py:331-342",
+        "lumeri_engine_cli.py:1211-1225",
+        "lumeri_runtime/luc_engine_programs.py:155-202"
+      ],
+      "notes": "The engine's roughcut starts it as `<whisper-cli> -m <model> -f <sound> -ojf -of <output_base> -np -l <language> -ng`, the sound being cache/roughcut-audio.wav (16 kHz mono PCM) of the run's scratch, and reads <output_base>.json, cache/roughcut-whisper.json. It answers with exit status 0 and that file. No deadline of its own: the engine's run, whisper's included, has the profile's 600 s."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.transcriber.backend"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:252-286"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:43"
+      ]
+    },
+    {
+      "name": "whisper_slack_ms",
+      "value": 1000,
+      "unit": "milliseconds a word may end after the sound it was heard in",
+      "evidence": [
+        "lumeri_runtime/luc_engine_programs.py:159-160"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "The sandbox receives canonical resolved executable/model paths and their explicit readable roots.",
+      "test": null
+    },
+    {
+      "id": "whisper-inside-the-engine",
+      "text": "A transcriber program is no run of its own: it runs only where the engine's run names whisper-cli by LUMERI_WHISPER_CLI, as that run's whisper.",
+      "test": "tests/test_luc_engine_programs.py::test_a_transcriber_program_is_whisper_inside_the_engines_run_and_no_run_of_its_own"
+    },
+    {
+      "id": "whispers-own-answer",
+      "text": "Whisper's own JSON is a transcript; one whose segments or words have no text or offsets, end before they start or after the sound, or whose words' p is no probability, is not.",
+      "test": "tests/test_luc_engine_programs.py::test_whispers_own_answer_is_a_transcript_and_one_whisper_could_not_write_is_not"
+    },
+    {
+      "id": "program-words",
+      "text": "With a reviewed Luc's program, the roughcut's transcript and notes are the program's words.",
+      "test": "tests/test_luc_engine_programs.py::test_a_reviewed_programs_words_are_the_roughcuts"
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the run with the program breaks, its working files are cleared and the original runs the same roughcut, so whisper reads nothing the program wrote; the original answers for the rest of the start.",
+      "test": "tests/test_luc_engine_programs.py::test_a_transcriber_program_that_breaks_hands_the_roughcut_to_whisper_for_the_rest_of_the_start"
+    },
+    {
+      "id": "failing-either-way-is-no-break",
+      "text": "A roughcut that fails with the program and fails again with whisper is the request's failure, not a break.",
+      "test": "tests/test_luc_engine_programs.py::test_a_roughcut_that_whisper_could_not_do_either_is_not_the_programs_break"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "the engine's run with it fails (exits with a status other than 0, outruns the profile's time, memory, process or output limits, or leaves what the Runtime refuses) and the original's run of the same request then answers",
+      "the engine's run with it answers, and cache/roughcut-whisper.json is not whisper's JSON: an object with a transcription list whose segments and words have text and offsets inside the sound, and words whose p is a probability"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:359-443",
+      "lumeri_runtime/luc_engine_programs.py:155-202",
+      "lumeri_runtime/engine_jobs.py:593-618",
+      "lumeri_runtime/luc_engine_programs.py:252-286"
+    ],
+    "notes": "The run's working files are cleared and the original runs the same roughcut at once, and every one of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.transcriber.backend). A failure of the run with the program is weighed against the original's: when that fails too, the request fails and nothing is counted. The creator stopping the request is not a break: the run is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds which runs are the module's, the check on whisper's JSON against whisper's own answer, and, with real compiled programs run by the real engine in the transcription sandbox: a Worker whose roughcut is the program's words, each way of breaking handing the same roughcut to whisper from a clean scratch for the rest of the start, and a roughcut whisper could not do either that is no break."
+  },
+  "known_deviations": [
+    {
+      "text": "Whisper binary/model discovery checks file existence rather than model integrity or actual transcription. Backend readiness needs separate execution evidence.",
+      "evidence": [
+        "lumeri_runtime/transcriber.py:122-156"
+      ],
+      "test": null
+    },
+    {
+      "text": "A transcriber program runs only where whisper.cpp and a model are installed: a machine without either gets the original's 503 naming what is missing, and a program cannot bring a model of its own.",
+      "evidence": [
+        "lumeri_runtime/worker.py:4182-4194"
+      ],
+      "test": null
+    },
+    {
+      "text": "Where an engine program answers for the roughcut subcommand (lumeri.engine.gemia), it is handed Lumeri's own whisper, not the transcriber program.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:359-367"
+      ],
+      "test": null
+    },
+    {
+      "text": "A run with the program that fails costs a second run of the roughcut, the original's, each with the profile's 600 s.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:359-403"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "transcriber": {
+      "type": "object",
+      "properties": {
+        "executable": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "readable_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "executable",
+        "model",
+        "readable_roots"
+      ],
+      "additionalProperties": false
+    },
+    "absent": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "transcriber_unavailable",
+            "transcription_model_unavailable"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "whisper_answer": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "language": {
+              "type": "string"
+            }
+          }
+        },
+        "transcription": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/transcriber.backend.v1.json#/definitions/heard"
+          }
+        }
+      },
+      "required": [
+        "transcription"
+      ]
+    },
+    "heard": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "offsets": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "number",
+              "minimum": 0
+            },
+            "to": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ]
+        },
+        "p": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/transcriber.backend.v1.json#/definitions/heard"
+          }
+        }
+      },
+      "required": [
+        "text",
+        "offsets"
+      ]
+    }
+  }
+}

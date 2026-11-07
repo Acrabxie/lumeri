@@ -1,0 +1,335 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.interaction-relay/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Session interaction relay",
+  "summary": "Suspend the calling task for creator input, preserve interaction/task lifecycle separately, accept scoped idempotent submissions, and route confirmed canvas writes through the governed Worker commit path.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_interactions:LucInteractions;service_for"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "service_for",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "description": "WorkerApplication with _luc_service_lock."
+          }
+        },
+        "required": [
+          "app"
+        ]
+      },
+      "output": {
+        "description": "One cached LucInteractions per app."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:893-899"
+      ],
+      "notes": "No deadline. Caches only successful construction, so failed bootstrap is retried on next call; construction errors propagate."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "ToolContext for this application."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "ToolResult model is surface-specific scalar/quad2d/layout result; editor includes interaction_id/applied_revision."
+      },
+      "errors": [
+        "E_LUC_CONTEXT",
+        "E_LUC_BUSY",
+        "E_LUC_STOPPED",
+        "E_LUC_CONTINUATION_LOST",
+        "E_LUC_TARGET",
+        "E_LUC_REVISION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:569-620"
+      ],
+      "notes": "No deadline: waits on a human-signaled threading.Event. Uses the Host surface input/output schemas. Target inspection and state restoration can propagate additional codes; the complete embedding error set is not closed here."
+    },
+    {
+      "name": "current",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "identity": {
+            "description": "Authenticated account identity."
+          }
+        },
+        "required": [
+          "session_id",
+          "identity"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionResponse"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:463-482"
+      ],
+      "notes": "No deadline. Returns interaction null when absent, otherwise latest interaction view; may settle a stale pending interaction. Runtime contract response type is referenced, not copied. State-store failures are not a closed error set."
+    },
+    {
+      "name": "submit",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "interaction_id": {
+            "type": "string"
+          },
+          "body": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionSubmission"
+          },
+          "identity": {
+            "description": "Authenticated account identity."
+          }
+        },
+        "required": [
+          "session_id",
+          "interaction_id",
+          "body",
+          "identity"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionResponse"
+      },
+      "errors": [
+        "E_LUC_CONFIRMATION_REQUIRED",
+        "E_LUC_INPUT",
+        "E_LUC_SUBMISSION_ID",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_IDEMPOTENCY_CONFLICT",
+        "E_LUC_ALREADY_SETTLED",
+        "E_LUC_DRAFT_STALE",
+        "E_LUC_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:636-652",
+        "lumeri_runtime/luc_interactions.py:692-762"
+      ],
+      "notes": "No deadline. submission_id deduplicates exact body digest and returns saved receipt; changed body conflicts. No enum exists for submission_id in this format, so idempotency is described here. Draft receipts retain only the latest 32. Confirm/apply failures propagate additional Host/Worker codes."
+    },
+    {
+      "name": "prepare_ui_confirmation",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "interaction_id": {
+            "type": "string"
+          },
+          "body": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionSubmission"
+          },
+          "identity": {
+            "description": "Authenticated identity from private Native route."
+          }
+        },
+        "required": [
+          "session_id",
+          "interaction_id",
+          "body",
+          "identity"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "confirmation_token": {
+            "type": "string"
+          },
+          "proposal_digest": {
+            "type": "string"
+          },
+          "status": {
+            "const": "confirmed_pending_apply"
+          }
+        },
+        "required": [
+          "confirmation_token",
+          "proposal_digest",
+          "status"
+        ]
+      },
+      "errors": [
+        "E_LUC_CONFIRMATION_REQUIRED",
+        "E_LUC_ALREADY_SETTLED",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_DRAFT_STALE",
+        "E_LUC_CONFIRMATION_SCOPE",
+        "E_LUC_CONFIRMATION_IDENTITY",
+        "E_LUC_CONFIRMATION_INVALID"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:654-690",
+        "lumeri_runtime/luc.py:602-660"
+      ],
+      "notes": "No deadline. Completed writes only; a context-local Native proof authorizes issuing an opaque credential. Plain model echo cannot mint one. Body forbids confirmation_token on this path; further current-state/input refusals propagate."
+    },
+    {
+      "name": "cancel_turn",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "root_turn_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "root_turn_id"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:852-861"
+      ],
+      "notes": "No deadline. Signals pending waiters and records cancelled outcome without taking the interaction lock, avoiding Worker lock inversion."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc_interaction_state",
+      "payload": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/LucInteractionResponse"
+      },
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:484-493"
+      ]
+    }
+  ],
+  "bounds": [
+    {
+      "name": "state_bytes",
+      "value": 2097152,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:31-35"
+      ]
+    },
+    {
+      "name": "retained_draft_receipts",
+      "value": 32,
+      "unit": "receipts",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:34-35",
+        "lumeri_runtime/luc_interactions.py:765-769"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "same-task-wait",
+      "text": "Creator input resumes the waiting task rather than starting provider polling.",
+      "test": null
+    },
+    {
+      "id": "human-proof",
+      "text": "A model or agent-facing call cannot fabricate a Native human-confirmation proof.",
+      "test": null
+    },
+    {
+      "id": "submission-replay",
+      "text": "A repeated retained submission_id with identical data returns its receipt; different data refuses.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:636-762"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Governed composition commit is followed by readback validation and event/state delivery, which can still fail. This is not the spec's general staged-patch atomic replacement write protocol.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:794-810",
+        "lumeri_runtime/luc_interactions.py:745-758"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

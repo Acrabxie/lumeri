@@ -1,0 +1,213 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:model.question-profile/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Prepare one bounded model question",
+  "summary": "Use the fixed Video or Quanta single-question profile. This is separate from the tool-calling agent step: a two-message, nonstreaming request with a 512-token profile and 25000-micro ceiling.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.model_ingress:prepare_paid_model_turn"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The fixed model profile, cost ceiling and selected provider call are part of the Lumeri spending foundation.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_ingress.py:93-124"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "profile_for_product",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/model.question-profile.v1.json#/definitions/profile"
+      },
+      "errors": [
+        "product_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:332-342"
+      ],
+      "notes": "No deadline is enforced; this is a synchronous in-process call."
+    },
+    {
+      "name": "prepare_paid_model_turn",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/AccountIdentity"
+          },
+          "request": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/TurnRequest"
+          },
+          "current_session_available_micros": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "product_id",
+          "identity",
+          "request",
+          "current_session_available_micros"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "capability_id",
+          "resource_scope",
+          "provider_call"
+        ],
+        "properties": {
+          "capability_id": {
+            "const": "runtime.agent.model"
+          },
+          "resource_scope": {
+            "type": "object",
+            "description": "request_kind chat_completion, profile/selection/model, whole-prompt hash, max_tokens and profile/effective cost ceilings."
+          },
+          "provider_call": {
+            "type": "object",
+            "description": "Python AccountsProviderCall or BrokerProviderCall; see iface:model.routing/v1."
+          }
+        },
+        "additionalProperties": false
+      },
+      "errors": [
+        "product_invalid",
+        "provider_selection_required",
+        "provider_unsupported",
+        "provider_model_required",
+        "session_budget_exhausted"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:345-438"
+      ],
+      "notes": "No deadline; preparation does not itself call or charge a provider. Identity and input validation codes are delegated. Effective cash cap is zero for subscription, otherwise min(profile ceiling, Session balance). Fixed request sends system+user only, stream false and parallel_tool_calls false; no tool declaration or agent conversation. Same inputs naturally produce equivalent prepared authority."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "profile_output_tokens",
+      "value": 512,
+      "unit": "tokens",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:102",
+        "lumeri_runtime/model_ingress.py:115"
+      ]
+    },
+    {
+      "name": "profile_cost_micros",
+      "value": 25000,
+      "unit": "micros before current balance clamp",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:103",
+        "lumeri_runtime/model_ingress.py:116"
+      ]
+    },
+    {
+      "name": "user_message_bytes",
+      "value": 16384,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:43"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "question-bounds",
+      "text": "The Video and Quanta single-question profiles retain 512 output tokens and 25000 cost micros, distinct from the Video agent-step profile.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/model_ingress.py:93-124",
+      "lumeri_runtime/model_ingress.py:345-438"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [],
+  "open_questions": [
+    {
+      "text": "Add original-profile conformance coverage for both products; the agent-step regressions do not prove this distinct single-question profile.",
+      "for": "lumeri"
+    }
+  ],
+  "definitions": {
+    "profile": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "enum": [
+            "video-paid-model-v1",
+            "quanta-paid-model-v1"
+          ]
+        },
+        "product_id": {
+          "enum": [
+            "video",
+            "quanta"
+          ]
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "max_tokens": {
+          "const": 512
+        },
+        "max_cost_micros": {
+          "const": 25000
+        }
+      },
+      "required": [
+        "profile_id",
+        "product_id",
+        "system_prompt",
+        "max_tokens",
+        "max_cost_micros"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
