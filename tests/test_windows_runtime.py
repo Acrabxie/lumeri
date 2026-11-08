@@ -61,6 +61,7 @@ def test_v3_setup_and_model_routes_are_served_by_public_runtime() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     server_source = (repo_root / "server.py").read_text(encoding="utf-8")
 
+    assert 'if path in ("/", "/v3", "/v3/", "/setup"):' in server_source
     assert '{"has_key": _has_valid_key(), "brain": status}' in server_source
     assert 'if path == "/model":' in server_source
     assert 'model_selection_payload("planner")' in server_source

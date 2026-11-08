@@ -1,5 +1,10 @@
 # v3 polish backlog (post v3-alive, pre-production)
 
+> **历史归档说明 (Archive Note)**：本文档记载了 2026-05-27 v3-alive 里程碑之后记录的代办项。
+> 文中提及的 F2（无声视频调速）已在 `gemia/tools/edit_video.py`（无音频流兼容处理）中修复；
+> F3（图片 overlay 位置变量）已在 `gemia/tools/add_overlay.py` 中通过 `_OVERLAY_POSITIONS` 分离修复。
+> 当前仅作历史开发上下文存档保留。
+
 Findings from Codex `exec review --base main` on 2026-05-27 after the
 v3-alive milestone (`docs/v3-alive-evidence.log`). None of these blocked
 the milestone — they're edge cases that didn't surface in the

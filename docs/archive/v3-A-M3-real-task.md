@@ -1,5 +1,8 @@
 # Lumeri v3-A.M3 — real creative task evidence
 
+> **历史归档说明 (Archive Note)**：本文档记载了 2026-05-27 v3-A.M3 阶段的真实任务执行日志与 SSE 记录。
+> 本文件作为早期端到端验收历史快照保留。
+
 - generated: 2026-05-27T08:28:25.102361+00:00
 - source clip: `/tmp/festival_clip.mp4` (20s testsrc2 1920x1080 + 220Hz sine)
 - session id: `v3-25a0bf580bb6`

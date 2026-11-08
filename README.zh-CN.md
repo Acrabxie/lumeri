@@ -235,7 +235,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 <details>
 <summary><strong>用 ChatGPT 订阅代替 API key</strong></summary>
 
-在 `/setup` 里选择 **OpenAI 订阅（本机 Codex）**。这个选项调用同一台电脑上的 Codex CLI，并且只接受本机的 **Sign in with ChatGPT** 登录状态。Lumeri 绝不读取、复制或保存 Codex 的登录凭据，每个人都必须用自己的 OpenAI 账号登录。
+在服务商设置面板中选择 **OpenAI 订阅（本机 Codex）**（可直接访问 `/setup`、点击左侧栏 **AI 供应商设置**，或在对话框输入 `/setup`）。这个选项调用同一台电脑上的 Codex CLI，并且只接受本机的 **Sign in with ChatGPT** 登录状态。Lumeri 绝不读取、复制或保存 Codex 的登录凭据，每个人都必须用自己的 OpenAI 账号登录。
 
 在 Windows 上，选择该选项之前请先安装并登录 Codex CLI：
 

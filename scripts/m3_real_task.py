@@ -39,9 +39,9 @@ PROMPT = (
     "最后导出 1080p MP4"
 )
 CLIP = Path("/tmp/festival_clip.mp4")
-SCREENSHOT_DIR = REPO_ROOT / "docs" / "v3-A-M3-screenshots"
-SSE_OUT = REPO_ROOT / "docs" / "v3-A-M3-sse.json"
-REPORT = REPO_ROOT / "docs" / "v3-A-M3-real-task.md"
+SCREENSHOT_DIR = REPO_ROOT / "docs" / "archive" / "v3-A-M3-screenshots"
+SSE_OUT = REPO_ROOT / "docs" / "archive" / "v3-A-M3-sse.json"
+REPORT = REPO_ROOT / "docs" / "archive" / "v3-A-M3-real-task.md"
 DRIVER_DIR = Path("/tmp/v3-m3-driver")
 
 

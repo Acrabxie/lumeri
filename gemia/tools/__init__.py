@@ -7,17 +7,17 @@ that executes the call and returns a tool-result dict.
 
 Implemented:
 
-    - batch 0 + 1 (pure ffmpeg): analyze_media, edit_video, color_grade,
+    - batch 0 + 1 (pure ffmpeg & media): analyze_media, edit_video, color_grade,
       add_overlay, export, composite, arrange_timeline, mix_audio,
-      transform_geometry, edit_image, extract_frame
-    - batch 2.1 (sync provider, real money): generate_image (Nano Banana 2
-      via Vertex)
-    - batch 2.2/2.3 (provider media): generate_video (Veo LRO via Vertex),
-      generate_audio (Lyria predict via Vertex)
-    - batch 3 (v4 build): web_search / web_open / fetch (host-side internet),
-      run_shell (native PowerShell/Bash; sandboxed where the host supports it)
-    - timeline v1: get_timeline + fine-grained timeline_* document verbs +
-      render_preview (persistent per-session timeline, logged + undoable)
+      transform_geometry, edit_image, extract_frame, probe_media, align_audio,
+      detect_beats, adjust_media, animate_captions, subtitle, safe_areas
+    - batch 2 (provider media): generate_image, generate_video, generate_audio, narrate
+    - batch 3 (host & environment): web_search, fetch, files, run_shell, build
+    - timeline v1: get_timeline, render_preview, and fine-grained timeline_* document verbs
+    - LumenFrame craft libraries: grade, type, camera, framing, cutting, rhythm,
+      vector_motion, lottie, lumen_seek, lumen_render_range, layer
+    - Shotlist & storyboard: draft_shotlist, refine_shot, assemble_shotlist, search_frames
+    - Sub-agents & Skills: recall_skills, save_skill, spawn_subtasks, log_note, remember, elicit
 
 Dispatchers must NOT swallow errors. The agent loop wraps each call in
 try/except and emits a ``tool_exec_error`` event on exception.

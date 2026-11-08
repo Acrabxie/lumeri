@@ -9,7 +9,8 @@ This is **Lumeri Video** — an agentic video project workspace.
 - `server.py` — HTTP server entry point, serves web UI and delegates to v3 routes
 - `gemia/v3_routes.py` — Session HTTP API (`/sessions/*`)
 - `gemia/agent_loop_v3.py` — Multi-turn model ↔ tool conversation loop
-- `gemia/tools/` — 18 media tools using FFmpeg directly and Google GenAI
+- `gemia/tools/` — 97 media, LumenFrame craft, Quanta, shotlist, and agent tools
+- `gemia/sandbox_v4.py` — Sandboxed script execution and security boundary
 - `gemia/gemini_client.py` — Gemini API client for the agent loop
 - `gemia/ai/google_genai_client.py` — Google GenAI client for generative tools
 - `gemia/budget_guard.py` — Step and cost budget enforcement
@@ -30,7 +31,14 @@ This is **Lumeri Video** — an agentic video project workspace.
 
 - `lumerai/patches.py` — TimelinePatch vocabulary (shared by AI and human editing)
 - `lumerai/otio_adapter.py` — OpenTimelineIO ↔ Lumeri project round-trip
-- `lumerai/sandbox.py` — Sandboxed script execution
+- `lumerai/sandbox.py` — Legacy sandboxed script execution wrapper
+
+### Composition, Quanta & Specifications
+
+- `lumenframe/` — Composition engine and craft libraries (grade, type, camera, framing, cutting, rhythm, vector motion)
+- `quanta/format/` — The `.qua` file format specification and samples (CC0)
+- `docs/luc/` — Luc package specification, runtime contract, permissions and protocol
+- `contracts/interfaces/` — Machine-readable interface contracts for runtime modules (JSON)
 
 ### Frontend
 

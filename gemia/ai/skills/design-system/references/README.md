@@ -36,11 +36,11 @@ DESIGN.md 原生只描述"静止一帧"。视频比静态 UI 多出时间轴,所
 2. **正文只讲理据,不重复数值** —— 各册用 `{group.token}` 引用,不复写。
 3. **可 lint** —— `npx @google/design.md lint DESIGN.md` 验引用完整性与 WCAG 对比度。
 
-## 给 Gemini 的加载建议
+## 给 Gemini 的加载建议与代码层落地
 
-- **常驻**:`DESIGN.md` 正文 + front-matter token 注入 system prompt(会话级持久)。
-- **按需**:四本针对册进 skill references / RAG,按当前工作流(调色/剪辑/字幕/构图)召回。
-- **出片前**:强制跑 `辅助指导手册.md` 的**红旗自检表**与 front-matter 的 `quality-gate`,命中即打回。
+- **代码层结构化落地（实作）**：依据点库宪章，调色、剪辑节奏、字幕排版、构图运镜等专业手艺已硬编码至 `lumenframe/` 创作库中（作为 Layer 2 结构性品味地板）。模型只需调用创作语言工具表达意图，底层算法和模板自动保证构图安全区、色彩守恒和节奏合规。
+- **技能与参考资料检索**：本目录下的设计规范作为知识库参考，由 `skill_store` 和 `recall_skills` 按需召回。
+- **出片与质量保证**：通过 `lumenframe` 渲染器和自动化测试套件统一校验，确保成片符合安全区与对比度标准。
 
 > ⚠ 复审待办:本套"评审视角"由 codex 替 Antigravity 出演(真 AGY/OpenClaw 本机已永久离线)。
 > 待非 OpenClaw 的 Antigravity 路由可用时,补一次真机成片复审(重点:情绪一致性、构图美感等机器判不了的维度)。

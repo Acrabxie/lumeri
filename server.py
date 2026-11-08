@@ -258,7 +258,7 @@ class _Handler(BaseHTTPRequestHandler):
         path = unquote(parsed_url.path).rstrip("/") or "/"
 
         # ── Web UI: serve static/v3/ ──
-        if path == "/" or path == "/v3" or path == "/v3/":
+        if path in ("/", "/v3", "/v3/", "/setup"):
             _file_response(self, _STATIC_V3_DIR / "index.html")
             return
 

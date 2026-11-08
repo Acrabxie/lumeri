@@ -1,5 +1,9 @@
 # Lumeri v3-A branch — what changed and how to use it
 
+> **历史归档说明 (Archive Note)**：本文档记载了 2026-05-27 v3-A 分支引入初代浏览器工作区时的架构说明。
+> 文中提及的早期 v2 流程（`gemia/agent_workflow.py` 及旧 UI）已在后续版本彻底清理；
+> 当前 Lumeri 运行时的唯一入口已统一为 `server.py` + `static/v3/`。
+
 > Branch: `claude/jolly-clarke-JO7E3`
 > Target audience: Acrab a month from now, or anyone picking this up
 > from a cold start.

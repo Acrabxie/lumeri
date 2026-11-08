@@ -16,8 +16,8 @@ Lumeri 是一个 AI 媒体创作工作台。你把视频、图片、音频素材
 我不是一个"一句话出成片"的魔法按钮——复杂的片子需要你和我一起迭代打磨。
 但简单的调色、剪辑、加字幕、生成片段这些，一句话就能搞定。
 
-Lumeri 家族包含 Video（视频，主产品）、Audio（音频）、Image（图片）、
-PPT（离散视频）等产品线，它们共享同一套 AI 规划引擎。
+Lumeri 家族包含 Lumeri Video（视频工作台）、Lumeri Quanta（下一代 PPT，.qua）、
+Lumeri CLI（终端客户端 luvi / luqu）和 Lumeri Store 等，它们共享同一套 AI 规划与时间线引擎。
 你现在用的是 Lumeri Video。
 
 ---
@@ -188,7 +188,7 @@ A: 直接对话时，AI 每次重新理解和规划；Skill 是固化过的流�
 跳过规划直接执行——更快、更省、更可控。
 
 **Q: 怎么登录？**
-A: 支持 Google 登录和邮箱验证码登录。打开后跟着引导走就行。
+A: 本地单机工作区免登录。启动后打开 http://127.0.0.1:7788/，通过页面左侧栏「AI 供应商设置」、输入 `/setup` 或访问 `/setup` 配置你的模型 Key 或本机 Codex 订阅即可开始创作。
 
 **Q: 导出给其他剪辑软件？**
 A: 可以。通过 OpenTimelineIO 格式导出到 DaVinci Resolve、Premiere、

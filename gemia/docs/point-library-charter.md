@@ -7,9 +7,10 @@
 > 适用范围：所有 Lumeri 家族的第二层创作库（点库 / point-library），跨两条正交轴——**形态**（Shape A / Shape B）与**类别**（SYNTHESIS 合成型 / TRANSFORM 变换型），四象限均在本宪章覆盖内。
 > 参考实现（reference impl）：`vector-motion`（`lumenframe/vector/*.py` + `gemia/tools/vector_motion.py`，163 tests，已过对抗评审；**Shape A × SYNTHESIS** 参考）；`lumenframe/templates` + `lumenframe/elements`（**Shape B × 绘图 profile** 参考实现）。
 > 本文件意在成为**可被 lint/CI 机器校验的契约**，不是风格建议。每条规则尽量写成"某个测试会 assert 什么"，并标注该测试**是否已存在**。凡与本宪章冲突的实现、分支或 PR，一律视为**未完成工作（incomplete work）**，不得合并。
-> 约定：正文用中文；`code identifiers`、文件路径、token 名（`energy`、`stagger_spread`、`apply_element`、`E_NOT_FOUND` 等）一律保持原形，不翻译。所有路径均在 `/Volumes/Extreme SSD/lumeri` 之下（`~/Code/lumeri-design-manuals/` 除外）。
+> 约定：正文用中文；`code identifiers`、文件路径、token 名（`energy`、`stagger_spread`、`apply_element`、`E_NOT_FOUND` 等）一律保持原形，不翻译。所有路径均以仓库根目录为基准（`~/Code/lumeri-design-manuals/` 除外）。
 > 排除范围：依用户全局 `CLAUDE.md`，`examples/` 目录不参与本宪章任何架构推导。
 > **合并门（merge gate）**：验收信号走**本地 acceptance run**＝`pytest` + `npm test`（GitHub CI 非主信号）。本宪章所称"红 build / CI RED"一律指**本地 acceptance run 失败**。执行合并的 agent **必须在合并前跑通 acceptance run**；未跑 = 未完成工作。禁止在未跑 acceptance run 的情况下声称任一门"绿"。
+> **公开仓库与演进说明**：本文件为 Lumeri 点库架构设计的权威历史宪章。本公开仓库承载单机引擎与核心运行测试；历史文档中标记【已存在】的部分门禁测试属于上游完整验证套件。在 1.1 架构中，点库体系已进一步升级规范为 `.luc` library layer，具体协议契约与设计请参阅 [`docs/luc/library-layers.md`](../../docs/luc/library-layers.md)。
 
 ---
 
@@ -743,7 +744,7 @@ IR 携带 `version` 字段。新增词汇是**加法**：加进 registry+catalog
 
 ## §12 相关文件与测试索引（绝对路径；**明确区分【已存在】/【待落地】**，供 meta-check 直接实现）
 
-**Shape A 安装点**：`/Volumes/Extreme SSD/lumeri/gemia/tools/_schema.py`（`_tool→TOOL_SCHEMAS`，`TOOL_NAMES :1914`）· `gemia/tools/__init__.py`（`_REAL`/`DISPATCHER :222`，`_make_stub :103-109`）· `gemia/budget_guard.py`（`_TOOL_COSTS`，默认 `(0.0,5.0) :177` — **拟改 raise-on-miss**）· `gemia/plan_mode.py`（`PLAN_ALLOWED_TOOLS`/`PLAN_BLOCKED_TOOLS`，`is_plan_safe`）· `gemia/tool_router.py`（`TOOL_PACKS`/`WORKFLOW_KEYWORDS`/`ADJACENT_PACKS`/`catalog_coverage()`）· `gemia/prompts/system_v3.md`（`:431`）
+**Shape A 安装点**：`gemia/tools/_schema.py`（`_tool→TOOL_SCHEMAS`，`TOOL_NAMES :1914`）· `gemia/tools/__init__.py`（`_REAL`/`DISPATCHER :222`，`_make_stub :103-109`）· `gemia/budget_guard.py`（`_TOOL_COSTS`，默认 `(0.0,5.0) :177` — **拟改 raise-on-miss**）· `gemia/plan_mode.py`（`PLAN_ALLOWED_TOOLS`/`PLAN_BLOCKED_TOOLS`，`is_plan_safe`）· `gemia/tool_router.py`（`TOOL_PACKS`/`WORKFLOW_KEYWORDS`/`ADJACENT_PACKS`/`catalog_coverage()`）· `gemia/prompts/system_v3.md`（`:431`）
 **Shape A 门测试 — 已存在**：`tests/test_plan_mode.py::test_every_registered_tool_is_classified`（`:40`）· `tests/test_tool_router.py`（`catalog_coverage()==(∅,∅) :30`）· `tests/test_vector_motion_tool.py`（`:95-124`，`test_vector_motion_has_explicit_budget_entry :113`；坏 id `E_NOT_FOUND :294`）· `tests/test_vector_creative.py::test_build_scene_is_deterministic_per_seed`（`:314`，`svg1==svg2`）· `tests/test_v3_predelivery_gate.py::test_visual_output_does_not_trigger_a_synthetic_review_round` · `tests/test_v3_completion_gate.py::test_open_activity_record_cannot_override_model_stop`
 **Shape A 安装门 — 已落地（2026-07-15，已对抗验证）**：`tests/test_tool_catalog_contract.py`（Layer A：dispatcher非stub / router-pack / plan恰一类 / budget行或`BUDGET_DEFAULT_TOOLS`白名单 / `len==len(set)` / 白名单有界）· `tests/test_library_verb_manifest.py`（Layer B：扫 `gemia/tools/*.py` 模块级 `dispatch` 孤儿）
 **FM2/FM3/meta 门 — 已落地（2026-07-15，已对抗验证）**：`tests/test_addressability_roundtrip.py`（FM2 可寻址 round-trip：`_compact_tree_summary` 长 id 逐字 + `dispatch_get`→`dispatch_delete_layer` 全链）· `tests/test_library_ledger_contract.py`（FM3 库侧：`vector_motion` 成功带 `layer_id`+`next`、六类 typed 错误、`recovery:'fix_args'`）· `tests/test_v3_ledger_partial_disclosure.py`（FM3 host 侧：`_FailsThenExplainsHonestly` 驱动真实 loop，诚实部分被交付，host 无 completion verdict）· `tests/test_charter_integrity.py`（§13.1(5)：宪章标【已存在】的测试文件必真存在 + 五项生效门文件存在）
