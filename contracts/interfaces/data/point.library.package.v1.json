@@ -1,0 +1,113 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:point.library.package/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Point Library .lup container",
+  "summary": "A .lup is installable descriptive ZIP data: manifest.lus, catalog.json and verification.json. It declares operations bound to already installed tools, never code to execute. Installed in 1.1, it is a Luc: one bound to tools a library Luc of its own, one bound to code built into Lumeri a data layer on the Official Luc that holds that code (luc_cli.py convert). Governed Project registry storage is separate.",
+  "carrier": {
+    "kind": "file",
+    "surface": "ZIP .lup with manifest.lus, catalog.json and verification.json"
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "The .lup is descriptive data bound to existing tools; its parser never executes carried ZIP members.",
+    "decided": "today's code: gemia/point_library.py:36-39"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "PointLibraryPackage.from_bytes",
+      "effect": "read",
+      "input": {
+        "type": "string",
+        "contentEncoding": "base64",
+        "description": "Draft JSON projection of native ZIP bytes."
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "gemia/point_library.py:211-286"
+      ],
+      "notes": "No local operation deadline is enforced. Native API accepts bytes/bytearray; the JSON byte projection is draft. ZIP paths/duplicates/symlinks and sizes are checked. Main manifest/catalog/verification text is guarded and a declaration mapping is required; supplemental members are carried without execution."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "bundle_bytes",
+      "value": 8388608,
+      "unit": "bytes",
+      "evidence": [
+        "gemia/point_library.py:36-39"
+      ]
+    },
+    {
+      "name": "member_bytes",
+      "value": 4194304,
+      "unit": "bytes per ZIP member",
+      "evidence": [
+        "gemia/point_library.py:36-39"
+      ]
+    },
+    {
+      "name": "members",
+      "value": 128,
+      "unit": "ZIP members",
+      "evidence": [
+        "gemia/point_library.py:36-39"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "ZIP members must have safe unique names, stay within accepted member prefixes and size bounds, and cannot be symlinks. Parsing never executes carried bytes.",
+      "test": "tests/test_luc_library_layer.py::test_a_lup_that_would_be_other_code_or_other_data_is_refused"
+    },
+    {
+      "id": "installed-as-a-layer",
+      "text": "A .lup bound to code built into Lumeri converts into a layer on the Official Luc that holds that code, carrying only its catalog and verification; switched off or taken away, the Official library answers again (Acrab, 2026-10-24). One that would be other code (name, shape, category, binding or tools) is refused.",
+      "test": "tests/test_luc_library_layer.py::test_with_the_layer_on_the_library_answers_with_its_data_and_with_it_off_lumeris_own"
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "gemia/point_library.py:211-286",
+      "lumeri_runtime/luc_library_layer.py:1-108"
+    ],
+    "notes": "A .lup converted into a layer on an Official library Luc is checked at load and read time; when refused, switched off, or taken away, Lumeri's own library answers again."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_library_layer.py",
+      "tests/test_luc_convert.py"
+    ],
+    "notes": "Conversion into a layer and on/off/break fallback are held by tests/test_luc_library_layer.py."
+  },
+  "known_deviations": [
+    {
+      "text": "Additional runtime/, ops/ and verification/ members are accepted as bytes. The text guard applies to manifest/catalog/verification, not every supplemental member; acceptance is not permission to execute them.",
+      "evidence": [
+        "gemia/point_library.py:229-258"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

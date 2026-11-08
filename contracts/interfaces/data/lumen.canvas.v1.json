@@ -1,0 +1,352 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lumen.canvas/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Lumen canvas measurement and cache",
+  "summary": "Content revision, media path binding and bounded memory cache for canvas questions. Engine replies and scratch frames are kept separate from composition commit.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.lumen_canvas:bind_lumen_canvas,CanvasCache",
+    "notes": "Original: lumeri_runtime.lumen_canvas:bind_lumen_canvas,CanvasCache, running lumeri-engine lumen-canvas in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.lumen.canvas\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for lumeri-engine lumen-canvas: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/lumen_canvas.py:155-180; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "lumenframe_revision",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+      },
+      "output": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:45-55"
+      ],
+      "notes": "No local deadline is enforced. Content hash uses sorted compact JSON without a newline; it is independent of the Project revision."
+    },
+    {
+      "name": "composition_asset_ids",
+      "effect": "read",
+      "input": {
+        "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:58-75"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "with_media_paths",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "paths": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "document",
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:78-104"
+      ],
+      "notes": "No local deadline is enforced. Deep copy only; media paths are per-render additions to assets, never persisted by this function."
+    },
+    {
+      "name": "CanvasCache.get",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "description": "Python hashable composition revision and question key."
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {},
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:107-127"
+      ],
+      "notes": "No local deadline is enforced. Returns cached Python value or None and updates LRU order. JSON representation of hashable key/value is not defined."
+    },
+    {
+      "name": "CanvasCache.put",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "key": {},
+          "value": {},
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:129-140"
+      ],
+      "notes": "No local deadline is enforced. Memory cache only, no durable Project write. Oversized entries are ignored and oldest entries evicted until both ceilings fit."
+    },
+    {
+      "name": "bind_lumen_canvas",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "payload": {
+            "type": "object"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "payload",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:155-190"
+      ],
+      "notes": "No local deadline is enforced. Creates a runner for metadata, frame or op engine questions. Even op returns a proposed document; composition.commit owns the durable edit. Runner is a draft object projection. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.lumen.canvas"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "cache_entries",
+      "value": 48,
+      "unit": "LRU entries",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:39-42"
+      ]
+    },
+    {
+      "name": "cache_bytes",
+      "value": 100663296,
+      "unit": "declared bytes",
+      "evidence": [
+        "lumeri_runtime/lumen_canvas.py:39-42"
+      ]
+    },
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "A canvas question, including op, does not itself change the durable Project.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: Its stdout is one JSON value; the Runtime's checks after the run hold it as they hold the engine's."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.lumen.canvas). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "Canvas undo/redo depends on the absent 1.0 composition journal and is explicitly refused by the engine; timeline undo is a separate operation.",
+      "evidence": [
+        "lumeri_engine_cli.py:724-729"
+      ],
+      "test": null
+    },
+    {
+      "text": "Beyond one JSON value on stdout and the declared files, a program's answer meets the Runtime's own checks only after the run; a failure there is the request's, and the original does not run it again.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:445-491"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

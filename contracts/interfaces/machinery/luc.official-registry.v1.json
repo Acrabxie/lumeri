@@ -1,0 +1,140 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.official-registry/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Official REGISTRY source list",
+  "summary": "Line-oriented source membership list, cross-checked against each package manifest before any Official bundle is generated.",
+  "carrier": {
+    "kind": "file",
+    "surface": "official_luc/REGISTRY"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "read_registry",
+      "effect": "read",
+      "input": {
+        "type": "string"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/machinery/luc.official-registry.v1.json#/definitions/entry"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "scripts/build_official_luc_bundle.py:49-65",
+        "official_luc/REGISTRY:1-16"
+      ],
+      "notes": "No deadline. UTF-8 text; blank or comment-only lines ignored. Split at first #, then exactly five whitespace fields: on|off folder id@version product kind. id@version contains exactly one @. Invalid/missing file raises SystemExit, not a LucError."
+    },
+    {
+      "name": "registry_problems",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "scripts/build_official_luc_bundle.py:68-104"
+      ],
+      "notes": "No deadline. Returns problems for duplicate folders/ids, unlisted folders, missing manifests, mismatched id/version/on/product/kind, missing note and wrong migration gate. Manifest and filesystem parsing exceptions can propagate."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "explicit-membership",
+      "text": "A folder without a REGISTRY line cannot become an Official package.",
+      "test": null
+    },
+    {
+      "id": "manifest-agreement",
+      "text": "The builder refuses membership lines that disagree with the package manifest.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "scripts/build_official_luc_bundle.py:82-104"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "on",
+        "folder",
+        "id",
+        "version",
+        "product",
+        "kind",
+        "note"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

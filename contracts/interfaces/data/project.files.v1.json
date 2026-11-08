@@ -1,0 +1,200 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:project.files/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Project text files",
+  "summary": "Read, list and atomically replace bounded UTF-8 files within a canonical Project root. Runtime records and symlink components are not exposed.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.project_files:project_path,read_text,list_directory,write_text"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/project_files.py:79-119"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "read_text",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_root": {
+            "type": "string"
+          },
+          "relative": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_root",
+          "relative"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/project_files.py:122-141"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "list_directory",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_root": {
+            "type": "string"
+          },
+          "relative": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_root"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "file",
+                "directory"
+              ]
+            },
+            "size_bytes": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "kind",
+            "size_bytes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/project_files.py:72-76",
+        "lumeri_runtime/project_files.py:144-153"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "write_text",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_root": {
+            "type": "string"
+          },
+          "relative": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_root",
+          "relative",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/project_files.py:156-195"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Returns UTF-8 byte count. One file is replaced atomically with fsync; parent directories can also be created. Append retries duplicate text. This primitive does not advance Project revision or record client_op_id, so it cannot provide a replaceable atomic governed write alone."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "text_bytes",
+      "value": 4194304,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/project_files.py:25-27"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "runtime-records-hidden",
+      "text": "Generic file access cannot read, list or replace Runtime records, including case variants and temporary replacements.",
+      "test": null
+    },
+    {
+      "id": "bounded-text",
+      "text": "UTF-8 input and output are capped at 4194304 bytes.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/project_files.py:79-119"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Single-file replacement is atomic, but file bytes, Project revision, and durable execution result are not committed together by this primitive.",
+      "evidence": [
+        "lumeri_runtime/project_files.py:179-195"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

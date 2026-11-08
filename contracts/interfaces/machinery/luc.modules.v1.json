@@ -1,0 +1,100 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.modules/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Modules view",
+  "summary": "Merge loaded Official entries, profile/folder refusals, fallback latches and persistent breaker rows; include the logical agent instructions module separately.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_interactions:LucInteractions.modules, LucInteractions.module_lines"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "modules",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.modules.v1.json#/definitions/modules"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:371-449",
+        "lumeri_runtime/luc_interactions.py:971-999"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "observed-not-inferred",
+      "text": "answers derives from this start's loaded entries and fallback/refusal state; breaker rows are shown separately.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:371-449"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The view does not include every installed or switched-off package: it iterates loaded Official entries and adds the agent module, so it is not a full inventory.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:381-383",
+        "lumeri_runtime/luc_interactions.py:408-445"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "modules": {
+      "type": "object",
+      "properties": {
+        "safe_mode": {
+          "type": "boolean"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Official identity/layers/answers plus optional notices/breaks/code/capability_id/at; logical agent row uses module and optional layer."
+          }
+        }
+      },
+      "required": [
+        "safe_mode",
+        "modules"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

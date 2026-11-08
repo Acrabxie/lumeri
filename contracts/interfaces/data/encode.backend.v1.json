@@ -1,0 +1,437 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:encode.backend/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Frame sequence encoder",
+  "summary": "Bounded frame validation, private numbered copies and sandboxed FFmpeg encoding. mpeg4 is the only offered encoder in this Runtime; the backend does not import its result.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.encode:validate_request,stage_frames,bind_encode",
+    "notes": "Original: lumeri_runtime.encode:validate_request,stage_frames,bind_encode, running ffmpeg in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.encode.backend\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for ffmpeg: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/encode.py:51-79; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "resolve_toolchain",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "search_path": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "anyOf": [
+          {
+            "$contract": "contracts/interfaces/data/encode.backend.v1.json#/definitions/toolchain"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/encode.py:108-144"
+      ],
+      "notes": "No local deadline is enforced. Find FFmpeg, prefer a sibling FFprobe, otherwise PATH. Resolves real files and derives dependency roots. No overall timeout; each otool run is bounded to 30 seconds."
+    },
+    {
+      "name": "validate_request",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "minItems": 1,
+            "maxItems": 100000
+          },
+          "fps": {
+            "type": "number"
+          },
+          "encoder": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "frames",
+          "fps"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fps": {
+            "type": "number"
+          },
+          "encoder": {
+            "const": "mpeg4"
+          }
+        },
+        "required": [
+          "frames",
+          "fps",
+          "encoder"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "encode_refused"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/encode.py:194-235"
+      ],
+      "notes": "No local deadline is enforced. Defaults mpeg4; fps rounded to three decimals then checked within 1..240. Repeated frames hold a still. GPL-only, hardware and unmeasured encoders are refused."
+    },
+    {
+      "name": "stage_frames",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "media_store": {
+            "type": "object"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "staging_id": {
+            "type": "string"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "media_store",
+          "product_id",
+          "project_id",
+          "project_root",
+          "staging_id",
+          "frames"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/encode.py:240-265"
+      ],
+      "notes": "No local deadline is enforced. Copies verified frames privately into .lumeri-encode/staging_id/frame_NNNNNN.png. Staging is multiple file writes, not a durable Project revision/client_op_id commit. Cleanup belongs to the caller."
+    },
+    {
+      "name": "encode_argv",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "toolchain": {
+            "$contract": "contracts/interfaces/data/encode.backend.v1.json#/definitions/toolchain"
+          },
+          "staged": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "request": {
+            "$contract": "contracts/interfaces/data/encode.backend.v1.json#/definitions/request"
+          }
+        },
+        "required": [
+          "toolchain",
+          "staged",
+          "output",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/encode.py:283-303"
+      ],
+      "notes": "No local deadline is enforced. Builds argv only, does not run FFmpeg: numbered PNG input, selected fps, mpeg4 and yuv420p output."
+    },
+    {
+      "name": "bind_encode",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "toolchain": {
+            "$contract": "contracts/interfaces/data/encode.backend.v1.json#/definitions/toolchain"
+          },
+          "encode": {
+            "$contract": "contracts/interfaces/data/encode.backend.v1.json#/definitions/request"
+          },
+          "staged": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "cancelled": {},
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "toolchain",
+          "encode",
+          "staged",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/encode.py:306-368"
+      ],
+      "notes": "No local deadline is enforced. Returns a trusted process runner. Its full runner result projection is draft; process profile and produced artifact are described by engine.sandbox. Media import and revision advance are a later governed write. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.encode.backend"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Repeated frame ids are meaningful; an unmeasured, hardware or GPL-only encoder is refused before staging.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: The declared encoded.mp4 is an MP4 file (ftyp at byte 4)."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.encode.backend). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "Encoding and result import are separate effects; a replacement cannot treat the whole pipeline as one crash-atomic Project commit.",
+      "evidence": [
+        "lumeri_runtime/encode.py:240-265",
+        "lumeri_runtime/encode.py:306-315"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minItems": 1,
+          "maxItems": 100000
+        },
+        "fps": {
+          "type": "number"
+        },
+        "encoder": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "frames",
+        "fps"
+      ],
+      "additionalProperties": false
+    },
+    "toolchain": {
+      "type": "object",
+      "properties": {
+        "executable": {
+          "type": "string"
+        },
+        "readable_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "probe": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "executable"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

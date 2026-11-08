@@ -1,0 +1,151 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.bundle-builder/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Official bundle generation",
+  "summary": "Validate the explicit REGISTRY, stage package sources and frontend assets, and produce .luc artifacts plus the Official index. This task reads this code without running it.",
+  "carrier": {
+    "kind": "python",
+    "seam": "scripts.build_official_luc_bundle:build"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "build",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "output_root": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.bundle-builder.v1.json#/definitions/index"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/build_official_luc_bundle.py:167-201"
+      ],
+      "notes": "No deadline. Rewrites output artifacts/index; no activation or signing occurs here. Refuses registry disagreement or hidden source files with SystemExit. Artifact pack errors propagate and are not a closed error set here. Retry rebuilds deterministic outputs from the current sources; it is not a transaction across output files."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "registry-before-output",
+      "text": "The build checks REGISTRY and hidden-file problems before creating output artifacts.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "scripts/build_official_luc_bundle.py:167-182"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "package": {
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "type": "string"
+        },
+        "identity": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+        },
+        "source_hash": {
+          "type": "string"
+        },
+        "artifact_hash": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "enabled_by_default": {
+          "type": "boolean"
+        },
+        "safe_mode": {
+          "type": "boolean"
+        },
+        "migration_state": {
+          "type": "string"
+        },
+        "native_tool_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "replaces": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "artifact",
+        "identity",
+        "source_hash",
+        "artifact_hash",
+        "origin",
+        "publisher",
+        "role",
+        "enabled_by_default",
+        "safe_mode",
+        "migration_state",
+        "native_tool_ids"
+      ]
+    },
+    "index": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "lumeri.official-luc-index/v1"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/machinery/luc.bundle-builder.v1.json#/definitions/package"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "packages"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

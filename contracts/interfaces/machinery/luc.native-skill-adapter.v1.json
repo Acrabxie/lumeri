@@ -1,0 +1,197 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.native-skill-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Native Skill v1 binding",
+  "summary": "Bind immutable native Skill metadata and instruction bytes to the existing gemia prompt assembler. It assembles context without executing tools or editing the Project.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.native_skill_panel:NativeSkillPromptAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:96-134"
+      ],
+      "notes": "No deadline. Stable native Skill id, exact instruction/hash and tool dependencies must match. Schemas must equal Host-owned definitions. ValueError may escape compile."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Native context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.native-skill-adapter.v1.json#/definitions/arguments"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.native-skill-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_SKILL_SOURCE_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:155-171"
+      ],
+      "notes": "No deadline. Rereads source Markdown before invoking native build_bundle. effective_request defaults empty, has_video_context false, budget 5000. Native assembler/file exceptions propagate without LucError normalization."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "native-prompt-pin",
+      "text": "A changed native instruction cannot be assembled after binding.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/native_skill_panel.py:118-171"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "effective_request": {
+          "type": "string",
+          "maxLength": 12000
+        },
+        "has_video_context": {
+          "type": "boolean"
+        },
+        "budget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12000
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "context_ready"
+        },
+        "native_skill": {
+          "type": "string"
+        },
+        "selected_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "static_chunk": {
+          "type": "string"
+        },
+        "dynamic_chunk": {
+          "type": "string"
+        },
+        "combined": {
+          "type": "string"
+        },
+        "combo_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_dependencies": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "required",
+            "optional"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "native_skill",
+        "selected_skills",
+        "static_chunk",
+        "dynamic_chunk",
+        "combined",
+        "combo_ids",
+        "tool_dependencies"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.official-publisher/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Official channel and review publishing HTTP API",
+  "summary": "Public delivery of signed Official channels and review receipts, with separate authenticated publisher-only operations. Envelope schemas contain no signing material.",
+  "carrier": {
+    "kind": "http",
+    "surface": "lumeri_runtime/luc_cloud/http.py /v1/luc/official"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "GET /v1/luc/official/channel",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.official-channel.v1.json#/definitions/document"
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:187-193",
+        "lumeri_runtime/luc_cloud/official.py:85-89"
+      ],
+      "notes": "No deadline. Public signed-document bytes; HEAD also accepted."
+    },
+    {
+      "name": "GET /v1/luc/official/objects/{hash}.luc",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hash"
+        ]
+      },
+      "output": {
+        "description": "Exact .luc bytes."
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:200-206",
+        "lumeri_runtime/luc_cloud/official.py:91-98"
+      ],
+      "notes": "No deadline. Invalid/missing hash is not-found; consumer independently verifies pins."
+    },
+    {
+      "name": "GET /v1/luc/official/reviews/{hash}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hash"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.review.v1.json#/definitions/envelope"
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:194-199",
+        "lumeri_runtime/luc_cloud/official.py:203-210"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "POST /v1/luc/official/publish",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "artifacts"
+        ],
+        "description": "JSON Base64 archive strings.",
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer"
+          },
+          "packages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "identity": {
+                  "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+                },
+                "artifact_hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "identity",
+                "artifact_hash"
+              ]
+            }
+          },
+          "key_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "packages",
+          "key_id"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_OFFICIAL_UNAVAILABLE",
+        "E_LUC_CLOUD_OFFICIAL_SET",
+        "E_LUC_CLOUD_OFFICIAL_VERSION",
+        "E_LUC_CLOUD_CONTENT_TYPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:63-70",
+        "lumeri_runtime/luc_cloud/official.py:117-164",
+        "lumeri_runtime/luc_cloud/official.py:222-240",
+        "lumeri_runtime/luc_cloud/official.py:274-291"
+      ],
+      "notes": "No deadline. Publisher submits complete 1-256 Luc set; verifies Official identity/metadata, refuses downgrade or changed same-version bytes. Retrying creates a new sequence even for unchanged packages. Distribution/index and body-size errors may also propagate."
+    },
+    {
+      "name": "POST /v1/luc/official/reviews",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "valid_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 366
+          }
+        },
+        "required": [
+          "artifact",
+          "permissions",
+          "valid_days"
+        ],
+        "description": "artifact is Base64 .luc archive.",
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "identity, artifact_hash, verified grant fields and review envelope (iface:luc.review/v1)."
+      },
+      "errors": [
+        "E_LUC_CLOUD_UNAUTHORIZED",
+        "E_LUC_CLOUD_FORBIDDEN",
+        "E_LUC_CLOUD_OFFICIAL_UNAVAILABLE",
+        "E_LUC_REVIEW_REQUEST",
+        "E_LUC_REVIEW_ARTIFACT",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_CLOUD_CONTENT_TYPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/http.py:71-79",
+        "lumeri_runtime/luc_cloud/official.py:166-201",
+        "lumeri_runtime/luc_cloud/official.py:294-311"
+      ],
+      "notes": "No deadline. Re-review renews/replaces receipt for the same artifact hash. Canonical, receipt signing and body-size validation codes are transitive; this list is not closed."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "publisher-allowlist",
+      "text": "An authenticated account is insufficient: the principal subject must be in the explicit publishers set.",
+      "test": null
+    },
+    {
+      "id": "review-not-listing",
+      "text": "Review receipts bind local reviewed permissions to exact bytes; Hub listing approval is separate.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_cloud/official.py:117-124",
+      "lumeri_runtime/luc_cloud/official.py:166-201"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

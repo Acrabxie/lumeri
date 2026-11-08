@@ -1,0 +1,1671 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.cli/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Luc command line",
+  "summary": "Expose local Distribution, runtime introspection, breaker reset and Cloud source operations through JSON stdout and typed JSON stderr failures.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "scripts/luc_cli.py",
+    "notes": "Inputs describe normalized CLI arguments; parser evidence gives positional order and literal flag spellings. Defaults include product video and loopback base URL."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "pack",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "output"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source_hash": {
+            "type": "string"
+          },
+          "artifact_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity",
+          "kind",
+          "source_hash",
+          "artifact_hash"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:386-392",
+        "scripts/luc_cli.py:628-633"
+      ],
+      "notes": "No overall command deadline. Deterministic archive generation rewrites output. verify is a separate read command. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "verify",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "verified true plus inspect_artifact projection."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:390-392",
+        "scripts/luc_cli.py:631-633"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "inspect",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "artifact": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Artifact inspection enriched with local profile/authority data."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:393-398",
+        "scripts/luc_cli.py:634-637"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "install-local",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source_hash": {
+            "type": "string"
+          },
+          "artifact_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity",
+          "kind",
+          "source_hash",
+          "artifact_hash"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:400-403",
+        "scripts/luc_cli.py:638-640"
+      ],
+      "notes": "No overall command deadline. Adds stored true; same immutable id/version imports naturally. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "list",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/machinery/luc.local-registry.v1.json#/definitions/installed_graph"
+          },
+          {
+            "type": "object",
+            "description": "Runtime discovery response when --session is present."
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:405-407",
+        "scripts/luc_cli.py:641-646"
+      ],
+      "notes": "No overall command deadline. With --session this means remote capability discovery, not the local installed graph. Remote urllib timeout is 30 seconds per socket operation, not a command-wide deadline. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "resolve",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          },
+          "extension": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "base",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/resolved-identity-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:409-414",
+        "scripts/luc_cli.py:647-650"
+      ],
+      "notes": "No overall command deadline. Uses explicit ordered installed Extensions. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "enable",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "luc",
+              "extension"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Updated installed state or layer profile result."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:416-424",
+        "scripts/luc_cli.py:651-655"
+      ],
+      "notes": "No overall command deadline. Sets local logical state; attached Extensions go through their profile. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "disable",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "luc",
+              "extension"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Updated installed state or layer profile result."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:416-424",
+        "scripts/luc_cli.py:651-655"
+      ],
+      "notes": "No overall command deadline. Sets local logical state; attached Extensions go through their profile. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "migrate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "migrated": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "source_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "migrated",
+          "identity",
+          "source_hash"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:426-427",
+        "scripts/luc_cli.py:656-658"
+      ],
+      "notes": "No overall command deadline. One-way source migration. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "convert",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "source",
+          "output"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Conversion result; output source directory must not exist."
+      },
+      "errors": [
+        "E_LUC_CONVERT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:429-437",
+        "scripts/luc_cli.py:659-660"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "extension create",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "extension_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "extension_id",
+          "version",
+          "output"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "created path, identity string id@version and parent Luc/source hash."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:439-447",
+        "scripts/luc_cli.py:661-666"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "extension inspect",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "artifact": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Extension inheritance and local authority inspection."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:449-454",
+        "scripts/luc_cli.py:667-670"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "extension attach",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          },
+          "extension": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base",
+          "extension",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:456-463",
+        "scripts/luc_cli.py:671-676"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "extension detach",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "id",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:465-471",
+        "scripts/luc_cli.py:677-682"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "activation plan",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          },
+          "extension": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "safe_mode": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "base",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-plan-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:473-488",
+        "scripts/luc_cli.py:683-702"
+      ],
+      "notes": "No overall command deadline. Safe-mode removes all Extensions from this selection; authorization is bound to the activation hash. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "activation select",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          },
+          "extension": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "safe_mode": {
+            "type": "boolean"
+          },
+          "authorized_activation_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/activation-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:473-488",
+        "scripts/luc_cli.py:683-702"
+      ],
+      "notes": "No overall command deadline. Safe-mode removes all Extensions from this selection; authorization is bound to the activation hash. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "activation rollback",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "description": "ActivationStore recovery result; immutable receipt selection."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:490-494",
+        "scripts/luc_cli.py:703-706"
+      ],
+      "notes": "No overall command deadline. Changes local activation state, not a live Runtime process. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "activation redo",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "description": "ActivationStore recovery result; immutable receipt selection."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:490-494",
+        "scripts/luc_cli.py:703-706"
+      ],
+      "notes": "No overall command deadline. Changes local activation state, not a live Runtime process. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "safe-mode on",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:496-510",
+        "scripts/luc_cli.py:707-719"
+      ],
+      "notes": "No overall command deadline. Changes the local desired profile; preserves desired layers while disabled. Not the LUMERI_LUC_SAFE_MODE environment switch. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "safe-mode off",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "base": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base",
+          "runtime"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/layer-profile-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:496-510",
+        "scripts/luc_cli.py:707-719"
+      ],
+      "notes": "No overall command deadline. Changes the local desired profile; preserves desired layers while disabled. Not the LUMERI_LUC_SAFE_MODE environment switch. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "permissions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "description": "Declared package permissions if artifact; live view if session; catalogue otherwise."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:512-517",
+        "scripts/luc_cli.py:720-728"
+      ],
+      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "modules",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.modules.v1.json#/definitions/modules"
+      },
+      "errors": [
+        "E_LUC_SESSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:519-532",
+        "scripts/luc_cli.py:733-747"
+      ],
+      "notes": "No overall command deadline. Requires --session. GET Runtime modules; with --lines, prints one tab-separated summary line per module. 30-second urllib transport timeout. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON or lines on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "modules reset",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "luc_id": {
+            "type": "string"
+          },
+          "data_root": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "luc_id",
+          "data_root"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "luc": {
+            "type": "string"
+          },
+          "reset": {
+            "type": "boolean"
+          },
+          "breaker": {
+            "type": "string"
+          },
+          "takes_effect": {
+            "const": "at the Runtime's next start"
+          }
+        },
+        "required": [
+          "luc",
+          "reset",
+          "breaker",
+          "takes_effect"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:733-737"
+      ],
+      "notes": "No overall command deadline. Offline breaker-row deletion; does not replace a running fallback latch. Missing row returns reset false. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "conform",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "extension": {
+            "type": "string"
+          },
+          "on": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "grant": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "extension"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "extension": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "luc": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "asks_for": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checked": {
+            "type": "boolean"
+          },
+          "keeps": {
+            "type": "boolean"
+          },
+          "class": {
+            "enum": [
+              "open",
+              "reviewed",
+              "sandboxed",
+              "lumeri-only"
+            ]
+          },
+          "interfaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "code": {
+            "enum": [
+              "E_LUC_INTERFACE_CLASS",
+              "E_LUC_INTERFACE_CAPABILITY",
+              "E_LUC_INTERFACE_INPUT",
+              "E_LUC_INTERFACE_OUTPUT",
+              "E_LUC_INTERFACE_EVENT"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extension",
+          "luc",
+          "asks_for",
+          "checked",
+          "keeps"
+        ]
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_KIND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "scripts/luc_cli.py:134-150",
+        "scripts/luc_cli.py:534-541",
+        "scripts/luc_cli.py:748-751"
+      ],
+      "notes": "Holds an Extension to the interface of the Luc it lies on, as the load gate will (lumeri_runtime/luc_interface_gate.py); by default that Luc is the Official Luc this Runtime ships under the id the Extension extends. Nothing is installed or activated. The Luc is taken to hold the permissions it declares, and what the layer would add is listed in asks_for for the creator to approve. Exit 0 when it keeps the interface, 1 when it does not or when no interface contract names the Luc (code and message say why), 2 on a typed failure. Run checks are not part of it yet."
+    },
+    {
+      "name": "discover",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Runtime Luc JSON response; schemas belong to the called Host/interaction role."
+      },
+      "errors": [
+        "E_LUC_SESSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:539-545",
+        "scripts/luc_cli.py:742-754"
+      ],
+      "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "describe",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Runtime Luc JSON response; schemas belong to the called Host/interaction role."
+      },
+      "errors": [
+        "E_LUC_SESSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:539-545",
+        "scripts/luc_cli.py:742-754"
+      ],
+      "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "status",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Runtime Luc JSON response; schemas belong to the called Host/interaction role."
+      },
+      "errors": [
+        "E_LUC_SESSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:539-545",
+        "scripts/luc_cli.py:742-754"
+      ],
+      "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "cancel",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "interaction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "interaction_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Runtime Luc JSON response; schemas belong to the called Host/interaction role."
+      },
+      "errors": [
+        "E_LUC_SESSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:539-545",
+        "scripts/luc_cli.py:742-754"
+      ],
+      "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+    },
+    {
+      "name": "cloud publish",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "artifact",
+          "owner",
+          "name"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/publish-result-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. Two-phase source publication; same-version retry refuses. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    },
+    {
+      "name": "cloud versions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "owner",
+          "name"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/version-list-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. Immutable remote release list. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    },
+    {
+      "name": "cloud inspect",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. One immutable remote version. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    },
+    {
+      "name": "cloud pull",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "owner",
+          "name",
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "stored": {
+            "const": true
+          },
+          "registry": {
+            "type": "string"
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "identity": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source_hash": {
+            "type": "string"
+          },
+          "activation_changed": {
+            "const": false
+          }
+        },
+        "required": [
+          "stored",
+          "registry",
+          "output",
+          "identity",
+          "kind",
+          "source_hash",
+          "activation_changed"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. Verifies and imports; optional output downloads a separate copy first. No activation. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    },
+    {
+      "name": "cloud search",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "luc",
+              "extension"
+            ]
+          },
+          "capability": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/search-result-v1.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. Namespace-scoped source search. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    },
+    {
+      "name": "cloud check-update",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "current_version": {
+            "type": "string"
+          },
+          "extension_source_hash": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url",
+          "owner",
+          "name",
+          "current_version"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/cloud-schemas/update-status-v2.schema.json#"
+      },
+      "errors": [
+        "E_LUC_CLOUD_CREDENTIAL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "scripts/luc_cli.py:547-622"
+      ],
+      "notes": "No aggregate CLI deadline. Local context assessment only; no installation or activation. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "cloud-not-activation",
+      "text": "Cloud pull explicitly reports activation_changed false; source delivery does not select a live Runtime.",
+      "test": null
+    },
+    {
+      "id": "reset-next-start",
+      "text": "modules reset removes persisted breaker state and explicitly says it takes effect at next Runtime start.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "scripts/luc_cli.py:588-612",
+      "scripts/luc_cli.py:729-769"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Typed errors are JSON but Runtime transport failures use SystemExit text and argparse uses its own output. Callers cannot assume all nonzero results are JSON.",
+      "evidence": [
+        "scripts/luc_cli.py:65-82",
+        "scripts/luc_cli.py:758-769"
+      ],
+      "test": null
+    },
+    {
+      "text": "list --session returns discovery rather than the local installed graph; modules is the separate live module/fallback view.",
+      "evidence": [
+        "scripts/luc_cli.py:641-646",
+        "scripts/luc_cli.py:729-737"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

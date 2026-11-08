@@ -1,0 +1,377 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.host/v1",
+  "version": "1.1.1",
+  "area": "machinery",
+  "title": "LucHost loading and invocation",
+  "summary": "Validate canonical Resolver output against current Runtime, grants, API policy, capability fields and trusted adapter checks before registering the package. Discovery and invocation use the same capability registry and authority.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc:LucHost"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "register_adapter",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "adapter": {
+            "description": "Python instance implementing iface:luc.adapter/v1."
+          }
+        },
+        "required": [
+          "adapter"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:269-276"
+      ],
+      "notes": "Duplicate protocol_id refuses. Optional bind_host runs first. No deadline; retry after success is a duplicate."
+    },
+    {
+      "name": "load",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "description": "Canonical ResolvedLuc, see iface:luc.resolver/v1."
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authorized_resolved_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "check_only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolved"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_RESOLVED_REQUIRED",
+        "E_LUC_RESOLVED_MANIFEST",
+        "E_LUC_LAYER_SKIP",
+        "E_LUC_COMPATIBILITY",
+        "E_LUC_PLATFORM",
+        "E_LUC_RESOLVED_AUTHORITY",
+        "E_LUC_REAUTH_REQUIRED",
+        "E_LUC_README",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_CAPABILITY_INVALID",
+        "E_LUC_ADAPTER_AUTHORITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:278-461"
+      ],
+      "notes": "grants defaults empty, authorization hash None, check_only false. check_only validates without registering capabilities. Successful retry conflicts with registered capability ids. No deadline. Host API and concrete adapter errors additionally propagate; see their interfaces."
+    },
+    {
+      "name": "discover",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16,
+            "default": 8
+          }
+        }
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "description": "id, protocol, description, package, requested/effective APIs, permissions, editable scopes and capability_effect."
+        }
+      },
+      "errors": [
+        "E_LUC"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:495-523"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "describe",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "cid": {
+            "type": "string"
+          },
+          "context": {
+            "description": "Optional Python context; default None."
+          }
+        },
+        "required": [
+          "cid"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+      },
+      "errors": [
+        "E_LUC"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:525-537"
+      ],
+      "notes": "Optional adapter describe hooks may propagate their own errors. Host json_value bounds output; no deadline."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "context": {
+            "description": "Required Host context."
+          },
+          "arguments": {
+            "description": "Capability input-schema instance."
+          }
+        },
+        "required": [
+          "capability_id",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "Original adapter result; .model is validated when present."
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_INVOKE_UNSUPPORTED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:539-577"
+      ],
+      "notes": "Reauthorizes every effective API then invokes and validates model output. Concrete API/adapter refusal codes also propagate; no closed generic error union or deadline. input_error_code can convert invalid input to ToolRefused."
+    },
+    {
+      "name": "package_file",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package_id",
+          "path"
+        ]
+      },
+      "output": {
+        "description": "Detached bytes."
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:489-493"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "agent_visible",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "cid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cid"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:463-468"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "withhold_from_agent",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "cid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cid"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:470-474"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "agent_capability_ids",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:486-487"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "capabilities_per_package",
+      "value": 32,
+      "unit": "capabilities",
+      "evidence": [
+        "lumeri_runtime/luc.py:337-339"
+      ]
+    },
+    {
+      "name": "json_resource_bytes",
+      "value": 65536,
+      "unit": "UTF-8 JSON bytes",
+      "evidence": [
+        "lumeri_runtime/luc.py:31-48"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "validated-before-registration",
+      "text": "The Host validates the whole package before capability registration; check_only returns before registration.",
+      "test": null
+    },
+    {
+      "id": "canonical-resolution",
+      "text": "Loose manifests cannot bypass Resolver context, authority or reauthorization checks.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc.py:278-461"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "LucHost itself checks no interface. A layered Luc is held to its module's interface before it loads, in the two places layers are applied (luc_local.lay_on and the bootstrap loop of official_luc, through luc_interface_gate). At run, invoke validates every input and output against the capability's schemas, which the load gate holds to the contract; an error code outside the contract or a missed deadline is not counted as a break. That matters once a layer can bring code (the code sandbox); today none can.",
+      "evidence": [
+        "docs/luc/interfaces.md:50-58",
+        "lumeri_runtime/luc_interface_gate.py:84-167",
+        "lumeri_runtime/luc.py:539-577"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

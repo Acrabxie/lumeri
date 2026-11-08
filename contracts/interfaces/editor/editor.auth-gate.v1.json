@@ -1,0 +1,143 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.auth-gate/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Account gate before the workspace",
+  "summary": "The only page logic allowed to run before the account service confirms the creator may enter. It reads /auth/session; with cloud sign-in on, the workspace is revealed only for an account whose onboarding is complete; otherwise it starts device sign-in and polls for its result.",
+  "carrier": {
+    "kind": "http",
+    "notes": "static/v3/auth-gate.js (window.LumeriAuthGate). Its routes are answered by the Gateway and the account service (process area)."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "It decides whether the workspace opens at all and starts sign-in; accounts and sign-in are Lumeri's foundation.",
+    "decided": "Acrab 2026-10-06 (accounts, gateway and cloud are Lumeri's); docs/luc/self-luc-inventory.md:103"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "GET /auth/session",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "cloud_login_enabled and account (with onboarding_completed)."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/auth-gate.js:41-45",
+        "static/v3/auth-gate.js:64-125"
+      ],
+      "notes": "Transient failures are retried after 800, 2000 and 4500 ms before the creator is asked."
+    },
+    {
+      "name": "POST /auth/device/start",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "attempt_id, verification_uri_complete and interval."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "static/v3/auth-gate.js:145-156"
+      ]
+    },
+    {
+      "name": "POST /auth/device/token",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "attempt_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "202 pending, or the signed-in session."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/auth-gate.js:157-163"
+      ],
+      "notes": "Polled every interval seconds, kept within 2 to 10 seconds."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "device_poll_ms",
+      "value": "2000..10000",
+      "unit": "milliseconds between device token polls",
+      "evidence": [
+        "static/v3/auth-gate.js:157"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "hidden-until-granted",
+      "text": "The workspace is hidden in the HTML until the gate grants access.",
+      "test": "tests/test_cloud_login_gate.py::test_workspace_is_hidden_in_html_until_the_auth_gate_grants_access"
+    },
+    {
+      "id": "auth-only-before-onboarding",
+      "text": "Signed out, the gate calls only auth endpoints until onboarding is complete.",
+      "test": "tests/test_cloud_login_gate.py::test_signed_out_gate_calls_only_auth_endpoints_before_completed_onboarding"
+    },
+    {
+      "id": "transient-retry",
+      "text": "Transient auth errors are retried until the service recovers.",
+      "test": "tests/test_cloud_login_gate.py::test_gate_keeps_checking_transient_auth_errors_until_the_service_recovers"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the account service cannot be reached"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/auth-gate.js:30-35",
+      "static/v3/auth-gate.js:84"
+    ],
+    "notes": "The workspace stays hidden; the creator is told the service cannot be reached."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_cloud_login_gate.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

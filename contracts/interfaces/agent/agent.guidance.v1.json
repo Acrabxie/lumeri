@@ -1,0 +1,248 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.guidance/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Apply queued creator guidance before the next step",
+  "summary": "The original turn drains its mid-turn guidance queue, prepends the unchanged Chinese 1.0 opener, persists a user message and records the last guidance item in turn_guidance_applied.",
+  "carrier": {
+    "kind": "subprocess",
+    "surface": "sandbox-json-lines",
+    "notes": "Original: lumeri_runtime.agent_turn:AgentTurn.add_guidance. Replacement: a lumeri.agent.part/v1 capability with part \"guidance\", naming an executable file of its Luc, run by luc_sandbox; the Runtime writes one call line and reads one answer line per answer (luc_agent_parts)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It runs only as a child process in the code sandbox of iface:agent.loop/v1 (its own executable, the system libraries and the page size; no file, socket, credential or environment), only from a Luc that holds agent.loop, which Lumeri's review of its exact bytes grants, and only on a machine with a sandbox (macOS today). It speaks lumeri.agent.part/v1 (docs/luc/agent-parts.md): one process per answer, one call line in, one answer line out.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/agent_turn.py:530-542; Acrab 2026-10-26: answered by reviewed programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "agent.loop"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The child reaches nothing but its pipe. The Runtime checks every answer against what the original could have answered and keeps the stored conversation, the model, the budget and the events."
+  },
+  "operations": [
+    {
+      "name": "add_guidance",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:540-547"
+      ],
+      "notes": "No deadline or local length check. Returns false once finished/outcome is set; otherwise appends the message, so a retry duplicates it. Application occurs at the top of the next step, not synchronously at enqueue."
+    },
+    {
+      "name": "guidance_message",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": 10000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:393-401",
+        "lumeri_runtime/luc_agent_parts.py:265-282"
+      ],
+      "notes": "The user message the model reads for the guidance drained before a step. The original is the pinned opener and the items. A program's answer contains every item verbatim; what it says around them is English and at most 2000 characters."
+    }
+  ],
+  "events": [
+    {
+      "name": "turn_guidance_applied",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "guidance": {
+            "type": "string"
+          },
+          "agent_turn": {
+            "const": true
+          }
+        },
+        "required": [
+          "guidance",
+          "agent_turn"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:693-696"
+      ],
+      "notes": "The guidance field is the last queued item; all drained items go into the persisted user message."
+    },
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.guidance"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479"
+      ],
+      "notes": "Once per Session in a start: when the part's program broke (gate run), or when its Luc was left off for the part after three breaks (gate load). Codes: E_LUC_PART_START, E_LUC_PART_PROTOCOL, E_LUC_PART_ACTION, E_LUC_PART_RESULT, E_LUC_PART_LIMIT, E_LUC_PART_DEADLINE, E_LUC_PART_EXIT, E_LUC_PART_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "answer_deadline",
+      "value": 10000,
+      "unit": "ms per answer; host calls not counted",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:42"
+      ]
+    },
+    {
+      "name": "line_bytes",
+      "value": 4194304,
+      "unit": "bytes per JSON line, either way",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:39"
+      ]
+    },
+    {
+      "name": "refusal_message_chars",
+      "value": 2000,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:68"
+      ]
+    },
+    {
+      "name": "guidance_words_chars",
+      "value": 2000,
+      "unit": "characters around the creator's words",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:67"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "guidance-before-next-step",
+      "text": "Mid-turn guidance reaches the model as a user message before its next model step, and queued precedes applied.",
+      "test": "tests/test_runtime_agent_turn.py::test_guidance_mid_turn_reaches_the_model_before_its_next_step"
+    },
+    {
+      "id": "original-opener-pinned",
+      "text": "The original opener stays byte-identical, sha256 eab92fe868c26197faa3ace20abebe75cebee9bb3364216467ce68cb45725241, 133 UTF-8 bytes including newline.",
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program does not start, or its bytes are not the ones its Luc loaded with",
+      "an answer is late, larger than a line, not one JSON value, or not a result, a refusal or a host call the part may make",
+      "a result the original could not have given (see the operation notes), or a refusal the operation does not list",
+      "more host calls than the bound, or the program ends before it answers"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent_parts.py:136-188",
+      "lumeri_runtime/luc_agent_parts.py:399-450",
+      "lumeri_runtime/luc_interactions.py:139-150",
+      "lumeri_runtime/agent_turn.py:635-639"
+    ],
+    "notes": "The original answers the same call, and every call of the part for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for this part at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.agent.guidance)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_parts.py",
+      "tests/test_luc_agent_policy.py",
+      "tests/test_runtime_agent_turn.py::test_guidance_mid_turn_reaches_the_model_before_its_next_step",
+      "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    ],
+    "notes": "tests/test_luc_agent_parts.py and tests/test_luc_agent_policy.py check both the sandboxed guidance part program and the reviewed policy guidance_preamble through a real Worker, including on/off/break and fallback to the pinned 1.0 opener."
+  },
+  "known_deviations": [
+    {
+      "text": "The immutable unlayered 1.0 opener remains Chinese (pinned by sha256 eab92fe868c26197faa3ace20abebe75cebee9bb3364216467ce68cb45725241) while layered guidance_preamble and guidance part programs are English (retire_candidate=true).",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:55",
+        "docs/self-luc-spec.html:411"
+      ],
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    }
+  ],
+  "open_questions": []
+}

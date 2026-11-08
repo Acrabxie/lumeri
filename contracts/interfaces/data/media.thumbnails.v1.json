@@ -1,0 +1,305 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.thumbnails/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Media thumbnail backend",
+  "summary": "JPEG card cache keyed by source content digest and a sandboxed single-frame grab. Only scratch/cache files change, not Project content.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.media_thumbnails:ThumbnailCache,bind_thumbnail",
+    "notes": "Original: lumeri_runtime.media_thumbnails:ThumbnailCache,bind_thumbnail, running ffmpeg in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.media.thumbnails\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for ffmpeg: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/media_thumbnails.py:25-43; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "first_frame_time",
+      "effect": "none",
+      "input": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "output": {
+        "type": "number"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:34-39"
+      ],
+      "notes": "No local operation deadline is enforced. Choose max(0, min(duration-0.02, duration/16)); invalid or nonpositive duration gives zero."
+    },
+    {
+      "name": "ThumbnailCache.get",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "string",
+            "contentEncoding": "base64",
+            "contentMediaType": "image/jpeg",
+            "description": "Draft JSON projection of native bytes, which the current Python seam returns directly."
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:46-62"
+      ],
+      "notes": "No local operation deadline is enforced. Returns native JPEG bytes or None; unreadable, over-limit and bad magic are cache misses. Base64 representation is proposed, not implemented."
+    },
+    {
+      "name": "ThumbnailCache.put",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "payload": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "contentMediaType": "image/jpeg",
+            "description": "Draft JSON projection of native bytes, which the current Python seam returns directly."
+          }
+        },
+        "required": [
+          "digest",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:64-77"
+      ],
+      "notes": "No local operation deadline is enforced. Current payload is bytes. JPEG magic and 1 MiB ceiling are checked, not a full decode. One cache-file rename is atomic; no Project revision/client_op_id commit."
+    },
+    {
+      "name": "bind_thumbnail",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "toolchain": {
+            "type": "object"
+          },
+          "blob": {
+            "type": "string"
+          },
+          "at": {
+            "type": "number"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "toolchain",
+          "blob",
+          "at",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:80-128"
+      ],
+      "notes": "No local operation deadline is enforced. Returns sealed runner; FFmpeg grabs one frame scaled to width 176 into scratch thumb.jpg. Execution verifies the declared artifact and leaves Project revision unchanged. No durable Project write; runner projection is draft. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.media.thumbnails"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "jpeg_bytes",
+      "value": 1048576,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:25-29"
+      ]
+    },
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Cache never returns a payload above 1048576 bytes or without JPEG magic.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: The declared thumb.jpg is a JPEG (it starts with FF D8 FF)."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.media.thumbnails). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "JPEG cache validation checks signature and size only; an accepted cache entry is not proof of successful image decoding.",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:42-43"
+      ],
+      "test": null
+    },
+    {
+      "text": "Python byte payloads have no JSON wire encoding today; base64 schemas are draft projections. Cache rename is not an atomic governed Project write.",
+      "evidence": [
+        "lumeri_runtime/media_thumbnails.py:57-77"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

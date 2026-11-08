@@ -1,0 +1,298 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.shell/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Video shell conversation and panel host page",
+  "summary": "The primary Video workspace shell at /video/shell/: owns the left project/session sidebar, the central conversation thread and composer, session activation scopes and history snapshots, and embeds the classic editor at /video/?mode=panel&session=<id> as a read-only editing panel.",
+  "carrier": {
+    "kind": "browser",
+    "surface": "/video/shell/ (static/v3/shell/index.html, shell.css, shell.js, turns.js)",
+    "notes": "Served under /video/shell/ from static/v3/shell/ (or the Official lumeri.workspace frontend bundle); /video/ redirects to /video/shell/ unless ?ui=classic or ?mode= is present."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The shell owns the account gate, session activation scopes, history snapshot writes, turn submission/steering/stopping, ask-card submission, and the iframe boundary around the editing panel.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:100"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Talks to the Gateway with the creator's session cookie via window.LumeriApi."
+  },
+  "operations": [
+    {
+      "name": "activate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "turn_in_progress": {
+            "type": "boolean"
+          },
+          "latest_event_id": {
+            "type": [
+              "string",
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "Activated session payload when the activation scope is still current, or null when superseded."
+      },
+      "errors": [
+        "E_CURRENT_ACTIVATION",
+        "historyRestoreFailedSafe"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/shell/shell.js:247-272",
+        "static/v3/shell/shell.js:316-332",
+        "static/v3/shell/shell.js:1139-1152"
+      ],
+      "notes": "Restores saved history before opening the EventSource stream and points #panel-frame at /video/?mode=panel&session=<session_id>."
+    },
+    {
+      "name": "submitTurn",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "client_turn_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_project_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "message",
+          "client_turn_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "boolean",
+        "description": "True when POST /sessions/{id}/turn starts or binds the turn; false when superseded or refused."
+      },
+      "errors": [
+        "E_REVISION_CONFLICT",
+        "turnRevisionChanged",
+        "turnStartFailed",
+        "turnDuplicateIgnored"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "static/v3/shell/shell.js:592-640"
+      ],
+      "notes": "Persists the user message to /session-history before POST /sessions/{id}/turn and retries once on E_REVISION_CONFLICT after syncing the session revision."
+    },
+    {
+      "name": "LumeriShellTurns.apply",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "boolean"
+          },
+          "refreshPanel": {
+            "type": "boolean"
+          },
+          "resync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ask": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "askGone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unknown": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "save",
+          "title",
+          "refreshPanel",
+          "resync",
+          "ask",
+          "askGone",
+          "unknown"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/shell/turns.js:214-230",
+        "static/v3/shell/turns.js:306-445"
+      ],
+      "notes": "Pure conversation reducer: routes each SSE event to its turn, strips <activity>/<report> markup, filters unsafe activity labels, and passes PANEL_KINDS quietly."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "activity_text_max_chars",
+      "value": 72,
+      "unit": "characters",
+      "evidence": [
+        "static/v3/shell/turns.js:22"
+      ]
+    },
+    {
+      "name": "progress_report_max_chars",
+      "value": 240,
+      "unit": "characters",
+      "evidence": [
+        "static/v3/shell/turns.js:23"
+      ]
+    },
+    {
+      "name": "clock_slack_ms",
+      "value": 2000,
+      "unit": "milliseconds",
+      "evidence": [
+        "static/v3/shell/turns.js:89"
+      ]
+    },
+    {
+      "name": "min_panel_width_px",
+      "value": 360,
+      "unit": "pixels",
+      "evidence": [
+        "static/v3/shell/shell.js:1168"
+      ]
+    },
+    {
+      "name": "min_thread_width_px",
+      "value": 380,
+      "unit": "pixels",
+      "evidence": [
+        "static/v3/shell/shell.js:1169"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "panel-embed-never-writes-history",
+      "text": "The embedded /video/?mode=panel&session=<id> page observes the session and never writes session history, titles, or the current-session pointer.",
+      "test": "tests/test_v3_shell.py::test_the_editing_panel_is_the_classic_editor_in_panel_mode"
+    },
+    {
+      "id": "history-hydrated-before-stream",
+      "text": "Saved history is hydrated into the conversation model before the session EventSource stream is opened.",
+      "test": "tests/test_v3_shell.py::test_shell_keeps_the_classic_session_protocol"
+    },
+    {
+      "id": "unsafe-activity-and-markup-filtered",
+      "text": "Activity labels matching code, paths, secrets, or internal identifiers are dropped, <activity>/<report> markup is stripped from replies, and panel event kinds pass without unknown-event notices.",
+      "test": "tests/test_v3_shell.py::test_unknown_events_are_flagged_and_panel_events_pass_quietly"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The account gate cannot reach the backend or establish the account boundary.",
+      "A turn submission or history save encounters a revision conflict or HTTP failure.",
+      "The embedded panel frame is blocked or unavailable."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/shell/shell.js:59-66",
+      "static/v3/shell/shell.js:213-220",
+      "static/v3/shell/shell.js:625-631",
+      "static/v3/shell/shell.js:1154-1166"
+    ],
+    "notes": "Shows the account gate error, stops overwriting newer history on E_SNAPSHOT_REVISION, marks the turn failed on conflict/error, or hides the panel frame with a notice."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_v3_shell.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

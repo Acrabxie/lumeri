@@ -1,0 +1,229 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:workflow.product-promo/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Read product promo guidance",
+  "summary": "Making a product promo, brand film or launch video from start to finish: understand, plan, edit, inspect, revise, deliver. Read it before a whole piece; each stage names the Skills to read.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.workflow/v1",
+    "surface": "agent-workflow",
+    "notes": "The capability is read by name through use_skill. It is deliberately hidden from luc_discover and is not a tool-execution grant."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "This protocol carries bounded instruction data, no package code, permissions or Host API authority. Folder and approved data layers can extend the Official Luc under the existing load checks.",
+    "decided": "today's code: lumeri_runtime/luc_local.py:65-73; self-Luc spec v0.3 (2026-10-18)"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "uses names dependencies whose own permissions still apply. Reading guidance does not invoke those capabilities."
+  },
+  "operations": [
+    {
+      "name": "use_skill",
+      "capability": "workflow.product-promo",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "const": "product-promo"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/tools/workflow.product-promo.v1.json#/definitions/answer"
+      },
+      "errors": [
+        "arguments_invalid",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_WORKFLOW_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:106-112",
+        "lumeri_runtime/luc_guides.py:130-200",
+        "lumeri_runtime/official_luc.py:1062-1078",
+        "official_luc/production-guides/manifest.json:96-110"
+      ],
+      "notes": "No deadline is enforced on these bounded package reads. Repeating the read returns the same workflow while package hashes remain unchanged. The shipped workflow has six ordered stages and uses all eight production Skills. The adapter accepts 2..12 stages, at most four Skills per stage and 4800 total instruction/guidance characters. Readiness diagnostics withhold the handle rather than executing missing stages."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "instruction_chars",
+      "value": 4800,
+      "unit": "characters of instruction text; workflow includes guidance and all stages",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112-115"
+      ]
+    },
+    {
+      "name": "whole_answer_chars",
+      "value": 6000,
+      "unit": "characters of compact JSON; oversized guidance is refused, never clipped",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:172-178"
+      ]
+    },
+    {
+      "name": "description_chars",
+      "value": 300,
+      "unit": "characters",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112-115"
+      ]
+    },
+    {
+      "name": "ready_skills",
+      "value": 24,
+      "unit": "ready Skill and Workflow handles across the Host",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:112",
+        "lumeri_runtime/official_luc.py:1002-1005"
+      ]
+    },
+    {
+      "name": "workflow_stages",
+      "value": 12,
+      "unit": "stages, with a minimum of two",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:41-47"
+      ]
+    },
+    {
+      "name": "stage_skills",
+      "value": 4,
+      "unit": "Skill handles per stage",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:41-44"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reading-is-not-executing",
+      "text": "Reading guidance carries no permission and changes no Project; capabilities it names are called separately under their own authority.",
+      "test": null
+    },
+    {
+      "id": "only-when-ready",
+      "text": "use_skill offers this handle only while every declared dependency is available; a Workflow also needs all named stage Skills to be ready.",
+      "test": null
+    },
+    {
+      "id": "whole-workflow",
+      "text": "The entire ordered workflow fits one tool result; an oversized workflow is refused instead of being read cut.",
+      "test": "tests/test_luc_guides.py::test_a_workflow_is_never_read_cut"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The package text is unavailable, invalid or changed since load.",
+      "use_skill is asked for a handle absent from its current ready set."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:1062-1078",
+      "lumeri_runtime/agent_turn.py:851-860"
+    ],
+    "notes": "Load-time layer refusal leaves the Official package. At this data read seam a run-time error reaches the agent as refusal; automatic fallback to the unlayered instructions is not implemented here."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_production_guides.py",
+      "tests/test_luc_guides.py"
+    ],
+    "notes": "Behavior tests were inspected, not executed. Contract checking is structural; no replacement conformance runner validates every instruction answer."
+  },
+  "known_deviations": [
+    {
+      "text": "The adapter publishes an empty input and a bare object output for the capability descriptor; the actual agent call is use_skill {skill}, whose response schema is recorded here.",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:153-156",
+        "lumeri_runtime/official_luc.py:1062-1078"
+      ],
+      "test": null
+    },
+    {
+      "text": "Ready-set preflight swallows instruction LucError and substitutes empty text. A missing/changed file can therefore remain offered until the actual read refuses, without restoring the original at this seam.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:991-1010",
+        "lumeri_runtime/official_luc.py:1014-1031"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4800
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "stage",
+        "title",
+        "instructions"
+      ],
+      "additionalProperties": false
+    },
+    "answer": {
+      "type": "object",
+      "properties": {
+        "workflow": {
+          "const": "product-promo"
+        },
+        "guidance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4800
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/tools/workflow.product-promo.v1.json#/definitions/stage"
+          },
+          "minItems": 2,
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "workflow",
+        "stages"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

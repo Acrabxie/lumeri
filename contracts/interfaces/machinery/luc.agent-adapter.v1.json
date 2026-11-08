@@ -1,0 +1,209 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.agent-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Reviewed instruction stand-in adapter",
+  "summary": "Compile the reviewed agent/v1 instruction file and construct a model-step profile inside Lumeri's host frame. The adapter changes only instruction text, preserving the product's token and cost ceilings.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_agent:AgentAdapter;stand_in_profile;agent_view"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_PRODUCT",
+        "E_LUC_LANGUAGE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:93-151"
+      ],
+      "notes": "No deadline. Requires agent.replace only, no APIs, editable none, valid short name and English instruction letters; UTF-8 instructions <=2400 bytes. ValueError maps at Host load."
+    },
+    {
+      "name": "instructions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost instance."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "E_LUC_AGENT_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:153-166"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "agent_view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "loaded": {
+            "description": "OfficialLucSet."
+          },
+          "fell_back": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "loaded"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "origin=lumeri, or origin=luc with capability/name/title/luc/review; conflict includes candidates; fallback includes layer/code."
+      },
+      "errors": [
+        "E_LUC_AGENT_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:185-205"
+      ],
+      "notes": "No deadline. Conflict code is returned as metadata; two active stand-ins means neither answers."
+    },
+    {
+      "name": "stand_in_profile",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "loaded": {
+            "description": "OfficialLucSet."
+          },
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loaded",
+          "product_id"
+        ]
+      },
+      "output": {
+        "description": "AgentStepProfile or None; profile representation belongs to the agent area."
+      },
+      "errors": [
+        "E_LUC_AGENT_CHANGED",
+        "E_LUC_AGENT_INVALID",
+        "E_LUC_AGENT_FAULT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:208-240"
+      ],
+      "notes": "No deadline. Raises StandInBroken before model reservation when instructions/profile break; Worker decides the original fallback. No active single stand-in returns None. The opaque AgentStepProfile output is not a JSON wire value; its cross-area interface id has not yet been supplied, so no foreign shape is duplicated."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "instruction_bytes",
+      "value": 2400,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:136-140"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "product-ceilings",
+      "text": "A stand-in replaces instructions only; Host frame, product, maximum tokens and cost ceiling remain Lumeri's.",
+      "test": "tests/test_luc_agent.py::test_a_reviewed_luc_stands_in_inside_lumeris_frame_and_bounds"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent.py:208-240"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent.py::test_a_reviewed_luc_stands_in_inside_lumeris_frame_and_bounds"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The inventory's agent no-fallback claim predates StandInBroken and the per-start latch now in LucInteractions; this adapter alone still raises, and its caller owns fallback.",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:234-240",
+        "lumeri_runtime/luc_interactions.py:90-153"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "The agent area must supply the interface id for AgentStepProfile so this opaque Python result can name its owning interface without guessing an id.",
+      "for": "lumeri"
+    }
+  ]
+}

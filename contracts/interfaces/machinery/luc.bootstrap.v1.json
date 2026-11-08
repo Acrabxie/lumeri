@@ -1,0 +1,180 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.bootstrap/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Official Host bootstrap and load precedence",
+  "summary": "Choose one verified Official set, apply on/off policy, register trusted adapters, load activation-profile layers then local-folder layers, and finally load local Lucs.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:bootstrap_official_lucs"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "bootstrap_official_lucs",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "description": "Application with product_id, runtime_version and data_root."
+          },
+          "native_toolbox": {
+            "description": "Toolbox instance."
+          },
+          "safe_mode": {
+            "type": "boolean"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registry_root": {
+            "description": "Path or None."
+          },
+          "bundle_root": {
+            "description": "Path or None."
+          },
+          "host": {
+            "description": "LucHost or None."
+          },
+          "extra_entries": {
+            "type": "object"
+          },
+          "trusted_adapters": {
+            "description": "Tuple of trusted adapter objects."
+          },
+          "first_install_enabled": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "local_config": {
+            "description": "Path or None."
+          },
+          "local_lucs": {
+            "description": "Path or None."
+          }
+        },
+        "required": [
+          "app",
+          "native_toolbox"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.bootstrap.v1.json#/definitions/official_set"
+      },
+      "errors": [
+        "E_LUC_OFFICIAL_POLICY",
+        "E_LUC_OFFICIAL_SAFE_MODE",
+        "E_LUC_REGISTRY_IMMUTABLE",
+        "E_LUC_PLATFORM",
+        "E_LUC_ADAPTER_RUNTIME",
+        "E_LUC_OFFICIAL_BINDING",
+        "E_LUC_TOOL_CODE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_REVIEW_REQUIRED",
+        "E_LUC_PRODUCT",
+        "E_LUC_INTERFACE_CLASS",
+        "E_LUC_INTERFACE_CAPABILITY",
+        "E_LUC_INTERFACE_INPUT",
+        "E_LUC_INTERFACE_OUTPUT",
+        "E_LUC_INTERFACE_EVENT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:533-620",
+        "lumeri_runtime/official_luc.py:665-895",
+        "lumeri_runtime/official_luc.py:781-787",
+        "lumeri_runtime/luc_interface_gate.py:84-167"
+      ],
+      "notes": "No aggregate startup deadline. Intended once per start with a fresh Host; repeat on a populated Host may refuse duplicate adapters/capabilities. Errors include unavailable and layer notice codes, while other index, Resolver and Host errors can escape. A rejected layer is discarded before loading its original. Safe mode ignores config and local folder, excludes layers and keeps only entries marked safe_mode. It can still use an accepted Official channel."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "whole-source",
+      "text": "A channel verification/runtime failure selects the bundled set as a whole; it never mixes the two sources.",
+      "test": null
+    },
+    {
+      "id": "official-first",
+      "text": "Official capability names remain reserved even while switched off; local Lucs load after Official Lucs.",
+      "test": null
+    },
+    {
+      "id": "original-preserved",
+      "text": "Layer resolution/load rejection uses the verified original; original artifacts are retained for supported in-use fallback.",
+      "test": null
+    },
+    {
+      "id": "profile-layers-keep-the-interface",
+      "text": "The creator's activated layers on an Official Luc load only while the Luc keeps its interface (luc_interface_gate); otherwise the Official Luc loads as it shipped and a layer notice names the E_LUC_INTERFACE_* code and the layers.",
+      "test": "tests/test_luc_interface_gate.py::test_a_profile_layer_that_changes_a_sandboxed_lucs_files_leaves_it_as_it_shipped"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:349-379",
+      "lumeri_runtime/official_luc.py:764-895"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Bootstrap catches selected LucError and distribution refusals. It is not a general exception boundary for arbitrary trusted Python adapter crashes.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:770-780",
+        "lumeri_runtime/official_luc.py:812-853"
+      ],
+      "test": null
+    },
+    {
+      "text": "The older Official inventory and migration matrix are not membership or version authorities. The self-Luc inventory records removed native-tool references and outdated protocol/version/default-state claims; bootstrap uses the verified index and actual trusted bindings instead.",
+      "evidence": [
+        "docs/luc/self-luc-inventory.md:328-363",
+        "lumeri_runtime/official_luc.py:568-590",
+        "lumeri_runtime/official_luc.py:706-749"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Should recovery safe mode always use bundled bytes, or may it continue using the accepted Official channel as today's code does?",
+      "for": "acrab"
+    }
+  ],
+  "definitions": {
+    "official_set": {
+      "description": "OfficialLucSet dataclass: host; entries_by_package; migrated_tools; unavailable; safe_mode; source; layer_notices; native_aliases; editor_only; agent_withheld; local_refused; switched_off; layered_originals; layered_hashes. The last two map loaded layered Official package ids to original LucArtifact and layered resolved_hash."
+    }
+  }
+}

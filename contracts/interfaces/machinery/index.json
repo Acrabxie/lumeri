@@ -1,0 +1,378 @@
+{
+  "format": "lumeri.interface-index/v1",
+  "area": "machinery",
+  "modules": [
+    {
+      "module": "lumeri.luc.host",
+      "inventory": "LucHost",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.host/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.review",
+      "inventory": "Review receipts",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.review/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.config",
+      "inventory": "`[luc]` config switches",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.config/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.adapters",
+      "inventory": "Trusted adapter set",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.adapter-set/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.packaged-tools",
+      "inventory": "Packaged tool host (tool/v2)",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.packaged-tool-host/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.workspace-adapter",
+      "inventory": "Workspace, Panel, Skill adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.workspace-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.panel-adapter",
+      "inventory": "Workspace, Panel, Skill adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.panel-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.skill-adapter",
+      "inventory": "Workspace, Panel, Skill adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.skill-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.workflow-adapter",
+      "inventory": "Workflow and Library adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.workflow-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.library-adapter",
+      "inventory": "Workflow and Library adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.library-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.agent-adapter",
+      "inventory": "Agent adapter",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.agent-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.custom-backend-adapter",
+      "inventory": "Custom page and backend adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.custom-backend-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.custom-page-adapter",
+      "inventory": "Custom page and backend adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.custom-page-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.native-point-library-adapter",
+      "inventory": "Native point-library adapter",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.native-point-library-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.native-skill-adapter",
+      "inventory": "Native Skill and Panel v1 adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.native-skill-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.native-panel-adapter",
+      "inventory": "Native Skill and Panel v1 adapters",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.native-panel-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.native-tool-adapter",
+      "inventory": "Native agent tool binding",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.native-tool-adapter/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.host-api",
+      "inventory": "Host API registry and permissions",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.host-api/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.interactions",
+      "inventory": "Interaction relay",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.adapter/v1",
+        "iface:luc.interaction-relay/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.fallback",
+      "inventory": "Official bootstrap",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.fallback/v1",
+        "iface:luc.modules/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.resolver",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.resolver/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.layers",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.layer-profile/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.activation",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.activation/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.registry",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.local-registry/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.rebase",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.rebase/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.local-folder",
+      "inventory": "Local Lucs folder reader",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.local-folder/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.bootstrap",
+      "inventory": "Official bootstrap",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.bootstrap/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.official-channel",
+      "inventory": "Official channel",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.official-channel/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.frontend",
+      "inventory": "Official frontend selection",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.frontend-selection/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.official-registry",
+      "inventory": "Bundle builder and REGISTRY",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.official-registry/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.bundle-builder",
+      "inventory": "Bundle builder and REGISTRY",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.bundle-builder/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.cli",
+      "inventory": "luc_cli",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.cli/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.cloud",
+      "inventory": "Luc Cloud and Hub",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.cloud/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.official-publisher",
+      "inventory": "Luc Cloud and Hub",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.official-publisher/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.hub",
+      "inventory": "Luc Cloud and Hub",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.hub/v2"
+      ]
+    },
+    {
+      "module": "lumeri.luc.confirmation",
+      "inventory": "Interaction relay",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.confirmation/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.hub-http",
+      "inventory": "Luc Cloud and Hub",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.hub-http/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.folder-layers",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.folder-layers/v1"
+      ]
+    },
+    {
+      "module": "lumeri.luc.breaker",
+      "inventory": "Distribution: activation, layers, resolver, rebase",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:luc.breaker/v1",
+        "iface:luc.breaker-state/v1"
+      ]
+    }
+  ]
+}

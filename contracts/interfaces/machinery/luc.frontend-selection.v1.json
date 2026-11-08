@@ -1,0 +1,197 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.frontend-selection/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Official editor frontend selection",
+  "summary": "Select verified Official workspace/v2 assets independently of creator layers, honoring latest config and Registry state; absence permits the Gateway's App renderer.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_frontend:official_frontend, LucFrontend"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "official_frontend",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "data_root": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_root",
+          "product",
+          "runtime_version"
+        ]
+      },
+      "output": {
+        "description": "LucFrontend dataclass or None. Files map relative asset names to bytes; identity, origin, native_api and manifest_sha256 identify the verified candidate."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_frontend.py:63-108",
+        "lumeri_runtime/luc_frontend.py:111-140"
+      ],
+      "notes": "No deadline. Re-verifies selected Official set and frontend pin. Stored-channel failure falls back to bundled set. Does not apply creator layers. Disabled or invalid frontend returns None."
+    },
+    {
+      "name": "LucFrontend.describe",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "const": "luc"
+          },
+          "luc": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "native_api": {
+            "type": "integer"
+          },
+          "manifest_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "luc",
+          "origin",
+          "native_api",
+          "manifest_sha256"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_frontend.py:32-46"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "LucFrontend.enabled_for",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "data_root": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_root",
+          "product"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_frontend.py:48-50",
+        "lumeri_runtime/luc_frontend.py:111-140"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "LucFrontend.file",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "description": "bytes; missing key raises FileNotFoundError, not LucError."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_frontend.py:52-60"
+      ],
+      "notes": "No deadline. Exact selected asset lookup; content_type uses mimetypes and defaults to application/octet-stream."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "verified-page-shell",
+      "text": "Only Lumeri's Official workspace frontend for the requested product can provide these assets.",
+      "test": null
+    },
+    {
+      "id": "no-layered-shell",
+      "text": "The selector compiles the original Official artifact, not an activation-profile or local-folder layer.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_frontend.py:69-108"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The Gateway's frontend selector uses safe_mode=False and does not consult the interaction relay's safe-mode environment switch here. Recovery behavior for the page shell is separate from Worker package recovery.",
+      "evidence": [
+        "lumeri_runtime/luc_frontend.py:74-86"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

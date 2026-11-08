@@ -1,0 +1,233 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.packaged-tool-host/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Verified packaged tool execution",
+  "summary": "Load Python tool definitions from an already verified Official artifact, pin their source bytes, and invoke through a ToolHost whose methods recheck resolved API and edit authority.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_packaged_tools:load_packaged_tools;PackagedToolAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "load_packaged_tools",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "description": "Verified and signed-index-pinned LucArtifact supplied by bootstrap."
+          }
+        },
+        "required": [
+          "artifact"
+        ]
+      },
+      "output": {
+        "description": "dict[str, PackagedTool], each carrying parameters, run/job/document, edits, package id, source path and digest."
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:63-159"
+      ],
+      "notes": "No deadline or sandbox. Executes each source file once per load; retry re-executes it. Missing .py, >256 KiB, bad TOOLS, reserved tool names, invalid schemas or edit declarations refuse."
+    },
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE",
+        "E_LUC_PRODUCT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:546-567"
+      ],
+      "notes": "No deadline. Requires packaged-agent-tool surface, matching product when named, and exact code path/hash from the verified tool. Input is the tool parameters; output is object."
+    },
+    {
+      "name": "validate_authority",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "resolution": {
+            "description": "APIResolution."
+          }
+        },
+        "required": [
+          "capability",
+          "resolution"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:569-588"
+      ],
+      "notes": "No deadline. Requires project.read and exactly covered native edits/write API; additional package API/permission reach refuses via ValueError, mapped by Host to E_LUC_ADAPTER_AUTHORITY."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "ToolContext."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "ToolResult; a returned Mapping is wrapped as ToolResult.model."
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE",
+        "E_LUC_TOOL_RESULT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:610-627"
+      ],
+      "notes": "No generic deadline/retry protection. Domain refusals and governed writes belong to the packaged tool interface. This operation's domain error set is intentionally incomplete until those tools are enumerated; output validation can raise jsonschema.ValidationError."
+    },
+    {
+      "name": "validate_result",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "model": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "model"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "notes": "No deadline; validates with Draft202012Validator without the interaction 64 KiB result bound; invalid output raises ValidationError."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "tool_code_bytes",
+      "value": 262144,
+      "unit": "bytes per Python file",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:43-44",
+        "lumeri_runtime/luc_packaged_tools.py:100-103"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "official-code-only",
+      "text": "A layer replacing a packaged tool's Python file fails its original code pin.",
+      "test": null
+    },
+    {
+      "id": "same-authority",
+      "text": "Tool code receives ToolHost and every privileged call is reauthorized, with domain operations staying on governed Worker paths.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_packaged_tools.py:546-588"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Trusted package code executes with Python exec inside the Runtime, not in a code sandbox. A cryptographic pin does not restrict what that trusted Python code can do.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:104-110"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

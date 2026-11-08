@@ -1,0 +1,184 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.quanta-v4/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Quanta interactive package player and flow editor boundary",
+  "summary": "Browser boundary for the Quanta interactive package (.luqu) player and flow editor under static/v3/quanta/: deterministic ZIP64 package verification, state-graph/stream-cue runtime, and draft validation/repack.",
+  "carrier": {
+    "kind": "browser",
+    "surface": "/quanta/ (static/v3/quanta/index.html, core.html, editor.html, core/*, editor/*)",
+    "notes": "Served under /quanta/ from static/v3/quanta/ (`window.LumeriLuquCore` and `window.LumeriLuquEditorCore`). Boundary contract only; the Quanta v4 .qua player and luqu/ Python package body remain on the Quanta owner's branch until merged."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The Quanta player and flow editor pages are product shells served alongside the Video editor; only the quanta.tree agent tool is a replaceable Luc capability today.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:102"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "LumeriLuquCore.openPackage",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "description": "Uint8Array or Blob holding a .luqu ZIP64 package with normative entry order (mimetype, bootstrap.json, manifest.json, ..., index/full.json)."
+      },
+      "output": {
+        "type": "object",
+        "description": "Verified package handle exposing manifest, bootstrap, fullIndex, indexById, object(id), and readEntryBytes(id)."
+      },
+      "errors": [
+        "E_LUQU_BOOTSTRAP",
+        "E_LUQU_CAPABILITY",
+        "E_LUQU_CONTAINER",
+        "E_LUQU_HASH",
+        "E_LUQU_ID",
+        "E_LUQU_JSON",
+        "E_LUQU_MEDIA",
+        "E_LUQU_REF",
+        "E_LUQU_SCHEMA",
+        "E_LUQU_SEMANTICS"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/quanta/core/luqu-core.js:451-647"
+      ],
+      "notes": "Verifies ZIP64 container order, canonical JSON, SHA-256 and CRC32 of every indexed entry, capability registry digest, and state/edge/cue references before playback."
+    },
+    {
+      "name": "LumeriLuquEditorCore.validateDraft",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sourcePackage": {
+            "type": "object"
+          },
+          "records": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "sourcePackage",
+          "records"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "severity": {
+              "enum": [
+                "error",
+                "warning"
+              ]
+            },
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "message_key": {
+              "type": "string"
+            },
+            "object_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "severity",
+            "code",
+            "message",
+            "message_key",
+            "object_id"
+          ]
+        }
+      },
+      "errors": [
+        "E_LUQU_CAPABILITY",
+        "E_LUQU_MEDIA",
+        "E_LUQU_PROGRESS",
+        "E_LUQU_REF",
+        "E_LUQU_SCHEMA",
+        "W_LUQU_UNREACHABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/quanta/editor/luqu-editor-core.js:256-381"
+      ],
+      "notes": "Checks entry state existence, state media references, variable types/scopes, transition conditions/actions, stream-cue ranges, reachability, and zero-wait 0us cue loops."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "min_zip_entries",
+      "value": 4,
+      "unit": "entries",
+      "evidence": [
+        "static/v3/quanta/core/luqu-core.js:455"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "complete-first-verification",
+      "text": "A package whose entry order, canonical JSON, or entry SHA-256/CRC32 disagrees with index/full.json is rejected before playback begins.",
+      "test": "tests/test_luqu_core_player.py::test_media_chunk_tamper_is_rejected_before_playback"
+    },
+    {
+      "id": "editor-repack-roundtrips-verified-package",
+      "text": "Draft edits in the flow editor validate and repack into a deterministic, verified .luqu ZIP64 archive.",
+      "test": "tests/test_luqu_core_editor.py::test_editor_draft_undo_validation_and_verified_repack"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A package fails container, hash, schema, capability, or reference verification.",
+      "A draft contains dangling references, unsupported primitives, or a zero-wait 0us cue loop."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "static/v3/quanta/core/luqu-core.js:455-520",
+      "static/v3/quanta/editor/luqu-editor-core.js:256-381"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luqu_core_player.py",
+      "tests/test_luqu_core_editor.py",
+      "tests/test_luqu_player.py",
+      "tests/test_quanta_timeline_grammar.py"
+    ],
+    "notes": "Covers the in-tree static/v3/quanta/ player and flow editor boundary. The standalone Quanta v4 .qua player and luqu/ Python package body are developed on quanta/player-minimal-20261101 and will be filled in by the Quanta owner upon merge."
+  },
+  "known_deviations": [
+    {
+      "text": "Only the boundary of Quanta v4 / .luqu present on this branch (static/v3/quanta/*) is contracted here; the Quanta v4 .qua player and luqu/ Python package on branch quanta/player-minimal-20261101 (34ff874f) are owned by the Quanta lane and not merged into this branch.",
+      "evidence": [
+        "static/v3/quanta/core/luqu-core.js:1-25",
+        "static/v3/quanta/editor/luqu-editor-core.js:1-25"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "for": "lumeri",
+      "text": "When branch quanta/player-minimal-20261101 merges, the Quanta owner should extend iface:editor.quanta-v4/v1 with the .qua player and luqu/ package operations."
+    }
+  ]
+}

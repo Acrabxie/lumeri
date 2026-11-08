@@ -1,0 +1,394 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:design.decisions/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Write creative decisions",
+  "summary": "Patch the Project design document with set, merge, append or remove. Intent, beats, craft systems and revision scope stay separate from the delivery target.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "document.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "project_document"
+      ],
+      "properties": [
+        "document.content"
+      ],
+      "areas": [
+        "project"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "patch_design",
+      "capability": "design.decisions",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "enum": [
+              "append",
+              "merge",
+              "remove",
+              "set"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "A JSON pointer whose first step is one of: intent, beats, beat_order, systems, asset_strategy, active_revision_scope."
+          },
+          "value": {
+            "description": "What to set, merge or append. Not given for remove."
+          }
+        },
+        "required": [
+          "op",
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "design": {
+            "$contract": "contracts/interfaces/tools/design.decisions.v1.json#/definitions/design"
+          },
+          "project_revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "design",
+          "project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "design_patch_refused",
+        "approval_required",
+        "document_edit_failed",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_PROGRAM_BROKE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/design/tools.py:100-115",
+        "official_luc/design/tools.py:266-312",
+        "official_luc/design/tools.py:479-509",
+        "lumeri_runtime/luc_packaged_tools.py:405-452",
+        "lumeri_runtime/luc_host_api.py:590-602",
+        "official_luc/design/tools.py:50-55",
+        "official_luc/design/tools.py:228-244"
+      ],
+      "notes": "No end-to-end call deadline is enforced. The Runtime derives an idempotency key from the same tool call. A fresh append call appends again; arbitrary retries with new call ids are not naturally idempotent. Paths address only the six declared sections. Delivery context is read by the package but is omitted from this tool result."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.design"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "patch_value_bytes",
+      "value": 65536,
+      "unit": "UTF-8 JSON bytes",
+      "evidence": [
+        "official_luc/design/tools.py:93-95"
+      ]
+    },
+    {
+      "name": "document_bytes",
+      "value": 1048576,
+      "unit": "UTF-8 JSON bytes",
+      "evidence": [
+        "official_luc/design/tools.py:93-95"
+      ]
+    },
+    {
+      "name": "path_depth",
+      "value": 8,
+      "unit": "JSON pointer tokens",
+      "evidence": [
+        "official_luc/design/tools.py:93-95"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "canvas-belongs-to-delivery",
+      "text": "Canvas requirements are refused in the design document and remain in the delivery target.",
+      "test": "tests/test_runtime_design.py::test_the_canvas_belongs_to_the_contract_and_is_refused_here"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_design.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing behavior tests cover parts of this interface. They were inspected, not run in this documentation task; no replacement conformance runner exists yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "program and canvas are explicitly outside this implementation; arbitrary code entrypoints and duplicate canvas requirements cannot be promised by a replacement.",
+      "evidence": [
+        "official_luc/design/tools.py:84-89",
+        "official_luc/design/tools.py:283-293"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "design": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "lumeri.creative-ir"
+        },
+        "version": {
+          "const": 1
+        },
+        "contract_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "intent": {
+          "type": "object",
+          "properties": {
+            "brief": {
+              "type": "string"
+            },
+            "audience": {
+              "type": "string"
+            },
+            "release_context": {
+              "type": "string"
+            },
+            "creative_thesis": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "brief",
+            "audience",
+            "release_context",
+            "creative_thesis"
+          ],
+          "additionalProperties": false
+        },
+        "beats": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "beat_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "systems": {
+          "type": "object",
+          "properties": {
+            "edit": {
+              "type": "object"
+            },
+            "motion": {
+              "type": "object"
+            },
+            "composition": {
+              "type": "object"
+            },
+            "typography": {
+              "type": "object"
+            },
+            "color": {
+              "type": "object"
+            },
+            "audio": {
+              "type": "object"
+            },
+            "spatial": {
+              "type": "object"
+            },
+            "continuity": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "edit",
+            "motion",
+            "composition",
+            "typography",
+            "color",
+            "audio",
+            "spatial",
+            "continuity"
+          ],
+          "additionalProperties": false
+        },
+        "asset_strategy": {
+          "type": "object"
+        },
+        "active_revision_scope": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "base_project_revision": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "reason",
+                "base_project_revision"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "version",
+        "contract_digest",
+        "intent",
+        "beats",
+        "beat_order",
+        "systems",
+        "asset_strategy",
+        "active_revision_scope"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,458 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.host-api/v1",
+  "version": "1.1.0",
+  "area": "machinery",
+  "title": "Host authority registry and catalogue",
+  "summary": "Resolve requested APIs, permissions and editable reach against Core policy; reauthorize calls and edits; publish the same policy as a catalogue and per-loaded-Luc view.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_host_api:HostAPIRegistry, runtime_host_api_registry; lumeri_runtime.luc_permissions"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "resolve",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "apis": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/host/properties/apis"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "editable": {
+            "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/host/properties/editable"
+          }
+        },
+        "required": [
+          "apis",
+          "permissions",
+          "host_grants",
+          "editable"
+        ]
+      },
+      "output": {
+        "description": "APIResolution instance; public JSON is iface:luc.host-api/v1 authority."
+      },
+      "errors": [
+        "E_LUC_API_MANIFEST",
+        "E_LUC_PERMISSION",
+        "E_LUC_PERMISSION_RESERVED",
+        "E_LUC_REVIEW_REQUIRED",
+        "E_LUC_API_REQUIRED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_PROTECTED_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:406-517"
+      ],
+      "notes": "No deadline. Required missing APIs/permissions refuse; optional ones become unavailable rows. Reserved and reviewed permission names remain distinct from unknown permissions."
+    },
+    {
+      "name": "authorize_api",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string"
+          },
+          "resolution": {
+            "description": "APIResolution instance; public JSON is iface:luc.host-api/v1 authority."
+          },
+          "payload": {
+            "description": "Optional JSON value; None bypasses payload schema check."
+          }
+        },
+        "required": [
+          "api_id",
+          "resolution"
+        ]
+      },
+      "output": {
+        "description": "HostAPIDefinition."
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:580-603"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "validate_capability_effect",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "resolution": {
+            "description": "APIResolution instance; public JSON is iface:luc.host-api/v1 authority."
+          }
+        },
+        "required": [
+          "capability",
+          "resolution"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_CAPABILITY_EFFECT",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_EDIT_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:519-578"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "authorize_edit",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "resolution": {
+            "description": "APIResolution instance; public JSON is iface:luc.host-api/v1 authority."
+          },
+          "api_id": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string"
+          },
+          "apply_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "effect_id": {
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability",
+          "resolution",
+          "api_id",
+          "target_type",
+          "area",
+          "apply_fields",
+          "effect_id",
+          "proposal_id"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_INPUT",
+        "E_LUC_CAPABILITY_EFFECT",
+        "E_LUC_EDIT_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:605-648"
+      ],
+      "notes": "No deadline. Returns sorted property tuple after validating effect, exact declared fields and target/area/property bounds; it does not itself commit an edit."
+    },
+    {
+      "name": "runtime_host_api_registry",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "required": [
+          "app"
+        ],
+        "properties": {
+          "app": {
+            "description": "Application instance inspected for render_engine and media_toolchain attributes on non-desktop platforms."
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "description": "HostAPIRegistry: all default APIs available on desktop; on android, ENGINE_APIS (engine.ask, engine.job, library.roughcut, library.roughcut.review) are marked unavailable when app.render_engine is None, and PROBE_APIS (library.place) is marked unavailable when app.media_toolchain or media_toolchain.probe is absent."
+      },
+      "errors": [
+        "ValueError"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:905-924",
+        "lumeri_runtime/runtime_platform.py:20-27"
+      ],
+      "notes": "No deadline. Calls runtime_platform() (raises ValueError when LUMERI_RUNTIME_PLATFORM is outside desktop or android) and keeps a single source of truth for Host API availability on hosts without the native render engine or FFmpeg toolchain."
+    },
+    {
+      "name": "permission_catalogue",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "registry": {
+            "description": "Optional HostAPIRegistry; defaults Core registry."
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "description": "format, permissions, apis, open/reserved protocols, protected_properties and Panel event/write reach lists."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_permissions.py:59-103"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "luc_permission_view",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "loaded": {
+            "description": "OfficialLucSet."
+          },
+          "agent_fell_back": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "loaded"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "lucs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "off": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "not_loaded": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "layer_notices": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "safe_mode": {
+            "type": "boolean"
+          },
+          "agent": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "format",
+          "lucs",
+          "off",
+          "not_loaded",
+          "layer_notices",
+          "safe_mode",
+          "agent"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_permissions.py:123-179"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "permission-row-check",
+      "text": "An API requires the exact named permission to be declared and granted; a write also requires a valid editable boundary.",
+      "test": "tests/test_luc_permissions.py::test_each_host_api_is_given_for_the_permission_the_list_names_and_no_other"
+    },
+    {
+      "id": "reserved-by-name",
+      "text": "account.access, gateway.access and cloud.access are refused by name without grants.",
+      "test": "tests/test_luc_permissions.py::test_a_reserved_permission_is_refused_by_name_at_the_host_too"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_host_api.py:406-517"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_permissions.py::test_a_reserved_permission_is_refused_by_name_at_the_host_too",
+      "tests/test_luc_permissions.py::test_each_host_api_is_given_for_the_permission_the_list_names_and_no_other"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "authority": {
+      "type": "object",
+      "properties": {
+        "requested_apis": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "required",
+            "optional"
+          ],
+          "additionalProperties": false
+        },
+        "effective_apis": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unavailable_optional_apis": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "permissions": {
+          "type": "object",
+          "properties": {
+            "requested": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "granted": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "requested",
+            "granted"
+          ],
+          "additionalProperties": false
+        },
+        "editable": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/host/properties/editable"
+        },
+        "effective_editable": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/host/properties/editable"
+        }
+      },
+      "required": [
+        "requested_apis",
+        "effective_apis",
+        "unavailable_optional_apis",
+        "permissions",
+        "editable",
+        "effective_editable"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

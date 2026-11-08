@@ -1,0 +1,222 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.luc-discover/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Luc discover",
+  "summary": "One of the fixed English declarations the Runtime gives the Video model. Change these four declarations and docs/luc/agent-protocol.md together.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:_wrappers"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "These four declarations are the Luc-agent protocol itself: every agent, Lumeri's own or a reviewed stand-in, reaches every Luc through them, and the protocol keeps them the same under a stand-in. A replacement would redefine the protocol rather than implement it, so only Lumeri changes them, together with docs/luc/agent-protocol.md.",
+    "decided": "Lead review 2026-10-23 under charter rule 6 (stricter class while unsure, pending Acrab); docs/luc/agent-protocol.md:40-43"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "luc_discover",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "protocol": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "package": {
+                  "type": "string"
+                },
+                "origin": {
+                  "enum": [
+                    "official",
+                    "local"
+                  ]
+                },
+                "publisher": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "migration_state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "protocol",
+                "description",
+                "package",
+                "origin",
+                "publisher",
+                "role",
+                "migration_state"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          },
+          "more": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Unavailable capability/package readiness rows. See iface:luc.bootstrap/v1."
+            }
+          },
+          "more_unavailable": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:148-187",
+        "lumeri_runtime/official_luc.py:265-283"
+      ],
+      "notes": "No deadline is enforced. Query only ranks candidates; more has no pagination cursor. Empty query lists by id; limit defaults to 8. Optional count fields are omitted at zero. Errors raised here are ToolRefused; the turn wraps them into its error answer."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of compact JSON before turn-level clipping",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42",
+        "lumeri_runtime/official_luc.py:63-65"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "whole-discovery",
+      "text": "Discovery removes whole rows until the result fits 6000 characters, and more/more_unavailable count omitted rows.",
+      "test": "tests/test_luc_agent_protocol.py::test_discovery_at_its_widest_fits_one_result_and_counts_what_it_left_out"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:148-187",
+      "lumeri_runtime/official_luc.py:265-283"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent_protocol.py::test_discovery_at_its_widest_fits_one_result_and_counts_what_it_left_out"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "The declaration bounds query to 500 characters and forbids unknown fields; discover itself checks type, English and limit but does not enforce query length or reject unknown fields.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:148-158",
+        "lumeri_runtime/official_luc.py:274-281"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "declaration": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "luc_discover"
+            },
+            "description": {
+              "const": "Discover available verified Luc capabilities by their descriptions and protocols. Write the query as English keywords, for example 'trim clip'; names and descriptions are English. The best matches come first; 'more' counts the ones not listed. 'unavailable' names what is switched on but cannot be used now, and why."
+            },
+            "parameters": {
+              "const": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.native-tool-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Native agent tool v1 binding",
+  "summary": "Bind a stable allowlisted native AgentTool with exact declared API, permission and edit reach. The tool's historical governed dispatcher remains the executor.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_adapters:NativeAgentToolBinding;NativeAgentToolAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_adapters.py:96-119"
+      ],
+      "notes": "No deadline. Native tool must exist, surface is native-agent-tool, and schemas must match tool.parameters and object result. Mismatches raise ValueError."
+    },
+    {
+      "name": "validate_authority",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "resolution": {
+            "description": "APIResolution."
+          }
+        },
+        "required": [
+          "capability",
+          "resolution"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_adapters.py:77-94"
+      ],
+      "notes": "No deadline. All binding APIs must be required, no excess API/permission reach; read tools edit none and writes must be fully covered. Refuses via ValueError."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Host-owned Python context."
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "Native AgentTool result."
+      },
+      "errors": [
+        "E_LUC_EDIT_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_adapters.py:139-153"
+      ],
+      "notes": "No deadline at adapter; native tool keeps its own idempotency and domain refusals. Effective editable scope is rechecked, then tool.run(context, arguments). Native result validator can raise ValidationError."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-new-executor",
+      "text": "The binding delegates to the existing tool.run, never code named by a package.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_adapters.py:103-153"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Core's NATIVE_AGENT_TOOL_POLICIES is empty today; this compatibility adapter does not establish a live binding for any shipped tool.",
+      "evidence": [
+        "lumeri_runtime/native_luc_catalog.py:9-13"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

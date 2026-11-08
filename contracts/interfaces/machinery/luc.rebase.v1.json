@@ -1,0 +1,226 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.rebase/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Rebase planning and new immutable candidate",
+  "summary": "Compare an old Extension with old/new versions of the same Base, classify unchanged/portable/absorbed/conflicting edits, and optionally write a new Extension version to an absent destination.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_distribution.rebase:plan_rebase;write_rebase_candidate"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "plan_rebase",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "old_base_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "new_base_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "extension_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "new_version": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "old_base_input",
+          "new_base_input",
+          "extension_input",
+          "new_version",
+          "runtime_version",
+          "host_grants"
+        ]
+      },
+      "output": {
+        "description": "RebasePlan; .public() follows rebase-plan-v1 schema."
+      },
+      "errors": [
+        "E_LUC_REBASE_INPUT",
+        "E_LUC_REBASE_IDENTITY",
+        "E_LUC_EXTENSION_IMMUTABLE",
+        "E_LUC_COMPATIBILITY",
+        "E_LUC_PARENT_ID",
+        "E_LUC_PARENT_VERSION",
+        "E_LUC_PARENT_HASH",
+        "E_LUC_LAYER_SKIP"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:76-102"
+      ],
+      "notes": "No deadline. Read-only plan; package loading, patch application and candidate resolve may propagate other distribution errors. Never activates."
+    },
+    {
+      "name": "public",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "description": "RebasePlan."
+          }
+        },
+        "required": [
+          "self"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/rebase-plan-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:36-58"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "agent_handoff",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "description": "RebasePlan."
+          }
+        },
+        "required": [
+          "self"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "create_extension_version"
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "write_target": {
+            "type": "object"
+          },
+          "immutable_inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activation_allowed": {
+            "const": false
+          }
+        },
+        "required": [
+          "operation",
+          "inputs",
+          "write_target",
+          "immutable_inputs",
+          "activation_allowed"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:60-73"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "write_rebase_candidate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "description": "RebasePlan."
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "output"
+        ]
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "E_LUC_REBASE_BLOCKED",
+        "E_LUC_EXTENSION_IMMUTABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:225-245"
+      ],
+      "notes": "No deadline. Output Path returned; destination must not exist. A retry after success refuses rather than replacing the immutable candidate."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "new-version-only",
+      "text": "A rebase never edits the old Base or Extension and cannot overwrite the candidate destination.",
+      "test": null
+    },
+    {
+      "id": "no-activation",
+      "text": "The agent handoff explicitly has activation_allowed=false.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_distribution/rebase.py:60-96",
+      "lumeri_runtime/luc_distribution/rebase.py:225-245"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

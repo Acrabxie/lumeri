@@ -1,0 +1,238 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.timeline-view/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Timeline module: the editor's timeline view or a sandboxed Timeline Panel",
+  "summary": "The timeline region of every workspace: the editor's built-in multi-track timeline and direct edits, or a sandboxed Panel placed in the timeline role by a workspace layer. When disabled or broken, the editor's built-in timeline takes the region back.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "editor_role": "timeline",
+    "notes": "Built-in timeline drawn by static/v3/v3.js; a workspace layer may place a lumeri.panel/v2 Panel in the timeline module."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement runs in a sandboxed Panel frame and edits the Project only through timeline.edit and library.place within the timeline editable boundary. When disabled or broken, the editor's built-in timeline answers.",
+    "decided": "self-Luc spec v0.3 and W4 plan; docs/luc/self-luc-inventory.md:95"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "library.place",
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "timeline.edit",
+      "workspace.context"
+    ],
+    "editable": {
+      "target_types": [
+        "timeline_clip",
+        "timeline_track"
+      ],
+      "properties": [
+        "clip.effects",
+        "clip.placement",
+        "clip.presence",
+        "clip.source_range",
+        "clip.transition",
+        "timeline.history",
+        "track.presence"
+      ],
+      "areas": [
+        "timeline"
+      ]
+    },
+    "bridge_calls": [
+      "library.place",
+      "panel.state",
+      "project.view",
+      "selection.view",
+      "timeline.edit",
+      "workspace.context"
+    ],
+    "notes": "bridge_calls and editable are the ceiling for a Panel placed in the timeline role."
+  },
+  "operations": [
+    {
+      "name": "mount",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:726-760",
+        "static/v3/v3.js:14025-14098"
+      ]
+    },
+    {
+      "name": "GET /sessions/{session_id}/timeline",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "The timeline and its project_revision; see iface:timeline.http/v1."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:6908-6921"
+      ]
+    },
+    {
+      "name": "POST /sessions/{session_id}/timeline/op",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "required": [
+          "client_op_id",
+          "expected_project_revision"
+        ],
+        "properties": {
+          "client_op_id": {
+            "type": "string"
+          },
+          "expected_project_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_REVISION_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3.js:7156-7186"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:14025-14098"
+      ]
+    },
+    {
+      "name": "selection.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/selection.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:585-597"
+      ]
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:15510-15518"
+      ]
+    },
+    {
+      "name": "theme.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/theme.changed"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "static/v3/v3.js:580-584"
+      ]
+    },
+    {
+      "name": "panel.resized",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.resized"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "one-edit-at-a-time",
+      "text": "The timeline view edits on the revision it read, and a Timeline Panel that exceeds the role reach or faults gives the region back to the built-in timeline.",
+      "test": "tests/test_editor_w4_panels.py::test_timeline_role_on_off_break"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the timeline Panel exceeds role reach or faults at runtime",
+      "an edit is refused",
+      "the timeline cannot be read"
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:726-760",
+      "lumeri_runtime/luc_interactions.py:340-368",
+      "static/v3/v3.js:14025-14098"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_w4_panels.py::test_timeline_role_on_off_break",
+      "tests/test_editor_w4_panels.py::test_timeline_role_disabled_returns_to_core",
+      "tests/test_editor_w4_panels.py::test_timeline_role_break_falls_back_with_notice"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

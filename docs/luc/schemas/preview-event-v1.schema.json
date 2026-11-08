@@ -1,0 +1,627 @@
+{
+  "$defs": {
+    "point2d": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "space": {
+                "pattern": "\\.normalized$"
+              }
+            },
+            "required": [
+              "space"
+            ]
+          },
+          "then": {
+            "properties": {
+              "x": {
+                "maximum": 1,
+                "minimum": 0
+              },
+              "y": {
+                "maximum": 1,
+                "minimum": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "anchor": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "absolute",
+            "relative"
+          ]
+        },
+        "origin": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "reference": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "space": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "type": {
+          "const": "point2d"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "x",
+        "y",
+        "space",
+        "origin",
+        "anchor",
+        "mode",
+        "reference"
+      ],
+      "type": "object"
+    },
+    "primitive_group": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "presentation": {
+          "type": "object"
+        },
+        "values": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/scalar"
+              },
+              {
+                "$ref": "#/$defs/point2d"
+              },
+              {
+                "$ref": "#/$defs/transform2d"
+              },
+              {
+                "$ref": "#/$defs/quad2d"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 96,
+                    "minLength": 1,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+                    "type": "string"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/scalar"
+                      },
+                      {
+                        "$ref": "#/$defs/point2d"
+                      },
+                      {
+                        "$ref": "#/$defs/transform2d"
+                      },
+                      {
+                        "$ref": "#/$defs/quad2d"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "values"
+      ],
+      "type": "object"
+    },
+    "quad2d": {
+      "$defs": {
+        "point2d": {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "space": {
+                    "pattern": "\\.normalized$"
+                  }
+                },
+                "required": [
+                  "space"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "x": {
+                    "maximum": 1,
+                    "minimum": 0
+                  },
+                  "y": {
+                    "maximum": 1,
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "anchor": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "absolute",
+                "relative"
+              ]
+            },
+            "origin": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "reference": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "space": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "type": {
+              "const": "point2d"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "space",
+            "origin",
+            "anchor",
+            "mode",
+            "reference"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "absolute",
+            "relative"
+          ]
+        },
+        "origin": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "points": {
+          "additionalProperties": false,
+          "properties": {
+            "bottom_left": {
+              "$ref": "#/$defs/point2d"
+            },
+            "bottom_right": {
+              "$ref": "#/$defs/point2d"
+            },
+            "top_left": {
+              "$ref": "#/$defs/point2d"
+            },
+            "top_right": {
+              "$ref": "#/$defs/point2d"
+            }
+          },
+          "required": [
+            "top_left",
+            "top_right",
+            "bottom_right",
+            "bottom_left"
+          ],
+          "type": "object"
+        },
+        "reference": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "space": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "type": {
+          "const": "quad2d"
+        }
+      },
+      "required": [
+        "type",
+        "space",
+        "origin",
+        "mode",
+        "reference",
+        "points"
+      ],
+      "type": "object"
+    },
+    "scalar": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        },
+        "mode": {
+          "enum": [
+            "absolute",
+            "relative"
+          ]
+        },
+        "precision": {
+          "maximum": 12,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "step": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "type": {
+          "const": "scalar"
+        },
+        "unit": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "value",
+        "unit",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "transform2d": {
+      "$defs": {
+        "point2d": {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "space": {
+                    "pattern": "\\.normalized$"
+                  }
+                },
+                "required": [
+                  "space"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "x": {
+                    "maximum": 1,
+                    "minimum": 0
+                  },
+                  "y": {
+                    "maximum": 1,
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "anchor": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "absolute",
+                "relative"
+              ]
+            },
+            "origin": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "reference": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "space": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "type": {
+              "const": "point2d"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "space",
+            "origin",
+            "anchor",
+            "mode",
+            "reference"
+          ],
+          "type": "object"
+        },
+        "scalar": {
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "mode": {
+              "enum": [
+                "absolute",
+                "relative"
+              ]
+            },
+            "precision": {
+              "maximum": 12,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "step": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "type": {
+              "const": "scalar"
+            },
+            "unit": {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+              "type": "string"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "value",
+            "unit",
+            "mode"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/point2d"
+        },
+        "rotation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/scalar"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "degrees",
+                    "radians"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "scale": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/scalar"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "ratio"
+                }
+              }
+            }
+          ]
+        },
+        "type": {
+          "const": "transform2d"
+        }
+      },
+      "required": [
+        "type",
+        "position",
+        "scale"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:lumeri:luc:preview:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "payload": {
+            "type": "null"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "create",
+              "replace"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/point2d"
+              },
+              {
+                "$ref": "#/$defs/quad2d"
+              },
+              {
+                "$ref": "#/$defs/scalar"
+              },
+              {
+                "$ref": "#/$defs/transform2d"
+              },
+              {
+                "$ref": "#/$defs/primitive_group"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "action": {
+      "enum": [
+        "clear",
+        "create",
+        "invalidate",
+        "replace"
+      ]
+    },
+    "base_revision": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "interaction_id": {
+      "maxLength": 192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "payload": {},
+    "preview_id": {
+      "maxLength": 192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "project_id": {
+      "maxLength": 192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "target_id": {
+      "maxLength": 192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "preview_id",
+    "interaction_id",
+    "project_id",
+    "target_id",
+    "base_revision",
+    "action",
+    "payload"
+  ],
+  "title": "Luc ephemeral workspace preview event",
+  "type": "object"
+}

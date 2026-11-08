@@ -1,0 +1,119 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:gemia.point.catalog/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "In-process native Point Library catalog binding",
+  "summary": "Bind an existing gemia PointLibraryPackage by semantic identity and expose read-only catalog/describe dispatch. Project edits and rendering use separate native governance.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_point_library_adapter:NativePointLibraryAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Trusted integrity and binding machinery remains controlled by Lumeri.",
+    "decided": "today's code: lumeri_runtime/luc_point_library_adapter.py:33-85"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:131-153"
+      ],
+      "notes": "No fixed operation deadline is enforced. Checks native name/version/semantic contract hash and read surface; injects exactly the native input/output schemas. Invalid pins/authority raise ValueError without a code."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object"
+          },
+          "context": {
+            "type": "object"
+          },
+          "arguments": {
+            "type": "object",
+            "properties": {
+              "op": {}
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Native ToolResult containing model from PointLibraryPackage.dispatch and ok; see iface:point.library.package/v1."
+      },
+      "errors": [
+        "E_LUC_POINT_LIBRARY_READ_ONLY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:192-206"
+      ],
+      "notes": "No fixed operation deadline is enforced. Defaults op to catalog; create/adjust/apply refused before dispatch. Remaining package-specific outputs and Python ToolResult projection are draft. Never commits Project writes."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "read-only",
+      "text": "The native catalog adapter refuses create, adjust and apply and grants no privileged Host API or edit authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "Validation failure or an unavailable native dependency."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_point_library_adapter.py:131-143",
+      "lumeri_runtime/native_luc_catalog.py:27-41"
+    ],
+    "notes": "Unavailable optional native bindings are omitted and their protocols marked missing when the caller supplies a missing set; otherwise the factory error propagates. No alternate executable package is loaded."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner is attached."
+  },
+  "known_deviations": [
+    {
+      "text": "The binding depends on importing gemia.point_library and a built-in vector-motion package; a Luc reference cannot supply a new native implementation.",
+      "evidence": [
+        "lumeri_runtime/luc_point_library_adapter.py:201-206"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

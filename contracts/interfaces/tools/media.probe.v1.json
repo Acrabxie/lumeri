@@ -1,0 +1,209 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.probe/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Measure one library asset",
+  "summary": "Return the measured media kind, duration, picture dimensions and audio/video flags. The Runtime caches facts by content digest and uses FFprobe on a cache miss.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read"
+    ],
+    "host_apis": [
+      "project.read"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "probe_media",
+      "capability": "media.probe",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "description": "Measured media_kind, nullable duration/width/height and has_video/has_audio flags; normalized facts and cache behavior are owned by the data area, see iface:media.facts/v1."
+          }
+        },
+        "required": [
+          "asset_id",
+          "facts"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "probe_failed",
+        "asset_not_found",
+        "media_toolchain_unavailable",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/project-media-inspector/tools.py:40-42",
+        "lumeri_runtime/luc_packaged_tools.py:250-265",
+        "lumeri_runtime/media_facts.py:33-63",
+        "lumeri_runtime/worker.py:2632-2655",
+        "lumeri_runtime/luc_host_api.py:590-602"
+      ],
+      "notes": "No end-to-end call deadline is enforced. No tool-level deadline is enforced; cache misses use the media_worker sandbox profile. Retries return cached facts when present; otherwise they remeasure without changing the Project. A still has duration=null; placement duration is a separate policy. The cache currently accepts any stored object without schema validation."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.project-media-inspector"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "still-not-timed",
+      "text": "A still image has no measured duration; it is returned as null, distinct from how long a clip is placed.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_media.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing behavior tests cover parts of this interface. They were inspected, not run in this documentation task; no replacement conformance runner exists yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "A cached object is returned without validating its keys or field types. The stated normalized facts shape is guaranteed by fresh measurement, but a malformed cache can violate it.",
+      "evidence": [
+        "lumeri_runtime/media_facts.py:86-91",
+        "lumeri_runtime/worker.py:2641-2648"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

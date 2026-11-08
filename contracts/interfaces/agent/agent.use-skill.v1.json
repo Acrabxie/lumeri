@@ -1,0 +1,221 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.use-skill/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Read a ready Skill or Workflow",
+  "summary": "Build use_skill from ready Skills and Workflows. Its enum and English description list that loaded set; calls return complete instructions or the Workflow guidance and stages.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:_skill_tool"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "These four declarations are the Luc-agent protocol itself: every agent, Lumeri's own or a reviewed stand-in, reaches every Luc through them, and the protocol keeps them the same under a stand-in. A replacement would redefine the protocol rather than implement it, so only Lumeri changes them, together with docs/luc/agent-protocol.md.",
+    "decided": "Lead review 2026-10-23 under charter rule 6 (stricter class while unsure, pending Acrab); docs/luc/agent-protocol.md:40-43"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "use_skill",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "enum": [
+              "assemble-picture-cut",
+              "build-sound-pass",
+              "craft-promo-visual-system",
+              "design-promo-structure",
+              "ground-creative-brief",
+              "inspect-and-revise-cut",
+              "inventory-source-media",
+              "timeline-editing",
+              "transitions",
+              "verify-promo-delivery",
+              "product-promo"
+            ]
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "skill": {
+                "type": "string"
+              },
+              "instructions": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "skill",
+              "instructions"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "workflow": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              },
+              "stages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "stage": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "instructions": {
+                      "type": "string"
+                    },
+                    "skills": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "stage",
+                    "title",
+                    "instructions",
+                    "skills"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "workflow",
+              "stages"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "errors": [
+        "arguments_invalid",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_SKILL_CHANGED",
+        "E_LUC_WORKFLOW_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1062-1101",
+        "lumeri_runtime/luc_workspace.py:612-620",
+        "lumeri_runtime/luc_guides.py:188-200"
+      ],
+      "notes": "No deadline is enforced. Input is the exact default shipped-set parameter schema, with enum order as tested by test_every_skill_reaches_the_agent_whole. The general loaded-set enum is dynamic (list(ready)), so this snapshot is not a universal input constraint. Draft: the format cannot bind that per-instance enum. Re-reading is naturally read-only but may now refuse changed package text; no model request is made."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "answer_chars",
+      "value": 6000,
+      "unit": "characters of complete protocol answer",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42",
+        "docs/luc/agent-protocol.md:15-18"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "whole-skills",
+      "text": "Default ready Skills and Workflows reach the model whole and in English.",
+      "test": "tests/test_luc_agent_protocol.py::test_every_skill_reaches_the_agent_whole"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:1034-1101"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent_protocol.py::test_every_skill_reaches_the_agent_whole"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "A runtime Skill or Workflow fault becomes a refusal to the model rather than retrying unlayered instructions.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1068-1072",
+        "lumeri_runtime/agent_turn.py:853-860"
+      ],
+      "test": null
+    },
+    {
+      "text": "The input enum varies with loaded and ready Lucs. A fixed schema can pin the default set only, not every permitted local installation.",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:1045-1060",
+        "lumeri_runtime/official_luc.py:1094-1099"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Add a parameterized-declaration facility to the contract checker, instantiating use_skill.input.properties.skill.enum from the loaded ready names and testing at least the default and changed sets.",
+      "for": "lumeri"
+    }
+  ],
+  "definitions": {
+    "default_parameters": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "type": "string",
+          "enum": [
+            "assemble-picture-cut",
+            "build-sound-pass",
+            "craft-promo-visual-system",
+            "design-promo-structure",
+            "ground-creative-brief",
+            "inspect-and-revise-cut",
+            "inventory-source-media",
+            "timeline-editing",
+            "transitions",
+            "verify-promo-delivery",
+            "product-promo"
+          ]
+        }
+      },
+      "required": [
+        "skill"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

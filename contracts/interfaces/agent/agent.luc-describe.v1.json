@@ -1,0 +1,209 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.luc-describe/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Luc describe",
+  "summary": "One of the fixed English declarations the Runtime gives the Video model. Change these four declarations and docs/luc/agent-protocol.md together.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:_wrappers"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "These four declarations are the Luc-agent protocol itself: every agent, Lumeri's own or a reviewed stand-in, reaches every Luc through them, and the protocol keeps them the same under a stand-in. A replacement would redefine the protocol rather than implement it, so only Lumeri changes them, together with docs/luc/agent-protocol.md.",
+    "decided": "Lead review 2026-10-23 under charter rule 6 (stricter class while unsure, pending Acrab); docs/luc/agent-protocol.md:40-43"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "luc_describe",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "capability_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "Agent descriptor, including exact input_schema and effective authority; excludes host_api_registry, readme, primitive_schemas and output_schema. Optional targets are shortened whole and counted by more_targets. See iface:luc.host/v1."
+          },
+          "package": {
+            "type": "object",
+            "properties": {
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "source_hash": {
+                "type": "string"
+              },
+              "artifact_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "type": "string"
+              },
+              "publisher": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "migration_state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "identity",
+              "source_hash",
+              "artifact_hash",
+              "origin",
+              "publisher",
+              "role",
+              "migration_state"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "capability",
+          "package"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "luc_capability_not_found",
+        "luc_package_not_found",
+        "luc_description_too_large"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:189-228",
+        "lumeri_runtime/official_luc.py:284-292"
+      ],
+      "notes": "No deadline is enforced. Repeated describe reads current Host state and can differ after a Project edit. Descriptor internals and delegated adapter refusals belong to iface:luc.host/v1; listed codes are this wrapper's own refusals."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of compact JSON before turn-level clipping",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42",
+        "lumeri_runtime/official_luc.py:63-65"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "never-half-schema",
+      "text": "A descriptor that cannot fit one result is refused with luc_description_too_large, never returned with a truncated schema.",
+      "test": "tests/test_luc_agent_protocol.py::test_a_description_that_cannot_fit_is_refused_rather_than_cut"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:189-228",
+      "lumeri_runtime/official_luc.py:284-292"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent_protocol.py::test_a_description_that_cannot_fit_is_refused_rather_than_cut"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "declaration": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "luc_describe"
+            },
+            "description": {
+              "const": "Read how to call one discovered Luc capability: its exact input schema, what it may edit, the Host APIs and permissions it runs with, and its package identity and provenance."
+            },
+            "parameters": {
+              "const": {
+                "type": "object",
+                "properties": {
+                  "capability_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "capability_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

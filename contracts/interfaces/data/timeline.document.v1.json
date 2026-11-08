@@ -1,0 +1,1851 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:timeline.document/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Timeline document and patch vocabulary",
+  "summary": "The Video Project timeline at rest and its pure editing vocabulary. Fifteen operations are validated before the storage broker runs. History lives beside timeline, not inside it. Runtime HTTP revision checks and execution receipts surround this Python seam.",
+  "carrier": {
+    "kind": "file",
+    "surface": "document.json#/timeline; Python lumeri_runtime.timeline:validate_patch,apply_patch,bind_timeline_patch",
+    "notes": "File describes data at rest; the listed patch operations are Python calls at the named seams, not file-system RPCs. JSON Schema cannot express source-range arithmetic, adjacency, finite Python numbers or exact six-place rounding; the operation notes and invariants supply those rules. Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/timeline.py:834-860"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "default_timeline",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:225-257"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "history_state",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "can_undo": {
+            "type": "boolean"
+          },
+          "can_redo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "can_undo",
+          "can_redo"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:762-787"
+      ],
+      "notes": "No operation deadline is enforced at this seam. "
+    },
+    {
+      "name": "insert_clip",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_insert_clip"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:371-386",
+        "lumeri_runtime/timeline.py:871-883",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Insert one unique clip on an existing track, replacing its track and start with track_id and at. at defaults to zero. ripple defaults false and pushes clips at/after the insertion on that track. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "delete_clip",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_delete_clip"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:387-394",
+        "lumeri_runtime/timeline.py:884-893",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Delete an existing clip. With ripple, close its duration on its former track. A missing clip is refused rather than a silent no-op. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "move_clip",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_move_clip"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:395-404",
+        "lumeri_runtime/timeline.py:894-918",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Move an existing clip to an existing track; start defaults zero. Ripple closes the source gap only; it does not push apart the destination. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "trim_clip",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_trim_clip"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:405-418",
+        "lumeri_runtime/timeline.py:1080-1099",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Only video, image, audio and lottie can be trimmed. source_out must exceed source_in; duration becomes their difference. Ripple shifts following clips by the duration difference. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "trim_head",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_trim_head"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:419-430",
+        "lumeri_runtime/timeline.py:961-973",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. One gesture changes both start and source_in, keeping source_out and recomputing duration. Refuse non-trimmable kinds and an in-point at/after source_out. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "split_clip",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_split_clip"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:431-441",
+        "lumeri_runtime/timeline.py:919-960",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Cut strictly inside an existing clip at timeline time at; the caller supplies a fresh new_clip_id. Preserve extras, move transition_after to the tail, and give text halves independent zero-based source ranges. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "set_clip_time",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_clip_time"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:491-507",
+        "lumeri_runtime/timeline.py:1032-1054",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Change start and/or duration. Only image, text and lottie can receive a duration; that resets source_in to zero and source_out to duration. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "set_clip_effects",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_clip_effects"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:442-460",
+        "lumeri_runtime/timeline.py:974-990",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Merge a non-empty effect map; null deletes a key. Preserve other stored keys, even legacy keys the new patch vocabulary refuses. Normalize rotation and round numbers to six decimals. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "add_transition",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_transition"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:461-486",
+        "lumeri_runtime/timeline.py:991-1031",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. cut clears transition_after and ignores duration. Others default to 0.5 seconds, require positive duration, an adjacent following clip on the same track within 0.001 seconds and duration no longer than either clip plus tolerance. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "add_track",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_track"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:508-514",
+        "lumeri_runtime/timeline.py:1055-1063",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Refuse duplicate id or a 65th track. Missing/null index becomes the list length. Defaults are empty name, unlocked, unmuted and no duck target. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "set_track",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_track"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:515-541",
+        "lumeri_runtime/timeline.py:1064-1070",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Change only name, locked, muted and duck_under on an existing track. It cannot change id or kind. The map must change at least one field. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "add_marker",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_marker"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:542-548",
+        "lumeri_runtime/timeline.py:1071-1077",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Refuse duplicate id or a 1025th marker. Default moment zero, kind note and empty label. New markers use time even if the input uses at. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "set_timeline_format",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_timeline_format"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:549-572",
+        "lumeri_runtime/timeline.py:1078-1079",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Set one or more format fields without moving clips. fps is rounded to three decimals then checked within 1..240; width/height are integers 16..16384. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate."
+    },
+    {
+      "name": "undo",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_undo"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:487-490",
+        "lumeri_runtime/timeline.py:842-860",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Restore the newest undo snapshot and push the current timeline onto redo. Refuse an empty stack. This is a fresh durable revision, not a decrement. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate. HTTP checks current history before replay; a retry after consuming the last entry can return nothing_to_undo."
+    },
+    {
+      "name": "redo",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "patch": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_redo"
+          }
+        },
+        "required": [
+          "document",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+      },
+      "errors": [
+        "timeline_patch_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/timeline.py:487-490",
+        "lumeri_runtime/timeline.py:842-860",
+        "lumeri_runtime/timeline.py:1201-1237",
+        "lumeri_runtime/projects.py:282-315"
+      ],
+      "notes": "No operation deadline is enforced at this seam. Restore the newest redo snapshot and push the current timeline onto undo. Refuse an empty stack. A fresh non-history edit clears redo. validate_patch then apply_patch is pure and does not itself write or advance revisions. Through bind_timeline_patch the Gate uses execution_id for replay; durable success advances revision by one. The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate. HTTP checks current history before replay; a retry after consuming the last entry can return nothing_to_redo."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "new_clip_fields",
+      "value": 64,
+      "unit": "fields per normalized clip",
+      "evidence": [
+        "lumeri_runtime/timeline.py:194-199"
+      ]
+    },
+    {
+      "name": "insert_clip_limit",
+      "value": 4096,
+      "unit": "clips checked by insert_clip and with_clips",
+      "evidence": [
+        "lumeri_runtime/timeline.py:194-199"
+      ]
+    },
+    {
+      "name": "add_track_limit",
+      "value": 64,
+      "unit": "tracks",
+      "evidence": [
+        "lumeri_runtime/timeline.py:194-199"
+      ]
+    },
+    {
+      "name": "add_marker_limit",
+      "value": 1024,
+      "unit": "markers",
+      "evidence": [
+        "lumeri_runtime/timeline.py:194-199"
+      ]
+    },
+    {
+      "name": "seconds",
+      "value": 86400,
+      "unit": "seconds per validated time value",
+      "evidence": [
+        "lumeri_runtime/timeline.py:198-199"
+      ]
+    },
+    {
+      "name": "history_steps",
+      "value": 10,
+      "unit": "snapshots per stack",
+      "evidence": [
+        "lumeri_runtime/timeline.py:214-216"
+      ]
+    },
+    {
+      "name": "history_byte_target",
+      "value": 1048576,
+      "unit": "canonical bytes per stack, except a single oversized snapshot",
+      "evidence": [
+        "lumeri_runtime/timeline.py:790-796"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "pure-patches",
+      "text": "Applying the same validated patch to the same document yields the same result and leaves the input untouched.",
+      "test": "tests/test_runtime_timeline_patch.py::test_apply_patch_is_pure_and_deterministic"
+    },
+    {
+      "id": "revision-and-replay",
+      "text": "A successful governed patch advances the Project revision. An identical insert request replays without a second edit; undo/redo have a pre-gate availability limitation recorded below.",
+      "test": "tests/test_runtime_timeline_patch.py::test_exact_retry_replays_without_applying_the_patch_twice"
+    },
+    {
+      "id": "stale-refused",
+      "text": "A fresh request naming a stale Project revision is refused with HTTP 409 before the Project changes.",
+      "test": "tests/test_runtime_timeline_patch.py::test_a_stale_revision_is_refused_before_the_project_changes"
+    },
+    {
+      "id": "undo-restores",
+      "text": "Undo restores the previous timeline bytes for every non-history operation.",
+      "test": "tests/test_runtime_timeline_patch.py::test_undo_puts_the_timeline_back_exactly_as_it_was"
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/timeline.py:834-860",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_timeline_patch.py"
+    ],
+    "notes": "Existing tests cover original edits, compatibility, revision refusal and exact replay; replacement execution and contract output validation are not wired."
+  },
+  "known_deviations": [
+    {
+      "text": "The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate.",
+      "evidence": [
+        "lumeri_runtime/projects.py:282-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "upsert_asset, segment_edit, duplicate_clip and remove_track are explicitly unported and refused. A replacement must not silently add them to this major.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:107-121",
+        "lumeri_runtime/timeline.py:364-370"
+      ],
+      "test": null
+    },
+    {
+      "text": "The history byte target is not an absolute maximum: one newest snapshot is retained even if it alone exceeds 1048576 bytes.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:790-796"
+      ],
+      "test": null
+    },
+    {
+      "text": "Track locked and muted are stored settings; apply_patch does not use locked as a write authorization check. Split also does not check the 4096 insertion ceiling.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:862-883",
+        "lumeri_runtime/timeline.py:919-960",
+        "lumeri_runtime/timeline.py:1064-1070"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    },
+    {
+      "text": "Undo/redo availability is checked before Gate replay lookup. After undo consumes the final undo snapshot, an identical retry can return nothing_to_undo rather than replaying its successful receipt; redo has the symmetric limitation.",
+      "evidence": [
+        "lumeri_runtime/worker.py:1491-1524",
+        "lumeri_runtime/worker.py:1525-1534"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "timeline": {
+      "type": "object",
+      "properties": {
+        "fps": {
+          "type": "number"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/track"
+          }
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/clip"
+          }
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/marker"
+          }
+        }
+      },
+      "required": [
+        "tracks",
+        "clips"
+      ],
+      "additionalProperties": true,
+      "description": "Default: 1920x1080, 30 fps, zero duration, V1 video and A1 audio, empty clips and markers. Existing fields pass through. An edit derives duration from clip ends, orders clips by track_id/start/id, and markers by moment/id. Stored documents are not globally revalidated against all insertion ceilings."
+    },
+    "clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "asset_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "media_kind": {
+          "enum": [
+            "video",
+            "audio",
+            "image",
+            "text",
+            "overlay",
+            "lottie"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_in": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_out": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "id",
+        "asset_id",
+        "media_kind",
+        "name",
+        "track_id",
+        "start",
+        "duration",
+        "source_in",
+        "source_out"
+      ],
+      "additionalProperties": true,
+      "description": "Stored clip extensions, including effects, transition_after, text_config and waveform data, survive edits. The nine normalized fields are always present. Values and legacy extras are kept rather than reinterpreted. Input normalization checks at most 64 original fields, then inserts missing normalized defaults."
+    },
+    "new_clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "asset_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "media_kind": {
+          "enum": [
+            "video",
+            "audio",
+            "image",
+            "text",
+            "overlay",
+            "lottie"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_in": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_out": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "id",
+        "media_kind",
+        "track_id",
+        "source_out"
+      ],
+      "additionalProperties": false,
+      "description": "New clips reject unknown fields. Non-text needs a non-empty asset_id; source_out must exceed source_in; duration equals their difference after rounding to six decimals. These relational checks are enforced by normalize_clip."
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "audio",
+            "overlay"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "index": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "duck_under": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128,
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "index",
+        "locked",
+        "muted",
+        "duck_under"
+      ],
+      "additionalProperties": false
+    },
+    "marker": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "at": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "time": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "kind": {
+          "enum": [
+            "note",
+            "chapter",
+            "todo",
+            "beat"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": true,
+      "description": "Stored markers keep extensions and their at/time spelling. Both moments, when present, must agree. New markers are written with time, kind and label."
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "lumeri.timeline-motion-svg/v1"
+        },
+        "svg": {
+          "type": "string"
+        },
+        "easing": {
+          "enum": [
+            "linear",
+            "ease_in",
+            "ease_out",
+            "ease_in_out"
+          ]
+        },
+        "auto_rotate": {
+          "type": "boolean"
+        },
+        "rotation_start": {
+          "type": "number"
+        },
+        "rotation_end": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "profile",
+        "svg"
+      ],
+      "additionalProperties": false,
+      "description": "SVG viewBox 0 0 1000 1000, one safe path, at most 16384 UTF-8 bytes and 128 path commands. Defaults ease_in_out, no auto rotation and zero rotations. Executable/external SVG content is refused."
+    },
+    "history": {
+      "type": "object",
+      "properties": {
+        "undo": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          }
+        },
+        "redo": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          }
+        }
+      },
+      "required": [
+        "undo",
+        "redo"
+      ],
+      "additionalProperties": false
+    },
+    "patch_insert_clip": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "insert_clip"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "clip": {
+              "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/new_clip"
+            }
+          },
+          "required": [
+            "clip"
+          ],
+          "additionalProperties": false
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "at": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "ripple": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "data",
+        "track_id"
+      ],
+      "additionalProperties": false
+    },
+    "patch_delete_clip": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "delete_clip"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ripple": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "clip_id"
+      ],
+      "additionalProperties": false
+    },
+    "patch_move_clip": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "move_clip"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "ripple": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "track_id"
+      ],
+      "additionalProperties": false
+    },
+    "patch_trim_clip": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "trim_clip"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_in": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_out": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "ripple": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "source_in",
+        "source_out"
+      ],
+      "additionalProperties": false
+    },
+    "patch_trim_head": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "trim_head"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "source_in": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "start",
+        "source_in"
+      ],
+      "additionalProperties": false
+    },
+    "patch_split_clip": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "split_clip"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "at": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "new_clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "at",
+        "new_clip_id"
+      ],
+      "additionalProperties": false
+    },
+    "patch_set_clip_time": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "set_clip_time"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "start": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "op",
+        "clip_id"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "start"
+          ]
+        },
+        {
+          "required": [
+            "duration"
+          ]
+        }
+      ]
+    },
+    "patch_set_clip_effects": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "set_clip_effects"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "effects": {
+          "type": "object",
+          "properties": {
+            "rotation": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mirrored": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "muted": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "speed": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scale": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "blur_radius": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "opacity": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "x": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "y": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "gain_db": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fade_in": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fade_out": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "blend_mode": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "normal",
+                    "multiply",
+                    "screen",
+                    "overlay",
+                    "add",
+                    "linear_dodge",
+                    "lighten",
+                    "darken",
+                    "difference",
+                    "exclusion",
+                    "subtract",
+                    "hard_light",
+                    "soft_light",
+                    "color_dodge",
+                    "color_burn"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "motion_svg": {
+              "anyOf": [
+                {
+                  "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/motion"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "effects"
+      ],
+      "additionalProperties": false
+    },
+    "patch_add_transition": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "add_transition"
+        },
+        "clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "kind": {
+          "enum": [
+            "cut",
+            "dissolve",
+            "wipe",
+            "fade"
+          ]
+        },
+        "duration_sec": {}
+      },
+      "required": [
+        "op",
+        "clip_id",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cut"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "duration_sec": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 86400
+              }
+            }
+          }
+        }
+      ]
+    },
+    "patch_add_track": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "add_track"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "kind": {
+                  "enum": [
+                    "video",
+                    "audio",
+                    "overlay"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "index": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "muted": {
+                  "type": "boolean"
+                },
+                "duck_under": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 128,
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "track"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "op",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "patch_set_track": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "set_track"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "locked": {
+              "type": "boolean"
+            },
+            "muted": {
+              "type": "boolean"
+            },
+            "duck_under": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 128,
+              "minLength": 1
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "op",
+        "track_id",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "patch_add_marker": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "add_marker"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "marker": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "at": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 86400
+                },
+                "time": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 86400
+                },
+                "kind": {
+                  "enum": [
+                    "note",
+                    "chapter",
+                    "todo",
+                    "beat"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "marker"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "op",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "patch_set_timeline_format": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "set_timeline_format"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "fps"
+          ]
+        },
+        {
+          "required": [
+            "width"
+          ]
+        },
+        {
+          "required": [
+            "height"
+          ]
+        }
+      ]
+    },
+    "patch_undo": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "undo"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    "patch_redo": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "const": "redo"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    "patch": {
+      "oneOf": [
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_insert_clip"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_delete_clip"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_move_clip"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_trim_clip"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_trim_head"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_split_clip"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_clip_time"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_clip_effects"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_transition"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_track"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_track"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_add_marker"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_set_timeline_format"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_undo"
+        },
+        {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch_redo"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,314 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.review/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Review receipt file and verification",
+  "summary": "A .luc.review JSON document beside one creator artifact authenticates review of its exact identity and artifact bytes. Verification uses the pinned Official signing keys with a distinct domain prefix; the server alone signs.",
+  "carrier": {
+    "kind": "file",
+    "surface": "<artifact>.luc.review; lumeri_runtime.luc_review"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "read_review",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact_path": {
+            "type": "string"
+          },
+          "artifact": {
+            "description": "Verified LucArtifact."
+          },
+          "now": {
+            "description": "Optional aware datetime."
+          }
+        },
+        "required": [
+          "artifact_path",
+          "artifact"
+        ]
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$contract": "contracts/interfaces/machinery/luc.review.v1.json#/definitions/verified_review"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_REVIEW_INVALID",
+        "E_LUC_REVIEW_MISMATCH",
+        "E_LUC_REVIEW_WITHDRAWN",
+        "E_LUC_REVIEW_EXPIRED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:159-176"
+      ],
+      "notes": "No deadline. Absent file returns None; unreadable, linked, oversized or invalid receipt refuses. Retrying rereads the file and current time."
+    },
+    {
+      "name": "verify_review",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$contract": "contracts/interfaces/machinery/luc.review.v1.json#/definitions/envelope"
+          },
+          "artifact": {
+            "description": "Verified LucArtifact."
+          },
+          "public_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "now": {
+            "description": "Optional aware datetime."
+          }
+        },
+        "required": [
+          "document",
+          "artifact"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.review.v1.json#/definitions/verified_review"
+      },
+      "errors": [
+        "E_LUC_REVIEW_INVALID",
+        "E_LUC_REVIEW_MISMATCH",
+        "E_LUC_REVIEW_WITHDRAWN",
+        "E_LUC_REVIEW_EXPIRED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:101-156"
+      ],
+      "notes": "No deadline. public_keys defaults to Official pinned keys. Verifier checks signatures, payload fields, exact artifact and withdrawal, then returns only permissions known to this Runtime."
+    },
+    {
+      "name": "sign_review",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "description": "Verified LucArtifact."
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "private_key": {
+            "description": "Server-owned Ed25519PrivateKey handle, never serialized."
+          },
+          "valid_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 366
+          },
+          "reviewed_at": {
+            "description": "Optional aware datetime."
+          }
+        },
+        "required": [
+          "artifact",
+          "permissions",
+          "private_key",
+          "valid_days"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.review.v1.json#/definitions/envelope"
+      },
+      "errors": [
+        "E_LUC_REVIEW_PERMISSION",
+        "E_LUC_REVIEW_PERIOD"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:68-98"
+      ],
+      "notes": "No deadline. Permissions must be unique reviewed permissions declared by the artifact. With reviewed_at omitted, retry can sign a different timestamp."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "receipt_bytes",
+      "value": 16384,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:38-40"
+      ]
+    },
+    {
+      "name": "signing_max_days",
+      "value": 366,
+      "unit": "days",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:78-84"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "exact-file-only",
+      "text": "A review covers only the named artifact hash and identity, never changed bytes or another Luc.",
+      "test": null
+    },
+    {
+      "id": "signing-period",
+      "text": "Signing permits 1..366 whole days and only requested reviewed permissions.",
+      "test": "tests/test_luc_agent.py::test_a_receipt_covers_only_what_the_manifest_declares_and_only_for_a_while"
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/luc_review.py:101-176"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent.py::test_a_receipt_covers_only_what_the_manifest_declares_and_only_for_a_while"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Signing caps review duration, but verify_review does not reapply MAX_REVIEW_DAYS and does not reject reviewed_at in the future when the end date has not passed.",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:138-150"
+      ],
+      "test": null
+    },
+    {
+      "text": "Withdrawal is a Runtime-shipped hash set, currently empty, rather than an online revocation lookup.",
+      "evidence": [
+        "lumeri_runtime/luc_review.py:15-17",
+        "lumeri_runtime/luc_review.py:40-42"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "envelope": {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "key_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "payload",
+        "signature",
+        "key_id"
+      ],
+      "description": "Base64url canonical JSON payload and Ed25519 signature over the distinct review prefix; no example key or signature.",
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "lumeri.luc.review/v1"
+        },
+        "identity": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+        },
+        "artifact_hash": {
+          "type": "string"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reviewed_at": {
+          "type": "string"
+        },
+        "valid_until": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "identity",
+        "artifact_hash",
+        "permissions",
+        "reviewed_at",
+        "valid_until"
+      ],
+      "description": "Canonical decoded receipt payload.",
+      "additionalProperties": false
+    },
+    "verified_review": {
+      "type": "object",
+      "properties": {
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reviewed_at": {
+          "type": "string"
+        },
+        "valid_until": {
+          "type": "string"
+        },
+        "key_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "permissions",
+        "reviewed_at",
+        "valid_until",
+        "key_id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

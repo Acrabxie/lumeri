@@ -1,0 +1,477 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.custom-page-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Declarative custom page lifecycle",
+  "summary": "Keep session-scoped declarative pages in memory and mount plain text/native controls through trusted interaction APIs. Page state is revision-checked and only registered backend ids can supply actions.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_custom:CustomPageAdapter.invoke"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "invoke create",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Trusted custom context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/create_input"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_CUSTOM_CONFLICT",
+        "E_LUC_CUSTOM_CAPACITY",
+        "E_LUC_CUSTOM_AUTHORITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:535-638"
+      ],
+      "notes": "No deadline. create uses request_id scoped to capability+binding; replay of identical document returns current record, changed bytes conflict. load is naturally repeatable. Revision-bearing calls require current expected_revision. LucError during renderer dispatch becomes a returned status=error record, not a raised code. Records are lost at restart."
+    },
+    {
+      "name": "invoke load",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Trusted custom context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/load_input"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_CUSTOM_NOT_FOUND",
+        "E_LUC_CUSTOM_BUSY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:535-638"
+      ],
+      "notes": "No deadline. create uses request_id scoped to capability+binding; replay of identical document returns current record, changed bytes conflict. load is naturally repeatable. Revision-bearing calls require current expected_revision. LucError during renderer dispatch becomes a returned status=error record, not a raised code. Records are lost at restart."
+    },
+    {
+      "name": "invoke mount",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Trusted custom context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/mount_input"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_CUSTOM_NOT_FOUND",
+        "E_LUC_CUSTOM_BUSY",
+        "E_LUC_CUSTOM_REVISION",
+        "E_LUC_CUSTOM_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:535-638"
+      ],
+      "notes": "No deadline. create uses request_id scoped to capability+binding; replay of identical document returns current record, changed bytes conflict. load is naturally repeatable. Revision-bearing calls require current expected_revision. LucError during renderer dispatch becomes a returned status=error record, not a raised code. Records are lost at restart."
+    },
+    {
+      "name": "invoke interact",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Trusted custom context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/interact_input"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_CUSTOM_NOT_FOUND",
+        "E_LUC_CUSTOM_BUSY",
+        "E_LUC_CUSTOM_REVISION",
+        "E_LUC_CUSTOM_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:535-638"
+      ],
+      "notes": "No deadline. create uses request_id scoped to capability+binding; replay of identical document returns current record, changed bytes conflict. load is naturally repeatable. Revision-bearing calls require current expected_revision. LucError during renderer dispatch becomes a returned status=error record, not a raised code. Records are lost at restart."
+    },
+    {
+      "name": "invoke unmount",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "context": {
+            "description": "Trusted custom context."
+          },
+          "arguments": {
+            "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/unmount_input"
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.custom-page-adapter.v1.json#/definitions/result"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_INPUT",
+        "E_LUC_CUSTOM_RUNTIME",
+        "E_LUC_CUSTOM_SCOPE",
+        "E_LUC_CUSTOM_DECLARATION",
+        "E_LUC_CUSTOM_BACKEND_NOT_FOUND",
+        "E_LUC_CUSTOM_NOT_FOUND",
+        "E_LUC_CUSTOM_BUSY",
+        "E_LUC_CUSTOM_REVISION",
+        "E_LUC_CUSTOM_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:535-638"
+      ],
+      "notes": "No deadline. create uses request_id scoped to capability+binding; replay of identical document returns current record, changed bytes conflict. load is naturally repeatable. Revision-bearing calls require current expected_revision. LucError during renderer dispatch becomes a returned status=error record, not a raised code. Records are lost at restart."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "pages_per_host",
+      "value": 256,
+      "unit": "records",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:562-563"
+      ]
+    },
+    {
+      "name": "pages_per_session",
+      "value": 64,
+      "unit": "records",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:562-563"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "proven-scope",
+      "text": "A page record cannot be used by another capability or Host binding.",
+      "test": null
+    },
+    {
+      "id": "no-package-renderer",
+      "text": "Custom pages specify native controls and declarative actions, not a package renderer.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_custom.py:481-521",
+      "lumeri_runtime/luc_custom.py:535-638"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Creation replay returns the record's current lifecycle state, not a durable original response. There is no cross-restart idempotency; records and request ids are in memory.",
+      "evidence": [
+        "lumeri_runtime/luc_custom.py:487-491",
+        "lumeri_runtime/luc_custom.py:555-571"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "result": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "created",
+            "loaded",
+            "mounted",
+            "unmounted",
+            "error"
+          ]
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "document": {
+          "type": "object"
+        },
+        "result": {
+          "type": "object"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "page_id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "create_input": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "const": "create"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "document": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "request_id",
+        "document"
+      ],
+      "additionalProperties": false
+    },
+    "load_input": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "const": "load"
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        }
+      },
+      "required": [
+        "operation",
+        "page_id"
+      ],
+      "additionalProperties": false
+    },
+    "mount_input": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "const": "mount"
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "operation",
+        "page_id",
+        "expected_revision"
+      ],
+      "additionalProperties": false
+    },
+    "interact_input": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "const": "interact"
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "event": {
+          "type": "object",
+          "properties": {
+            "control_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 192
+            },
+            "value": {}
+          },
+          "required": [
+            "control_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "operation",
+        "page_id",
+        "expected_revision",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "unmount_input": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "const": "unmount"
+        },
+        "page_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 192
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "operation",
+        "page_id",
+        "expected_revision"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

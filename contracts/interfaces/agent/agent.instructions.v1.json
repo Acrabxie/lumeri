@@ -1,0 +1,298 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.instructions/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Choose the instructions for one agent step",
+  "summary": "Read Lumeri's immutable Video step prompt or a reviewed stand-in. The Worker catches a broken stand-in before reserving a model step and uses the original for the rest of its start.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.worker:WorkerApplication._agent_stand_in"
+  },
+  "replaceability": {
+    "class": "reviewed",
+    "why": "Only an exact-byte Lumeri review granting agent.replace authorizes replacement instructions.",
+    "decided": "Acrab 2026-10-06: agent.replace requires Lumeri review; self-Luc spec v0.3 (2026-10-18)"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "agent_step_profile_for",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.instructions.v1.json#/definitions/step_profile"
+      },
+      "errors": [
+        "product_invalid"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:203-217"
+      ],
+      "notes": "No deadline is enforced; this is a synchronous in-process call."
+    },
+    {
+      "name": "_agent_stand_in",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "root_turn_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "session_id",
+          "root_turn_id",
+          "turn_id",
+          "trace_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/agent/agent.instructions.v1.json#/definitions/step_profile"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:8056-8132"
+      ],
+      "notes": "No deadline: synchronous profile selection. null selects the original downstream; the Worker consumes StandInBroken, it does not raise agent_stand_in_unavailable. Re-reading may record one Session notice; it does not reserve or call a model."
+    },
+    {
+      "name": "stand_in_profile",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "loaded": {
+            "type": "object",
+            "description": "Loaded Official/local Luc set. See iface:luc.bootstrap/v1."
+          },
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loaded",
+          "product_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/agent/agent.instructions.v1.json#/definitions/step_profile"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_AGENT_CHANGED",
+        "E_LUC_AGENT_INVALID",
+        "E_LUC_AGENT_FAULT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:208-240"
+      ],
+      "notes": "No enforced deadline. Lower-level helper raises StandInBroken; Worker._agent_stand_in is the fallback seam. Zero candidates or a conflict returns null; retries over unchanged loaded data do not call a provider."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.instructions"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "enum": [
+              "E_LUC_AGENT_CHANGED",
+              "E_LUC_AGENT_INVALID",
+              "E_LUC_AGENT_FAULT",
+              "E_LUC_LAYER_TRIPPED"
+            ]
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/worker.py:8228-8281"
+      ],
+      "notes": "Once per Session per Worker start; notice storage is best effort and cannot prevent fallback."
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "original-prompt-pinned",
+      "text": "Without a layer, the step system_prompt_sha256 equals 88e44a3965a7d9e2d977b2fd77154b78bf0006f91ce26f92d3659f4293d0f4fd.",
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    },
+    {
+      "id": "broken-standin-falls-back",
+      "text": "A changed, throwing or bounds-widening stand-in gives way to Lumeri's original, announces luc.module_fell_back and completes without an extra model call.",
+      "test": "tests/test_luc_agent.py::test_a_real_worker_falls_back_once_after_a_standin_break"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/model_ingress.py:171-196",
+      "lumeri_runtime/worker.py:8056-8132"
+    ],
+    "notes": "StandInBroken is caught by the Worker before prepare_agent_model_step reserves anything. It latches the original for this start; notice and breaker writes are best effort."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools",
+      "tests/test_luc_agent.py::test_a_real_worker_asks_the_model_under_the_stand_in_and_says_who_answers",
+      "tests/test_luc_agent.py::test_a_real_worker_uses_the_original_after_safe_mode_removal_or_switch_off",
+      "tests/test_luc_agent.py::test_a_real_worker_falls_back_once_after_a_standin_break",
+      "tests/test_luc_agent.py::test_a_tripped_instructions_standin_is_held_until_reset_and_new_hash_starts_at_one"
+    ],
+    "notes": "Real Worker tests cover stand-in replacement (on), removal/disable/safe-mode restoration (off), and runtime break fallback + breaker tripping (break)."
+  },
+  "known_deviations": [
+    {
+      "text": "The stand-in remains a separate reviewed lumeri.agent/v1 Luc, not an Extension over an Official instructions Luc. Acrab, 2026-10-24: keep this carrier until the Luc hub can review a layer, then migrate to an Extension over an Official instructions Luc.",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:39-47",
+        "lumeri_runtime/luc_agent.py:208-224"
+      ],
+      "test": null
+    },
+    {
+      "text": "A valid stand-in replaces the whole original prompt; the original How you answer rules are absent unless its own instructions restore them.",
+      "evidence": [
+        "lumeri_runtime/luc_agent.py:50-68",
+        "lumeri_runtime/model_ingress.py:189-192"
+      ],
+      "test": "tests/test_luc_agent.py::test_a_reviewed_luc_stands_in_inside_lumeris_frame_and_bounds"
+    },
+    {
+      "text": "The original still answers if fallback bookkeeping or event storage fails; the always-announced iron rule cannot be guaranteed on that failure path.",
+      "evidence": [
+        "lumeri_runtime/worker.py:8087-8132",
+        "lumeri_runtime/worker.py:8255-8257"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "step_profile": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": "string"
+        },
+        "product_id": {
+          "const": "video"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "max_cost_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "profile_id",
+        "product_id",
+        "system_prompt",
+        "max_tokens",
+        "max_cost_micros"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

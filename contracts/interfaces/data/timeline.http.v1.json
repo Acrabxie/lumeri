@@ -1,0 +1,247 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:timeline.http/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Governed timeline HTTP write",
+  "summary": "One HTTP patch uses exact revision and execution authority around the timeline document vocabulary. Writes remain Lumeri-only and are not eligible replacement commits today.",
+  "carrier": {
+    "kind": "http",
+    "surface": "/runtime/v1/{product}",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/worker.py:1454-1561"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "POST /sessions/{session_id}/timeline/patch",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/data/timeline.http.v1.json#/definitions/request"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/timeline.http.v1.json#/definitions/response"
+      },
+      "errors": [
+        "invalid_request",
+        "timeline_patch_invalid",
+        "project_revision_changed",
+        "nothing_to_undo",
+        "nothing_to_redo"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/worker.py:1458-1565",
+        "lumeri_runtime/worker.py:1567-1599",
+        "lumeri_runtime/worker.py:1608-1665",
+        "lumeri_runtime/worker.py:9456-9467"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. HTTP 200 success, 202 approval pending, 409 stale/empty history/denied/cancelled and 500 other Gate failure. Invalid envelopes map to invalid_request. Pure patch vocabulary is iface:timeline.document/v1. Governance failure codes remain open; no guessed closed set. Successful new writes advance Project and Session revisions; exact durable replay does not. Undo/redo prechecks may prevent replay. Staged intent, Project document/revision files and effect-result journal are separate, not one atomic client_op_id commit."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "account-scope",
+      "text": "Project and Session access is resolved using verified account identity; a path id alone supplies no ownership authority.",
+      "test": null
+    },
+    {
+      "id": "revision-and-replay",
+      "text": "A successful governed patch advances the Project revision. An identical insert request replays without a second edit; undo/redo have a pre-gate availability limitation recorded below.",
+      "test": "tests/test_runtime_timeline_patch.py::test_exact_retry_replays_without_applying_the_patch_twice"
+    },
+    {
+      "id": "stale-refused",
+      "text": "A fresh request naming a stale Project revision is refused with HTTP 409 before the Project changes.",
+      "test": "tests/test_runtime_timeline_patch.py::test_a_stale_revision_is_refused_before_the_project_changes"
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/worker.py:1458-1565",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1234-1256",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:9226-9240"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "The current broker serializes a document edit with its revision under a mutation lease, but writes document.json and project.json separately. It has no single crash-atomic client_op_id result-record commit. It is not yet eligible for replaceable writes under the self-Luc run gate.",
+      "evidence": [
+        "lumeri_runtime/projects.py:282-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "upsert_asset, segment_edit, duplicate_clip and remove_track are explicitly unported and refused. A replacement must not silently add them to this major.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:107-121",
+        "lumeri_runtime/timeline.py:364-370"
+      ],
+      "test": null
+    },
+    {
+      "text": "The history byte target is not an absolute maximum: one newest snapshot is retained even if it alone exceeds 1048576 bytes.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:790-796"
+      ],
+      "test": null
+    },
+    {
+      "text": "Track locked and muted are stored settings; apply_patch does not use locked as a write authorization check. Split also does not check the 4096 insertion ceiling.",
+      "evidence": [
+        "lumeri_runtime/timeline.py:862-883",
+        "lumeri_runtime/timeline.py:919-960",
+        "lumeri_runtime/timeline.py:1064-1070"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    },
+    {
+      "text": "Undo/redo availability is checked before Gate replay lookup. After undo consumes the final undo snapshot, an identical retry can return nothing_to_undo rather than replaying its successful receipt; redo has the symmetric limitation.",
+      "evidence": [
+        "lumeri_runtime/worker.py:1491-1524",
+        "lumeri_runtime/worker.py:1525-1534"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "patch": {
+          "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/patch"
+        },
+        "project_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "patch",
+        "project_revision",
+        "turn_id",
+        "trace_id"
+      ]
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "project_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeline": {
+          "anyOf": [
+            {
+              "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "execution_outcome": {
+          "anyOf": [
+            {
+              "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ExecutionOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/RuntimeEvent"
+          }
+        },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Approval governed by the machinery area; see iface:execution.gate/v1."
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "turn_id",
+        "trace_id",
+        "status",
+        "project_revision",
+        "timeline",
+        "execution_outcome",
+        "events",
+        "approval",
+        "idempotent_replay"
+      ]
+    }
+  }
+}

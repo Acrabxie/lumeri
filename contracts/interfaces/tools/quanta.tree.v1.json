@@ -1,0 +1,269 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:quanta.tree/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Edit the Quanta tree",
+  "summary": "Patch, insert, remove or move one Quanta node. The package enforces group/content/state rules and keeps edits inside the Project Quanta document, not the presentation renderer.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "document.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "project_document"
+      ],
+      "properties": [
+        "document.content"
+      ],
+      "areas": [
+        "project"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "edit_quanta",
+      "capability": "quanta.tree",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "enum": [
+              "patch",
+              "insert",
+              "remove",
+              "move"
+            ],
+            "description": "patch sets fields on one node; insert adds a node under a parent; remove takes a node and everything under it away; move puts a node under another parent."
+          },
+          "quantum_id": {
+            "type": "string",
+            "description": "patch, remove, move: the node."
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "insert, move: the node it goes under."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "insert, move: where among the parent's children; the end when left out."
+          },
+          "fields": {
+            "type": "object",
+            "description": "patch: what to set. A content node takes layout, title, blocks, notes, mood_override, links, transition, hidden; a state takes visible_block_ids, dwell_sec, advance, hidden; a group takes title, hidden."
+          },
+          "quantum": {
+            "type": "object",
+            "description": "insert: the node, with its id.",
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "quanta": {
+            "type": "object",
+            "description": "Quanta presentation tree containing root and any preserved version/theme fields; see iface:quanta.document/v1."
+          },
+          "project_revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quanta",
+          "project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "arguments_invalid",
+        "quanta_patch_invalid",
+        "approval_required",
+        "document_edit_failed",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_PROGRAM_BROKE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/quanta/tools.py:58-63",
+        "official_luc/quanta/tools.py:237-299",
+        "official_luc/quanta/tools.py:309-354",
+        "lumeri_runtime/luc_packaged_tools.py:405-452",
+        "lumeri_runtime/luc_host_api.py:590-602"
+      ],
+      "notes": "No end-to-end call deadline is enforced. The Runtime derives a key per tool call. A new insert of the same id is refused; new remove/move requests are checked against the current tree. The tree is copied before mutation and validated afterward. Cross-area Quanta document interface naming needs integration alignment."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.quanta"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "tree_depth",
+      "value": 32,
+      "unit": "node depth",
+      "evidence": [
+        "official_luc/quanta/tools.py:35-40"
+      ]
+    },
+    {
+      "name": "tree_nodes",
+      "value": 4096,
+      "unit": "nodes",
+      "evidence": [
+        "official_luc/quanta/tools.py:35-40"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "no-stranded-links",
+      "text": "Removing a subtree is refused if a surviving node links into it.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_quanta_patch.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing behavior tests cover parts of this interface. They were inspected, not run in this documentation task; no replacement conformance runner exists yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    },
+    {
+      "text": "No live path asks a layer's program for quanta.tree. A Quanta Worker has no agent turn, so its agent toolbox carries no luc_invoke, and the editor's route runs the Official rules directly. A layer that brings a program loads, and the program never answers. Until Quanta has an agent turn, this module is partly a Luc.",
+      "evidence": [
+        "lumeri_runtime/worker.py:8182-8190",
+        "lumeri_runtime/worker.py:2565-2577",
+        "lumeri_runtime/worker.py:3137-3138"
+      ],
+      "test": "tests/test_luc_tool_program.py::test_quanta_has_no_live_path_that_asks_a_layers_program"
+    }
+  ],
+  "open_questions": []
+}

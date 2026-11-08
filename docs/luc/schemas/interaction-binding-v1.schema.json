@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/interaction-binding-v1.schema.json",
+  "title": "Luc Interaction Binding",
+  "description": "Stable association between one Luc interaction, its original logical task, project, target and originating tool call.",
+  "type": "object",
+  "properties": {
+    "interaction_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+    "session_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+    "task_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+    "project_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+    "target": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"},
+        "id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"}
+      },
+      "required": ["kind", "id"],
+      "additionalProperties": false
+    },
+    "base_revision": {"type": "integer", "minimum": 0},
+    "tool_call_id": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "^\\S+$"}
+  },
+  "required": ["interaction_id", "session_id", "task_id", "run_id", "project_id", "target", "base_revision"],
+  "additionalProperties": false
+}

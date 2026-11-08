@@ -1,0 +1,129 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:model.routing/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Route only to the account-selected model provider",
+  "summary": "Dispatch Credits to AccountsExecutionAdapter and Google or OpenAI subscription to BrokerExecutionAdapter. An unavailable exact selection fails; it never silently selects a different provider or model.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.model_execution:ModelExecutionRouter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The model route and its cash authority are the Lumeri spending foundation.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_execution.py:499-556"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "available_for_account",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "provider_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProviderId"
+          }
+        },
+        "required": [
+          "account_id",
+          "provider_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_execution.py:518-538"
+      ],
+      "notes": "No deadline enforced. Credits checks late resolver availability without resolving a signing client; Broker checks the selected local authority. Exceptions yield false; no provider execution or route change."
+    },
+    {
+      "name": "prepare",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object",
+            "description": "Runtime gate request with exact selection, budget reservation and scope. See iface:process.execution/v1."
+          },
+          "call": {
+            "type": "object",
+            "description": "AccountsProviderCall for Credits, BrokerProviderCall for the exact selected Broker provider."
+          },
+          "project_revision_after": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "request",
+          "call",
+          "project_revision_after"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Python DurableSideEffectRunner bound to the exact route and execution; see iface:process.execution/v1."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_execution.py:540-556",
+        "lumeri_runtime/model_execution.py:165-238"
+      ],
+      "notes": "No aggregate deadline enforced by router. A live gate and optional output_presentation are additional Python dependencies. Wrong call type raises TypeError; absent adapter raises ValueError, not a coded error. Preparation creates a durable runner; executing it may spend budget. Idempotency is enforced by the execution gate and selected adapter, not by the router."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-provider-fallback",
+      "text": "An absent selected Broker adapter refuses instead of calling Accounts; health checks do not resolve Accounts credentials.",
+      "test": "tests/test_runtime_model_execution.py::test_router_keeps_exact_route_selection_and_late_accounts_availability"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/model_execution.py:499-556",
+      "lumeri_runtime/model_ingress.py:596-628"
+    ],
+    "notes": "Reject an unavailable or mismatched selection. Iron-rule layer fallback cannot mean choosing another provider; no new provider authority is inferred."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_model_execution.py::test_router_keeps_exact_route_selection_and_late_accounts_availability"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [],
+  "open_questions": [
+    {
+      "text": "Router Python signatures take a live gate and runner objects. A future wire interface must reference the process area execution identity without serializing those objects.",
+      "for": "lumeri"
+    }
+  ]
+}

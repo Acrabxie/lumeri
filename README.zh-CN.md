@@ -144,6 +144,8 @@ Lumeri 自己也守这条规矩。Video 编辑器就是由一张注册表里的�
 
 安装就是把文件放进一个文件夹：`~/.lumeri/lucs`。没有安装弹窗。文件在那里，就是你的同意；每个 Luc 手里拿着什么权限，随时可以查。
 
+完整的参考资料在 [`docs/luc/`](docs/luc/)（英文）：从包格式、每一项权限，到 Lumeri 各个模块的接口契约。
+
 ### 现在做到哪了
 
 Luc 属于 Lumeri Video 1.1 这条线。公开下载版和本仓库里的引擎仍是 1.0，所以这一节讲的内容，目前还不能从本仓库跑起来。
@@ -153,8 +155,9 @@ Luc 属于 Lumeri Video 1.1 这条线。公开下载版和本仓库里的引擎�
 | Video 编辑器由官方 Luc 拼成 | 已在 1.1 版本中运行 |
 | 你自己的 Luc 在编辑器里注册面板 | 已在 1.1 版本中运行 |
 | 跑在运行时内部的代码：Agent 工具、编辑器页面本身 | 仅限官方 Luc |
-| Skill、Point Library、Workflow 统一成 Luc（本机和 Store 都是） | 进行中 —— 目前还是三种各自独立的类型 |
-| Luc 宿主、格式参考和打包工具 | 不在本仓库 |
+| Skill、Point Library、Workflow 统一成 Luc | 已在 1.1 版本中运行 |
+| 格式参考和接口契约 | 在本仓库：[`docs/luc/`](docs/luc/)、[`contracts/interfaces/`](contracts/interfaces/) |
+| Luc 宿主和打包工具 | 不在本仓库 |
 
 ## 本仓库
 
@@ -171,6 +174,8 @@ Lumeri Video 背后的开放引擎：Python、FFmpeg，加一个本地网页工�
 | `gemia/project_export.py` | 全质量导出 |
 | `gemia/quanta/` | Quanta 排版引擎 |
 | `quanta/format/` | `.qua` 文件格式和样片（CC0） |
+| `docs/luc/` | Luc 参考：包格式、协议、权限 |
+| `contracts/interfaces/` | Lumeri 各模块的接口契约（JSON） |
 | `gemia/ai/skills/` | 内置 Skill |
 | `gemia/mcp/` | MCP 服务 |
 | `lumenframe/` | 合成引擎与创作库：调色、标题、运镜、构图、剪辑、节奏、矢量动效 |

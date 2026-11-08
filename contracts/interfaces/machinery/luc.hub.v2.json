@@ -1,0 +1,921 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.hub/v2",
+  "version": "2.0.0",
+  "area": "machinery",
+  "title": "Luc Hub listing and account views",
+  "summary": "Layer handles, private/public visibility, exact-version review and public search on immutable Cloud packages. Hub listing never grants local Host permissions.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_cloud.hub:LucHub, classify"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "classify",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "record": {
+            "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#"
+          }
+        },
+        "required": [
+          "record"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "review_required": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ]
+            }
+          }
+        },
+        "required": [
+          "review_required",
+          "reasons"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:98-117"
+      ],
+      "notes": "No deadline. Only Skill v1/v2, Workflow v1 and Library v1 with no permissions/APIs/edits and non-executable inert suffixes qualify as instructions only."
+    },
+    {
+      "name": "claim_handle",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "principal": {
+            "description": "Principal."
+          },
+          "handle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal",
+          "handle"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "claimed_at_utc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle",
+          "claimed_at_utc"
+        ]
+      },
+      "errors": [
+        "E_LUC_HUB_HANDLE",
+        "E_LUC_HUB_HANDLE_RESERVED",
+        "E_LUC_HUB_HANDLE_SET",
+        "E_LUC_HUB_HANDLE_TAKEN",
+        "E_LUC_CLOUD_FORBIDDEN"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:170-173",
+        "lumeri_runtime/luc_cloud/hub_state.py:103-120"
+      ],
+      "notes": "No deadline. Normalizes lowercase/trim; same account/same handle repeats naturally, changing handle refuses. Store failures can propagate."
+    },
+    {
+      "name": "publish",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "principal": {
+            "description": "Principal."
+          },
+          "package_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_bytes": {
+            "description": "bytes."
+          }
+        },
+        "required": [
+          "principal",
+          "artifact_bytes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Package view plus published_version string."
+      },
+      "errors": [
+        "E_LUC_HUB_ADDING_CLOSED",
+        "E_LUC_HUB_HANDLE_NEEDED",
+        "E_LUC_HUB_LUC_SIZE",
+        "E_LUC_HUB_ACCOUNT_FULL",
+        "E_LUC_HUB_FULL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:186-227"
+      ],
+      "notes": "No deadline. New package starts private; derives name from identity when absent. Calls Cloud begin/publish and inherits their errors. Retry does not overwrite an immutable version."
+    },
+    {
+      "name": "set_visibility",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "principal": {
+            "description": "Principal."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ]
+          }
+        },
+        "required": [
+          "principal",
+          "handle",
+          "package_name",
+          "visibility"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub.v2.json#/definitions/package"
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_HUB_VISIBILITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:229-238",
+        "lumeri_runtime/luc_cloud/hub_state.py:132-148"
+      ],
+      "notes": "No deadline. Owner-only; same visibility is natural. First public selection allocates a persistent short code. Store/code allocation failures may propagate."
+    },
+    {
+      "name": "decide",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "principal": {
+            "description": "Reviewer Principal."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal",
+          "handle",
+          "package_name",
+          "version",
+          "decision"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub.v2.json#/definitions/version"
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_HUB_DECISION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:263-276"
+      ],
+      "notes": "No deadline. Exact version/artifact-hash listing decision; private packages remain hidden even to reviewers. Rejection needs a note. Repeating writes a new decision time; storage validation may propagate."
+    },
+    {
+      "name": "search",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "viewer": {
+            "description": "Principal or None; search result is public regardless."
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "kind": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "$contract": "contracts/interfaces/machinery/luc.hub.v2.json#/definitions/package"
+        }
+      },
+      "errors": [
+        "E_LUC_CLOUD_QUERY",
+        "E_LUC_HUB_KIND",
+        "E_LUC_HUB_PLATFORM"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:423-455"
+      ],
+      "notes": "No deadline. Official first then newest listed public packages; own private packages never appear here. Store/integrity exceptions may propagate."
+    },
+    {
+      "name": "package",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "viewer": {
+            "description": "Principal or None."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "handle",
+          "package_name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Package projection plus versions array of iface:luc.hub/v2 version definitions."
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:363-377"
+      ],
+      "notes": "No deadline. Viewer owns private or reads listed; reviewer can read pending/rejected public versions. Unknown and private addresses both not-found. Other store/validation errors propagate."
+    },
+    {
+      "name": "version",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "viewer": {
+            "description": "Principal or None."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "handle",
+          "package_name"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.hub.v2.json#/definitions/version"
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:379-382",
+        "lumeri_runtime/luc_cloud/hub.py:504-511"
+      ],
+      "notes": "No deadline. Missing version argument selects newest readable version. Official view is a similar projection of the accepted channel; full Official-only variation remains draft."
+    },
+    {
+      "name": "artifact",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "viewer": {
+            "description": "Principal or None."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "handle",
+          "package_name",
+          "version"
+        ]
+      },
+      "output": {
+        "description": "Tuple(bytes, version view)."
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:415-421"
+      ],
+      "notes": "No deadline. Exact bytes of readable version; retrieval and integrity errors may propagate."
+    },
+    {
+      "name": "resolve_short",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "output": {
+        "description": "Tuple(handle str, package_name str)."
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:457-466"
+      ],
+      "notes": "No deadline. A saved code resolves only while package has a listed version."
+    },
+    {
+      "name": "report",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "viewer": {
+            "description": "Principal or None."
+          },
+          "handle": {
+            "type": "string"
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "details": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "handle",
+          "package_name",
+          "reason",
+          "details"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Report id, handle, name, version, reason, details, reported_at_utc, reporter handle or null, status and handled_at_utc."
+      },
+      "errors": [
+        "E_LUC_CLOUD_NOT_FOUND",
+        "E_LUC_HUB_REPORT_REASON",
+        "E_LUC_HUB_REPORT_DETAILS",
+        "E_LUC_HUB_REPORTS_FULL"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:308-349"
+      ],
+      "notes": "No deadline. Only readable versions may be reported. Each retry creates a report. State validation and storage errors may propagate."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "default-luc-size",
+      "value": 4194304,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:84-95"
+      ]
+    },
+    {
+      "name": "default-account-size",
+      "value": 67108864,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:84-95"
+      ]
+    },
+    {
+      "name": "default-account-versions",
+      "value": 1000,
+      "unit": "versions",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:84-95"
+      ]
+    },
+    {
+      "name": "default-store-size",
+      "value": 2147483648,
+      "unit": "bytes",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:84-95"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "private-invisible",
+      "text": "A private package is readable by its owner only; non-owner and reviewer receive the same not-found as an absent package.",
+      "test": null
+    },
+    {
+      "id": "code-review-bound",
+      "text": "Non-instruction public versions require an approval bound to that exact artifact hash; an Extension also requires a listed parent.",
+      "test": null
+    },
+    {
+      "id": "no-runtime-grants",
+      "text": "A listing decision changes public visibility only, not a Runtime permission receipt.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_cloud/hub.py:481-511"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Hub upload ceilings are checked before Cloud publication without a reservation spanning that publication. Concurrent uploads can each pass and exceed a ceiling by their in-flight sizes.",
+      "evidence": [
+        "lumeri_runtime/luc_cloud/hub.py:202-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "for": "acrab",
+      "text": "docs/luc/luc-finder-spec.html and docs/luc/luc-finder-step1-brief.md specify GET /api/v1/lucs/<handle>/<name>/<version> and the Official lumeri.luc-finder package; Step 1 (Hub upload_from_local_folder and Runtime platform_id) is landed, while the remaining spec questions await Acrab's decisions."
+    }
+  ],
+  "definitions": {
+    "package": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "official": {
+          "type": "boolean"
+        },
+        "owned": {
+          "type": "boolean"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "protocols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "role": {
+          "$contract": "docs/luc/cloud-schemas/artifact-role-v1.schema.json#"
+        },
+        "review_required": {
+          "type": "boolean"
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "public"
+          ]
+        },
+        "listed_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listing": {
+          "enum": [
+            "private",
+            "listed",
+            "in_review",
+            "rejected",
+            "parent_unlisted"
+          ]
+        },
+        "latest_version": {
+          "type": "string"
+        },
+        "version_count": {
+          "type": "integer"
+        },
+        "updated_at_utc": {
+          "type": "string"
+        },
+        "short_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "official",
+        "owned",
+        "display_name",
+        "description",
+        "tags",
+        "protocols",
+        "kinds",
+        "platforms",
+        "role",
+        "review_required",
+        "visibility",
+        "listed_version",
+        "listing",
+        "latest_version",
+        "version_count",
+        "updated_at_utc",
+        "short_code"
+      ]
+    },
+    "version": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "official": {
+          "type": "boolean"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "role": {
+          "$contract": "docs/luc/cloud-schemas/artifact-role-v1.schema.json#"
+        },
+        "identity": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+        },
+        "protocols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "compatibility": {
+          "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#/properties/compatibility"
+        },
+        "published_at_utc": {
+          "type": "string"
+        },
+        "review_required": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ]
+          }
+        },
+        "listing": {
+          "enum": [
+            "private",
+            "listed",
+            "in_review",
+            "rejected",
+            "parent_unlisted"
+          ]
+        },
+        "decision": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "decision": {
+                  "enum": [
+                    "approved",
+                    "rejected"
+                  ]
+                },
+                "decided_at_utc": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "decision",
+                "decided_at_utc"
+              ]
+            }
+          ]
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "host_apis": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "required",
+            "optional"
+          ]
+        },
+        "editable": {
+          "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/host/properties/editable"
+        },
+        "integrity": {
+          "$contract": "docs/luc/cloud-schemas/artifact-integrity-v1.schema.json#"
+        },
+        "readme_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "$contract": "docs/luc/cloud-schemas/package-version-v1.schema.json#/properties/source_files"
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "handle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "handle",
+                "name",
+                "version"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "version",
+        "official",
+        "display_name",
+        "description",
+        "tags",
+        "role",
+        "identity",
+        "protocols",
+        "kinds",
+        "capabilities",
+        "platforms",
+        "compatibility",
+        "published_at_utc",
+        "review_required",
+        "reasons",
+        "listing",
+        "decision",
+        "permissions",
+        "host_apis",
+        "editable",
+        "integrity",
+        "readme_path",
+        "files",
+        "parent"
+      ]
+    }
+  }
+}

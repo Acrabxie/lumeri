@@ -1,0 +1,286 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:workspace.video/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Video workspace frame: the module list and the editor page it carries",
+  "summary": "The Official framework Luc of the Video editor. It declares the editor's modules in order (preview and timeline drawn by the editor, the six Official Panels around them) and carries the editor page itself (static/v3, copied into its frontend folder at bundle time and pinned by a manifest hash), so the signed Official channel can update the editor without a new App.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.workspace/v2",
+    "surface": "workspace-frame",
+    "notes": "Shipped as lumeri.workspace 0.5.0 (its index version adds +web.<12 hex> of the page's pin). The Host checks it with iface:luc.workspace-adapter/v1; the page is selected by iface:luc.frontend-selection/v1 and served as iface:editor.page/v1."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The frame carries the editor page, which holds the App's bridges and the creator's session; only Official bytes are ever served as the editor. The module list inside it is the part a creator's layer may change (Acrab, 2026-10-24); the page it carries stays Lumeri's.",
+    "decided": "Acrab 2026-10-04 (lumeri_runtime/luc_frontend.py:3-12); self-Luc spec v0.3 foundation",
+    "layer_may_patch": [
+      "/host/capabilities/0/modules"
+    ]
+  },
+  "reach": {
+    "permissions": [
+      "ui.mount"
+    ],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "frame",
+      "capability": "workspace.video",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "surface": {
+            "const": "workspace-frame"
+          },
+          "product": {
+            "const": "video"
+          },
+          "modules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$contract": "contracts/interfaces/editor/workspace.video.v1.json#/definitions/module_entry"
+            }
+          },
+          "frontend": {
+            "type": "object",
+            "properties": {
+              "root": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,39}$"
+              },
+              "entry": {
+                "const": "index.html"
+              },
+              "native_api": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "files": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 512
+              },
+              "manifest_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "root",
+              "entry",
+              "native_api",
+              "files",
+              "manifest_sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "surface",
+          "product",
+          "modules",
+          "frontend"
+        ],
+        "additionalProperties": false,
+        "description": "The capability as the Host compiles it."
+      },
+      "errors": [
+        "E_LUC_WORKSPACE",
+        "E_LUC_PRODUCT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/workspace/manifest.json",
+        "lumeri_runtime/luc_workspace.py:338-377",
+        "lumeri_runtime/luc_workspace.py:400-419"
+      ],
+      "notes": "Every workspace keeps preview and timeline; a workspace for another product is E_LUC_PRODUCT. Mounting needs ui.mount only."
+    },
+    {
+      "name": "frontend/{name}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string",
+        "contentEncoding": "binary",
+        "description": "The bytes of one file of the editor page."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:422-436",
+        "official_luc/workspace/README.md:24-31"
+      ],
+      "notes": "The files under frontend/ are the editor page, opened at index.html. Their pin is sha256 over the sorted name to sha256 map; a file set that does not match the pin is never served."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "modules",
+      "value": 32,
+      "unit": "modules in the list",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:81",
+        "lumeri_runtime/luc_workspace.py:346-347"
+      ]
+    },
+    {
+      "name": "frontend_files",
+      "value": 512,
+      "unit": "files in the editor page",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:117",
+        "lumeri_runtime/luc_workspace.py:426-427"
+      ]
+    },
+    {
+      "name": "frontend_file_bytes",
+      "value": 16777216,
+      "unit": "bytes per file",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:118",
+        "lumeri_runtime/luc_workspace.py:428-429"
+      ]
+    },
+    {
+      "name": "native_api",
+      "value": "1..64",
+      "unit": "native App bridge versions a page may name",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:120-122"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "official-order",
+      "text": "The Official frame lists preview, outline, tasks, timeline, properties, files, library, skills in that order, the first four shown by default.",
+      "test": "tests/test_official_luc_workspace.py::test_the_official_framework_contains_its_panels_in_its_own_order"
+    },
+    {
+      "id": "keeps-core",
+      "text": "A workspace without preview and timeline, or with an unknown, duplicate or malformed module, is refused (E_LUC_WORKSPACE).",
+      "test": "tests/test_official_luc_workspace.py::test_a_workspace_manifest_outside_the_protocol_is_refused"
+    },
+    {
+      "id": "front-end-shape",
+      "text": "A front end that is not one top-level folder opened at index.html, or names no valid native API, is refused.",
+      "test": "tests/test_luc_frontend.py::test_the_framework_protocol_refuses_a_front_end_outside_its_shape"
+    },
+    {
+      "id": "carries-static-v3",
+      "text": "The Official frame carries the editor exactly as static/v3 has it.",
+      "test": "tests/test_luc_frontend.py::test_the_official_framework_carries_the_editor_exactly_as_static_v3_has_it"
+    },
+    {
+      "id": "needs-ui-mount",
+      "text": "Without ui.mount the frame is unavailable to the editor and unseen by the agent.",
+      "test": "tests/test_official_luc_workspace.py::test_without_ui_mount_the_framework_is_unavailable_to_the_editor_and_unseen_by_the_agent"
+    },
+    {
+      "id": "kept-in-safe-mode",
+      "text": "Safe mode keeps the frame and drops the Panels it contains to their built-in views.",
+      "test": "tests/test_official_luc_workspace.py::test_safe_mode_keeps_the_framework_and_drops_the_panel_and_skills"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the frame does not load or is switched off",
+      "its front end does not verify or match its pin"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_frontend.py:63-108",
+      "lumeri_runtime/gateway.py:4372-4379",
+      "static/v3/v3.js:13973-13976"
+    ],
+    "notes": "Without the frame the editor keeps its built-in layout, and the Gateway serves the App's own bundled copy of the page."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_workspace.py",
+      "tests/test_luc_frontend.py",
+      "tests/test_runtime_frontend_selection.py"
+    ]
+  },
+  "known_deviations": [
+    {
+      "text": "Its README says a Panel Luc the workspace does not name is never mounted, and that adding a creator's Panel means naming it here; since self-registration, every loaded Panel is mounted as a module of its own. Acrab, 2026-10-24: a creator's layer may change this module list, so the README is the part to correct.",
+      "evidence": [
+        "official_luc/workspace/README.md:14-16",
+        "official_luc/workspace/README.md:35-37",
+        "lumeri_runtime/luc_workspace.py:734-747"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "module_entry": {
+      "type": "object",
+      "required": [
+        "module",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}$"
+        },
+        "kind": {
+          "enum": [
+            "core",
+            "native",
+            "luc"
+          ]
+        },
+        "default_visible": {
+          "type": "boolean"
+        },
+        "luc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "panel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "description": "core is preview or timeline; native is one of outline, tasks, files, library, skills, properties; luc names its Luc and Panel and is never a core name. Names are distinct."
+    }
+  }
+}

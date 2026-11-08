@@ -1,0 +1,241 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.luc-invoke/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Luc invoke",
+  "summary": "One of the fixed English declarations the Runtime gives the Video model. Change these four declarations and docs/luc/agent-protocol.md together.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.official_luc:_wrappers"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "These four declarations are the Luc-agent protocol itself: every agent, Lumeri's own or a reviewed stand-in, reaches every Luc through them, and the protocol keeps them the same under a stand-in. A replacement would redefine the protocol rather than implement it, so only Lumeri changes them, together with docs/luc/agent-protocol.md.",
+    "decided": "Acrab, 2026-10-24 (stays Lumeri's, also once the code sandbox exists); docs/luc/agent-protocol.md:40-43"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Dispatch can read/write a Project, invoke paid capabilities or wait for interactions only under the chosen Luc's existing grants, editable boundary, delegation and confirmation. No direct external authority is granted by this wrapper."
+  },
+  "operations": [
+    {
+      "name": "luc_invoke",
+      "effect": "paid",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "input": {
+            "type": "object"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "capability_id",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "package": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "capability_id": {
+                "type": "string"
+              },
+              "result": {
+                "type": "object",
+                "description": "Answer owned by the invoked capability interface; see iface:luc.host/v1 for dispatch."
+              }
+            },
+            "required": [
+              "package",
+              "capability_id",
+              "result"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "error": {
+                "type": "object"
+              }
+            },
+            "description": "A declined ToolResult is returned unchanged, with ok false; no package envelope is added."
+          }
+        ]
+      },
+      "errors": [
+        "arguments_invalid",
+        "luc_capability_not_found",
+        "luc_package_not_found",
+        "E_LUC_TOOL_RESULT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/official_luc.py:230-263",
+        "lumeri_runtime/official_luc.py:293-306"
+      ],
+      "notes": "No wrapper-wide deadline: an interaction may wait for the creator; no model request remains open during that wait. effect paid is the maximum delegated effect because a capability may spend budget, not a charge for dispatch itself. Retrying may repeat writes or paid work; it relies on the chosen capability's idempotency. Delegated errors belong to iface:luc.host/v1 and that capability, not to this wrapper's own code list."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "maximum characters of compact JSON or clipped JSON envelope",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:43",
+        "lumeri_runtime/agent_turn.py:547-554",
+        "lumeri_runtime/official_luc.py:63-65"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "target-is-not-confirmation",
+      "text": "A model-supplied target selects an existing object; it never grants creator confirmation or additional Host authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/official_luc.py:230-263",
+      "lumeri_runtime/official_luc.py:293-306"
+    ],
+    "notes": "No replacement seam or run-time interface validator exists for this role today; the class describes who may eventually replace it."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [
+    {
+      "text": "Exceptions from invoked adapters propagate their own codes, or even exception class names through AgentTurn; a closed code list cannot describe all delegated capability failures here.",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:1044-1051"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "declaration": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "luc_invoke"
+            },
+            "description": {
+              "const": "Invoke one described Luc capability with its exact input schema. Interactions wait for the creator without making model requests, then return to this same task. For a Project edit, name its existing target kind and id; confirmation is a creator action, never a model argument."
+            },
+            "parameters": {
+              "const": {
+                "type": "object",
+                "properties": {
+                  "capability_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "input": {
+                    "type": "object"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "capability_id",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

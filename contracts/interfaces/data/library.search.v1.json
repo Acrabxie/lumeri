@@ -1,0 +1,373 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:library.search/v1",
+  "version": "1.1.0",
+  "area": "data",
+  "title": "Library search and placement facts",
+  "summary": "Local search over Project references and annotations, plus the library display projection and compatible track selection. The search may be answered by a reviewed Luc's program in a sandbox with no network and no files; nothing here writes the Project.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.library_search:search; lumeri_runtime.luc_library:library_entry,place_on",
+    "notes": "Original: lumeri_runtime.library_search:search, a casefold substring over each asset's filename and its annotations' label, note, category and tags. Replacement, for the search operation only: a lumeri.search.program/v1 capability naming an executable file of its Luc, which runs in the agent loop's sandbox (luc_sandbox), one process per search, and answers one tool-program call {\"v\": 1, \"kind\": \"call\", \"tool\": \"search\", \"arguments\": {query, limit, assets}} with {\"v\": 1, \"kind\": \"result\", \"model\": [hits]} (luc_search_program, WorkerApplication._searched). library_entry and place_on stay Lumeri's."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds search.program, which Lumeri's review of its exact bytes grants. It runs only on a machine with a sandbox (macOS today), reads only what the Runtime writes to it (the question and each asset's id, filename and notes) and writes nothing; the Runtime checks its answer and fills in each hit's filename (docs/luc/search-programs.md).",
+    "decided": "today's code: lumeri_runtime/library_search.py:54-124; Acrab 2026-10-26: the code sandbox of luc_sandbox and its numbers"
+  },
+  "reach": {
+    "permissions": [
+      "search.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads only its request line: the question, the limit and each asset's id, filename and notes as the original reads them. It holds no credential, file, socket or Host API; the Runtime reads the Project, checks the question by the original's rules and keeps the answer."
+  },
+  "operations": [
+    {
+      "name": "search",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "references": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+            }
+          },
+          "annotations": {
+            "type": "object"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "references",
+          "annotations",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "$contract": "contracts/interfaces/data/library.search.v1.json#/definitions/hit"
+        },
+        "maxItems": 100
+      },
+      "errors": [
+        "library_search_refused"
+      ],
+      "deadline_ms": 10000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/library_search.py:54-124",
+        "lumeri_runtime/luc_search_program.py:144-190",
+        "lumeri_runtime/worker.py:8110-8130"
+      ],
+      "notes": "The question is checked by the original's rules first (check_question; a whitespace-only, over-256-character or out-of-range limit question is refused as library_search_refused and reaches no program). The original: casefold substring matches filename and annotation label/note/category/tags, more matching annotation ids rank first, then asset_id; default limit 20. A program answers in its own order, within ACTION_DEADLINE_SECONDS (10 s) of being asked; the Runtime fills each hit's filename from the library."
+    },
+    {
+      "name": "library_entry",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "$contract": "contracts/interfaces/data/media.store.v1.json#/definitions/reference"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "facts": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "reference",
+          "notes",
+          "facts"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_library.py:45-75"
+      ],
+      "notes": "No local deadline is enforced. Output includes asset_id, name, kind, mime_type, size_bytes, measured duration or null, notes count/labels/tags and roughcut boolean. Exact note and fact subshapes await their domain contracts."
+    },
+    {
+      "name": "place_on",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "track_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "timeline",
+          "kind",
+          "track_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "errors": [
+        "E_LUC_LIBRARY_TRACK_NOT_FOUND",
+        "E_LUC_LIBRARY_TRACK_KIND",
+        "E_LUC_LIBRARY_NO_TRACK"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_library.py:78-99"
+      ],
+      "notes": "No local deadline is enforced. Returns chosen track and its last clip end. Named track must take media kind; absent name chooses the first compatible one. It computes a placement and writes nothing."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.library.search"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_search_program.py:193-227"
+      ],
+      "notes": "Once per Session in a start, to the turn whose tool searched: when the program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_SEARCH_START, E_LUC_SEARCH_EXIT, E_LUC_SEARCH_PROTOCOL, E_LUC_SEARCH_RESULT, E_LUC_SEARCH_LIMIT, E_LUC_SEARCH_DEADLINE, E_LUC_SEARCH_CHANGED, E_LUC_SANDBOX."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "query_chars",
+      "value": 256,
+      "unit": "characters before stripping",
+      "evidence": [
+        "lumeri_runtime/library_search.py:20-24"
+      ]
+    },
+    {
+      "name": "results",
+      "value": 100,
+      "unit": "hits",
+      "evidence": [
+        "lumeri_runtime/library_search.py:20"
+      ]
+    },
+    {
+      "name": "request_line_bytes",
+      "value": 4194304,
+      "unit": "bytes of the request line, beyond which the original answers",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:34-36",
+        "lumeri_runtime/luc_search_program.py:155-158"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Identical references, annotations and query produce the same ordered hits from the original.",
+      "test": null
+    },
+    {
+      "id": "reads-as-the-original",
+      "text": "A program reads each asset as the original does: its id, its filename and the label, note, category and tags of each of its notes, and no asset without an id.",
+      "test": "tests/test_luc_search_program.py::test_the_program_reads_each_asset_as_lumeris_own_search_does"
+    },
+    {
+      "id": "an-answer-a-search-can-give",
+      "text": "A program's answer is at most limit hits, each one of the library's assets named once, matched on some of filename, label, note, category and tags, naming only its own notes, each once, and naming notes exactly when something written in them matched; anything else is a break.",
+      "test": "tests/test_luc_search_program.py::test_any_other_answer_is_a_break"
+    },
+    {
+      "id": "the-question-is-the-originals",
+      "text": "A question the original refuses is refused the same way and reaches no program.",
+      "test": "tests/test_luc_search_program.py::test_a_question_lumeri_refuses_is_refused_the_same_way_with_a_program"
+    },
+    {
+      "id": "too-large-is-no-break",
+      "text": "A library too large to send in one request line is the original's to search, and no break.",
+      "test": "tests/test_luc_search_program.py::test_a_library_too_large_for_one_line_is_lumeris_own_to_search_and_no_break"
+    },
+    {
+      "id": "program-hits",
+      "text": "With a reviewed Luc's program, the agent's search finds the program's hits, in the program's order.",
+      "test": "tests/test_luc_search_program.py::test_a_reviewed_programs_hits_are_what_the_agent_finds"
+    },
+    {
+      "id": "original-for-the-rest-of-the-start",
+      "text": "A program that breaks hands the same search to the original, and every search for the rest of the start; the turn that searched hears it once.",
+      "test": "tests/test_luc_search_program.py::test_a_program_that_breaks_hands_the_search_to_lumeris_own_for_the_rest_of_the_start"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start, ends, or answers late (ACTION_DEADLINE_SECONDS), or with more than a line",
+      "its answer is not one JSON object {\"v\": 1, \"kind\": \"result\", \"model\": [...]}: a refusal included, since a question it is asked has none",
+      "its hits are not an answer a search can give (the invariant an-answer-a-search-can-give)"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_search_program.py:144-190",
+      "lumeri_runtime/luc_search_program.py:193-227",
+      "lumeri_runtime/worker.py:8110-8130"
+    ],
+    "notes": "The original answers the same search at once, and every search for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.library.search). Anything else that goes wrong with the program is answered by the original without a break."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_search_program.py"
+    ],
+    "notes": "tests/test_luc_search_program.py holds what the program reads, the check of its answer and the question's own rules, and, with real compiled programs in the sandbox: a search the program answers, each way of breaking handing the same search to the original, a deadline, and on a real Worker the agent's own search_media tool finding the program's hits, a break heard once by the turn that searched and the original for the rest of the start, and the editor's search that tells no Session. library_entry and place_on have no replacement."
+  },
+  "known_deviations": [
+    {
+      "text": "A search no turn asked for (the editor's GET /sessions/{id}/library/search) tells no Session when the program breaks; the break is still counted and the original answers.",
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/worker.py:5904-5953"
+      ],
+      "test": "tests/test_luc_search_program.py::test_a_search_no_turn_asked_for_tells_no_session_but_its_break_still_counts"
+    },
+    {
+      "text": "The same question asked twice of the same library is not checked to have the same answer: a program's search need not be deterministic, unlike the original's.",
+      "evidence": [
+        "lumeri_runtime/luc_search_program.py:114-138"
+      ],
+      "test": null
+    },
+    {
+      "text": "A hit's matched_on and annotation_ids are checked against the library, not against the query: a program may match in ways the original cannot (fuzzy, by meaning), and the Runtime cannot tell such a match from a wrong one.",
+      "evidence": [
+        "lumeri_runtime/luc_search_program.py:114-138"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "hit": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "matched_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "asset_id",
+        "filename",
+        "matched_on",
+        "annotation_ids"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:model.step-bounds/v1",
+  "version": "1.0.0",
+  "area": "agent",
+  "title": "Prepare a bounded agent model step",
+  "summary": "Validate the product profile, stand-in bounds, conversation and tool declarations before reservation. Credit calls use the smaller of the profile ceiling and current balance; subscription calls reserve zero cash and use verified model output bounds.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.model_ingress:prepare_agent_model_step"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The spending foundation owns output bounds, session ceilings and reservations; reviewed instructions cannot change them.",
+    "decided": "Self-Luc spec v0.3 (2026-10-18); charter rule 6; today's code: lumeri_runtime/model_ingress.py:574-725"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "prepare_agent_model_step",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "identity": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/AccountIdentity"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$contract": "contracts/interfaces/agent/agent.conversation.v1.json#/definitions/message"
+            }
+          },
+          "tools": {
+            "$contract": "contracts/interfaces/agent/agent.toolbox.v1.json#/definitions/declarations"
+          },
+          "current_session_available_micros": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "subscription_model_bounds": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Verified SubscriptionModelBounds Python value, bound to account/product/model/selection revision and expiry."
+          },
+          "stand_in": {
+            "oneOf": [
+              {
+                "$contract": "contracts/interfaces/agent/agent.instructions.v1.json#/definitions/step_profile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "product_id",
+          "identity",
+          "messages",
+          "tools",
+          "current_session_available_micros"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "const": "runtime.agent.model"
+          },
+          "resource_scope": {
+            "$contract": "contracts/interfaces/agent/model.step-receipts.v1.json#/definitions/scope"
+          },
+          "provider_call": {
+            "type": "object",
+            "description": "Immutable AccountsProviderCall or BrokerProviderCall Python object, not a wire payload; see iface:model.routing/v1."
+          }
+        },
+        "required": [
+          "capability_id",
+          "resource_scope",
+          "provider_call"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "product_invalid",
+        "provider_selection_required",
+        "provider_unsupported",
+        "provider_tools_unsupported",
+        "provider_model_required",
+        "session_budget_exhausted",
+        "agent_stand_in_invalid",
+        "agent_conversation_invalid",
+        "agent_conversation_too_long",
+        "agent_tools_invalid",
+        "provider_model_bounds_unavailable",
+        "agent_request_too_large"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:594-725"
+      ],
+      "notes": "No local deadline; preparation itself performs no provider call or reservation. Identity-verification codes are delegated from the account identity contract. Retries recompute using current verified selection, bounds and balance; identical inputs naturally produce equivalent prepared calls. Spend occurs only at the governed execution seam."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "profile_output_tokens",
+      "value": 8192,
+      "unit": "tokens for the Video credit step; subscriptions use verified model maximum",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:194",
+        "lumeri_runtime/model_ingress.py:648-661"
+      ]
+    },
+    {
+      "name": "profile_cost_micros",
+      "value": 500000,
+      "unit": "micros",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:195"
+      ]
+    },
+    {
+      "name": "system_prompt_bytes",
+      "value": 98304,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:134"
+      ]
+    },
+    {
+      "name": "conversation_bytes",
+      "value": 1048576,
+      "unit": "canonical JSON bytes",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:135",
+        "lumeri_runtime/model_ingress.py:501-505"
+      ]
+    },
+    {
+      "name": "messages",
+      "value": 127,
+      "unit": "conversation messages excluding system",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:136"
+      ]
+    },
+    {
+      "name": "tools",
+      "value": 128,
+      "unit": "declarations",
+      "evidence": [
+        "lumeri_runtime/model_ingress.py:137"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "standin-no-wider",
+      "text": "A stand-in with a wider output cap, cost ceiling or different product is refused as agent_stand_in_invalid.",
+      "test": "tests/test_luc_agent.py::test_the_step_goes_out_under_the_stand_in_and_its_record_says_so"
+    },
+    {
+      "id": "balance-ceiling",
+      "text": "For credit steps, reservation equals the lesser of the profile ceiling and Session balance.",
+      "test": "tests/test_runtime_agent_step.py::test_the_step_cost_is_the_smaller_of_profile_and_session_balance"
+    },
+    {
+      "id": "no-injected-system",
+      "text": "Conversation messages cannot inject a second system prompt.",
+      "test": "tests/test_runtime_agent_step.py::test_the_conversation_cannot_carry_a_second_system_prompt"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the operation raises unexpectedly or returns an answer outside its declared schema"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/model_ingress.py:574-725"
+    ],
+    "notes": "Refuse before execute_capability reserves anything. agent_stand_in_invalid remains the low-level guard; normal Worker selection catches a broken stand-in earlier and uses the original. Identity codes belong to accounts."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_agent.py::test_the_step_goes_out_under_the_stand_in_and_its_record_says_so",
+      "tests/test_runtime_agent_step.py::test_the_step_cost_is_the_smaller_of_profile_and_session_balance",
+      "tests/test_runtime_agent_step.py::test_the_conversation_cannot_carry_a_second_system_prompt"
+    ],
+    "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "prepared_step": {
+      "type": "object",
+      "properties": {
+        "capability_id": {
+          "const": "runtime.agent.model"
+        },
+        "resource_scope": {
+          "$contract": "contracts/interfaces/agent/model.step-receipts.v1.json#/definitions/scope"
+        },
+        "provider_call": {
+          "type": "object",
+          "description": "Immutable AccountsProviderCall or BrokerProviderCall Python object, not a wire payload; see iface:model.routing/v1."
+        }
+      },
+      "required": [
+        "capability_id",
+        "resource_scope",
+        "provider_call"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

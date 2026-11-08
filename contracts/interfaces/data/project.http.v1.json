@@ -1,0 +1,128 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:project.http/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Project HTTP facade",
+  "summary": "Account-scoped Project creation/list/read using existing Runtime v1 HTTP shapes.",
+  "carrier": {
+    "kind": "http",
+    "surface": "/runtime/v1/{product}"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project integrity or trusted execution authority; replacing it requires Lumeri control.",
+    "decided": "today's code: lumeri_runtime/worker.py:9357-9374"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "GET /projects",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectListResponse"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9393-9400"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Lists account-owned projects."
+    },
+    {
+      "name": "POST /projects",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectCreateRequest"
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [
+        "invalid_request"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/worker.py:1157-1164",
+        "lumeri_runtime/worker.py:9401-9403"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Creates revision-zero descriptor. source_root import is refused; optional project_id is supported in code. No client_op_id result protocol or atomic Project multi-file commit; omitted id creates another Project on retry."
+    },
+    {
+      "name": "GET /projects/{project_id}",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "project_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProjectDescriptor"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/worker.py:9404-9410"
+      ],
+      "notes": "No fixed request deadline is enforced at this route. Account mismatch is hidden by repository not-found behavior."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "account-scope",
+      "text": "Project and Session access is resolved using verified account identity; a path id alone supplies no ownership authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/worker.py:9393-9410"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Contract schema checking is available; replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Runtime type descriptors list source_root but creation rejects nonempty values; code also accepts project_id, which that descriptor omits. Request operation is draft for this mismatch.",
+      "evidence": [
+        "contracts/runtime-v1/runtime-contract.json:1942-1955",
+        "lumeri_runtime/worker.py:1157-1164"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

@@ -1,0 +1,215 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.locale/v1",
+  "version": "1.1.0",
+  "area": "editor",
+  "title": "Editor languages and strings",
+  "summary": "The editor's ten-language locale catalog and replaceable data layer (window.LumeriV3LocaleData + window.LumeriV3Locale): picks a language across 10 locales, merges official and Panel strings, translates marked DOM elements, and raises lumeri-locale-change which the editor passes to Panels as locale.changed.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "static/v3/v3-locale-data.js + static/v3/v3-locale.js; choice kept in localStorage lumeri:video:locale."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "Translations are layered as a validated 10-language data layer (mountDataLayer / unmountDataLayer) covering both editor copy and Panel strings, with placeholder-safe fallback to the official catalog on invalid data.",
+    "decided": "plans/2026-11-01-self-luc-all.md Section 6 (Iron Rule #6 fix)"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "setLocale",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "enum": [
+              "zh-CN",
+              "zh-TW",
+              "en",
+              "es",
+              "fr",
+              "de",
+              "ja",
+              "ko",
+              "pt",
+              "ar"
+            ]
+          }
+        },
+        "required": [
+          "locale"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3-locale.js:3226-3234"
+      ]
+    },
+    {
+      "name": "text",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3-locale.js:3236-3238"
+      ],
+      "notes": "A key missing in the current language reads in English, then as the key itself."
+    },
+    {
+      "name": "mountDataLayer",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "catalogs": {
+            "type": "object"
+          },
+          "locales": {
+            "type": "array"
+          },
+          "panels": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "catalogs"
+        ],
+        "additionalProperties": true
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_LOCALE_INVALID"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3-locale.js:3251-3277"
+      ]
+    },
+    {
+      "name": "unmountDataLayer",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3-locale.js:3279-3290"
+      ]
+    },
+    {
+      "name": "panelCopy",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "panelId": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "panelId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/v3-locale.js:3246-3249"
+      ]
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "languages",
+      "value": 10,
+      "unit": "languages the editor data layer and Panels offer (zh-CN, zh-TW, en, es, fr, de, ja, ko, pt, ar)",
+      "evidence": [
+        "static/v3/v3-locale-data.js:4-5",
+        "static/v3/v3-locale.js:2994-3005"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "both-catalogs",
+      "text": "Every settings key exists in both active catalogs.",
+      "test": "tests/test_v3_settings_locale_contract.py::test_settings_keys_are_complete_in_both_active_catalogs_only"
+    },
+    {
+      "id": "ten-locales-parity",
+      "text": "All 10 locale catalogs and merged Panel string tables cover the full key set with matching {placeholder} tokens.",
+      "test": "tests/test_editor_locale_layer.py::test_official_ten_locale_data_layer_complete_and_panel_merged"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the mounted data layer is malformed, empty, or mismatches {placeholder} tokens",
+      "the catalog does not load"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "static/v3/v3-locale.js:3251-3264",
+      "static/v3/auth-gate.js:19-28"
+    ],
+    "notes": "Invalid data layers refuse to mount with E_LUC_LOCALE_INVALID and restore the official 10-language data layer."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_locale_layer.py",
+      "tests/test_v3_settings_locale_contract.py",
+      "tests/test_v3_active_i18n_contract.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

@@ -1,0 +1,399 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:legacy.history/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Legacy Session history store",
+  "summary": "Account/product-scoped editor snapshots and independent current-session selection, protected by snapshot and activation compare-and-swap revisions.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.legacy_session_history:SessionHistory,normalize_record"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Trusted integrity and binding machinery remains controlled by Lumeri.",
+    "decided": "today's code: lumeri_runtime/legacy_session_history.py:368-386"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "normalize_record",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "payload": {},
+          "account_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "payload",
+          "account_id",
+          "product_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.history.v1.json#/definitions/record"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:300-325",
+        "lumeri_runtime/legacy_session_history.py:202-251"
+      ],
+      "notes": "No fixed operation deadline is enforced. Filters/coerces legacy display data; only user/status messages survive, with 300-message/8000-character limits. Runtime task/project media reconstruction fields become null."
+    },
+    {
+      "name": "SessionHistory.current",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.history.v1.json#/definitions/record"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:405-420"
+      ],
+      "notes": "No fixed operation deadline is enforced. A missing current choice yields empty_record with current activation_revision."
+    },
+    {
+      "name": "SessionHistory.list",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "live_sessions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "limit",
+          "live_sessions"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:422-455"
+      ],
+      "notes": "No fixed operation deadline is enforced. Newest updated_at first, only live Sessions, at least one requested item; clip_count is zero and pinned false. Native live_sessions is any iterable."
+    },
+    {
+      "name": "SessionHistory.load",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "session_id"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.history.v1.json#/definitions/record"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:457-463"
+      ],
+      "notes": "No fixed operation deadline is enforced. Adds snapshot_id and id aliases. Missing record raises FileNotFoundError, not a coded error."
+    },
+    {
+      "name": "SessionHistory.save",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object"
+          },
+          "verify_binding": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "payload",
+          "verify_binding"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.history.v1.json#/definitions/record"
+      },
+      "errors": [
+        "E_SESSION_BINDING",
+        "E_SNAPSHOT_REVISION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:465-498",
+        "lumeri_runtime/legacy_session_history.py:352-365"
+      ],
+      "notes": "No fixed operation deadline is enforced. Trusted caller verifies Session/Project/run ownership. Exact snapshot_revision is mandatory; save increments it. One record uses fsync/replace, then pruning is separate. No expected_project_revision/client_op_id atomic Project/result transaction; retry with old snapshot_revision fails."
+    },
+    {
+      "name": "SessionHistory.activate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "expected_activation_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "verify_binding": {
+            "type": "object"
+          },
+          "resolve_session": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "session_id",
+          "expected_activation_revision",
+          "verify_binding",
+          "resolve_session"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.history.v1.json#/definitions/record"
+      },
+      "errors": [
+        "E_CURRENT_ACTIVATION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:500-557"
+      ],
+      "notes": "No fixed operation deadline is enforced. Exact activation revision is mandatory; increments independent choice revision. An unsaved live Session can first get a revision-zero record. Record, pruning and current.json are separate durable operations, not one atomic Project/client_op_id commit. Retry with old activation revision fails; trusted callbacks may propagate their own errors."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "snapshots",
+      "value": 200,
+      "unit": "retained records; chosen record is protected",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:559-577"
+      ]
+    },
+    {
+      "name": "messages",
+      "value": 300,
+      "unit": "most recent input messages before filtering",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:202-228"
+      ]
+    },
+    {
+      "name": "message_chars",
+      "value": 8000,
+      "unit": "characters per message",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:48-53",
+        "lumeri_runtime/legacy_session_history.py:213-218"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "snapshot-cas",
+      "text": "A stale or omitted snapshot revision cannot overwrite a newer saved record.",
+      "test": "tests/test_runtime_legacy_session_history.py::test_a_save_must_have_seen_the_newest_save_of_its_session"
+    },
+    {
+      "id": "activation-cas",
+      "text": "A stale choice cannot replace the newer current Session choice.",
+      "test": "tests/test_runtime_legacy_session_history.py::test_choosing_what_to_reopen_must_have_seen_the_newest_choice"
+    }
+  ],
+  "failure": {
+    "break": [
+      "Validation failure or an unavailable native dependency."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/legacy_session_history.py:368-386"
+    ],
+    "notes": "This original seam does not install replacement layers or implement automatic original fallback."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner is attached."
+  },
+  "known_deviations": [
+    {
+      "text": "Legacy history saves and current selection bypass Project revision advancement and have no client_op_id durable result record. Per-file replacement does not make multi-file activation and pruning atomic.",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:492-497",
+        "lumeri_runtime/legacy_session_history.py:542-552"
+      ],
+      "test": null
+    },
+    {
+      "text": "Task/project-state reconstruction and cloud history upload from 1.0 are absent; this is a local editor compatibility store.",
+      "evidence": [
+        "lumeri_runtime/legacy_session_history.py:27-29",
+        "lumeri_runtime/legacy_session_history.py:320-325"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "record": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "v3_session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activation_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active_snapshot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "status"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "maxLength": 8000
+              }
+            },
+            "additionalProperties": true,
+            "required": [
+              "role",
+              "content"
+            ]
+          }
+        },
+        "timeline_markers": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object"
+          }
+        },
+        "project_state": {
+          "type": "null"
+        },
+        "project": {
+          "type": "null"
+        },
+        "server_video_path": {
+          "type": "null"
+        },
+        "video_src": {
+          "type": "null"
+        },
+        "creative_runtime_task_id": {
+          "type": "null"
+        }
+      },
+      "additionalProperties": true,
+      "description": "Normalized legacy record; optional copied timestamps/pending_ask/production_state and output snapshot_id/id aliases are retained. Full coercion and display-reference rules remain in normalize_record."
+    }
+  }
+}

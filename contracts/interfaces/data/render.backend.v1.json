@@ -1,0 +1,417 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:render.backend/v1",
+  "version": "1.2.0",
+  "area": "data",
+  "title": "Render engine and declared frame windows",
+  "summary": "Resolve the sealed engine and stage bounded Quanta or Lumenframe render requests. The sandbox verifies every declared frame before a receipt can succeed. Imported media is outside this backend.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.render:resolve_render_engine,bind_quanta_render,bind_lumenframe_render",
+    "notes": "Original: lumeri_runtime.render:resolve_render_engine,bind_quanta_render,bind_lumenframe_render, running lumeri-engine quanta and lumenframe in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.render.backend\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for lumeri-engine quanta and lumenframe: the Runtime starts it with the same arguments, environment, working directory and sandbox profile, except that it may write only the session scratch, never the Project. It runs only on a machine with a sandbox (macOS today) (docs/luc/engine-programs.md).",
+    "decided": "today's code: lumeri_runtime/render.py:58-80; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "engine.program"
+    ],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "The program reads what the original may read and writes only the session scratch; it runs only what the original may run (the profile's executables), with no network. The Runtime checks what it leaves and keeps the Project, the cache and the events."
+  },
+  "operations": [
+    {
+      "name": "resolve_render_engine",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "search_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "anyOf": [
+          {
+            "$contract": "contracts/interfaces/data/render.backend.v1.json#/definitions/engine"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/render.py:83-107"
+      ],
+      "notes": "No local deadline is enforced. "
+    },
+    {
+      "name": "frame_names",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/data/quanta.document.v1.json#/definitions/quanta"
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "maxItems": 2048
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/render.py:110-130"
+      ],
+      "notes": "No local deadline is enforced. One frame per visible state, named quanta-render-frames/frame_NNNN.png. Empty visible set is refused."
+    },
+    {
+      "name": "lumenframe_frame_names",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "frame_in": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frame_out": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "frame_in",
+          "frame_out"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "maxItems": 2048
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/render.py:133-159"
+      ],
+      "notes": "No local deadline is enforced. Half-open frame range with positive stride, not an engine-clamped request; names lumenframe-render-frames/frame_NNNN.png."
+    },
+    {
+      "name": "bind_quanta_render",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "cancelled": {},
+          "quanta": {
+            "$contract": "contracts/interfaces/data/quanta.document.v1.json#/definitions/quanta"
+          },
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "quanta",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/render.py:293-327"
+      ],
+      "notes": "No local deadline is enforced. Returns (bound runner, frame names), not rendered media. On execution only scratch files change and revision stays fixed. Complete scratch without a receipt reconciles UNKNOWN; incomplete set NOT_EXECUTED. Tuple/runner projection is draft. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    },
+    {
+      "name": "bind_lumenframe_render",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          },
+          "cancelled": {},
+          "frame_in": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frame_out": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/composition.document.v1.json#/definitions/composition"
+          },
+          "program": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "document",
+          "frame_in",
+          "frame_out",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/render.py:330-379"
+      ],
+      "notes": "No local deadline is enforced. Returns a runner and declared frame paths. Window contributes to intent identity. No durable Project commit occurs here; importing rendered media is a separate governed operation. program is the engine program a reviewed Luc brings for this module, or null; where it covers the run it runs first and the original runs the same request when it breaks."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.render.backend"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_agent_parts.py:464-479",
+        "lumeri_runtime/luc_engine_programs.py:251-285"
+      ],
+      "notes": "Once per Session in a start: when the module's program broke (gate run), or when its Luc was left off for the module after three breaks (gate load). Codes: E_LUC_ENGINE_START, E_LUC_ENGINE_EXIT, E_LUC_ENGINE_RESULT, E_LUC_ENGINE_LIMIT, E_LUC_ENGINE_DEADLINE, E_LUC_ENGINE_CHANGED."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "frames",
+      "value": 2048,
+      "unit": "declared frames",
+      "evidence": [
+        "lumeri_runtime/render.py:48",
+        "lumeri_runtime/render.py:125-127"
+      ]
+    },
+    {
+      "name": "sandbox_runtime",
+      "value": 300,
+      "unit": "seconds when bound lumeri_engine runner executes",
+      "evidence": [
+        "lumeri_core/sandbox.py:131-146"
+      ]
+    },
+    {
+      "name": "program_bytes",
+      "value": 16777216,
+      "unit": "bytes of the program's executable",
+      "evidence": [
+        "lumeri_runtime/luc_sandbox.py:46"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "A render cannot succeed with a partial frame set or a shorter clamped range.",
+      "test": null
+    },
+    {
+      "id": "clean-scratch-for-the-original",
+      "text": "When the program breaks after writing in the session scratch, the scratch is restored to its state before the program ran, so the original sees none of what the program wrote.",
+      "test": "tests/test_luc_engine_programs.py::test_a_program_that_breaks_leaves_a_clean_scratch_for_the_original"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the program cannot be placed, or its bytes are not the ones its Luc loaded with",
+      "it does not start in the sandbox, exits with a status other than 0, or leaves a process behind",
+      "it outruns the profile's time, memory, process or output limits",
+      "its stdout or declared files are not what the original's would be: Its stdout is one JSON value and the frames it declares exist; the Runtime's checks after the run hold them as they hold the engine's."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/sandbox.py:445-491",
+      "lumeri_runtime/sandbox.py:759-775",
+      "lumeri_runtime/luc_engine_programs.py:133-203",
+      "lumeri_runtime/luc_engine_programs.py:251-285"
+    ],
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.render.backend). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_engine_programs.py"
+    ],
+    "notes": "tests/test_luc_engine_programs.py holds the load gate, which runs belong to which module, and, with real compiled programs in the media sandbox, an answer in place of FFprobe and FFmpeg, every way of breaking handing the same request to the original, the scratch-only fence, a stop that is not a break, and a real Worker whose measured facts are the program's until it breaks. The engine's own modules share that path; no engine subcommand is replaced by a real program in a test yet."
+  },
+  "known_deviations": [
+    {
+      "text": "A complete frame set whose receipt was lost is UNKNOWN; it is not automatically rerun or declared successful. This scratch operation is not an atomic durable Project write.",
+      "evidence": [
+        "lumeri_runtime/render.py:268-282"
+      ],
+      "test": null
+    },
+    {
+      "text": "Beyond one JSON value on stdout and the declared files, a program's answer meets the Runtime's own checks only after the run; a failure there is the request's, and the original does not run it again.",
+      "evidence": [
+        "lumeri_runtime/sandbox.py:445-491"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "engine": {
+      "type": "object",
+      "properties": {
+        "executable": {
+          "type": "string"
+        },
+        "readable_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "executable"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

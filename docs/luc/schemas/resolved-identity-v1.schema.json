@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/resolved-identity-v1.schema.json",
+  "title": "Derived Resolved Luc identity",
+  "type": "object",
+  "required": ["base_source_hash", "ordered_extension_source_hashes", "resolver_version", "runtime_compatibility_identity"],
+  "properties": {
+    "base_source_hash": {"$ref": "#/$defs/hash"},
+    "ordered_extension_source_hashes": {"type": "array", "items": {"$ref": "#/$defs/hash"}},
+    "resolver_version": {"type": "string"},
+    "runtime_compatibility_identity": {
+      "type": "object", "required": ["runtime_version", "host_api_policy_hash"], "additionalProperties": false,
+      "properties": {"runtime_version": {"type": "string"}, "host_api_policy_hash": {"$ref": "#/$defs/hash"}}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {"hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

@@ -1,0 +1,268 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.luvi/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Project package import boundary",
+  "summary": "Runtime stages and validates a .luvi package, asks the sandboxed canonical parser for its documents/media and commits a settled Project document through the Project broker. Engine export format is engine.gemia.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luvi_ingest:validate_package,bind_luvi_read,bind_luvi_commit",
+    "notes": "Gate execution_id is execution_ plus the first 32 hex characters of SHA-256 over canonical product/account/session/root-turn/turn/capability/resource-scope data. Scope includes project_revision and authorization context. A proven-not-started step terminalizes RELEASED; the identical request replays its failed outcome, rather than running again."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Holds Project ownership, durable integrity or trusted execution authority.",
+    "decided": "today's code: lumeri_runtime/luvi_ingest.py:389-445"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Runtime seam, not an additional grant to a creator Luc."
+  },
+  "operations": [
+    {
+      "name": "validate_package",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package",
+          "session_temp"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [
+        "luvi_read_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luvi_ingest.py:79-103"
+      ],
+      "notes": "No local operation deadline is enforced. "
+    },
+    {
+      "name": "bind_luvi_read",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "package": {
+            "type": "string"
+          },
+          "project_root": {
+            "type": "string"
+          },
+          "session_temp": {
+            "type": "string"
+          },
+          "shared_cas_readonly": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "engine",
+          "package",
+          "project_root",
+          "session_temp",
+          "shared_cas_readonly"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "render_engine_error",
+        "luvi_read_error"
+      ],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luvi_ingest.py:352-386"
+      ],
+      "notes": "No local operation deadline is enforced. Returns a runner for luvi-import; parsing untrusted ZIP happens in the sealed engine. Only staged media files are produced; no Project write and no revision change. Opaque runner output is draft."
+    },
+    {
+      "name": "write_luvi_export_input",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session_temp": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "timeline": {
+            "$contract": "contracts/interfaces/data/timeline.document.v1.json#/definitions/timeline"
+          },
+          "lumenframe": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "session_temp",
+          "project_id",
+          "title",
+          "timeline",
+          "lumenframe",
+          "assets"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luvi_ingest.py:124-153"
+      ],
+      "notes": "No local operation deadline is enforced. Writes scratch request only; no client_op_id Project commit. Repeating overwrites the same request name."
+    },
+    {
+      "name": "bind_luvi_commit",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "project_repository": {
+            "type": "object"
+          },
+          "product_id": {
+            "$contract": "contracts/runtime-v1/runtime-contract.json#/types/ProductId"
+          },
+          "document": {
+            "$contract": "contracts/interfaces/data/project.document.v1.json#/definitions/document"
+          },
+          "intent_suffix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "project_repository",
+          "product_id",
+          "document",
+          "intent_suffix"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "execution_id",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luvi_ingest.py:389-445",
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "notes": "No local operation deadline is enforced. Returns trusted broker; imports the settled document as one governed edit, not synthetic insert history. Exact Gate execution replays. Document/revision are separate file replacements with no atomic client_op_id result record."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "kept-boundary",
+      "text": "Package parsing does not import gemia into the Runtime; package media is staged under scratch before governed import.",
+      "test": null
+    },
+    {
+      "id": "released-replay",
+      "text": "For governed calls, a definitive no-side-effect failure is RELEASED and the identical execution identity replays that failure. A new attempt must not be disguised as a retry.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "An unhandled exception, invalid output, or failed declared artifact check."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luvi_ingest.py:389-445",
+      "lumeri_runtime/execution.py:3062-3089",
+      "lumeri_runtime/execution.py:1771-1819",
+      "lumeri_runtime/worker.py:7345-7356"
+    ],
+    "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "Replacement conformance is not wired at this seam."
+  },
+  "known_deviations": [
+    {
+      "text": "Import explicitly drops 1.0 history and redo, rather than pretending the Runtime keeps that journal.",
+      "evidence": [
+        "lumeri_engine_cli.py:416-421",
+        "lumeri_engine_cli.py:486-499"
+      ],
+      "test": null
+    },
+    {
+      "text": "The document commit still uses the shared two-file mutation, not a crash-atomic client_op_id result transaction. Media imports and document replacement must not be replayed as one unguarded operation.",
+      "evidence": [
+        "lumeri_runtime/luvi_ingest.py:436-445",
+        "lumeri_runtime/projects.py:298-309"
+      ],
+      "test": null
+    },
+    {
+      "text": "The execution journal stores immutable effect results separately from Project persistence. It does not make the Project document, revision and client_op_id result record one atomic commit.",
+      "evidence": [
+        "lumeri_runtime/governance.py:3120-3174",
+        "lumeri_runtime/execution.py:2109-2158"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

@@ -1,0 +1,503 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:media.roughcut.review/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Read and review a rough cut",
+  "summary": "Read the roughcut rebuilt from annotations, or accept/reject cleanup, correct a transcript segment, or choose a take. Review decisions are user-source notes, not engine edits.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "engine.job",
+      "notes.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "library_asset"
+      ],
+      "properties": [
+        "asset.notes"
+      ],
+      "areas": [
+        "library"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "review_roughcut",
+      "capability": "media.roughcut.review",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "The asset whose roughcut this is about."
+          },
+          "target_type": {
+            "enum": [
+              "cleanup",
+              "transcript",
+              "take"
+            ],
+            "description": "What is being decided. Leave out, with the rest, to read the roughcut as it stands."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "The suggestion or transcript segment; 'take' for the take."
+          },
+          "action": {
+            "type": "string",
+            "description": "cleanup: accept or reject. transcript: correct, with text. take: select, alternative or reject."
+          },
+          "text": {
+            "type": "string",
+            "description": "transcript: what was actually said."
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "asset_id": {
+                "type": "string"
+              },
+              "roughcut": {
+                "anyOf": [
+                  {
+                    "$contract": "contracts/interfaces/tools/media.roughcut.review.v1.json#/definitions/manifest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "asset_id",
+              "roughcut"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "asset_id": {
+                "type": "string"
+              },
+              "roughcut": {
+                "anyOf": [
+                  {
+                    "$contract": "contracts/interfaces/tools/media.roughcut.review.v1.json#/definitions/manifest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "annotation": {
+                "$contract": "contracts/interfaces/tools/media.roughcut.review.v1.json#/definitions/review_annotation"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "asset_id",
+              "roughcut",
+              "annotation",
+              "summary"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "errors": [
+        "arguments_invalid",
+        "asset_not_found",
+        "roughcut_not_found",
+        "roughcut_review_refused",
+        "approval_required",
+        "note_not_written",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_PROGRAM_BROKE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/roughcut/tools.py:244-309",
+        "official_luc/roughcut/tools.py:312-385",
+        "official_luc/roughcut/tools.py:405-428",
+        "lumeri_runtime/luc_packaged_tools.py:285-334",
+        "lumeri_runtime/luc_host_api.py:590-602"
+      ],
+      "notes": "No end-to-end call deadline is enforced. With only asset_id this is a natural read and may return roughcut=null. Otherwise the Runtime derives a note-write key for the same tool call; reviews use deterministic annotation ids so a fresh correction replaces the same review note. No end-to-end deadline is enforced. The response rebuilds roughcut after the write and returns no project_revision."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.roughcut"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "review-not-retriage",
+      "text": "Review decisions preserve engine annotations and store user-source review notes.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_library_panel.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing tests were inspected, not run. The checker proves input equality and structural coverage, not replacement behavior or provider readiness. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "Transcript correction text is sliced to the review-note limit. The returned summary uses the requested correction, whereas rebuilt corrected_text contains the stored, possibly truncated note.",
+      "evidence": [
+        "official_luc/roughcut/tools.py:337-365"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "status": {
+          "const": "ready"
+        },
+        "language": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "take": {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "boolean"
+            },
+            "rank": {
+              "const": 1
+            },
+            "user_decision": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "selected",
+            "rank"
+          ],
+          "additionalProperties": false
+        },
+        "transcript": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "segments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "start_sec": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "end_sec": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "review_status": {
+                    "enum": [
+                      "pending",
+                      "corrected"
+                    ]
+                  },
+                  "corrected_text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "start_sec",
+                  "end_sec",
+                  "text",
+                  "confidence",
+                  "review_status"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "text",
+            "segments"
+          ],
+          "additionalProperties": false
+        },
+        "cleanup_suggestions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "start_sec": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "end_sec": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "review_status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "label",
+              "start_sec",
+              "end_sec",
+              "confidence",
+              "review_status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "asset_id",
+        "status",
+        "language",
+        "score",
+        "take",
+        "transcript",
+        "cleanup_suggestions"
+      ],
+      "additionalProperties": false
+    },
+    "review_annotation": {
+      "type": "object",
+      "required": [
+        "annotation_id",
+        "scope",
+        "label",
+        "note",
+        "tags",
+        "category",
+        "source",
+        "language"
+      ],
+      "properties": {
+        "annotation_id": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "asset",
+            "time_range"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "category": {
+          "type": "string"
+        },
+        "source": {
+          "const": "user"
+        },
+        "language": {
+          "type": "string"
+        },
+        "start_sec": {
+          "type": "number"
+        },
+        "end_sec": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Pre-normalization review annotation returned by the package; it is not the fully normalized stored annotation."
+    }
+  }
+}

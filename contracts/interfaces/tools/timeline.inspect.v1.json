@@ -1,0 +1,197 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:timeline.inspect/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Read the timeline",
+  "summary": "The agent's one way to read the active Video Project's timeline: its revision, tracks, clips, effects, transitions, and whether an undo or a redo is available. It reads only; it never changes the Project.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Reached by the agent through luc_invoke with capability_id timeline.inspect; the Runtime runs the packaged tool get_timeline."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18): tool/v2 code is not replaceable this week; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read"
+    ],
+    "host_apis": [
+      "project.read"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "get_timeline",
+      "capability": "timeline.inspect",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "project_revision",
+          "timeline",
+          "can_undo",
+          "can_redo"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeline": {
+            "type": "object",
+            "description": "The Project document's timeline, as stored. Its shape is the timeline document's interface (data area)."
+          },
+          "can_undo": {
+            "type": "boolean"
+          },
+          "can_redo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/timeline-inspector/tools.py:4-15",
+        "lumeri_runtime/luc_packaged_tools.py:202-211",
+        "lumeri_runtime/worker.py:6280-6304",
+        "official_luc/timeline-inspector/manifest.json"
+      ],
+      "notes": "No deadline is enforced on a packaged read today; the call is one document read. The shipped output_schema is the bare {type: object} (luc_packaged_tools.py:556); this contract is the real one."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.timeline-inspector"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of the rendered result the model sees; longer is cut with a note",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42",
+        "lumeri_runtime/agent_turn.py:425-429"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reads-only",
+      "text": "Calling it never changes the Project: the project revision before and after the call is the same.",
+      "test": null
+    },
+    {
+      "id": "no-arguments",
+      "text": "Any argument is refused with arguments_invalid; nothing is read.",
+      "test": null
+    },
+    {
+      "id": "kept-in-safe-mode",
+      "text": "It is offered in safe mode and on a Host that cannot write the Project, where every timeline writing capability is absent.",
+      "test": "tests/test_official_luc_timeline_editor.py::test_safe_mode_and_a_read_only_host_leave_the_editor_out"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_official_luc_timeline_editor.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "The tool is exercised by the timeline editor tests; no test validates its answer against this output schema yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

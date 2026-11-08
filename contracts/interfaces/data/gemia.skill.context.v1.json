@@ -1,0 +1,182 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:gemia.skill.context/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "In-process native Skill context assembler",
+  "summary": "An immutable native Skill instruction and trusted gemia prompt assembler produce planner context, without running tools or mutating the Project.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.native_skill_panel:NativeSkillPromptAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Trusted integrity and binding machinery remains controlled by Lumeri.",
+    "decided": "today's code: lumeri_runtime/native_skill_panel.py:80-126"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:118-130"
+      ],
+      "notes": "No fixed operation deadline is enforced. Requires native-skill-context surface, exact instruction/hash/dependencies, fixed schemas and no edit or Host authority. Mismatches raise ValueError without a code."
+    },
+    {
+      "name": "invoke",
+      "effect": "read",
+      "input": {
+        "$contract": "contracts/interfaces/data/gemia.skill.context.v1.json#/definitions/input"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/gemia.skill.context.v1.json#/definitions/output"
+      },
+      "errors": [
+        "E_LUC_SKILL_SOURCE_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:155-171"
+      ],
+      "notes": "No fixed operation deadline is enforced. Inputs shown are arguments; capability/context are trusted binding parameters. Checks source text unchanged, then calls pinned bundle builder with budget default 5000. Output is context only; Project revision is unchanged."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-tool-execution",
+      "text": "Invocation assembles native planner context only; declared tool dependencies do not execute as part of this call.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "Validation failure or an unavailable native dependency."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/native_skill_panel.py:155-158",
+      "lumeri_runtime/native_luc_catalog.py:27-41"
+    ],
+    "notes": "This original seam does not install replacement layers or implement automatic original fallback."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner is attached."
+  },
+  "known_deviations": [
+    {
+      "text": "The factory loads only the Video timeline-ops native Skill from gemia; its Python callable and local source text remain required.",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:269-285"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "effective_request": {
+          "type": "string",
+          "maxLength": 12000
+        },
+        "has_video_context": {
+          "type": "boolean"
+        },
+        "budget": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12000
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "context_ready"
+        },
+        "native_skill": {
+          "type": "string"
+        },
+        "selected_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "static_chunk": {
+          "type": "string"
+        },
+        "dynamic_chunk": {
+          "type": "string"
+        },
+        "combined": {
+          "type": "string"
+        },
+        "combo_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_dependencies": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "required",
+            "optional"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "native_skill",
+        "selected_skills",
+        "static_chunk",
+        "dynamic_chunk",
+        "combined",
+        "combo_ids",
+        "tool_dependencies"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

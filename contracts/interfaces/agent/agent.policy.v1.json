@@ -1,0 +1,289 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:agent.policy/v1",
+  "version": "1.1.0",
+  "area": "agent",
+  "title": "Tune reviewed agent policy within fixed limits",
+  "summary": "Reviewed policy data from a lumeri.agent.policy/v1 capability controls history window, repeat stop, hidden capability ids and guidance preamble; without a policy layer, ORIGINAL_POLICY in agent_turn.py governs.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.agent_turn:resolve_policy",
+    "notes": "Original: lumeri_runtime.agent_turn:ORIGINAL_POLICY. Replacement: a reviewed lumeri.agent.policy/v1 capability naming a JSON policy file, loaded by lumeri_runtime.luc_agent:AgentPolicyAdapter and resolved by stand_in_policy / resolve_policy."
+  },
+  "replaceability": {
+    "class": "reviewed",
+    "why": "The self-Luc spec makes policy data reviewed like instructions, granted by its own agent.policy permission (Acrab, 2026-10-24).",
+    "decided": "Acrab 2026-10-06 (agent.replace requires Lumeri review) and 2026-10-24 (a separate agent.policy permission); self-Luc spec v0.3 (2026-10-18)"
+  },
+  "reach": {
+    "permissions": [
+      "agent.policy"
+    ],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "resolve_policy",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "oneOf": [
+              {
+                "$contract": "contracts/interfaces/agent/agent.policy.v1.json#/definitions/policy_document"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "policy"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/agent/agent.policy.v1.json#/definitions/effective_policy"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:118-193",
+        "lumeri_runtime/luc_agent.py:132-194",
+        "lumeri_runtime/official_luc.py:975-1012"
+      ],
+      "notes": "Optional fields merge onto ORIGINAL_POLICY; bool is never an integer. Rejects any unknown key (including an adjustable result cap), non-English or >400-byte guidance_preamble, and hiding every available capability. Unknown capability ids in tools.hide are ignored and reported in ignored_hide."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.agent.policy"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "title": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "enum": [
+              "run",
+              "load"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/worker.py:8215-8246"
+      ],
+      "notes": "Once per Session in a start: when the policy file broke at run time (gate run), or when its Luc was left off after three breaks (gate load)."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "window_min",
+      "value": 20,
+      "unit": "messages",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:79"
+      ]
+    },
+    {
+      "name": "window_max",
+      "value": 80,
+      "unit": "messages",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:80"
+      ]
+    },
+    {
+      "name": "repeat_min",
+      "value": 2,
+      "unit": "identical calls",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:81"
+      ]
+    },
+    {
+      "name": "repeat_max",
+      "value": 3,
+      "unit": "identical calls",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:82"
+      ]
+    },
+    {
+      "name": "guidance_max_bytes",
+      "value": 400,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:83"
+      ]
+    },
+    {
+      "name": "result_prefix_chars",
+      "value": 6000,
+      "unit": "characters; fixed, not a policy field",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:43"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "original-constants",
+      "text": "Without a policy layer, the original window is 80 messages and the identical-call stop is 3.",
+      "test": "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    },
+    {
+      "id": "fixed-result-cap",
+      "text": "No policy may adjust the 6000-character tool-result prefix cap.",
+      "test": "tests/test_luc_agent_policy.py::test_policy_validation_and_unknown_hide_reporting"
+    },
+    {
+      "id": "unknown-hidden-id-reported",
+      "text": "A capability id in tools.hide that no loaded Luc provides is ignored and reported, never a reason to refuse the whole policy (Acrab, 2026-10-24).",
+      "test": "tests/test_luc_agent_policy.py::test_policy_validation_and_unknown_hide_reporting"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the policy file is missing, unreadable, modified after load, or outside the policy schema or bounds"
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_agent.py:132-194",
+      "lumeri_runtime/worker.py:8150-8213",
+      "lumeri_runtime/luc_interactions.py:114-138"
+    ],
+    "notes": "A run-time break latches ORIGINAL_POLICY for the rest of the start, restores any capabilities withheld by policy, records luc.module_fell_back once per Session, and counts toward the 3-break circuit breaker (luc_breaker)."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_luc_agent_policy.py",
+      "tests/test_luc_originals_pinned.py::test_a_real_worker_pins_lumeris_prompt_window_opener_and_tools"
+    ],
+    "notes": "tests/test_luc_agent_policy.py exercises on/off/break for lumeri.agent.policy and guidance_preamble through a real Worker, including tools.hide propagation to luc_discover/luc_describe/luc_invoke/use_skill/skills_view and circuit-breaker trip."
+  },
+  "known_deviations": [],
+  "open_questions": [],
+  "definitions": {
+    "policy_document": {
+      "type": "object",
+      "properties": {
+        "window_messages": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 80
+        },
+        "doom_loop_repeats": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 3
+        },
+        "tools": {
+          "type": "object",
+          "properties": {
+            "hide": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "maxItems": 32,
+              "uniqueItems": true
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "guidance_preamble": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "description": "English letters are ASCII; other symbols may be non-ASCII. Must be at most 400 UTF-8 bytes, checked separately. Reject overlong text; never truncate."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "effective_policy": {
+      "type": "object",
+      "properties": {
+        "window_messages": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 80
+        },
+        "doom_loop_repeats": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 3
+        },
+        "tools": {
+          "type": "object",
+          "properties": {
+            "hide": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "hide"
+          ],
+          "additionalProperties": false
+        },
+        "guidance_preamble": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "window_messages",
+        "doom_loop_repeats",
+        "tools",
+        "guidance_preamble"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

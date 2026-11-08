@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/layer-profile-v1.schema.json",
+  "title": "Luc ordered layer selection",
+  "type": "object",
+  "required": ["profile_format", "profile", "base", "extensions", "ordered_extension_source_hashes", "active_extension_source_hashes", "resolved_hash", "resolver_version", "runtime_version", "requires_reauthorization", "authority", "authority_diff", "safe_mode"],
+  "properties": {
+    "profile_format": {"const": "lumeri.luc.layer-profile/v1"},
+    "profile": {"type": "string", "minLength": 1},
+    "base": {"$ref": "#/$defs/layer"},
+    "extensions": {"type": "array", "items": {"$ref": "#/$defs/extension"}},
+    "ordered_extension_source_hashes": {"type": "array", "items": {"$ref": "#/$defs/hash"}},
+    "active_extension_source_hashes": {"type": "array", "items": {"$ref": "#/$defs/hash"}},
+    "resolved_hash": {"$ref": "#/$defs/hash"},
+    "resolver_version": {"type": "string", "minLength": 1},
+    "runtime_version": {"type": "string", "minLength": 1},
+    "requires_reauthorization": {"type": "boolean"},
+    "authority": {"type": "object"},
+    "authority_diff": {"type": "object", "required": ["expansions", "reductions"], "properties": {"expansions": {"type": "array"}, "reductions": {"type": "array"}}, "additionalProperties": false},
+    "safe_mode": {"type": "boolean"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "layer": {
+      "type": "object", "required": ["id", "version", "source_hash"], "additionalProperties": false,
+      "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "source_hash": {"$ref": "#/$defs/hash"}}
+    },
+    "extension": {
+      "type": "object", "required": ["id", "version", "source_hash", "enabled"], "additionalProperties": false,
+      "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "source_hash": {"$ref": "#/$defs/hash"}, "enabled": {"type": "boolean"}}
+    }
+  }
+}

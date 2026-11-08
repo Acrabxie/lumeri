@@ -1,0 +1,73 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.legacy-runtimes/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "1.0 editor runtimes loaded into the 1.1 page",
+  "summary": "1.0 code the editor page still loads before v3.js: the skill runtime, the IO skills, luqu, the microtune runtime, the plugin surfaces runtime, and the Quanta core and editor scripts. Each defines a global the page calls; none is a Luc.",
+  "carrier": {
+    "kind": "browser",
+    "notes": "Script tags in static/v3/index.html, in a fixed order, all deferred."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "They run as the editor page with its full reach; a replacement would be code in the page shell. They are to be retired or turned into Lucs, not swapped.",
+    "decided": "self-Luc spec v0.3 foundation (the editor page shell); docs/luc/self-luc-inventory.md:101"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "load",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "static/v3/index.html:483-500"
+      ],
+      "notes": "The globals each script defines and the calls v3.js makes into them are not written down here; draft."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "load-order",
+      "text": "The 1.0 runtimes load after the locale, settings and auth scripts and before luc-ui.js, luc-panel-host.js and v3.js.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "a script fails to load or throws at start"
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "static/v3/index.html:490-497"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_lumeri_skill_runtime.py",
+      "tests/test_lumeri_io_skills.py",
+      "tests/test_luqu_player.py"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

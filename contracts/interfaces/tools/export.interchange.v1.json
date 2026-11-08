@@ -1,0 +1,304 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:export.interchange/v1",
+  "version": "1.1.0",
+  "area": "tools",
+  "title": "Export the edit for another editor",
+  "summary": "Export the current timeline and its referenced assets as OTIO or OTIOZ. OTIOZ is the default bundle; the export becomes a library file without changing the timeline.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations describe the capability result before the luc_invoke identity wrapper and model-result clipping."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "engine.job"
+    ],
+    "editable": {
+      "target_types": [
+        "library_asset"
+      ],
+      "properties": [
+        "asset.presence"
+      ],
+      "areas": [
+        "library"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "export_interchange",
+      "capability": "export.interchange",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "otio",
+              "otioz"
+            ],
+            "description": "otioz: one bundle carrying the edit and its footage, for another machine. otio: the edit alone, pointing at the footage where it sits. Default otioz."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/tools/media.caption.v1.json#/definitions/job_started"
+          },
+          {
+            "$contract": "contracts/interfaces/tools/export.interchange.v1.json#/definitions/completed"
+          }
+        ]
+      },
+      "errors": [
+        "arguments_invalid",
+        "interchange_refused",
+        "engine_job_invalid",
+        "E_LUC_EDIT_SCOPE",
+        "approval_required",
+        "job_failed",
+        "interchange_engine_unavailable",
+        "interchange_source_unavailable",
+        "interchange_request_unwritable",
+        "interchange_result_unreadable",
+        "E_BAD_SOURCE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_PROGRAM_BROKE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/interchange/tools.py:40-110",
+        "lumeri_engine_cli.py:320-344",
+        "lumeri_engine_cli.py:375-404",
+        "lumeri_runtime/luc_packaged_tools.py:336-368",
+        "lumeri_runtime/luc_packaged_tools.py:392-403",
+        "lumeri_runtime/worker.py:1767-1808",
+        "lumeri_runtime/worker.py:4387-4505",
+        "lumeri_runtime/engine_jobs.py:578-651",
+        "lumeri_runtime/luc_host_api.py:590-602"
+      ],
+      "notes": "No end-to-end call deadline is enforced. The first successful call returns {status: started, job_id}; replay after completion returns the stored successful result. The Runtime derives the key from turn_id, tool_call_id, engine capability and intent. Keep that context to retry; a new call is new work. The subprocess ceiling below applies per engine execution, not to the whole job or later import/notes writes. The package reads the timeline and stages every referenced asset once. The engine written/name/clips report is not exposed by this tool: result_key is absent; the completed tool answer contains format and the imported asset."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.interchange"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters before the model result is clipped; the cut notice is appended",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:38-42",
+        "lumeri_runtime/agent_turn.py:423-430"
+      ]
+    },
+    {
+      "name": "engine_run_seconds",
+      "value": 300,
+      "unit": "seconds per sandboxed engine execution",
+      "evidence": [
+        "lumeri_core/sandbox.py:131-146",
+        "lumeri_runtime/sandbox.py:731-747"
+      ]
+    },
+    {
+      "name": "referenced_assets",
+      "value": 2048,
+      "unit": "assets per export",
+      "evidence": [
+        "official_luc/interchange/tools.py:25",
+        "official_luc/interchange/tools.py:46-58"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "host-keeps-authority",
+      "text": "The Runtime authorizes declared Host APIs and checks the tool edit scope before a Project mutation; the package cannot expand its effective editable boundary.",
+      "test": null
+    },
+    {
+      "id": "started-is-not-completed",
+      "text": "A started job handle proves work was scheduled; it does not prove an asset or notes were written.",
+      "test": null
+    },
+    {
+      "id": "timeline-stays",
+      "text": "Export reads the timeline; it adds a library artifact and never rewrites clips.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_runtime_interchange.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Existing tests were inspected, not run. The checker proves input equality and structural coverage, not replacement behavior or provider readiness. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
+  },
+  "known_deviations": [
+    {
+      "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
+      "evidence": [
+        "lumeri_runtime/luc_packaged_tools.py:565-566",
+        "lumeri_runtime/luc_packaged_tools.py:624-627"
+      ],
+      "test": null
+    },
+    {
+      "text": "Engine execution and its resulting asset import or annotation write are separate governed steps. There is no atomic layer patch/result record covering all steps; replay or fallback must not assume a single atomic commit.",
+      "evidence": [
+        "lumeri_runtime/worker.py:4453-4505",
+        "lumeri_runtime/engine_jobs.py:636-651"
+      ],
+      "test": null
+    },
+    {
+      "text": "Only the agent's call goes to a layer's program. Where the editor asks a packaged tool directly through the Worker's own routes, the Official code answers.",
+      "evidence": [
+        "lumeri_runtime/worker.py:3129-3132",
+        "lumeri_runtime/worker.py:3913-3927"
+      ],
+      "test": null
+    },
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "completed": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "status": {
+          "const": "succeeded"
+        },
+        "approval": {
+          "type": "null"
+        },
+        "format": {
+          "enum": [
+            "otio",
+            "otioz"
+          ]
+        },
+        "asset": {
+          "anyOf": [
+            {
+              "type": "object",
+              "description": "Imported library asset reference, owned by the media store; see iface:media.store/v1."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "turn_id",
+        "trace_id",
+        "status",
+        "approval",
+        "format",
+        "asset"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

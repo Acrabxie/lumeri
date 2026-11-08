@@ -1,0 +1,234 @@
+{
+  "format": "lumeri.interface-index/v1",
+  "area": "editor",
+  "modules": [
+    {
+      "module": "lumeri.files-panel",
+      "inventory": "Files Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.files/v1"
+      ]
+    },
+    {
+      "module": "lumeri.library-panel",
+      "inventory": "Library Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.library/v1"
+      ]
+    },
+    {
+      "module": "lumeri.outline-panel",
+      "inventory": "Outline Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.outline/v1"
+      ]
+    },
+    {
+      "module": "lumeri.properties-panel",
+      "inventory": "Properties Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.properties/v1"
+      ]
+    },
+    {
+      "module": "lumeri.skills-panel",
+      "inventory": "Skills Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.skills/v1"
+      ]
+    },
+    {
+      "module": "lumeri.tasks-panel",
+      "inventory": "Tasks Panel",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:panel.tasks/v1"
+      ]
+    },
+    {
+      "module": "lumeri.workspace",
+      "inventory": "Video workspace (editor page)",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:workspace.video/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.page",
+      "inventory": "Editor page as served",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.page/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.placement",
+      "inventory": "Workspace framework placement",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.placement/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.preview",
+      "inventory": "Preview and timeline (core modules)",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:editor.preview/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.timeline-view",
+      "inventory": "Preview and timeline (core modules)",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:editor.timeline-view/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.builtin-panels",
+      "inventory": "Built-in Panels (6)",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.builtin-panels/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.panel-bridge",
+      "inventory": "Panel host bridge",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.panel-bridge/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.interaction-renderer",
+      "inventory": "Interaction surface renderer",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.interaction-renderer/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.canvas-inspector",
+      "inventory": "LumenFrame canvas inspector",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:editor.canvas-inspector/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.composer",
+      "inventory": "Composer and transcript",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.composer/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.transcript",
+      "inventory": "Composer and transcript",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:editor.transcript/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.legacy-runtimes",
+      "inventory": "1.0 editor runtimes",
+      "status": "luc",
+      "end_state": "official-only",
+      "retire_candidate": true,
+      "interfaces": [
+        "iface:editor.legacy-runtimes/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.quanta-page",
+      "inventory": "Quanta editor page",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.quanta-page/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.auth-gate",
+      "inventory": "Auth gate, settings, locale, API client",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.auth-gate/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.settings",
+      "inventory": "Auth gate, settings, locale, API client",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.settings/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.locale",
+      "inventory": "Auth gate, settings, locale, API client",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:editor.locale/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.api-client",
+      "inventory": "Auth gate, settings, locale, API client",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.api-client/v1"
+      ]
+    },
+    {
+      "module": "lumeri.editor.shell",
+      "inventory": "Composer and transcript",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.shell/v1"
+      ],
+      "notes": "The /video/shell/ conversation shell that embeds the classic editor in panel mode (static/v3/shell/)."
+    },
+    {
+      "module": "lumeri.editor.quanta-v4",
+      "inventory": "Quanta editor page",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:editor.quanta-v4/v1"
+      ],
+      "notes": "Boundary for the in-tree Quanta .luqu player and flow editor under static/v3/quanta/; full Quanta v4 body awaits the Quanta owner."
+    }
+  ]
+}

@@ -1,0 +1,508 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.adapter/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Trusted protocol adapter interface",
+  "summary": "The duck-typed Python role every LucHost adapter provides. protocol_id is required; capability_required_fields defaults to surface, capability_optional_fields defaults to input_schema/output_schema/canvas_operation. agent_visible defaults true, uses_package_files false. Methods marked optional may be absent; descriptive adapters need no invoke.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc:LucHost.register_adapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "bind_host",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "The registering LucHost Python instance."
+          }
+        },
+        "required": [
+          "host"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_CUSTOM_DECLARATION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:269-276",
+        "lumeri_runtime/luc_custom.py:294-298",
+        "lumeri_runtime/luc_custom.py:37-38"
+      ],
+      "notes": "Optional hook before insertion. No deadline or retry isolation; an exception prevents insertion. Concrete hooks may reject rebinding; this is not a closed error union."
+    },
+    {
+      "name": "required_permissions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:369-375",
+        "lumeri_runtime/luc_packaged_tools.py:542-544"
+      ],
+      "notes": "Optional method returns a Python frozenset, represented here as unique names. Otherwise Host uses adapter.permissions or the empty set. Plain ValueError may escape; no deadline."
+    },
+    {
+      "name": "granted_permissions",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:379-381",
+        "lumeri_runtime/luc_agent.py:108-112"
+      ],
+      "notes": "Optional hook returns a set of names that must be in permissions_granted, even without an API. Absent hook adds no check. No deadline."
+    },
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_WORKSPACE",
+        "E_LUC_PRODUCT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:382-394",
+        "lumeri_runtime/luc.py:92-111",
+        "lumeri_runtime/luc_workspace.py:338-384"
+      ],
+      "notes": "Required unless compile_package exists. Returns capability with input_schema/output_schema. Direct compile ValueError is not wrapped. Known concrete codes listed here are examples rather than a closed union of adapters; see concrete adapter interfaces. No deadline."
+    },
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resolved package resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE",
+        "E_LUC_PRODUCT",
+        "E_LUC_LANGUAGE",
+        "E_LUC_WORKSPACE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:382-394",
+        "lumeri_runtime/luc_workspace.py:488-511",
+        "lumeri_runtime/luc_agent.py:114-140",
+        "lumeri_runtime/luc_packaged_tools.py:546-567",
+        "lumeri_runtime/luc_workspace.py:400-419"
+      ],
+      "notes": "Optional instead of compile. Must return the capability plus schemas. ValueError becomes E_LUC_CAPABILITY_INVALID in Host.load; LucError keeps its code. No deadline. Listed concrete codes are not a closed adapter union."
+    },
+    {
+      "name": "validate_authority",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          },
+          "resolution": {
+            "description": "Python APIResolution from iface:luc.host-api/v1, carrying requested and effective authority."
+          }
+        },
+        "required": [
+          "capability",
+          "resolution"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE",
+        "E_LUC_CUSTOM_AUTHORITY"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:395-404",
+        "lumeri_runtime/luc_packaged_tools.py:569-588",
+        "lumeri_runtime/luc_custom.py:277-285"
+      ],
+      "notes": "Optional. Direct hook codes below come from concrete adapters. Host.load catches every ValueError, including LucError subclasses, and replaces its code with E_LUC_ADAPTER_AUTHORITY. Does not grant authority; no deadline."
+    },
+    {
+      "name": "descriptor_output_schema",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "JSON Schema for CapabilityDescriptor.output_schema."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:433-443",
+        "lumeri_runtime/luc.py:113-120"
+      ],
+      "notes": "Required. Interaction descriptors also permit the mounted receipt; post-invoke validation still uses capability.output_schema. No deadline."
+    },
+    {
+      "name": "capability_effect",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object",
+            "description": "Effect metadata including kind, preview, apply, writes_project, apply_fields and optional edits."
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_TOOL_CODE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:405-443",
+        "lumeri_runtime/luc_packaged_tools.py:597-608"
+      ],
+      "notes": "Optional; a truthy mapping marks descriptor WRITE, MEDIUM risk and blocked plan mode. None uses canvas_operation or interaction_only. No deadline."
+    },
+    {
+      "name": "describe_capability",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          }
+        },
+        "required": [
+          "capability"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:525-537",
+        "lumeri_runtime/luc.py:122-128"
+      ],
+      "notes": "Optional, returns a public capability mapping; Host bounds/detaches the final result with json_value. No deadline."
+    },
+    {
+      "name": "describe_for_context",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          },
+          "context": {
+            "description": "Host-owned current context."
+          }
+        },
+        "required": [
+          "capability",
+          "context"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:130-133",
+        "lumeri_runtime/luc.py:534-537"
+      ],
+      "notes": "Optional and called only with a non-None context. Adapter may add contextual renderer data. No deadline."
+    },
+    {
+      "name": "invoke",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          },
+          "context": {
+            "description": "Trusted embedding-specific context."
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Already validated against capability.input_schema."
+          }
+        },
+        "required": [
+          "capability",
+          "context",
+          "arguments"
+        ]
+      },
+      "output": {
+        "description": "Adapter result, possibly a ToolResult with a .model member; descriptive adapters may omit this method."
+      },
+      "errors": [
+        "E_LUC_INVOKE_UNSUPPORTED",
+        "E_LUC_TOOL_CODE",
+        "E_LUC_TOOL_RESULT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc.py:539-577",
+        "lumeri_runtime/luc.py:84-87",
+        "lumeri_runtime/luc_packaged_tools.py:610-622"
+      ],
+      "notes": "No generic deadline or idempotency at this seam. Concrete adapter contracts specify their refusals; invoke can propagate LucError, ToolRefused or native exceptions. Listed codes are shared/packaged examples, not a closed union of all adapters."
+    },
+    {
+      "name": "validate_result",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "object",
+            "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+          },
+          "model": {
+            "description": "result.model if present, otherwise result."
+          }
+        },
+        "required": [
+          "capability",
+          "model"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:570-577",
+        "lumeri_runtime/luc_packaged_tools.py:624-627",
+        "lumeri_runtime/luc_adapters.py:147-153"
+      ],
+      "notes": "Optional. Otherwise Host validates with its bounded JSON validator (E_LUC). Native/packaged hooks use jsonschema directly and can raise ValidationError without a LucError code. No deadline."
+    },
+    {
+      "name": "runtime_available",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:81-82",
+        "lumeri_runtime/official_luc.py:660-667"
+      ],
+      "notes": "Optional bootstrap probe. False makes the package unavailable as E_LUC_ADAPTER_RUNTIME; absence means no availability probe. No deadline."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "trusted-registration",
+      "text": "A manifest cannot register an adapter; only Host code supplies adapter instances.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc.py:269-276",
+      "lumeri_runtime/luc.py:342-461"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "There is no formal Python Protocol or closed adapter error union. ValueError handling differs between compile and compile_package; custom validation hooks may raise non-Luc exceptions.",
+      "evidence": [
+        "lumeri_runtime/luc.py:385-400",
+        "lumeri_runtime/luc.py:570-576"
+      ],
+      "test": null
+    },
+    {
+      "text": "Authority-hook LucError codes are overwritten because LucError is a ValueError and this catch has no separate LucError branch.",
+      "evidence": [
+        "lumeri_runtime/luc.py:34-37",
+        "lumeri_runtime/luc.py:395-400"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Should a future executable adapter conformance check require one uniform exception envelope and pure compilation?",
+      "for": "lumeri"
+    }
+  ],
+  "definitions": {
+    "capability": {
+      "type": "object",
+      "description": "A detached JSON capability mapping with id, protocol, description and adapter-owned fields; compile supplies input_schema and output_schema."
+    }
+  }
+}

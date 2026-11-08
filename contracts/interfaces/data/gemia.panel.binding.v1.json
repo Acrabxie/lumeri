@@ -1,0 +1,147 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:gemia.panel.binding/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "In-process native Panel lifecycle binding",
+  "summary": "Validate and pin the existing gemia panel descriptor, then delegate mount/destroy to the trusted Host lifecycle. The descriptor contains no package renderer code.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.native_skill_panel:NativePanelBinding,NativeUIPanelAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Trusted integrity and binding machinery remains controlled by Lumeri.",
+    "decided": "today's code: lumeri_runtime/native_skill_panel.py:185-198"
+  },
+  "reach": {
+    "permissions": [
+      "ui.mount"
+    ],
+    "host_apis": [
+      "interaction.mount",
+      "interaction.update"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "NativePanelBinding",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:185-198"
+      ],
+      "notes": "No fixed operation deadline is enforced. Validates with gemia.plugin_surfaces.validate_descriptor and stores detached canonical JSON. Full native descriptor schema is draft; UI rendering belongs to the editor area."
+    },
+    {
+      "name": "compile",
+      "effect": "none",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:229-241"
+      ],
+      "notes": "No fixed operation deadline is enforced. Requires native-ui-panel surface, exact normalized native descriptor and fixed input/output schemas. Exact ui.mount grant and interaction.mount/update required Host APIs; editable must be none. Mismatches raise ValueError without a code."
+    },
+    {
+      "name": "invoke",
+      "effect": "write",
+      "input": {
+        "$contract": "contracts/interfaces/data/gemia.panel.binding.v1.json#/definitions/input"
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/gemia.panel.binding.v1.json#/definitions/output"
+      },
+      "errors": [
+        "E_LUC_PANEL_RUNTIME_UNBOUND",
+        "E_LUC_PANEL_HOST_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:260-266"
+      ],
+      "notes": "No fixed operation deadline is enforced. Inputs shown are arguments; capability/context are trusted binding parameters. Requires attached trusted lifecycle and same Host app. Output is lifecycle-specific. Mount/destroy changes session UI state, not an atomic Project/client_op_id transaction; no Project revision is advanced here."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "host-scoped",
+      "text": "A native Panel cannot run without a trusted lifecycle and cannot use a context bound to another Host app.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "Validation failure or an unavailable native dependency."
+    ],
+    "fallback": "fail-closed",
+    "evidence": [
+      "lumeri_runtime/native_skill_panel.py:260-266",
+      "lumeri_runtime/native_luc_catalog.py:27-41"
+    ],
+    "notes": "This original seam does not install replacement layers or implement automatic original fallback."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner is attached."
+  },
+  "known_deviations": [
+    {
+      "text": "The factory binds the Video tasks panel; lifecycle is optional and a descriptor alone does not prove the panel can mount.",
+      "evidence": [
+        "lumeri_runtime/native_skill_panel.py:209-216",
+        "lumeri_runtime/native_skill_panel.py:269-285"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "mount",
+            "destroy"
+          ]
+        },
+        "mount_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object"
+    }
+  }
+}

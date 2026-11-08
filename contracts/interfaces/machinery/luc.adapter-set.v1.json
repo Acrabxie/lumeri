@@ -1,0 +1,94 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.adapter-set/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Trusted adapter factories",
+  "summary": "Construct the Core-allowlisted protocol adapters. Missing optional gemia implementations may be reported without stopping unrelated packages. A manifest cannot add a factory.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.native_luc_catalog:trusted_protocol_adapters"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "trusted_protocol_adapters",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "protocols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "app": {
+            "description": "Worker application."
+          },
+          "missing": {
+            "description": "Optional mutable set[str]."
+          }
+        },
+        "required": [
+          "protocols",
+          "app"
+        ]
+      },
+      "output": {
+        "description": "Tuple of adapter instances implementing iface:luc.adapter/v1."
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/native_luc_catalog.py:19-58"
+      ],
+      "notes": "No deadline. Repeated calls construct fresh instances. ImportError/ValueError in optional gemia factories update missing, or re-raise if missing is None; other failures propagate."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "allowlist-only",
+      "text": "Only factories explicitly named in Core code can supply protocol adapters.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/native_luc_catalog.py:19-58"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The native agent tool policy table is empty. This factory is not a generic plugin-import mechanism.",
+      "evidence": [
+        "lumeri_runtime/native_luc_catalog.py:9-13"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

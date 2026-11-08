@@ -1,0 +1,276 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.confirmation/v1",
+  "version": "1.0.1",
+  "area": "machinery",
+  "title": "Host human confirmation and edit authorization",
+  "summary": "Mint a Host-owned single-use apply credential only after an authenticated UI authorizer accepts an exact proposal. Recheck session, target, revision and effective edit authority before apply.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc:LucHost.confirm_proposal, authorize_edit, retire_interaction"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "confirm_proposal",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "binding": {
+            "$contract": "docs/luc/schemas/interaction-binding-v1.schema.json#"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "proposal": {
+            "type": "object",
+            "description": "Canonical layout-adjust value plus proposal_only.emphasis in [0,1]; tool shape see iface:layout.adjust/v1."
+          },
+          "actor_session_id": {
+            "type": "string"
+          },
+          "actor_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "capability_id",
+          "binding",
+          "proposal_id",
+          "proposal",
+          "actor_session_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "confirmation_token": {
+            "type": "string"
+          },
+          "proposal_digest": {
+            "type": "string"
+          },
+          "status": {
+            "const": "confirmed_pending_apply"
+          }
+        },
+        "required": [
+          "confirmation_token",
+          "proposal_digest",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_CONFIRMATION_SCOPE",
+        "E_LUC_CONFIRMATION_IDENTITY",
+        "E_LUC_CONFIRMATION_REQUIRED",
+        "E_LUC_CONFIRMATION_INVALID",
+        "E_LUC_PROPOSAL_SCHEMA"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:602-660",
+        "lumeri_runtime/luc.py:733-763"
+      ],
+      "notes": "No deadline. Each successful call mints a new random credential after the private authorizer returns exactly True. Credential belongs only to trusted Host/UI and never the model invoke result. Currently only the canonical layout-adjust proposal is supported."
+    },
+    {
+      "name": "authorize_edit",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "binding": {
+            "$contract": "docs/luc/schemas/interaction-binding-v1.schema.json#"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "proposal": {
+            "type": "object",
+            "description": "Canonical layout-adjust value plus proposal_only.emphasis in [0,1]; tool shape see iface:layout.adjust/v1."
+          },
+          "actor_session_id": {
+            "type": "string"
+          },
+          "actor_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confirmation_token": {
+            "type": "string"
+          },
+          "current_project_id": {
+            "type": "string"
+          },
+          "current_target_kind": {
+            "type": "string"
+          },
+          "current_target_id": {
+            "type": "string"
+          },
+          "current_revision": {
+            "type": "integer"
+          },
+          "api_id": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string"
+          },
+          "apply_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "effect_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "binding",
+          "proposal_id",
+          "proposal",
+          "actor_session_id",
+          "confirmation_token",
+          "current_project_id",
+          "current_target_kind",
+          "current_target_id",
+          "current_revision"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Python tuple of authorized native property names."
+      },
+      "errors": [
+        "E_LUC",
+        "E_LUC_CONFIRMATION_IDENTITY",
+        "E_LUC_CONFIRMATION_STALE",
+        "E_LUC_CONFIRMATION_INVALID",
+        "E_LUC_PROPOSAL_SCHEMA",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_INPUT",
+        "E_LUC_CAPABILITY_EFFECT",
+        "E_LUC_EDIT_SCOPE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:662-720",
+        "lumeri_runtime/luc_host_api.py:605-648",
+        "lumeri_runtime/luc_confirmation.py:113-152"
+      ],
+      "notes": "No deadline. Successful credential verification consumes it before Host API/edit-scope authorization. Reuse is invalid even if later scope authorization fails. This method authorizes fields; it does not mutate the Project."
+    },
+    {
+      "name": "retire_interaction",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "interaction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "interaction_id"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [
+        "E_LUC_CONFIRMATION_INVALID"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc.py:595-600",
+        "lumeri_runtime/luc_confirmation.py:154-160"
+      ],
+      "notes": "No deadline. Drops all credentials bound to interaction; repeating with a valid id is natural."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "single-use-proof",
+      "text": "Successful verification atomically consumes the exact actor/binding/proposal credential; invalid proof cannot consume a valid credential.",
+      "test": null
+    },
+    {
+      "id": "revision-current",
+      "text": "Actor session, Project, target kind/id and exact base revision must still match the confirmed binding.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_confirmation.py:113-160",
+      "lumeri_runtime/luc.py:685-720"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "Credential verification consumes the proof before the final Host API/edit-field checks. A scope rejection requires a new confirmation before another attempt.",
+      "evidence": [
+        "lumeri_runtime/luc.py:696-720"
+      ],
+      "test": null
+    },
+    {
+      "text": "Canonical confirmation is hard-coded to the layout-adjust surface rather than a general adapter-owned proposal validator.",
+      "evidence": [
+        "lumeri_runtime/luc.py:733-763"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

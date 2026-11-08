@@ -173,6 +173,9 @@ Installing one is putting a file in a folder: `~/.lumeri/lucs`. There is no
 install dialog. The file being there is your consent, and what each Luc holds
 can be read back at any time.
 
+The full reference, from the package format to every permission and the
+interface contracts of Lumeri's own modules, is in [`docs/luc/`](docs/luc/).
+
 ### Where this stands
 
 Luc belongs to the Lumeri Video 1.1 line. The public download and the engine in
@@ -184,8 +187,9 @@ this repository yet.
 | The Video editor assembled from Official Lucs | Running in 1.1 builds |
 | A Luc of your own registering its panel in the editor | Running in 1.1 builds |
 | Code that runs inside the runtime: agent tools, the editor page itself | Official Lucs only |
-| Skills, point libraries and workflows as Lucs, on your machine and in the Store | In progress — today they are three separate kinds |
-| The Luc host, format reference and packer | Not in this repository |
+| Skills, point libraries and workflows as Lucs | Running in 1.1 builds |
+| The format reference and interface contracts | In this repository: [`docs/luc/`](docs/luc/), [`contracts/interfaces/`](contracts/interfaces/) |
+| The Luc host and packer | Not in this repository |
 
 ## This repository
 
@@ -202,6 +206,8 @@ The open engine behind Lumeri Video: Python, FFmpeg, and a local web workspace.
 | `gemia/project_export.py` | Full-quality export |
 | `gemia/quanta/` | Quanta layout engine |
 | `quanta/format/` | The `.qua` file format and samples (CC0) |
+| `docs/luc/` | Luc reference: package format, protocols, permissions |
+| `contracts/interfaces/` | Interface contracts of Lumeri's modules, as JSON |
 | `gemia/ai/skills/` | Built-in skills |
 | `gemia/mcp/` | MCP server |
 | `lumenframe/` | Composition engine and the craft libraries: grade, type, camera, framing, cutting, rhythm, vector motion |

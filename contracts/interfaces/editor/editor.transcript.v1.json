@@ -1,0 +1,193 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:editor.transcript/v1",
+  "version": "1.0.0",
+  "area": "editor",
+  "title": "Transcript view or a sandboxed Transcript Panel",
+  "summary": "The Session transcript where turns, tool activity groups, plan checklists and error notices are rendered, or a sandboxed Panel placed in the transcript role by a workspace layer. When disabled or broken, the editor's built-in transcript takes the region back.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.panel/v2",
+    "surface": "sandboxed-frame",
+    "editor_role": "transcript",
+    "notes": "Built-in transcript drawn by static/v3/shell/turns.js, static/v3/shell/shell.js, and static/v3/v3.js; a workspace layer may place a lumeri.panel/v2 Panel in the transcript module."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "A replacement runs in a sandboxed Panel frame and reaches only the bridge calls declared for the transcript role (project.view, tasks.view, tasks.stop, panel.state, workspace.context, workspace.open). The composer remains lumeri-only (iface:editor.composer/v1).",
+    "decided": "self-Luc W4 plan (transcript separated from composer so transcript view is replaceable by a sandboxed Panel while composer stays official-only)"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "session.control",
+      "ui.mount"
+    ],
+    "host_apis": [
+      "panel.state",
+      "project.view",
+      "tasks.stop",
+      "tasks.view",
+      "workspace.context",
+      "workspace.open"
+    ],
+    "editable": "none",
+    "bridge_calls": [
+      "panel.state",
+      "project.view",
+      "tasks.stop",
+      "tasks.view",
+      "workspace.context",
+      "workspace.open"
+    ],
+    "notes": "bridge_calls is the ceiling for a Panel placed in the transcript role."
+  },
+  "operations": [
+    {
+      "name": "mount",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/init_message"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/alive"
+          },
+          {
+            "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/fault"
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_PANEL_SILENT",
+        "E_LUC_PANEL_SCRIPT",
+        "E_LUC_PANEL_NAVIGATED",
+        "E_LUC_PANEL_CHANGED",
+        "E_LUC_PANEL_UNAVAILABLE"
+      ],
+      "deadline_ms": 3000,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_workspace.py:726-760",
+        "static/v3/v3.js:14042-14106",
+        "static/v3/shell/shell.js:1170-1322"
+      ]
+    },
+    {
+      "name": "applyEvent",
+      "effect": "none",
+      "input": {
+        "$contract": "contracts/runtime-v1/runtime-contract.json#/types/RuntimeEvent"
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "static/v3/shell/turns.js:244-415",
+        "static/v3/v3.js:2118-2428"
+      ],
+      "notes": "Renders update_plan results as an in-turn checklist and maps model_result_unconfirmed to its dedicated notice."
+    }
+  ],
+  "events": [
+    {
+      "name": "project.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/project.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:606-618"
+      ]
+    },
+    {
+      "name": "tasks.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/tasks.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:14404-14411",
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    },
+    {
+      "name": "locale.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/locale.changed"
+      },
+      "evidence": [
+        "static/v3/v3.js:15523-15532",
+        "static/v3/shell/shell.js:1455-1472"
+      ]
+    },
+    {
+      "name": "theme.changed",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/theme.changed"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    },
+    {
+      "name": "panel.visibility",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.visibility"
+      },
+      "evidence": [
+        "static/v3/v3.js:580-584"
+      ]
+    },
+    {
+      "name": "panel.resized",
+      "payload": {
+        "$contract": "contracts/interfaces/editor/editor.panel-bridge.v1.json#/definitions/event_payloads/properties/panel.resized"
+      },
+      "evidence": [
+        "static/v3/luc-panel-host.js:183-213"
+      ]
+    }
+  ],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "fallback-to-builtin-transcript",
+      "text": "When a Panel placed in the transcript role is disabled or breaks, the editor shows its built-in transcript and records the fallback notice.",
+      "test": "tests/test_editor_w4_panels.py::test_transcript_role_on_off_break"
+    },
+    {
+      "id": "plan-checklist-and-unconfirmed-notice",
+      "text": "The built-in transcript renders update_plan steps as a checklist on the active turn and maps model_result_unconfirmed to turnErrorModelUnconfirmed.",
+      "test": "tests/test_editor_w4_panels.py::test_editor_followups_update_plan_and_unconfirmed_error"
+    }
+  ],
+  "failure": {
+    "break": [
+      "the transcript Panel exceeds role reach or faults at runtime"
+    ],
+    "fallback": "builtin-view",
+    "evidence": [
+      "lumeri_runtime/luc_workspace.py:726-760",
+      "lumeri_runtime/luc_interactions.py:340-368",
+      "static/v3/v3.js:14042-14106",
+      "static/v3/shell/shell.js:1170-1322"
+    ]
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_editor_w4_panels.py::test_transcript_role_on_off_break",
+      "tests/test_editor_w4_panels.py::test_transcript_role_disabled_returns_to_builtin",
+      "tests/test_editor_w4_panels.py::test_transcript_role_break_falls_back_with_notice",
+      "tests/test_editor_w4_panels.py::test_editor_followups_update_plan_and_unconfirmed_error",
+      "tests/test_editor_w4_panels.py::test_shell_transcript_role_bridge_calls_and_locale_changed"
+    ]
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

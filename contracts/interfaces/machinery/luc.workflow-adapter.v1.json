@@ -1,0 +1,123 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.workflow-adapter/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Workflow stage reader",
+  "summary": "Compile stages and optional guidance from package Markdown, with no authority or execution. answer serves the same complete workflow for use_skill and detects changed package text.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.luc_guides:WorkflowAdapter"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "compile_package",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+          },
+          "files": {
+            "description": "Mapping[str, bytes] of verified resources."
+          }
+        },
+        "required": [
+          "capability",
+          "files"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.adapter.v1.json#/definitions/capability"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:115-186"
+      ],
+      "notes": "No deadline. Validates names, stages, referenced Skills, bounded text and complete one-result fit; records workflow_sha256. ValueError maps at Host load."
+    },
+    {
+      "name": "answer",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "description": "LucHost instance."
+          },
+          "capability_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "capability_id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "workflow_answer: named workflow, ordered stage instruction texts and optional guidance."
+      },
+      "errors": [
+        "E_LUC_NOT_FOUND",
+        "E_LUC_WORKFLOW_CHANGED"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_guides.py:188-200"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "no-execution",
+      "text": "A Workflow is read as data and receives no APIs, permissions or editable authority.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_guides.py:181-200"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "local-foundation.md still says Workflow Luc-ification is pending, while WorkflowAdapter is registered today.",
+      "evidence": [
+        "docs/luc/local-foundation.md:103-116",
+        "lumeri_runtime/native_luc_catalog.py:46-48"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}

@@ -1,0 +1,252 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:legacy.roughcut/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "Legacy roughcut batch coordination",
+  "summary": "A Gateway-memory batch runs governed roughcut triage sequentially; manifest and review operations belong to the Official Luc tool contracts.",
+  "carrier": {
+    "kind": "python",
+    "seam": "lumeri_runtime.legacy_roughcut:RoughcutBatch,batch_language,await_job"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "Trusted integrity and binding machinery remains controlled by Lumeri.",
+    "decided": "today's code: lumeri_runtime/legacy_roughcut.py:1-12"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "batch_language",
+      "effect": "none",
+      "input": {},
+      "output": {
+        "type": "string"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/legacy_roughcut.py:35-42"
+      ],
+      "notes": "No fixed operation deadline is enforced. None becomes auto; otherwise accept auto or a lowercase two/three-letter code. Raises LegacyRoughcutError without a code."
+    },
+    {
+      "name": "RoughcutBatch.payload",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$contract": "contracts/interfaces/data/legacy.roughcut.v1.json#/definitions/batch"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/legacy_roughcut.py:45-69"
+      ],
+      "notes": "No fixed operation deadline is enforced. Lock-protected copy of progress and results; not a durable result record."
+    },
+    {
+      "name": "RoughcutBatch.run",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "triage": {
+            "type": "object",
+            "description": "Trusted callable: asset id -> (HTTP status, mapping)."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "triage"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_roughcut.py:71-100"
+      ],
+      "notes": "No fixed operation deadline is enforced. Calls each asset in tuple order. HTTP 200 alone means ready. Exceptions become per-asset error strings and do not stop the batch. Reusing the batch appends results again. No atomic Project/client_op_id commit in this coordinator; each triage uses its own governed tool path."
+    },
+    {
+      "name": "await_job",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "poll": {
+            "type": "object"
+          },
+          "interval": {
+            "type": "number",
+            "default": 1.0
+          },
+          "timeout": {
+            "type": "number",
+            "default": 3600.0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "poll"
+        ]
+      },
+      "output": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/legacy_roughcut.py:103-119"
+      ],
+      "notes": "No fixed operation deadline is enforced. Native callable poll is not serializable. Polls while HTTP 202 and job.state running. Variable timeout is checked after each poll, so a blocking poll can exceed it. On expiry returns HTTP 504 with error.message and no error code."
+    }
+  ],
+  "events": [],
+  "bounds": [],
+  "invariants": [
+    {
+      "id": "sequential",
+      "text": "A batch triages one asset at a time and finishes ready, partial or error according to per-asset HTTP outcomes.",
+      "test": "tests/test_runtime_legacy_roughcut.py::test_a_batch_runs_its_assets_in_turn_and_ends_ready_partial_or_error"
+    }
+  ],
+  "failure": {
+    "break": [
+      "Validation failure or an unavailable native dependency."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/legacy_roughcut.py:1-12"
+    ],
+    "notes": "This original seam does not install replacement layers or implement automatic original fallback."
+  },
+  "conformance": {
+    "status": "planned",
+    "tests": [],
+    "notes": "No replacement conformance runner is attached."
+  },
+  "known_deviations": [
+    {
+      "text": "Batch state exists only in Gateway memory and cannot be resumed after a restart; rerunning the same instance is not deduplicated.",
+      "evidence": [
+        "lumeri_runtime/legacy_roughcut.py:9-12",
+        "lumeri_runtime/legacy_roughcut.py:76-89"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [],
+  "definitions": {
+    "batch": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "ready",
+            "partial",
+            "error"
+          ]
+        },
+        "progress": {
+          "type": "number"
+        },
+        "assets_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assets_done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "asset_id": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "ready",
+                      "error"
+                    ]
+                  },
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "asset_id",
+                  "status",
+                  "error"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "results"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "status",
+        "progress",
+        "assets_total",
+        "assets_done",
+        "result",
+        "error"
+      ]
+    }
+  }
+}

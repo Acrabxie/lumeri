@@ -1,0 +1,218 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:luc.config/v1",
+  "version": "1.0.0",
+  "area": "machinery",
+  "title": "Machine Luc switch table",
+  "summary": "Read boolean switches from the TOML luc table and append missing choices without overwriting written lines. The machine config takes precedence over per-product Registry state on the next bootstrap.",
+  "carrier": {
+    "kind": "file",
+    "surface": "[luc] in LUMERI_LOCAL_CONFIG_PATH"
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "The adapter and layering machinery are the Host foundation. If this machinery could be replaced by a creator layer, automatic fallback to the original could not be guaranteed. The Lucs carried by open protocols have their own replacement classes.",
+    "decided": "Acrab, self-Luc spec v0.3, 2026-10-18; interface charter rule 6, 2026-10-22"
+  },
+  "reach": {
+    "permissions": [],
+    "host_apis": [],
+    "editable": "none",
+    "notes": "Trusted Host machinery, not authority granted to a Luc. Package calls remain bounded by their resolved permissions, Host APIs and editable scope."
+  },
+  "operations": [
+    {
+      "name": "configured_path",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "environ": {
+            "type": "object",
+            "description": "Environment mapping; defaults to os.environ."
+          }
+        }
+      },
+      "output": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_config.py:43-46"
+      ],
+      "notes": "Returns an expanded Path or None for absent/empty variable. No deadline."
+    },
+    {
+      "name": "name_default",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "environ": {
+            "type": "object"
+          },
+          "signed_in": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "environ",
+          "signed_in"
+        ]
+      },
+      "output": {
+        "type": "null"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_config.py:54-62"
+      ],
+      "notes": "Mutates only an absent environment key for a signed-in Runtime. Explicit empty stays empty. No deadline."
+    },
+    {
+      "name": "read_switches",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "$contract": "contracts/interfaces/machinery/luc.config.v1.json#/definitions/switches"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_config.py:65-113"
+      ],
+      "notes": "No deadline. Missing, unreadable, linked, oversized or invalid TOML returns empty choices; nested dotted keys flatten to ids; only exact booleans count."
+    },
+    {
+      "name": "record_switches",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "states": {
+            "$contract": "contracts/interfaces/machinery/luc.config.v1.json#/definitions/switches"
+          }
+        },
+        "required": [
+          "path",
+          "states"
+        ]
+      },
+      "output": {
+        "type": "boolean"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_config.py:116-166"
+      ],
+      "notes": "No deadline. Returns whether the file changed. Retries up to three compare-before-replace attempts; existing keys, including non-booleans, stay untouched. OSError can propagate; no structured Luc error."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "config_bytes",
+      "value": 65536,
+      "unit": "UTF-8 bytes",
+      "evidence": [
+        "lumeri_runtime/luc_config.py:34-37"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "written-choice-wins",
+      "text": "A pre-existing key is never replaced by record_switches; other tables retain their source text.",
+      "test": "tests/test_luc_config.py::test_a_written_line_is_the_persons_and_is_never_rewritten"
+    },
+    {
+      "id": "safe-unreadable",
+      "text": "Unreadable or malformed config contributes no switches and is not repaired.",
+      "test": null
+    },
+    {
+      "id": "runtime-owns-the-luc-table",
+      "text": "The Runtime owns the [luc] table of config.toml. Every other writer (gemia/local_config.py, lumeri-cli) keeps that table unchanged and changes only its own tables (Acrab, 2026-10-24).",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "The operation rejects invalid input, integrity, authority or binding state as described by its operation."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_config.py:65-166"
+    ]
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_luc_config.py::test_a_written_line_is_the_persons_and_is_never_rewritten"
+    ],
+    "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
+  },
+  "known_deviations": [
+    {
+      "text": "The inventory names a second writer in gemia/local_config.py. This checkout does not prove that external writer preserves this table; cross-repository behavior remains unverified.",
+      "evidence": [
+        "docs/luc/self-luc-inventory.md:324-326"
+      ],
+      "test": null
+    },
+    {
+      "text": "Safe mode is controlled by LUMERI_LUC_SAFE_MODE=1 at the production call site, not by a luc.safe_mode boolean in this table.",
+      "evidence": [
+        "lumeri_runtime/luc_interactions.py:73-76"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Confirm the two config writers share preservation and atomic-update semantics; document which repository owns that check.",
+      "for": "lumeri"
+    }
+  ],
+  "definitions": {
+    "switches": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    }
+  }
+}

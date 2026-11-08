@@ -1,0 +1,311 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:video.cut.check/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Check the cut before delivery",
+  "summary": "Check the active Video Project's timeline and optional rendered picture/sound measurements for unintended gaps, flashes, overlaps, long holds, out-of-range transitions, missing or short sources, title overflow, unexpected black or frozen spans, scene-change slivers, and off-target loudness. Reads only; never changes the Project.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Reached by the agent through luc_invoke with capability_id video.cut.check; the Runtime runs the packaged tool check_cut. A standalone delivery-render wrapper helper also exists in lumeri_runtime/export_check.py:159-259, exercised in tests and not wired into delivery rendering."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "self-Luc spec v0.3 (2026-10-18): tool/v2 code is not replaceable this week; Acrab 2026-10-26: replaced by programs in the code sandbox"
+  },
+  "reach": {
+    "permissions": [
+      "project.read"
+    ],
+    "host_apis": [
+      "project.read"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "check_cut",
+      "capability": "video.cut.check",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "quality": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "description": "The quality the cut was rendered at, for example draft or 1080p. The rules are the same at every quality."
+          },
+          "analysis": {
+            "type": "object",
+            "description": "What Lumeri measured in a rendered file: black, frozen picture, scene changes and loudness. Filled in by Lumeri after a render; leave it out to check the timeline only."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "project_revision",
+          "findings",
+          "counts",
+          "checked"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "rule",
+                "severity",
+                "fix",
+                "start",
+                "end",
+                "clip_ids",
+                "message"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "rule": {
+                  "type": "string"
+                },
+                "severity": {
+                  "enum": [
+                    "error",
+                    "warn",
+                    "info"
+                  ]
+                },
+                "fix": {
+                  "enum": [
+                    "auto",
+                    "ask",
+                    "hint"
+                  ]
+                },
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                },
+                "clip_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "track_id": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "counts": {
+            "type": "object",
+            "required": [
+              "error",
+              "warn",
+              "info"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "warn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "info": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "checked": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "timeline",
+                "picture",
+                "sound"
+              ]
+            }
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/cut-check/tools.py:781-826",
+        "lumeri_runtime/luc_packaged_tools.py:202-230",
+        "lumeri_runtime/worker.py:6296-6320",
+        "official_luc/cut-check/manifest.json"
+      ],
+      "notes": "No deadline is enforced on a packaged read; the tool reads the timeline and media list once. The shipped output_schema is the bare {type: object} (lumeri_runtime/luc_packaged_tools.py:556); this contract is the real one."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.cut-check"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:267-303",
+        "lumeri_runtime/export_check.py:77-105",
+        "lumeri_runtime/export_check.py:194"
+      ],
+      "notes": "Emitted once per Session in a start by luc_tool_program._notice (with layer {id, version} and no capability_id) when a layer's program breaks and the Official code answers instead; emitted once per turn_id by export_check._event (including capability_id and the entry's {id, version} identity mapping in layer) when the standalone export_check.wrap helper falls back to the unaugmented render receipt."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of the rendered result the model sees; longer is cut with a note",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:43",
+        "lumeri_runtime/agent_turn.py:427-434"
+      ]
+    },
+    {
+      "name": "quality_max_chars",
+      "value": 32,
+      "unit": "characters of the optional quality argument",
+      "evidence": [
+        "official_luc/cut-check/tools.py:82",
+        "official_luc/cut-check/tools.py:785-787"
+      ]
+    },
+    {
+      "name": "self_check_max_findings",
+      "value": 512,
+      "unit": "findings accepted on a delivery-render self_check receipt",
+      "evidence": [
+        "lumeri_runtime/export_check.py:29",
+        "lumeri_runtime/export_check.py:52-53"
+      ]
+    },
+    {
+      "name": "self_check_max_findings_bytes",
+      "value": 262144,
+      "unit": "UTF-8 JSON bytes of findings accepted on a delivery-render self_check receipt",
+      "evidence": [
+        "lumeri_runtime/export_check.py:30",
+        "lumeri_runtime/export_check.py:61-63"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reads-only",
+      "text": "Calling check_cut never changes the Project: it authorizes only project.read and holds no edit scope.",
+      "test": "tests/test_official_luc_cut_check.py::test_the_package_cannot_write_even_if_its_code_tried"
+    },
+    {
+      "id": "invalid-arguments-refused",
+      "text": "Unknown arguments, a non-string or oversized quality, or a malformed analysis object are refused with arguments_invalid before reading the Project.",
+      "test": "tests/test_official_luc_cut_check.py::test_a_malformed_analysis_is_refused_through_the_loader"
+    },
+    {
+      "id": "switched-off-removes-tool",
+      "text": "When lumeri.cut-check is switched off in [luc] config, video.cut.check is not offered to the agent.",
+      "test": "tests/test_official_luc_cut_check.py::test_switched_off_in_the_config_the_tool_is_not_offered"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py:169-223",
+      "lumeri_runtime/luc_tool_program.py:234-265",
+      "lumeri_runtime/luc_packaged_tools.py:610-622",
+      "lumeri_runtime/export_check.py:93-118"
+    ],
+    "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_official_luc_cut_check.py",
+      "tests/test_cut_check_contract.py",
+      "tests/test_runtime_export_check.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Tested as an agent tool via luc_invoke, with a replacement tool program in the sandbox (on and break), and with the standalone export_check.wrap helper in tests/test_runtime_export_check.py (not wired into delivery rendering)."
+  },
+  "known_deviations": [
+    {
+      "text": "Stopping the turn does not stop a program mid-call; the 10 s deadline per answer and the bound of 256 host calls end it.",
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py:169-223"
+      ],
+      "test": null
+    }
+  ],
+  "open_questions": []
+}
