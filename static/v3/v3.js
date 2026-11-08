@@ -5578,6 +5578,9 @@
   }
 
   els.setupBtn?.addEventListener("click", openSetupPanel);
+  if (location.pathname === "/setup" || location.hash === "#setup") {
+    openSetupPanel();
+  }
 
   // ── slash-command palette ───────────────────────────────────────────
   // A "/" at the start of an empty-ish line opens a floating command menu

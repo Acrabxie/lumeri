@@ -194,6 +194,38 @@ class TimelinePatchError(ValueError):
   （`threshold=0.05:ratio=8:attack=20:release=400`，复用 `mix_audio` duck 参数）以 trigger
   子混音为侧链，再 `amix` 所有轨。**无 `duck_under` 配置时导出与 M6 扁平 `amix` 完全一致。**
 
+### 3.15 `set_project_title`
+`{op:"set_project_title", title: str}`
+- 修改项目对外展示标题（<= 120 字符，非空字符串）。作为正常 patch 处理，纳入版本与可撤销体系。
+
+### 3.16 `set_shotlist`
+`{op:"set_shotlist", shotlist: dict}`
+- 整体替换分镜大纲 IR（走 `normalize_shotlist`），用于大纲/故事板驱动的生成与剪辑。
+
+### 3.17 `update_shot`
+`{op:"update_shot", shot_id: str, fields: dict}`
+- 局部修改指定 `shot_id` 的分镜条目（不可修改 `id`）。用于更新镜头标记（如 `asset_id`、`clip_id`）、调整镜头时长或对白描述，避免重传整张分镜表。
+
+### 3.18 `set_quanta`
+`{op:"set_quanta", quanta: dict}`
+- 整体替换 Quanta 状态树（经 `normalize_quanta` 处理），支持树状结构或 v1 扁平语法糖。
+
+### 3.19 `patch_quantum`
+`{op:"patch_quantum", quantum_id: str, fields: dict}`
+- 对指定 `quantum_id` 的节点进行字段级局部更新（禁止直接变更 `id` 或 `children`，结构改动走 insert/remove/move）。支持 `builds` 字段语法糖。
+
+### 3.20 `insert_quantum`
+`{op:"insert_quantum", parent_id?: str="root", index?: int, quantum: dict}`
+- 在指定父节点（默认 `"root"`）下插入一个 Quanta 子树。
+
+### 3.21 `remove_quantum`
+`{op:"remove_quantum", quantum_id: str}`
+- 移除指定 `quantum_id` 的整个子树（禁止移除 `"root"`）。
+
+### 3.22 `move_quantum`
+`{op:"move_quantum", quantum_id: str, parent_id?: str="root", index?: int}`
+- 移动或重设 Quanta 子树层级，防止环路引用（`parent_id in subtree_ids` 时抛 `E_BAD_ARG`）。
+
 ## 4. 不做的事（v1 明确排除）
 
 - ~~音频轨执行面（任何 audio 轨 op 一律 `E_TRACK_KIND`）。~~ **M6 已落地**（见顶部修订）。
@@ -223,12 +255,11 @@ apply 全部 ops 后执行；违反任一条抛 `TimelinePatchError`：
 1. 每个 op：≥1 happy path + ≥1 典型错误（断言 error code）。
 2. ripple 矩阵：insert@time / delete / trim / set_clip_time 各 × {true, false}。
 3. split 身份回归：同资产 split 成 A/B 后分别 trim，互不影响、asset_id 相同、id 不同。
-4. 向后兼容：旧形态 `insert_clip`/`replace_clip` op dict 原样通过
-   （现有 `test_lumerai_runtime_kernel.py` 相关用例必须全绿，不许改它）。
+4. 向后兼容：旧形态 `insert_clip`/`replace_clip` op dict 原样通过（由 `tests/test_timeline_patches.py` 中的兼容性用例严格保障）。
 5. 原子性：一个 patch 内 op2 失败 → 抛错，且传入的原 project_state dict 未被污染
    （调用方拿旧状态重试安全）。
 6. ProjectStore 往返：apply 新 ops → `undo_to_seq` 回退 → 状态与回退点 snapshot 一致。
-7. 全量 `pytest -q` 无新增失败（已知 stock_fill 2 failed 除外）。
+7. 全量 `pytest -q` 无失败。
 
 ## 9. OTIO 互换格式保真矩阵（M8）
 

@@ -284,10 +284,11 @@ mode automatically.
 <details>
 <summary><strong>Use a ChatGPT plan instead of an API key</strong></summary>
 
-Choose **OpenAI 订阅（本机 Codex）** in `/setup`. This option invokes the Codex
-CLI on the same computer and only accepts a local **Sign in with ChatGPT**
-session. Lumeri never reads, copies, or stores Codex login credentials, and
-every person must sign in with their own OpenAI account.
+Choose **OpenAI 订阅（本机 Codex）** in the provider setup panel (open `/setup`,
+click **AI 供应商设置** in the sidebar, or type `/setup` in the chat). This option
+invokes the Codex CLI on the same computer and only accepts a local
+**Sign in with ChatGPT** session. Lumeri never reads, copies, or stores Codex login
+credentials, and every person must sign in with their own OpenAI account.
 
 On Windows, install and authenticate the Codex CLI before selecting that option:
 
