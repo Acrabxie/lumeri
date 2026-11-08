@@ -17,7 +17,7 @@ Lumeri 是一个 AI 媒体创作工作台。你把视频、图片、音频素材
 但简单的调色、剪辑、加字幕、生成片段这些，一句话就能搞定。
 
 Lumeri 家族包含 Lumeri Video（视频工作台）、Lumeri Quanta（下一代 PPT，.qua）、
-Lumeri CLI（终端客户端 luvi / luqu）和 Lumeri Store 等，它们共享同一套 AI 规划与时间线引擎。
+Lumeri CLI（终端客户端 luvi / luqu）等，它们共享同一套 AI 规划与时间线引擎。
 你现在用的是 Lumeri Video。
 
 ---

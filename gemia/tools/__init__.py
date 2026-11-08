@@ -7,17 +7,29 @@ that executes the call and returns a tool-result dict.
 
 Implemented:
 
-    - batch 0 + 1 (pure ffmpeg & media): analyze_media, edit_video, color_grade,
-      add_overlay, export, composite, arrange_timeline, mix_audio,
-      transform_geometry, edit_image, extract_frame, probe_media, align_audio,
-      detect_beats, adjust_media, animate_captions, subtitle, safe_areas
-    - batch 2 (provider media): generate_image, generate_video, generate_audio, narrate
-    - batch 3 (host & environment): web_search, fetch, files, run_shell, build
-    - timeline v1: get_timeline, render_preview, and fine-grained timeline_* document verbs
-    - LumenFrame craft libraries: grade, type, camera, framing, cutting, rhythm,
-      vector_motion, lottie, lumen_seek, lumen_render_range, layer
-    - Shotlist & storyboard: draft_shotlist, refine_shot, assemble_shotlist, search_frames
-    - Sub-agents & Skills: recall_skills, save_skill, spawn_subtasks, log_note, remember, elicit
+    - media (ffmpeg / Python): analyze_media, probe_media, edit_video,
+      edit_audio, edit_image, color_grade, adjust_media, add_overlay,
+      composite, transform_geometry, smart_reframe, extract_frame, mix_audio,
+      align_audio, detect_beats, subtitle, animate_captions, paint_overlay,
+      paint_mask_effect, arrange_timeline, export
+    - provider media: generate_image, generate_video, generate_audio, narrate,
+      plus check_job / wait_for_job for long-running jobs
+    - host & files: web_search, web_open, fetch, run_shell, build, read_file,
+      write_file, list_dir, file_* / move_file / copy_in / organize_files
+    - timeline v1: get_timeline, inspect_timeline, render_preview,
+      fine-grained timeline_* document verbs, project_export and
+      project_export_otio / project_import_otio
+    - LumenFrame composition: get_lumenframe, lumen_render, lumen_render_range,
+      lumen_seek and the lumen_* layer / timing / mask verbs
+    - shotlist: draft_shotlist, refine_shot, get_shotlist, set_shotlist,
+      update_shot, assemble_shotlist
+    - library & annotations: search_library, search_media, search_frames,
+      annotate_media, get_media_annotations, write_media_annotation,
+      get_safe_areas, inspect_lottie
+    - agent support: recall_skills, save_skill, spawn_subtasks, log_note,
+      remember, elicit
+
+``len(DISPATCHER)`` is the authoritative tool count.
 
 Dispatchers must NOT swallow errors. The agent loop wraps each call in
 try/except and emits a ``tool_exec_error`` event on exception.

@@ -9,7 +9,7 @@ This is **Lumeri Video** — an agentic video project workspace.
 - `server.py` — HTTP server entry point, serves web UI and delegates to v3 routes
 - `gemia/v3_routes.py` — Session HTTP API (`/sessions/*`)
 - `gemia/agent_loop_v3.py` — Multi-turn model ↔ tool conversation loop
-- `gemia/tools/` — 97 media, LumenFrame craft, Quanta, shotlist, and agent tools
+- `gemia/tools/` — The agent's tool table (104 tools: media, timeline, LumenFrame, shotlist, files, and agent support; `len(DISPATCHER)` is authoritative)
 - `gemia/sandbox_v4.py` — Sandboxed script execution and security boundary
 - `gemia/gemini_client.py` — Gemini API client for the agent loop
 - `gemia/ai/google_genai_client.py` — Google GenAI client for generative tools
