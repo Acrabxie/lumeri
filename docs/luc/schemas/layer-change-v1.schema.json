@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/layer-change-v1.schema.json",
+  "title": "Lumeri layer change hook input",
+  "type": "object",
+  "required": [
+    "format",
+    "proposal_id",
+    "luc",
+    "luc_version",
+    "base_source_hash",
+    "layer_version",
+    "from_version",
+    "lies_on",
+    "overrides",
+    "summary",
+    "files",
+    "fields",
+    "diff",
+    "at"
+  ],
+  "properties": {
+    "format": {"const": "lumeri.luc.layer-change/v1"},
+    "proposal_id": {"type": "string", "pattern": "^lay_[0-9a-f]{24}$"},
+    "luc": {"type": "string", "minLength": 1},
+    "luc_version": {"type": "string", "minLength": 1},
+    "base_source_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "layer_version": {"type": "string", "minLength": 1},
+    "from_version": {"type": ["string", "null"]},
+    "lies_on": {
+      "type": "object",
+      "required": ["kind", "id", "version", "source_hash"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["luc", "extension"]},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "source_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "layer", "version", "sha256"],
+        "properties": {
+          "target": {"type": "string", "minLength": 1},
+          "layer": {"type": "string", "minLength": 1},
+          "version": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "change", "kind"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "change": {"type": "string", "enum": ["add", "replace", "delete"]},
+          "kind": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "fields": {"type": "array", "items": {"type": "string"}},
+    "diff": {"type": "string"},
+    "at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

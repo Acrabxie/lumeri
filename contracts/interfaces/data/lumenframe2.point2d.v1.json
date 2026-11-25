@@ -1,0 +1,405 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lumenframe2.point2d/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "LumenFrame 2 2D spatial point collector",
+  "summary": "Collects a single normalized or pixel 2D point on the Host interaction plane for an LF2 scene parameter.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.interaction/v1",
+    "surface": "point2d",
+    "notes": "Shipped inside lumeri.lumenframe2 0.3.0 and carried through Host InteractionAdapter (LucInteractions)."
+  },
+  "replaceability": {
+    "class": "open",
+    "why": "Uses the open lumeri.interaction/v1 protocol with host-enforced primitive and parameter schemas.",
+    "decided": "lumeri_runtime/luc.py:70-115; lumeri_runtime/interaction_parameters.py:17-35"
+  },
+  "reach": {
+    "permissions": [
+      "ui.mount"
+    ],
+    "host_apis": [
+      "interaction.mount",
+      "interaction.update"
+    ],
+    "editable": "none",
+    "notes": "Collects creator values only; confirmation writes stay on the caller's governed gate."
+  },
+  "operations": [
+    {
+      "name": "collect",
+      "capability": "point2d.collect",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "initial": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "point2d"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "space": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+              },
+              "origin": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+              },
+              "anchor": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+              },
+              "mode": {
+                "enum": [
+                  "absolute",
+                  "relative"
+                ]
+              },
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+              }
+            },
+            "required": [
+              "type",
+              "x",
+              "y",
+              "space",
+              "origin",
+              "anchor",
+              "mode",
+              "reference"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "space": {
+                      "pattern": "\\.normalized$"
+                    }
+                  },
+                  "required": [
+                    "space"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "x": {
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "presentation": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4096
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4096
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "label",
+          "initial"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "draft"
+              },
+              "value": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "const": "point2d"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "space": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "origin": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "anchor": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "mode": {
+                    "enum": [
+                      "absolute",
+                      "relative"
+                    ]
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "x",
+                  "y",
+                  "space",
+                  "origin",
+                  "anchor",
+                  "mode",
+                  "reference"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "space": {
+                          "pattern": "\\.normalized$"
+                        }
+                      },
+                      "required": [
+                        "space"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "x": {
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "completed"
+              },
+              "value": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "const": "point2d"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "space": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "origin": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "anchor": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  },
+                  "mode": {
+                    "enum": [
+                      "absolute",
+                      "relative"
+                    ]
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^\\S(?:[\\s\\S]{0,94}\\S)?$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "x",
+                  "y",
+                  "space",
+                  "origin",
+                  "anchor",
+                  "mode",
+                  "reference"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "space": {
+                          "pattern": "\\.normalized$"
+                        }
+                      },
+                      "required": [
+                        "space"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "x": {
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "cancelled"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "errors": [
+        "E_LUC_CANCELLED",
+        "E_LUC_STATE",
+        "E_LUC_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:260-581",
+        "lumeri_runtime/luc.py:98",
+        "lumeri_runtime/lumenframe2_adapter.py:865-892"
+      ],
+      "notes": "Waits on the Host human interaction surface and returns draft/completed/cancelled values validated against host-owned schemas."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "label_chars",
+      "value": 160,
+      "unit": "characters for interaction label",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:260-320"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "collect-only-no-project-write",
+      "text": "Interaction collection edits no Project state by itself; only the calling renderer commits confirmed values.",
+      "test": "tests/test_lumenframe2_luc.py::test_shared_point2d_creator_completion_updates_only_own_parameters"
+    }
+  ],
+  "failure": {
+    "break": [
+      "Creator cancels or Project revision/task/package changes while waiting."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/luc_interactions.py:609-620",
+      "lumeri_runtime/luc.py:92-114"
+    ],
+    "notes": "Cancellation returns status cancelled; stale state or unload fences the wait."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_lumenframe2_luc.py"
+    ],
+    "notes": "Verified through governed position and parameter collection flows."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

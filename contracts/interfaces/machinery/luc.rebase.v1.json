@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "area": "machinery",
   "title": "Rebase planning and new immutable candidate",
-  "summary": "Compare an old Extension with old/new versions of the same Base, classify unchanged/portable/absorbed/conflicting edits, and optionally write a new Extension version to an absent destination.",
+  "summary": "Compare an old Extension or ordered Extension chain with old/new versions of the same Base (and resolved parent snapshots), classify unchanged/portable/absorbed/conflicting edits bottom-up, and optionally write a new Extension version to an absent destination.",
   "carrier": {
     "kind": "python",
-    "seam": "lumeri_runtime.luc_distribution.rebase:plan_rebase;write_rebase_candidate"
+    "seam": "lumeri_runtime.luc_distribution.rebase:plan_rebase;plan_chain_rebase;write_rebase_candidate"
   },
   "replaceability": {
     "class": "lumeri-only",
@@ -75,9 +75,79 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "lumeri_runtime/luc_distribution/rebase.py:76-102"
+        "lumeri_runtime/luc_distribution/rebase.py:192-232"
       ],
       "notes": "No deadline. Read-only plan; package loading, patch application and candidate resolve may propagate other distribution errors. Never activates."
+    },
+    {
+      "name": "plan_chain_rebase",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "old_base_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "new_base_input": {
+            "description": "Verified immutable LucArtifact or source path; manifest shape is docs/luc/schemas/artifact-manifest-v1.schema.json."
+          },
+          "extension_inputs": {
+            "type": "array",
+            "items": {
+              "description": "Ordered Extension LucArtifacts or source paths resolved on old_base."
+            }
+          },
+          "new_versions": {
+            "type": "object",
+            "description": "Mapping of extension id to target new semantic version string."
+          },
+          "replaced": {
+            "type": "array",
+            "items": {
+              "description": "Author-supplied replacement Extension artifacts or source paths."
+            }
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "host_grants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "old_base_input",
+          "new_base_input",
+          "extension_inputs",
+          "new_versions",
+          "runtime_version",
+          "host_grants"
+        ]
+      },
+      "output": {
+        "description": "ChainRebasePlan; .public() follows docs/luc/schemas/chain-rebase-plan-v1.schema.json."
+      },
+      "errors": [
+        "E_LUC_REBASE_INPUT",
+        "E_LUC_REBASE_IDENTITY",
+        "E_LUC_EXTENSION_IMMUTABLE",
+        "E_LUC_COMPATIBILITY",
+        "E_LUC_PARENT_ID",
+        "E_LUC_PARENT_VERSION",
+        "E_LUC_PARENT_HASH",
+        "E_LUC_PARENT_REQUIRED",
+        "E_LUC_CHAIN_DEPTH",
+        "E_LUC_LAYER_SKIP"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "draft",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:235-441"
+      ],
+      "notes": "No deadline. Read-only bottom-up planner across an ordered chain; never writes files or activates. Blocked ancestors mark descendants blocked_parent without affecting independent branches."
     },
     {
       "name": "public",
@@ -101,7 +171,33 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/rebase.py:36-58"
+        "lumeri_runtime/luc_distribution/rebase.py:47-67"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "chain_public",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "description": "ChainRebasePlan."
+          }
+        },
+        "required": [
+          "self"
+        ]
+      },
+      "output": {
+        "$contract": "docs/luc/schemas/chain-rebase-plan-v1.schema.json#"
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:137-144"
       ],
       "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
     },
@@ -154,9 +250,70 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/rebase.py:60-73"
+        "lumeri_runtime/luc_distribution/rebase.py:69-89"
       ],
       "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "chain_agent_handoff",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "self": {
+            "description": "ChainRebasePlan."
+          }
+        },
+        "required": [
+          "self"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "rebase_extension_chain"
+          },
+          "old_base": {
+            "type": "object"
+          },
+          "new_base": {
+            "type": "object"
+          },
+          "plan": {
+            "$contract": "docs/luc/schemas/chain-rebase-plan-v1.schema.json#"
+          },
+          "blocked_layers": {
+            "type": "array"
+          },
+          "immutable_inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activation_allowed": {
+            "const": false
+          }
+        },
+        "required": [
+          "operation",
+          "old_base",
+          "new_base",
+          "plan",
+          "blocked_layers",
+          "immutable_inputs",
+          "activation_allowed"
+        ]
+      },
+      "errors": [],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/rebase.py:146-189"
+      ],
+      "notes": "No deadline is enforced by this synchronous Python seam. Lists each blocked layer's immutable inputs and target version."
     },
     {
       "name": "write_rebase_candidate",
@@ -187,7 +344,7 @@
       "idempotency": "none",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/rebase.py:225-245"
+        "lumeri_runtime/luc_distribution/rebase.py:640-659"
       ],
       "notes": "No deadline. Output Path returned; destination must not exist. A retry after success refuses rather than replacing the immutable candidate."
     }
@@ -198,12 +355,17 @@
     {
       "id": "new-version-only",
       "text": "A rebase never edits the old Base or Extension and cannot overwrite the candidate destination.",
-      "test": null
+      "test": "tests/test_luc_extension_chain_rebase.py::test_34_plan_is_read_only_handoff_never_activates_and_write_candidate_is_immutable"
     },
     {
       "id": "no-activation",
       "text": "The agent handoff explicitly has activation_allowed=false.",
-      "test": null
+      "test": "tests/test_luc_extension_chain_rebase.py::test_34_plan_is_read_only_handoff_never_activates_and_write_candidate_is_immutable"
+    },
+    {
+      "id": "chain-bottom-up-propagation",
+      "text": "A blocked ancestor marks descendants blocked_parent without affecting independent branches, and chained layers compare against resolved parent snapshots.",
+      "test": "tests/test_luc_extension_chain_rebase.py::test_30_blocked_parent_cascades_without_affecting_sibling_branch"
     }
   ],
   "failure": {
@@ -212,13 +374,19 @@
     ],
     "fallback": "fail-closed",
     "evidence": [
-      "lumeri_runtime/luc_distribution/rebase.py:60-96",
-      "lumeri_runtime/luc_distribution/rebase.py:225-245"
+      "lumeri_runtime/luc_distribution/rebase.py:69-89",
+      "lumeri_runtime/luc_distribution/rebase.py:146-255",
+      "lumeri_runtime/luc_distribution/rebase.py:640-659"
     ]
   },
   "conformance": {
     "status": "partial",
-    "tests": [],
+    "tests": [
+      "tests/test_luc_extension_chain_rebase.py::test_29_plan_chain_rebase_all_ready_propagates_parent_and_resolves_cleanly",
+      "tests/test_luc_extension_chain_rebase.py::test_30_blocked_parent_cascades_without_affecting_sibling_branch",
+      "tests/test_luc_extension_chain_rebase.py::test_34_plan_is_read_only_handoff_never_activates_and_write_candidate_is_immutable",
+      "tests/test_luc_extension_chain_rebase.py::test_36_chain_rebase_and_rebase_plan_schemas_validate_outputs"
+    ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },
   "known_deviations": [],

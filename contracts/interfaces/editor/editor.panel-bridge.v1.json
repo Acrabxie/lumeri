@@ -21,7 +21,8 @@
       "project.read",
       "project.write",
       "session.control",
-      "ui.mount"
+      "ui.mount",
+      "renderer.execute"
     ],
     "host_apis": [
       "project.view",
@@ -41,7 +42,17 @@
       "library.roughcut.review",
       "workspace.context",
       "workspace.open",
-      "selection.view"
+      "selection.view",
+      "renderer.scene.list",
+      "renderer.scene.read",
+      "renderer.scene.write",
+      "renderer.frame",
+      "renderer.timeline.insert",
+      "renderer.timeline.frame",
+      "renderer.timeline.export",
+      "renderer.position.request",
+      "renderer.position.preview",
+      "renderer.adjust.request"
     ],
     "editable": "none",
     "bridge_calls": [
@@ -62,7 +73,17 @@
       "library.roughcut.review",
       "workspace.context",
       "workspace.open",
-      "selection.view"
+      "selection.view",
+      "renderer.scene.list",
+      "renderer.scene.read",
+      "renderer.scene.write",
+      "renderer.frame",
+      "renderer.timeline.insert",
+      "renderer.timeline.frame",
+      "renderer.timeline.export",
+      "renderer.position.request",
+      "renderer.position.preview",
+      "renderer.adjust.request"
     ],
     "notes": "The bridge carries at most what the calling Panel declared and was granted; it holds no authority of its own. The permissions are the union a Panel may ask for through it."
   },
@@ -1233,6 +1254,564 @@
         "static/v3/v3.js:610-652"
       ],
       "notes": "Host API selection.view 1.0.0, permission project.read; carried out by the editor page. Takes {}; any field is E_LUC_API_INPUT. Changes still go through timeline.edit."
+    },
+    {
+      "name": "renderer.scene.list",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.scene.list 1.0.0, permission project.read; carried out by Runtime ProductRenderer. List programmable LumenFrame 2 scenes in the open Project without source HTML."
+    },
+    {
+      "name": "renderer.scene.read",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.scene.read 1.0.0, permission project.read; carried out by Runtime ProductRenderer. Read a single programmable Scene through the Host renderer capability."
+    },
+    {
+      "name": "renderer.scene.write",
+      "effect": "write",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.scene.write 1.0.0, permission project.write; carried out by Runtime ProductRenderer. Commit a governed programmable Scene patch through the Project gate (max 768 KiB bridge payload)."
+    },
+    {
+      "name": "renderer.frame",
+      "effect": "read",
+      "input": {
+        "type": "object"
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.frame 1.0.0, permission renderer.execute; carried out by Runtime ProductRenderer. Render a single committed programmable Scene frame via the Host renderer."
+    },
+    {
+      "name": "renderer.timeline.insert",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "track_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0
+          },
+          "source_in": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "project_revision",
+          "idempotency_key",
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.timeline.insert 1.0.0, permission project.write; carried out by Runtime ProductRenderer. Place a native programmable Scene reference on the Timeline through the Timeline mutation gate."
+    },
+    {
+      "name": "renderer.timeline.frame",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "number",
+            "minimum": 0
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "time",
+          "project_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.timeline.frame 1.0.0, permission renderer.execute; carried out by Runtime ProductRenderer. Composite one requested Timeline frame using committed programmable Scene frames."
+    },
+    {
+      "name": "renderer.timeline.export",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "mov"
+            ]
+          }
+        },
+        "required": [
+          "project_revision",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.timeline.export 1.0.0, permission renderer.execute; carried out by Runtime ProductRenderer. Export the current Timeline using committed programmable Scene frames."
+    },
+    {
+      "name": "renderer.position.request",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "parameter": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "scene_id",
+          "project_revision",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.position.request 1.0.0, permission project.write; carried out by Runtime ProductRenderer. Start a governed Luc position interaction for a programmable Scene parameter."
+    },
+    {
+      "name": "renderer.position.preview",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "interaction_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frame_index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "interaction_id",
+          "draft_revision"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.position.preview 1.0.0, permission renderer.execute; carried out by Runtime ProductRenderer. Render the current Luc position draft frame without writing to the Project."
+    },
+    {
+      "name": "renderer.adjust.request",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "parameter_names": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              },
+              "scale": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              },
+              "rotation": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "frame_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "scene_id",
+          "project_revision",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_INPUT",
+        "E_LUC_API_UNAVAILABLE",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_BRIDGE_BUSY",
+        "E_LUC_BRIDGE",
+        "E_LUC_SCENE",
+        "E_LUC_TIMELINE",
+        "E_LUC_EDIT_BOUNDARY",
+        "E_LUC_REVISION",
+        "E_LUC_PREVIEW",
+        "E_LUC_POSITION",
+        "E_LUC_EXPORT",
+        "E_LUC_DRAFT_STALE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_host_api.py:664-743",
+        "lumeri_runtime/luc_workspace.py:54-73",
+        "lumeri_runtime/lumenframe2_product.py:287-306",
+        "static/v3/luc-panel-host.js:21-39"
+      ],
+      "notes": "Host API renderer.adjust.request 1.0.0, permission project.write; carried out by Runtime ProductRenderer. Start a governed LumenFrame parameters interaction for exposed Scene parameters."
     }
   ],
   "events": [

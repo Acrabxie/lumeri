@@ -14,7 +14,7 @@ it, or as the machine has it:
 | `lumeri.encode.backend` | `iface:encode.backend/v1` | `ffmpeg` (an encode) |
 | `lumeri.lumen.canvas` | `iface:lumen.canvas/v1` | `lumeri-engine lumen-canvas` |
 | `lumeri.render.backend` | `iface:render.backend/v1` | `lumeri-engine quanta`, `lumeri-engine lumenframe` |
-| `lumeri.timeline.render` | `iface:timeline.render/v1` | `lumeri-engine timeline-render` |
+| `lumeri.timeline.render` | `iface:timeline.render/v1` | `lumeri-engine timeline-render`, `lumeri-engine timeline-frame` |
 | `lumeri.engine.gemia` | `iface:engine.gemia/v1` | `lumeri-engine`, for its other 13 subcommands |
 | `lumeri.transcriber.backend` | `iface:transcriber.backend/v1` | `whisper-cli`, inside the engine's roughcut |
 

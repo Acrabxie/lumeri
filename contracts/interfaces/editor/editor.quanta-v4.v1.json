@@ -3,12 +3,12 @@
   "id": "iface:editor.quanta-v4/v1",
   "version": "1.0.0",
   "area": "editor",
-  "title": "Quanta interactive package player and flow editor boundary",
-  "summary": "Browser boundary for the Quanta interactive package (.luqu) player and flow editor under static/v3/quanta/: deterministic ZIP64 package verification, state-graph/stream-cue runtime, and draft validation/repack.",
+  "title": "Quanta v4 interactive player, canvas runtime, and flow editor",
+  "summary": "Browser and Python runtime for Quanta v4 (.qua) packages, offline streams, presentations, and live canvas playback: deterministic ZIP64 package verification, CanvasOperation replay (luqu.player), quanta.raster/v1 deterministic rasterizer, live loopback player (luqu.v4live), typed browser canvas proposals (LuquCanvasClient), and flow/input/interaction runtimes under static/v3/quanta/.",
   "carrier": {
     "kind": "browser",
-    "surface": "/quanta/ (static/v3/quanta/index.html, core.html, editor.html, core/*, editor/*)",
-    "notes": "Served under /quanta/ from static/v3/quanta/ (`window.LumeriLuquCore` and `window.LumeriLuquEditorCore`). Boundary contract only; the Quanta v4 .qua player and luqu/ Python package body remain on the Quanta owner's branch until merged."
+    "surface": "/quanta/ (static/v3/quanta/*), luqu-canvas-client.js, and luqu/ v4 runtime",
+    "notes": "Merged from quanta/player-minimal-20261101. Combines /quanta/ browser runtimes (LumeriLuquCore, LumeriLuquEditorCore, LumeriLuquInput, LumeriQuantaInteractionLibrary), LuquCanvasClient draft coordinator, and Python luqu.* v4 .qua codecs, rasterizer, and live loopback player."
   },
   "replaceability": {
     "class": "lumeri-only",
@@ -26,7 +26,7 @@
       "effect": "none",
       "input": {
         "type": "object",
-        "description": "Uint8Array or Blob holding a .luqu ZIP64 package with normative entry order (mimetype, bootstrap.json, manifest.json, ..., index/full.json)."
+        "description": "Uint8Array or Blob holding a .qua ZIP64 package with normative entry order (mimetype, bootstrap.json, manifest.json, ..., index/full.json)."
       },
       "output": {
         "type": "object",
@@ -119,6 +119,253 @@
         "static/v3/quanta/editor/luqu-editor-core.js:256-381"
       ],
       "notes": "Checks entry state existence, state media references, variable types/scopes, transition conditions/actions, stream-cue ranges, reachability, and zero-wait 0us cue loops."
+    },
+    {
+      "name": "luqu.v4file.build",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "snapshot": {
+            "type": "object"
+          },
+          "operations": {
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "renderer": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "snapshot",
+          "operations",
+          "title"
+        ]
+      },
+      "output": {
+        "type": "string",
+        "description": "UTF-8 NDJSON .qua v4 trace bytes including manifest, snapshot, optional controls, optional quanta.raster/v1 art records, steps, content_sha256, and end record."
+      },
+      "errors": [
+        "E_CONTROLS",
+        "E_TRACE_SIZE",
+        "E_BEATS",
+        "E_PLAYBACK",
+        "E_RENDERER",
+        "E_RENDER"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "luqu/v4file.py:180-298"
+      ],
+      "notes": "Builds canonical Quanta v4 .qua trace streams using PlayerTrace/MemoSession and either LumenFrame or quanta.raster/v1 baked art."
+    },
+    {
+      "name": "luqu.v4file.verify",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "rebake": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Verified .qua manifest, step hashes, frame dimensions, and integrity summary."
+      },
+      "errors": [
+        "E_ENCODING",
+        "E_TRUNCATED",
+        "E_JSON",
+        "E_RECORD",
+        "E_ORDER",
+        "E_FORMAT",
+        "E_VERSION",
+        "E_PROTOCOL",
+        "E_INTEGRITY",
+        "E_CONTROLS",
+        "E_TRACE",
+        "E_REPLAY",
+        "E_RENDERER",
+        "E_ART",
+        "E_FRAME",
+        "E_RENDER"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "luqu/v4file.py:398-440",
+        "luqu/v4file.py:579-633"
+      ],
+      "notes": "Parses NDJSON framing and SHA-256 content digest, validates embedded controls, replays every CanvasOperation via MemoSession, and re-renders/verifies pixels and semantic hashes."
+    },
+    {
+      "name": "luqu.v4raster.render",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object"
+          },
+          "art": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "document",
+          "art"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Straight-alpha uint8 RGBA frame (height x width x 4) matching luqu/web/quanta-raster.js byte-for-byte."
+      },
+      "errors": [
+        "E_RASTER_UNSUPPORTED",
+        "E_RASTER_CANVAS",
+        "E_RASTER_DOCUMENT",
+        "E_RASTER_ART",
+        "E_RASTER_QUAD",
+        "E_RASTER_VALUE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "luqu/v4raster.py:764-776",
+        "luqu/web/quanta-raster.js:1-30"
+      ],
+      "notes": "Deterministic binary64/binary32 quanta.raster/v1 rasterizer paired identically between Python and browser JS."
+    },
+    {
+      "name": "luqu.v4presentation.verify",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Verified presentation .qua summary with protocol, player_contract, state/scope/edge/skill/asset counts, and integrity flag."
+      },
+      "errors": [
+        "E_PLAYER_UNAVAILABLE",
+        "E_PRESENTATION",
+        "E_LIMIT",
+        "E_DISPLAY",
+        "E_PLAYBACK",
+        "E_VERSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "luqu/v4presentation.py:233-257"
+      ],
+      "notes": "Validates Quanta v4 presentation .qua streams using the shared JS codec contract."
+    },
+    {
+      "name": "luqu.v4live.make_server",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Loopback ThreadingHTTPServer serving / and authenticated /api/{open,state,preview,commit,control/preview,control/commit,step,seek,reset,export} endpoints."
+      },
+      "errors": [
+        "E_FORBIDDEN",
+        "E_TOO_LARGE",
+        "E_BAD_REQUEST",
+        "E_NOT_FOUND"
+      ],
+      "deadline_ms": null,
+      "idempotency": "none",
+      "status": "defined",
+      "evidence": [
+        "luqu/v4live.py:425-504"
+      ],
+      "notes": "Local loopback live Quanta v4 player authenticated by per-server X-Luqu-Token."
+    },
+    {
+      "name": "LuquCanvasClient.create",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "send": {
+            "type": "object"
+          },
+          "target": {
+            "type": "object"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "effect": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "send",
+          "target",
+          "revision",
+          "sequence",
+          "effect"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "Single-slot preview coalescing draft handle (update, confirm, cancel) targeting op: luqu."
+      },
+      "errors": [
+        "E_CANCELLED",
+        "E_STALE_REVISION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "client_op_id",
+      "status": "defined",
+      "evidence": [
+        "static/v3/luqu-canvas-client.js:4-101"
+      ],
+      "notes": "Bounds in-flight canvas previews to one active slot and guarantees begin/preview/apply/cancel lifecycle."
     }
   ],
   "events": [],
@@ -130,6 +377,38 @@
       "evidence": [
         "static/v3/quanta/core/luqu-core.js:455"
       ]
+    },
+    {
+      "name": "v4_max_operations",
+      "value": 256,
+      "unit": "operations",
+      "evidence": [
+        "luqu/v4file.py:52"
+      ]
+    },
+    {
+      "name": "v4_max_frame_bytes",
+      "value": 16777216,
+      "unit": "bytes",
+      "evidence": [
+        "luqu/v4file.py:53"
+      ]
+    },
+    {
+      "name": "v4_raster_max_canvas",
+      "value": 8192,
+      "unit": "pixels",
+      "evidence": [
+        "luqu/v4raster.py:44"
+      ]
+    },
+    {
+      "name": "v4_controls_max",
+      "value": 64,
+      "unit": "controls",
+      "evidence": [
+        "luqu/v4controls.py:24"
+      ]
     }
   ],
   "invariants": [
@@ -140,45 +419,54 @@
     },
     {
       "id": "editor-repack-roundtrips-verified-package",
-      "text": "Draft edits in the flow editor validate and repack into a deterministic, verified .luqu ZIP64 archive.",
+      "text": "Draft edits in the flow editor validate and repack into a deterministic, verified .qua ZIP64 archive.",
       "test": "tests/test_luqu_core_editor.py::test_editor_draft_undo_validation_and_verified_repack"
+    },
+    {
+      "id": "v4-qua-verify-replays-and-rerenders",
+      "text": "luqu.v4file.verify replays every CanvasOperation through MemoSession and re-renders/verifies semantic hashes for every step before accepting a .qua trace.",
+      "test": "tests/test_luqu_v4_file.py"
+    },
+    {
+      "id": "raster-python-js-parity",
+      "text": "Python luqu.v4raster and browser luqu/web/quanta-raster.js produce identical RGBA8 output for quanta.raster/v1 files.",
+      "test": "tests/test_luqu_v4_raster.py"
     }
   ],
   "failure": {
     "break": [
-      "A package fails container, hash, schema, capability, or reference verification.",
+      "A .qua package or v4 stream fails container, digest, schema, capability, control, replay, or raster verification.",
       "A draft contains dangling references, unsupported primitives, or a zero-wait 0us cue loop."
     ],
     "fallback": "refuse",
     "evidence": [
       "static/v3/quanta/core/luqu-core.js:455-520",
-      "static/v3/quanta/editor/luqu-editor-core.js:256-381"
+      "static/v3/quanta/editor/luqu-editor-core.js:256-381",
+      "luqu/v4file.py:394-440",
+      "luqu/v4file.py:579-605"
     ]
   },
   "conformance": {
-    "status": "partial",
+    "status": "exists",
     "tests": [
       "tests/test_luqu_core_player.py",
       "tests/test_luqu_core_editor.py",
       "tests/test_luqu_player.py",
-      "tests/test_quanta_timeline_grammar.py"
+      "tests/test_quanta_timeline_grammar.py",
+      "tests/test_luqu_v4.py",
+      "tests/test_luqu_v4_contracts.py",
+      "tests/test_luqu_v4_file.py",
+      "tests/test_luqu_v4_live.py",
+      "tests/test_luqu_v4_player.py",
+      "tests/test_luqu_v4_project.py",
+      "tests/test_luqu_v4_raster.py",
+      "tests/test_quanta_input_runtime.py",
+      "tests/test_quanta_interaction_library.py",
+      "tests/test_quanta_v4_playback.py",
+      "tests/test_quanta_v4_presentation.py"
     ],
-    "notes": "Covers the in-tree static/v3/quanta/ player and flow editor boundary. The standalone Quanta v4 .qua player and luqu/ Python package body are developed on quanta/player-minimal-20261101 and will be filled in by the Quanta owner upon merge."
+    "notes": "Covers the in-tree static/v3/quanta/ runtimes, LuquCanvasClient draft coordinator, and luqu/ Python v4 .qua player, quanta.raster/v1 renderer, presentation codec, and live loopback player."
   },
-  "known_deviations": [
-    {
-      "text": "Only the boundary of Quanta v4 / .luqu present on this branch (static/v3/quanta/*) is contracted here; the Quanta v4 .qua player and luqu/ Python package on branch quanta/player-minimal-20261101 (34ff874f) are owned by the Quanta lane and not merged into this branch.",
-      "evidence": [
-        "static/v3/quanta/core/luqu-core.js:1-25",
-        "static/v3/quanta/editor/luqu-editor-core.js:1-25"
-      ],
-      "test": null
-    }
-  ],
-  "open_questions": [
-    {
-      "for": "lumeri",
-      "text": "When branch quanta/player-minimal-20261101 merges, the Quanta owner should extend iface:editor.quanta-v4/v1 with the .qua player and luqu/ package operations."
-    }
-  ]
+  "known_deviations": [],
+  "open_questions": []
 }

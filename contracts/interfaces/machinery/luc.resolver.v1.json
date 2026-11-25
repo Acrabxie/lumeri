@@ -4,10 +4,10 @@
   "version": "1.1.0",
   "area": "machinery",
   "title": "Immutable layer resolution",
-  "summary": "Resolve one verified standalone Luc and an explicitly ordered Extension list onto detached data. Recompute canonical manifest/files, conflicts, API authority, diff and identity under the Runtime and Host policy.",
+  "summary": "Resolve one verified standalone Luc and an explicitly ordered Extension list (direct on the Luc or chained onto earlier Extensions on that same Luc, up to depth 8) onto detached data. Recompute canonical manifest/files, conflicts, API authority, diff and identity under the Runtime and Host policy.",
   "carrier": {
     "kind": "python",
-    "seam": "lumeri_runtime.luc_distribution.resolver:resolve_luc;ResolvedLuc.public"
+    "seam": "lumeri_runtime.luc_distribution.resolver:resolve_luc;ResolvedLuc.public;chain_of"
   },
   "replaceability": {
     "class": "lumeri-only",
@@ -75,16 +75,18 @@
         "E_LUC_PARENT_ID",
         "E_LUC_PARENT_VERSION",
         "E_LUC_PARENT_HASH",
+        "E_LUC_PARENT_REQUIRED",
+        "E_LUC_CHAIN_DEPTH",
         "E_LUC_AUTHORITY_CONFLICT"
       ],
       "deadline_ms": null,
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "lumeri_runtime/luc_distribution/resolver.py:88-129",
-        "lumeri_runtime/luc_distribution/resolver.py:239-323"
+        "lumeri_runtime/luc_distribution/resolver.py:89-160",
+        "lumeri_runtime/luc_distribution/resolver.py:355-406"
       ],
-      "notes": "No deadline. Ordered immutable inputs produce a deterministic resolution; accepts artifacts or paths. Path verification and manifest/source-patch helpers can raise further distribution codes. Draft only for the transitive error union, not composition order."
+      "notes": "No deadline. Ordered immutable inputs produce a deterministic resolution; accepts artifacts or paths. Parents must precede children up to MAX_CHAIN_DEPTH = 8; each layer checks base values/hashes against the Luc plus its own ancestor chain (allowing chain_override along an ancestor-descendant chain while failing closed on non-ancestor conflicts). RESOLVER_VERSION stays 0.1.0 and flat Extension lists resolve byte-for-byte identically. Draft only for the transitive error union, not composition order."
     },
     {
       "name": "public",
@@ -108,13 +110,63 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/resolver.py:71-85"
+        "lumeri_runtime/luc_distribution/resolver.py:72-86"
       ],
       "notes": "No deadline is enforced by this synchronous Python seam. Retrying a read observes the current state."
+    },
+    {
+      "name": "chain_of",
+      "effect": "none",
+      "input": {
+        "type": "object",
+        "properties": {
+          "extension_input": {
+            "description": "Target Extension LucArtifact or source path."
+          },
+          "extension_inputs": {
+            "type": "array",
+            "items": {
+              "description": "Pool of Extension LucArtifacts or source paths."
+            }
+          }
+        },
+        "required": [
+          "extension_input",
+          "extension_inputs"
+        ]
+      },
+      "output": {
+        "description": "Ordered list of ancestor Extension LucArtifacts ending at extension_input, bottom-up from the Luc."
+      },
+      "errors": [
+        "E_LUC_LAYER_SKIP",
+        "E_LUC_PARENT_REQUIRED",
+        "E_LUC_PARENT_HASH",
+        "E_LUC_PARENT_ID",
+        "E_LUC_PARENT_VERSION",
+        "E_LUC_CHAIN_DEPTH"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/resolver.py:409-456"
+      ],
+      "notes": "No deadline. Pure read-only lookup over provided Extension artifacts."
     }
   ],
   "events": [],
-  "bounds": [],
+  "bounds": [
+    {
+      "name": "max-chain-depth",
+      "value": 8,
+      "unit": "layers",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/resolver.py:20",
+        "lumeri_runtime/luc_distribution/resolver.py:149-153"
+      ]
+    }
+  ],
   "invariants": [
     {
       "id": "originals-unchanged",
@@ -123,8 +175,13 @@
     },
     {
       "id": "one-base",
-      "text": "Only a standalone Luc can be the Base and each Extension names that exact Base, never another Extension.",
-      "test": null
+      "text": "Every Extension targets one Base Luc in extends.luc and has exactly one parent: that Luc, or an earlier Extension on that same Luc (up to depth 8), checked against the Luc plus its ancestor chain.",
+      "test": "tests/test_luc_extension_chain.py::test_06_r1_and_r3_parent_validation_codes"
+    },
+    {
+      "id": "chain-override-and-flat-parity",
+      "text": "Descendants may override ancestor changes (chain_override), non-ancestor conflicts fail closed, and flat Extension lists resolve byte-for-byte identically to pre-chain output.",
+      "test": "tests/test_luc_extension_chain_golden.py::test_flat_golden_matches_byte_for_byte"
     }
   ],
   "failure": {
@@ -133,14 +190,18 @@
     ],
     "fallback": "fail-closed",
     "evidence": [
-      "lumeri_runtime/luc_distribution/resolver.py:88-117",
-      "lumeri_runtime/luc_distribution/resolver.py:310-323"
+      "lumeri_runtime/luc_distribution/resolver.py:89-160",
+      "lumeri_runtime/luc_distribution/resolver.py:463-489"
     ]
   },
   "conformance": {
     "status": "partial",
     "tests": [
-      "tests/test_luc_distribution.py::test_manifest_patch_and_file_operations_resolve_without_mutating_sources"
+      "tests/test_luc_distribution.py::test_manifest_patch_and_file_operations_resolve_without_mutating_sources",
+      "tests/test_luc_extension_chain.py::test_04_direct_chain_l_a_b_overrides_manifest_replace_add_and_delete",
+      "tests/test_luc_extension_chain.py::test_06_r1_and_r3_parent_validation_codes",
+      "tests/test_luc_extension_chain.py::test_07_r4_chain_depth_limit_eight_passes_nine_fails",
+      "tests/test_luc_extension_chain_golden.py::test_flat_golden_matches_byte_for_byte"
     ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },

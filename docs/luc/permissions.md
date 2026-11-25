@@ -79,6 +79,18 @@ cp clip-nudge.luc ~/.lumeri/lucs/
 - Each Luc gets a line in the `[luc]` table of `~/.lumeri/config.toml`
   (`"com.example.clip-nudge" = true`). Set it to `false` to switch the Luc off
   without removing the file. A written line wins.
+- That same local config file (only when `LUMERI_LOCAL_CONFIG_PATH` is set and
+  non-empty) may define a `[luc_hooks]` table for local confirmation hooks on
+  Lumeri's held layer changes:
+  - `layer_change`: non-empty string array whose first entry is an absolute path
+    to an executable regular file; receives `lumeri.luc.layer-change/v1` JSON on
+    `stdin` and answers `{"decision": "apply"}` or `{"decision": "decline"}`
+    on `stdout` (under `layer_change_timeout`, integer `1..120`, default `30`).
+  - Only the machine owner edits `[luc_hooks]`. The Runtime never writes
+    `[luc_hooks]` and preserves it byte-for-byte when updating `[luc]`. Any
+    config or execution failure leaves proposals `pending` for the creator card,
+    and invalid `[luc_hooks]` values report `hook_config_error` on
+    `GET /sessions/{id}/luc/layers`.
 - Of several versions of one Luc in the folder, the newest loads.
 - A Luc that changes needs a new version number. The same id and version with
   different bytes is refused (`E_LUC_REGISTRY_IMMUTABLE`).
@@ -97,15 +109,18 @@ lists the clips on the timeline and moves one a second earlier or later.
 
 ## A layer on a Luc
 
-Decided 2026-10-11 (Acrab): there are three levels and each word means one
-thing. Lumeri carries Lucs. A Luc is one package: a Panel, a Skill, a tool. An
-Extension is a layer on exactly one Luc. It is never a name for the Luc
-itself.
+Decided 2026-11-21 (Acrab): an Extension may lie on another Extension. The
+chain is `Lumeri Host → Luc → Extension → Extension → …`, and every Extension
+still has exactly one parent: the Luc, or another Extension on that Luc. This
+replaces the part of the 2026-10-11 decision that let an Extension lie only on
+a Luc. The words keep their meaning: a Luc is one package and is never called an
+extension; an Extension is a layer.
 
-A layer is how a person makes a Luc their own without making another Luc:
-reword a Skill, restyle a Panel, give it another title. It is a `.luc` file
-that names one Luc in `extends` and says what to change in it
-([distribution.md](distribution.md) is the file format).
+A layer is how a person makes a Luc or another layer their own without making
+another Luc: reword a Skill, restyle a Panel, give it another title. It is a
+`.luc` file that names one Luc (and, when chained onto another layer, that
+parent Extension on the same Luc) in `extends` and says what to change against
+that parent ([distribution.md](distribution.md) is the file format).
 
 ```console
 python scripts/luc_cli.py extension create clip-nudge.luc com.example.nudge-title 1.0.0 nudge-title/
@@ -114,17 +129,20 @@ cp nudge-title.luc ~/.lumeri/lucs/
 ```
 
 `extension create` makes a layer that changes nothing yet. Its changes are the
-three lists in its `manifest.json`: values of the Luc's manifest, whole files,
-and passages inside a text file. `manifest_patch` and `source_patch` in
-`lumeri_runtime.luc_distribution` write one entry against the Luc as it is.
+three lists in its `manifest.json`: values of its parent's manifest, whole
+files, and passages inside a text file. `manifest_patch` and `source_patch` in
+`lumeri_runtime.luc_distribution` write one entry against the Luc or the
+resolved ancestor chain as it stands.
 
 - A layer goes in the same folder as a Luc, counts among its 64 files, and is
-  read at the same moment. It lies on the Luc it names: one from the folder, or
-  one of Lumeri's own.
+  read at the same moment. It lies on the Luc it names (one from the folder, or
+  one of Lumeri's own), or on another Extension on that Luc (from the folder or
+  that Luc's activation profile), up to chain depth 8.
 - It has an id of its own and its own line in the `[luc]` table. Set the line
-  to `false` and the Luc is as its author wrote it. Of several versions of one
-  layer the newest lies, and a layer that changes needs a new version number,
-  as for a Luc. Its id may not begin with `lumeri.` or be the id of a Luc.
+  to `false` and the Luc (or parent layer) is as its author wrote it. Of several
+  versions of one layer the newest lies, and a layer that changes needs a new
+  version number, as for a Luc. Its id may not begin with `lumeri.`, be the id
+  of a Luc, or equal its parent Extension's id.
 - It changes what its Luc is, never what it may do. A layer may reword,
   restyle, replace a file, and take authority away. One that would give its
   Luc another permission, another Host call or a wider edit boundary is left
@@ -146,14 +164,20 @@ and passages inside a text file. `manifest_patch` and `source_patch` in
   what it tells the agent is English. The capability names of the other Lucs
   that load from the folder stay theirs too (`E_LUC_NAMESPACE`): a layer never
   leaves another Luc without its name.
-- It is made for one version of its Luc. When the Luc changes, the layer waits
-  until it is made again on the new one (`E_LUC_REBASE_REQUIRED`).
-- Several layers on one Luc are laid in the order of their ids. When two change
-  the same thing in different ways, the later one is left off
-  (`E_LUC_LAYER_CONFLICT`); two that say the same thing do not disagree.
-- A layer that is left off goes alone. Its Luc loads as it would without it,
-  and so do the other layers on it. A layer whose Luc is not there has nothing
-  to lie on (`E_LUC_PARENT_REQUIRED`).
+- It is made for one version of its Luc, or of the layer it lies on. When that
+  parent changes, the layer waits until it is made again on the new one
+  (`E_LUC_REBASE_REQUIRED`).
+- Several layers on one Luc are laid in parent-first order, picking at each
+  step the lowest-id layer whose parent is the Luc or is already laid
+  (including layers already in the activation profile). A layer may change what
+  an ancestor in its own chain changed; when two layers not in an
+  ancestor-descendant chain change the same thing in different ways, the later
+  one is left off (`E_LUC_LAYER_CONFLICT`), while two that say the same thing
+  do not disagree.
+- A layer that is left off goes alone, except for layers that lie on it: its
+  Luc and any independent branches load as they would without it. A layer whose
+  Luc or parent layer is not there, is switched off, did not load, or was left
+  off has nothing to lie on (`E_LUC_PARENT_REQUIRED`).
 - No layer is laid in safe mode.
 
 `lucs` in the Runtime's answer names the layers on each Luc under `layers`, in
@@ -166,6 +190,14 @@ Registry profile named after it (`official-channel.md`, not in this repository).
 Those are laid first and the folder's on top. When they are held back the Luc
 loads without them and says so in `layer_notices`.
 
+Lumeri's agent changes its own Lucs the same way, with one layer of its own in
+that profile (`agent.<luc id>`, origin `lumeri-agent`), never reaching the
+agent core. When the creator's layers form a single line, `agent.<luc id>`
+lies on top of that line, waits for the creator whenever it overrides what
+those layers set, and steps aside at load time if it no longer fits the
+creator's layer changes; a change that runs code or needs more authority
+also waits for the creator ([agent-layers.md](agent-layers.md)).
+
 ## Permissions
 
 | Permission | Who may hold it | What it allows |
@@ -174,6 +206,7 @@ loads without them and says so in `layer_notices`.
 | `project.read` | any Luc | Read the open Project (timeline, storyboard, files, library, notes) and the creator's work in flight across their Projects. |
 | `project.write` | any Luc | Change the open Project, only inside the editable boundary the Luc declares. |
 | `session.control` | any Luc | Stop work the creator started. |
+| `renderer.execute` | Lumeri only | Run Lumeri's trusted visual renderer with isolated scene content. |
 | `agent.replace` | reviewed Luc | Stand in for Lumeri's agent: the Luc's instructions take the place of Lumeri's own in the creator's turns. The loop, the tools, the model and the budget stay Lumeri's. |
 | `agent.loop` | reviewed Luc | Decide how the creator's turns run: the Luc's own program, fenced in a sandbox with no network and no files, chooses each next step of Lumeri's agent loop, or answers for one part of the turn (fitting the request, wording guidance, keeping the conversation, its own tools). The model, the stored conversation and the budget stay Lumeri's. |
 | `engine.program` | reviewed Luc | Stand in for one of Lumeri's engines: the Luc's own program measures media, grabs thumbnails, encodes, renders or transcribes in place of FFprobe, FFmpeg, lumeri-engine or whisper, run as that engine runs, in its sandbox, writing only its scratch folder and never the Project. Lumeri checks what it leaves and runs its own engine again when it breaks. |
@@ -183,9 +216,10 @@ loads without them and says so in `layer_notices`.
 | `gateway.access` | Lumeri only | Call models or paid services through Lumeri's gateway. |
 | `cloud.access` | Lumeri only | Reach Lumeri's cloud services. |
 
-The three marked "Lumeri only" are reserved. No Host API leads to them: the
-account, the gateway and the cloud are reached by the Runtime itself, not by
-any Luc. The names exist so that a Luc asking for one is refused by name
+The permissions marked "Lumeri only" are reserved. `renderer.execute` is
+granted to the trusted Official renderer adapter; isolated scene content
+receives no Host authority. No Host API leads to the account, gateway or
+cloud: these are reached by the Runtime itself. The names exist so that a Luc asking for one is refused by name
 (`E_LUC_PERMISSION_RESERVED`) and not as a spelling mistake
 (`E_LUC_PERMISSION`).
 
@@ -228,7 +262,7 @@ or `search.program` loads only while a receipt is beside it:
   by name (`E_LUC_REVIEW_REQUIRED`); with one that is not Lumeri's, out of
   date or withdrawn it is refused the same way, and Lumeri's own agent answers.
 - A review grants the reviewed permissions it names (`agent.replace`,
-  `agent.policy`, `agent.loop`, `engine.program`, `search.program`) and nothing else. A reviewed Luc is still refused the three
+  `agent.policy`, `agent.loop`, `engine.program`, `search.program`) and nothing else. A reviewed Luc is still refused the
   reserved permissions and every reserved protocol.
 - A receipt beside a Luc that asks for nothing reviewed changes nothing.
 - Lumeri can withdraw a review before its day; the list of withdrawn files
@@ -246,34 +280,45 @@ own code, which is Lumeri's for now (see Protocols).
 
 | API | Permission | Who can call it | What it does |
 | --- | --- | --- | --- |
-| `project.view` | `project.read` | Panel | Read one whole Project view: the timeline or the storyboard. |
-| `selection.view` | `project.read` | Panel (answered by the editor) | Read the selected timeline clip as the editor shows it. |
-| `files.view` | `project.read` | Panel | List one folder of the Project, one level deep. |
-| `files.read` | `project.read` | Panel | Read one text file of the Project. |
-| `library.view` | `project.read` | Panel | List the Project library: each asset's kind, size and a summary of its notes; no bytes. |
-| `library.thumbnail` | `project.read` | Panel | Get one asset's card picture. |
-| `library.notes` | `project.read` | Panel | Read the notes kept about one asset, and its roughcut. |
-| `library.job` | `project.read` | Panel | Read where one roughcut job stands. |
-| `tasks.view` | `project.read` | Panel | List the creator's work in flight across their Projects: running turns and the jobs they opened. |
-| `tasks.stop` | `session.control` | Panel | Ask one running job to stop. |
-| `timeline.edit` | `project.write` | Panel | Apply one timeline operation (insert, move, trim, split, effects, transition, track, undo, redo) through the Worker's own edit path. |
-| `library.place` | `project.write` | Panel | Put one asset on the timeline, after the last clip of a track that takes it. |
-| `library.roughcut` | `project.write` | Panel | Start a roughcut of one video or sound: a transcript, pauses and filler, a score; written as notes. |
-| `library.roughcut.review` | `project.write` | Panel | Record one decision about a roughcut. |
-| `panel.state` | `ui.mount` | Panel | Keep up to 16 KiB of state for one Panel, per creator. |
-| `skills.view` | `ui.mount` | Panel | List the agent's Skills and whether each is ready; never their instructions. |
-| `workspace.context` | `ui.mount` | Panel (answered by the editor) | Put one thing the Panel shows into the creator's next message. |
-| `workspace.open` | `ui.mount` | Panel (answered by the editor) | Ask the editor to open one of the creator's Sessions. |
-| `interaction.mount` | `ui.mount` | interaction | Open an interaction for the creator on a Host surface. |
-| `interaction.update` | `ui.mount` | interaction | Update an open interaction with the creator's latest value. |
-| `project.read` | `project.read` | interaction | Read the Project at a named revision. |
 | `canvas.inspect` | `project.read` | interaction | Read one canvas target (a text layer) and the revision it is at. |
 | `canvas.preview` | `project.read` | interaction | Show an unconfirmed change on the canvas; nothing is saved. |
 | `canvas.transform.apply` | `project.write` | interaction | Apply a position or scale change to a text layer after the creator confirms it. |
+| `document.edit` | `project.write` | tool code | Apply one operation to a Project document a packaged tool defines. |
 | `engine.ask` | `project.read` | tool code | Put one read-only question to the engine in its sandbox. |
 | `engine.job` | `project.write` | tool code | Start one sandboxed engine run over one asset; it leaves notes or a new asset. |
-| `document.edit` | `project.write` | tool code | Apply one operation to a Project document a packaged tool defines. |
+| `files.read` | `project.read` | Panel | Read one text file of the Project. |
+| `files.view` | `project.read` | Panel | List one folder of the Project, one level deep. |
+| `interaction.mount` | `ui.mount` | interaction | Open an interaction for the creator on a Host surface. |
+| `interaction.update` | `ui.mount` | interaction | Update an open interaction with the creator's latest value. |
+| `library.job` | `project.read` | Panel | Read where one roughcut job stands. |
+| `library.notes` | `project.read` | Panel | Read the notes kept about one asset, and its roughcut. |
+| `library.place` | `project.write` | Panel | Put one asset on the timeline, after the last clip of a track that takes it. |
+| `library.roughcut` | `project.write` | Panel | Start a roughcut of one video or sound: a transcript, pauses and filler, a score; written as notes. |
+| `library.roughcut.review` | `project.write` | Panel | Record one decision about a roughcut. |
+| `library.thumbnail` | `project.read` | Panel | Get one asset's card picture. |
+| `library.view` | `project.read` | Panel | List the Project library: each asset's kind, size and a summary of its notes; no bytes. |
 | `notes.edit` | `project.write` | tool code | Write one note beside one asset. |
+| `panel.state` | `ui.mount` | Panel | Keep up to 16 KiB of state for one Panel, per creator. |
+| `project.read` | `project.read` | interaction | Read the Project at a named revision. |
+| `project.view` | `project.read` | Panel | Read one whole Project view: the timeline or the storyboard. |
+| `renderer.adjust.request` | `project.write` | Panel | Hand exposed Scene parameters to LumenFrame for creator adjustment, then commit through the existing Project gate. |
+| `renderer.export` | `renderer.execute` | trusted renderer | Encode the committed programmable scene as MP4 or high-fidelity MOV in a Host-owned output folder. |
+| `renderer.frame` | `renderer.execute` | Panel | Render named scene frames in an isolated native Web runtime. |
+| `renderer.scene.list` | `project.read` | Panel | List programmable scenes in the open Project without source HTML. |
+| `renderer.timeline.insert` | `project.write` | Panel | Place a native programmable Scene reference through the existing Timeline mutation gate. |
+| `renderer.timeline.frame` | `renderer.execute` | Panel | Composite one requested Timeline frame using the loaded programmable renderer. |
+| `renderer.timeline.export` | `renderer.execute` | Panel | Export the current Timeline using committed programmable Scene frames. |
+| `renderer.position.request` | `project.write` | Panel | Open the existing Luc position interaction for a programmable Scene parameter. |
+| `renderer.position.preview` | `renderer.execute` | Panel | Render the current Luc position draft without writing to the Project. |
+| `renderer.scene.read` | `project.read` | Panel | Read a programmable scene from its Luc's metadata in the open Project. |
+| `renderer.scene.write` | `project.write` | Panel | Save, adjust or undo one programmable scene through the Project's mutation gate. |
+| `selection.view` | `project.read` | Panel (answered by the editor) | Read the selected timeline clip as the editor shows it. |
+| `skills.view` | `ui.mount` | Panel | List the agent's Skills and whether each is ready; never their instructions. |
+| `tasks.stop` | `session.control` | Panel | Ask one running job to stop. |
+| `tasks.view` | `project.read` | Panel | List the creator's work in flight across their Projects: running turns and the jobs they opened. |
+| `timeline.edit` | `project.write` | Panel | Apply one timeline operation (insert, move, trim, split, effects, transition, track, undo, redo) through the Worker's own edit path. |
+| `workspace.context` | `ui.mount` | Panel (answered by the editor) | Put one thing the Panel shows into the creator's next message. |
+| `workspace.open` | `ui.mount` | Panel (answered by the editor) | Ask the editor to open one of the creator's Sessions. |
 
 None of these calls leads to the account, the gateway or the cloud.
 
@@ -300,6 +345,7 @@ What is Lumeri's own (`E_LUC_PROTOCOL_RESERVED`), and why:
 
 | Protocol | Why |
 | --- | --- |
+| `lumeri.renderer/v1` | A trusted native visual renderer. Scene content is isolated and never inherits its Luc's Host authority. |
 | `lumeri.workspace/v2` | The editor page itself. It holds the App's bridges and the creator's session. |
 | `lumeri.tool/v2` | An agent tool whose code runs inside the Runtime, the process that holds the creator's sign-in. That code is trusted by Lumeri's signature, not fenced by a sandbox. |
 | `lumeri.tool/v1` | A tool built into the Runtime, named by Lumeri's own packages. |
@@ -362,6 +408,8 @@ What each write call can reach:
 | library.roughcut, library.roughcut.review, notes.edit | `library_asset` | asset notes | `library` |
 | engine.job | `library_asset` | asset notes and presence | `library` |
 | document.edit | `project_document` | document content | `project` |
+| renderer.adjust.request | `lumenframe2_scene` | scene parameters | `project` |
+| renderer.scene.write | `lumenframe2_scene` | scene source, parameters and history | `project` |
 | canvas.transform.apply | `lumenframe_text_layer` | transform position and scale | `canvas` |
 
 The properties a boundary may name:
@@ -378,6 +426,9 @@ The properties a boundary may name:
 | `asset.notes` | The notes kept beside a library asset. |
 | `asset.presence` | A new asset made from an existing one. |
 | `document.content` | One Project document a packaged tool defines. |
+| `scene.source` | One independent renderer scene source. |
+| `scene.parameters` | The committed parameters of that scene. |
+| `scene.history` | Its bounded creator-visible undo and redo. |
 | `transform.position` | A text layer's position on the canvas. |
 | `transform.scale` | A text layer's scale on the canvas. |
 
@@ -416,7 +467,7 @@ What no Luc edits, whatever it declares (`E_LUC_PROTECTED_STATE`):
 
 A Luc from the folder is refused, and Lumeri starts without it, when it:
 
-- names `account.access`, `gateway.access` or `cloud.access`;
+- names `renderer.execute`, `account.access`, `gateway.access` or `cloud.access`;
 - names `agent.replace` without Lumeri's review of that exact file beside it;
 - brings a protocol that is not in the open table: the editor page, or code
   that runs inside the Runtime;
@@ -485,8 +536,8 @@ the Luc it would leave:
 
 | Code | Why |
 | --- | --- |
-| `E_LUC_PARENT_REQUIRED` | The Luc it names is not on this machine, is switched off, or did not load; or what it names is another layer. |
-| `E_LUC_REBASE_REQUIRED` | It was made for another version of its Luc. |
+| `E_LUC_PARENT_REQUIRED` | The Luc or parent layer it names is not on this machine, is switched off, did not load, or was not laid. |
+| `E_LUC_REBASE_REQUIRED` | It was made for another version of its parent Luc or parent Extension. |
 | `E_LUC_REAUTH_REQUIRED` | It would give its Luc a permission, a Host call or an edit boundary the Luc does not hold. |
 | `E_LUC_LAYER_CONFLICT` | It and a layer laid before it change the same thing in different ways. |
 | `E_LUC_LAYER_INVALID` | One of its changes does not fit the Luc it names; `detail` says which check failed. |

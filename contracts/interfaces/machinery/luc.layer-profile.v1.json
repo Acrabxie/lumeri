@@ -273,6 +273,11 @@
       "id": "safe-selection-only",
       "text": "Disable/restore preserves ordered desired layers and Base identity; no source is rewritten.",
       "test": "tests/test_luc_distribution.py::test_layer_profile_attach_detach_and_safe_mode_are_selection_only"
+    },
+    {
+      "id": "chain-links-kept",
+      "text": "Attaching a child before its parent, detaching a parent with attached children, or disabling a parent with enabled children fails closed via resolve_luc without modifying the profile.",
+      "test": "tests/test_luc_extension_chain.py::test_16_layer_profile_store_enforces_chain_invariants_and_safe_mode_restores"
     }
   ],
   "failure": {
@@ -287,7 +292,8 @@
   "conformance": {
     "status": "partial",
     "tests": [
-      "tests/test_luc_distribution.py::test_layer_profile_attach_detach_and_safe_mode_are_selection_only"
+      "tests/test_luc_distribution.py::test_layer_profile_attach_detach_and_safe_mode_are_selection_only",
+      "tests/test_luc_extension_chain.py::test_16_layer_profile_store_enforces_chain_invariants_and_safe_mode_restores"
     ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },

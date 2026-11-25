@@ -86,7 +86,8 @@
               },
               "video_codec": {
                 "enum": [
-                  "mpeg4"
+                  "mpeg4",
+                  "prores_ks"
                 ]
               },
               "pixel_format": {

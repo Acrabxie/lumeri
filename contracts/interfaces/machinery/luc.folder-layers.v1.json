@@ -4,7 +4,7 @@
   "version": "1.1.1",
   "area": "machinery",
   "title": "Local folder layer admission and ordering",
-  "summary": "Try folder Extensions in id order after selected activation-profile layers. Keep only those that preserve admitted authority and pass Host check-only load; leave each refused layer off without losing earlier accepted layers.",
+  "summary": "Try folder Extensions in parent-first id order (picking the lowest id whose parent is the Luc or already placed, including under) after selected activation-profile layers. Keep only those that preserve admitted authority and pass Host check-only load; leave each refused layer off (and unplaceable chained dependents as E_LUC_PARENT_REQUIRED) without losing earlier accepted layers or independent branches.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.luc_local:layer_parent_reason, lay_on"
@@ -54,7 +54,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_local.py:373-393"
+        "lumeri_runtime/luc_local.py:382-402"
       ],
       "notes": "No deadline. Codes are returned refusal metadata. Parents with any reviewed permission take no folder layer, because its receipt names original bytes."
     },
@@ -125,6 +125,7 @@
         "E_LUC_REAUTH_REQUIRED",
         "E_LUC_NAMESPACE",
         "E_LUC_LOAD",
+        "E_LUC_PARENT_REQUIRED",
         "E_LUC_REBASE_REQUIRED",
         "E_LUC_LAYER_CONFLICT",
         "E_LUC_LAYER_INVALID",
@@ -138,10 +139,10 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "lumeri_runtime/luc_local.py:435-501",
+        "lumeri_runtime/luc_local.py:445-536",
         "lumeri_runtime/luc_interface_gate.py:84-167"
       ],
-      "notes": "No deadline. Pure resolution and check-only Host validation, not live registration. Repeating same inputs is natural. Folder layers sort by id after under; duplicate source_hash already under is marked laid without reappending. One bad layer is reported and the next is tried on prior accepted state. Refusal metadata can preserve other E_LUC codes from Host/Resolver; exact union is not yet closed."
+      "notes": "No deadline. Pure resolution and check-only Host validation, not live registration. Repeating same inputs is natural. Folder layers pick by lowest id whose parent is the Luc or already in placed_ids (starting from under); duplicate source_hash already under is marked laid without reappending. Unplaceable chained layers whose parent is missing/off/held are refused with E_LUC_PARENT_REQUIRED without affecting independent branches. Refusal metadata can preserve other E_LUC codes from Host/Resolver; exact union is not yet closed."
     }
   ],
   "events": [],
@@ -154,8 +155,8 @@
     },
     {
       "id": "failure-is-local",
-      "text": "A refused layer does not change the original, accepted predecessors or processing of later layers.",
-      "test": null
+      "text": "A refused layer does not change the original, accepted predecessors, or independent branches; only chained layers that depend on a held parent are left off with E_LUC_PARENT_REQUIRED.",
+      "test": "tests/test_luc_extension_chain_runtime.py::test_21_folder_parent_absent_off_or_held_refuses_child_while_siblings_load"
     },
     {
       "id": "reviewed-parent-held",
@@ -179,20 +180,23 @@
     ],
     "fallback": "original",
     "evidence": [
-      "lumeri_runtime/luc_local.py:373-501"
+      "lumeri_runtime/luc_local.py:382-536"
     ]
   },
   "conformance": {
     "status": "partial",
-    "tests": [],
+    "tests": [
+      "tests/test_luc_extension_chain_runtime.py::test_20_folder_chain_orders_parent_before_child_even_when_child_id_sorts_first",
+      "tests/test_luc_extension_chain_runtime.py::test_21_folder_parent_absent_off_or_held_refuses_child_while_siblings_load"
+    ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },
   "known_deviations": [
     {
-      "text": "Folder order is sorted identity, while profile order is explicitly selected. Filenames choose package versions but do not choose layer application order.",
+      "text": "Folder order is parent-first sorted identity, while profile order is explicitly selected. Filenames choose package versions but do not choose layer application order.",
       "evidence": [
-        "lumeri_runtime/luc_local.py:241-245",
-        "lumeri_runtime/luc_local.py:472-500"
+        "lumeri_runtime/luc_local.py:246-248",
+        "lumeri_runtime/luc_local.py:480-536"
       ],
       "test": null
     }

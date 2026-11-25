@@ -1,0 +1,769 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lumenframe2.renderer/v1",
+  "version": "1.0.0",
+  "area": "data",
+  "title": "LumenFrame 2 native HTML/vector scene renderer, project persistence, and creator adjustment",
+  "summary": "Official reserved renderer module for LumenFrame 2 programmable HTML scenes, bounded WebKit/Chromium frame capture, MP4/MOV export, and governed creator point/parameter interactions.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.renderer/v1",
+    "surface": "native-renderer",
+    "notes": "Shipped as Official Luc lumeri.lumenframe2 0.3.0 (lumeri.renderer/v1 is a reserved lumeri-only protocol). Carried in Runtime by lumeri_runtime.lumenframe2_adapter:RendererAdapter."
+  },
+  "replaceability": {
+    "class": "lumeri-only",
+    "why": "lumeri.renderer/v1 and permission renderer.execute are reserved for the Official lumeri.lumenframe2 package; third-party Lucs are refused at load time and scene HTML runs without Host authority.",
+    "decided": "Acrab 2026-10-31 / docs/lumenframe2.md:303-308; lumeri_runtime/luc_local.py:100-105; lumeri_runtime/lumenframe2_adapter.py:218-290"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write",
+      "ui.mount",
+      "renderer.execute"
+    ],
+    "host_apis": [
+      "renderer.scene.read",
+      "renderer.scene.write",
+      "renderer.frame",
+      "renderer.export",
+      "interaction.mount",
+      "interaction.update"
+    ],
+    "editable": {
+      "target_types": [
+        "lumenframe2_scene"
+      ],
+      "properties": [
+        "scene.source",
+        "scene.parameters",
+        "scene.history"
+      ],
+      "areas": [
+        "project"
+      ]
+    },
+    "notes": "Editable metadata is restricted to metadata.lucs['lumeri.lumenframe2'] through the governed Project gate; scene JS receives no Host APIs or filesystem writes."
+  },
+  "operations": [
+    {
+      "name": "read",
+      "capability": "lumenframe2.scene.read",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "include_source": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_API_PERMISSION"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:50-77",
+        "lumeri_runtime/lumenframe2_adapter.py:292-295",
+        "lumeri_runtime/lumenframe2_adapter.py:825-832"
+      ],
+      "notes": "Reads one LF2 scene from the project document; omits HTML source unless include_source is true."
+    },
+    {
+      "name": "save",
+      "capability": "lumenframe2.scene.save",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "patch": {
+            "type": "object",
+            "properties": {
+              "op": {
+                "enum": [
+                  "save",
+                  "parameters",
+                  "undo",
+                  "redo"
+                ]
+              },
+              "scene_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+              },
+              "expected_scene_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "0 for new scene, else current scene_revision."
+              },
+              "scene": {
+                "type": "object",
+                "description": "Required for op='save'.",
+                "properties": {
+                  "format": {
+                    "const": "lumeri.lumenframe2.scene/v1"
+                  },
+                  "luc_id": {
+                    "const": "lumeri.lumenframe2"
+                  },
+                  "contract": {
+                    "const": "synchronous-reset/v1"
+                  },
+                  "renderer_version": {
+                    "const": "0.1.0",
+                    "default": "0.1.0"
+                  },
+                  "scene_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                  },
+                  "html": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Inline HTML/CSS/JS defining synchronous render(frame,fps,parameters)."
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096,
+                    "default": 640
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096,
+                    "default": 360
+                  },
+                  "fps": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 120,
+                    "default": 30
+                  },
+                  "duration_frames": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 216000,
+                    "default": 60
+                  },
+                  "parameters": {
+                    "type": "object",
+                    "default": {}
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295,
+                    "default": 1
+                  }
+                },
+                "required": [
+                  "format",
+                  "luc_id",
+                  "contract",
+                  "scene_id",
+                  "html"
+                ],
+                "additionalProperties": false
+              },
+              "parameters": {
+                "type": "object",
+                "description": "Required for op='parameters'."
+              }
+            },
+            "required": [
+              "op",
+              "scene_id",
+              "expected_scene_revision"
+            ],
+            "additionalProperties": false
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          }
+        },
+        "required": [
+          "patch",
+          "project_revision",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_REVISION",
+        "E_LUC_CAPABILITY_INVALID",
+        "E_LUC_IDEMPOTENCY_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:79-215",
+        "lumeri_runtime/lumenframe2_adapter.py:297-337",
+        "lumeri_runtime/lumenframe2_adapter.py:821-822"
+      ],
+      "notes": "Commits scene save, parameter, undo, or redo through app.patch_packaged_document and the Project gate."
+    },
+    {
+      "name": "render",
+      "capability": "lumenframe2.frame.render",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "frame_indices": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 1,
+            "maxItems": 120
+          }
+        },
+        "required": [
+          "scene_id",
+          "frame_indices"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_INPUT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:217-251",
+        "lumeri_runtime/lumenframe2_adapter.py:803-814",
+        "lumeri_runtime/lumenframe2_adapter.py:894-899"
+      ],
+      "notes": "Renders up to 120 explicit frames via WebRenderer into session scratch output."
+    },
+    {
+      "name": "export",
+      "capability": "lumenframe2.export",
+      "effect": "process",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "background": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "mov"
+            ]
+          }
+        },
+        "required": [
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_INPUT",
+        "E_LUC_STATE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:253-294",
+        "lumeri_runtime/lumenframe2_adapter.py:900-922"
+      ],
+      "notes": "Exports up to 600 frames using only committed parameters to mp4 or mov."
+    },
+    {
+      "name": "position",
+      "capability": "lumenframe2.position",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "parameter": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_INPUT",
+        "E_LUC_INVALID_RESULT",
+        "E_LUC_REVISION",
+        "E_LUC_IDEMPOTENCY_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:296-329",
+        "lumeri_runtime/lumenframe2_adapter.py:865-892"
+      ],
+      "notes": "Invokes point2d.collect on the interaction plane and commits the confirmed coordinate."
+    },
+    {
+      "name": "adjust",
+      "capability": "lumenframe2.adjust",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "parameter_names": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              },
+              "scale": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              },
+              "rotation": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "frame_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_INPUT",
+        "E_LUC_INVALID_RESULT",
+        "E_LUC_REVISION",
+        "E_LUC_IDEMPOTENCY_CONFLICT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:653-713",
+        "lumeri_runtime/lumenframe2_adapter.py:833-864"
+      ],
+      "notes": "Invokes lumenframe2.parameters.collect on the shared LumenFrame interaction plane and commits confirmed parameters."
+    },
+    {
+      "name": "vector",
+      "capability": "lumenframe2.vector",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "create",
+              "adjust",
+              "catalog"
+            ]
+          },
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "brief": {
+            "type": "object"
+          },
+          "feedback": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "params": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "create"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            "then": {
+              "required": [
+                "scene_id",
+                "brief",
+                "idempotency_key"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "feedback"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "params"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "adjust"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            "then": {
+              "required": [
+                "scene_id",
+                "feedback",
+                "idempotency_key"
+              ],
+              "not": {
+                "required": [
+                  "brief"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "op": {
+                  "const": "catalog"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "scene_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "brief"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "feedback"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "params"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "idempotency_key"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "object"
+      },
+      "errors": [
+        "E_ARG",
+        "E_TOO_LARGE",
+        "E_RENDER",
+        "E_LUC_TASTE_INVALID",
+        "E_LUC_TASTE_CHANGED",
+        "E_LUC_SCENE_CONFLICT",
+        "E_LUC_NOT_FOUND",
+        "E_LUC_INPUT",
+        "E_LUC_IDEMPOTENCY_CONFLICT",
+        "E_LUC_REVISION",
+        "E_LUC_UNAVAILABLE",
+        "E_LUC_CONTEXT",
+        "E_LUC_CAPABILITY_INVALID",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "lumenframe2_vector_invalid",
+        "lumenframe2_vector_unsafe_svg",
+        "lumenframe2_vector_source_too_large",
+        "lumenframe2_vector_parameters_too_large",
+        "lumenframe2_vector_unanswered"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe2/manifest.json:926-1093",
+        "official_luc/lumenframe2/vector-taste.json:1-450",
+        "lumeri_runtime/lumenframe2_adapter.py:39-76",
+        "lumeri_runtime/lumenframe2_adapter.py:340-778",
+        "lumeri_runtime/lumenframe2_adapter.py:823-824",
+        "lumeri_runtime/lumenframe2_vector.py:19-533"
+      ],
+      "notes": "Verifies the package's optional vector-taste.json (lumeri.vector-taste/v1, <=24 KiB) structurally at load (E_LUC_TASTE_INVALID on vector only) and by SHA-256 before every call (E_LUC_TASTE_CHANGED), queries sandboxed lumeri-engine vector-scene after renderer API authorization, wraps the deterministic SVG into a synchronous-reset/v1 LumenFrame 2 Scene recording taste_sha256, preserves creator transform/custom parameters and emits a taste-change notice on adjust, and commits writes through app.patch_packaged_document and the Project gate."
+    }
+  ],
+  "events": [],
+  "bounds": [
+    {
+      "name": "scene_source_bytes",
+      "value": 524288,
+      "unit": "UTF-8 bytes per scene HTML source",
+      "evidence": [
+        "lumenframe2/scene.py:20",
+        "lumenframe2/scene.py:48"
+      ]
+    },
+    {
+      "name": "scene_parameters_bytes",
+      "value": 32768,
+      "unit": "UTF-8 bytes of serialized parameters per scene",
+      "evidence": [
+        "lumenframe2/scene.py:21",
+        "lumenframe2/scene.py:67"
+      ]
+    },
+    {
+      "name": "scene_max_dimension",
+      "value": 4096,
+      "unit": "pixels per side (within 3840x2160 total pixels)",
+      "evidence": [
+        "lumenframe2/scene.py:22-23",
+        "lumenframe2/scene.py:51-53"
+      ]
+    },
+    {
+      "name": "frames_per_render_request",
+      "value": 120,
+      "unit": "frame indices per lumenframe2.frame.render call",
+      "evidence": [
+        "lumenframe2/renderer.py:24",
+        "lumenframe2/renderer.py:115-116",
+        "lumeri_runtime/lumenframe2_adapter.py:96-97"
+      ]
+    },
+    {
+      "name": "export_max_frames",
+      "value": 600,
+      "unit": "frames per lumenframe2.export call (up to 100000 in exporter)",
+      "evidence": [
+        "lumeri_runtime/lumenframe2_adapter.py:905-906",
+        "lumenframe2/export.py:23"
+      ]
+    },
+    {
+      "name": "scene_history_steps",
+      "value": 10,
+      "unit": "undo and redo entries retained per scene",
+      "evidence": [
+        "lumenframe2/project.py:17",
+        "lumenframe2/project.py:86"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reserved-authority-only",
+      "text": "lumeri.renderer/v1 and renderer.execute are refused on local third-party Lucs and only commit scene metadata through the Project gate.",
+      "test": "tests/test_lumenframe2_luc.py::test_official_renderer_has_explicit_authority_and_local_luc_cannot_acquire_it"
+    },
+    {
+      "id": "missing-backend-fails-explicitly",
+      "text": "Absence of the native WebKit/Chromium renderer fails frame and export calls explicitly without manufacturing fallback pixels or blocking metadata operations.",
+      "test": "tests/test_lumenframe2_luc.py::test_missing_backend_fails_explicitly_and_does_not_disable_metadata"
+    },
+    {
+      "id": "export-uses-committed-parameters",
+      "text": "lumeri_runtime lumenframe2.export renders only committed parameters while interactive drafts are pending and cleans up owned outputs on unload.",
+      "test": "tests/test_lumenframe2_luc.py::test_export_uses_committed_parameters_while_draft_pending_and_unload_releases_outputs"
+    }
+  ],
+  "failure": {
+    "break": [
+      "Native renderer binary is missing, times out, or produces unexpected pixel dimensions.",
+      "Official package is unloaded, disabled, or replaced by a non-trusted caller."
+    ],
+    "fallback": "refuse",
+    "evidence": [
+      "lumeri_runtime/lumenframe2_adapter.py:212-215",
+      "lumeri_runtime/lumenframe2_adapter.py:287-290",
+      "lumeri_runtime/lumenframe2_adapter.py:793-814"
+    ],
+    "notes": "Metadata read/save and HITL stay available without the native binary; frame/export fail closed with explicit errors."
+  },
+  "conformance": {
+    "status": "exists",
+    "tests": [
+      "tests/test_lumenframe2_luc.py",
+      "tests/test_lumenframe2_project.py",
+      "tests/test_lumenframe2_source_identity.py",
+      "tests/test_lumenframe2_native.py",
+      "tests/test_lumenframe2_vector.py",
+      "tests/test_vector_motion_agent_turn.py",
+      "tests/test_vector_taste.py",
+      "tests/test_vector_taste_golden.py"
+    ],
+    "notes": "Verified against RendererAdapter, scene/project persistence, source identity, and native WebKit rendering."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

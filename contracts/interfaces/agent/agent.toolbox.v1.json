@@ -58,8 +58,8 @@
   "invariants": [
     {
       "id": "four-default-tools",
-      "text": "With the default Official set, declarations contain exactly luc_discover, luc_describe, luc_invoke and use_skill and are English.",
-      "test": "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_four_tools_and_its_plan_declared_in_english"
+      "text": "With the default Official set, declarations contain luc_discover, luc_describe, luc_invoke, luc_layer, use_skill and update_plan and are English.",
+      "test": "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_five_tools_and_its_plan_declared_in_english"
     }
   ],
   "failure": {
@@ -76,7 +76,7 @@
   "conformance": {
     "status": "partial",
     "tests": [
-      "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_four_tools_and_its_plan_declared_in_english"
+      "tests/test_luc_agent_protocol.py::test_the_agent_is_handed_five_tools_and_its_plan_declared_in_english"
     ],
     "notes": "Existing tests are evidence for the named invariants, not a replacement conformance runner. Only the area contract checker is run in this task."
   },

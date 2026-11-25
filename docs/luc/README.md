@@ -5,7 +5,7 @@ README). The files here are its reference: the `.luc` package format, how a
 Luc talks to the host and to the agent, what it may declare, and the interface
 contracts of Lumeri's own modules, which a Luc can lay itself over.
 
-They come from the Lumeri Video 1.1 source as of 2026-11-07. The engine in
+They come from the Lumeri Video 1.1 source as of 2026-11-25. The engine in
 this repository is still the 1.0 line, so nothing here runs from this
 repository. The Luc host (`lumeri_runtime/`), Lumeri's Official Lucs
 (`official_luc/`), the checker and packer scripts (`scripts/luc_*.py`) and the
@@ -25,6 +25,7 @@ in these files point there.
 | Everything a Luc may declare | [permissions.md](permissions.md) |
 | Package, version and layer `.luc` files | [distribution.md](distribution.md), [`schemas/`](schemas/) |
 | Stand in for Lumeri's agent | [agent.md](agent.md), [agent-loop.md](agent-loop.md), [agent-parts.md](agent-parts.md) |
+| See how Lumeri changes its own Lucs, with a layer of its own | [agent-layers.md](agent-layers.md) |
 | Write code that runs in a sandbox | [tool-programs.md](tool-programs.md), [engine-programs.md](engine-programs.md), [search-programs.md](search-programs.md) |
 | Install a point library as a layer | [library-layers.md](library-layers.md) |
 | What an interface is and how it is kept | [interfaces.md](interfaces.md) |

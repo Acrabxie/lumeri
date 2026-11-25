@@ -81,7 +81,7 @@
       "status": "defined",
       "evidence": [
         "lumeri_runtime/luc.py:369-375",
-        "lumeri_runtime/luc_packaged_tools.py:542-544"
+        "lumeri_runtime/luc_packaged_tools.py:701-703"
       ],
       "notes": "Optional method returns a Python frozenset, represented here as unique names. Otherwise Host uses adapter.permissions or the empty set. Plain ValueError may escape; no deadline."
     },
@@ -186,7 +186,7 @@
         "lumeri_runtime/luc.py:382-394",
         "lumeri_runtime/luc_workspace.py:488-511",
         "lumeri_runtime/luc_agent.py:114-140",
-        "lumeri_runtime/luc_packaged_tools.py:546-567",
+        "lumeri_runtime/luc_packaged_tools.py:705-726",
         "lumeri_runtime/luc_workspace.py:400-419"
       ],
       "notes": "Optional instead of compile. Must return the capability plus schemas. ValueError becomes E_LUC_CAPABILITY_INVALID in Host.load; LucError keeps its code. No deadline. Listed concrete codes are not a closed adapter union."
@@ -222,7 +222,7 @@
       "status": "defined",
       "evidence": [
         "lumeri_runtime/luc.py:395-404",
-        "lumeri_runtime/luc_packaged_tools.py:569-588",
+        "lumeri_runtime/luc_packaged_tools.py:728-747",
         "lumeri_runtime/luc_custom.py:277-285"
       ],
       "notes": "Optional. Direct hook codes below come from concrete adapters. Host.load catches every ValueError, including LucError subclasses, and replaces its code with E_LUC_ADAPTER_AUTHORITY. Does not grant authority; no deadline."
@@ -290,7 +290,7 @@
       "status": "defined",
       "evidence": [
         "lumeri_runtime/luc.py:405-443",
-        "lumeri_runtime/luc_packaged_tools.py:597-608"
+        "lumeri_runtime/luc_packaged_tools.py:756-767"
       ],
       "notes": "Optional; a truthy mapping marks descriptor WRITE, MEDIUM risk and blocked plan mode. None uses canvas_operation or interaction_only. No deadline."
     },
@@ -394,7 +394,7 @@
       "evidence": [
         "lumeri_runtime/luc.py:539-577",
         "lumeri_runtime/luc.py:84-87",
-        "lumeri_runtime/luc_packaged_tools.py:610-622"
+        "lumeri_runtime/luc_packaged_tools.py:769-781"
       ],
       "notes": "No generic deadline or idempotency at this seam. Concrete adapter contracts specify their refusals; invoke can propagate LucError, ToolRefused or native exceptions. Listed codes are shared/packaged examples, not a closed union of all adapters."
     },
@@ -426,7 +426,7 @@
       "status": "defined",
       "evidence": [
         "lumeri_runtime/luc.py:570-577",
-        "lumeri_runtime/luc_packaged_tools.py:624-627",
+        "lumeri_runtime/luc_packaged_tools.py:784-786",
         "lumeri_runtime/luc_adapters.py:147-153"
       ],
       "notes": "Optional. Otherwise Host validates with its bounded JSON validator (E_LUC). Native/packaged hooks use jsonschema directly and can raise ValidationError without a LucError code. No deadline."

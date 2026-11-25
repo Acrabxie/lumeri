@@ -13,10 +13,11 @@
   },
   "replaceability": {
     "class": "lumeri-only",
-    "why": "The frame carries the editor page, which holds the App's bridges and the creator's session; only Official bytes are ever served as the editor. The module list inside it is the part a creator's layer may change (Acrab, 2026-10-24); the page it carries stays Lumeri's.",
-    "decided": "Acrab 2026-10-04 (lumeri_runtime/luc_frontend.py:3-12); self-Luc spec v0.3 foundation",
+    "why": "The frame carries the editor page, which holds the App's bridges and the creator's session; only Official bytes are ever served as the editor. A layer may patch the module list (Acrab, 2026-10-24) and workspace appearance (/host/capabilities/0/appearance plus new CSS/strings files strictly under appearance/, sanitized before reaching the editor; Acrab, 2026-11-07), while the editor page (frontend/) and existing shipped files stay Lumeri's.",
+    "decided": "Acrab 2026-10-04 (lumeri_runtime/luc_frontend.py:3-12); appearance/ layer files 2026-11-07 (lumeri_runtime/luc_interface_gate.py:113-122,190-191); self-Luc spec v0.3 foundation",
     "layer_may_patch": [
-      "/host/capabilities/0/modules"
+      "/host/capabilities/0/modules",
+      "/host/capabilities/0/appearance"
     ]
   },
   "reach": {
@@ -85,6 +86,28 @@
               "native_api",
               "files",
               "manifest_sha256"
+            ],
+            "additionalProperties": false
+          },
+          "appearance": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "style": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "strings": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "style",
+              "strings"
             ],
             "additionalProperties": false
           }
