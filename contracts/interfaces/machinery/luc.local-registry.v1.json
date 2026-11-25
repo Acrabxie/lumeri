@@ -136,6 +136,40 @@
       "notes": "No deadline; immutable refs and object pins rechecked, underlying store integrity failures also propagate."
     },
     {
+      "name": "fetch_chain",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "extension_input": {
+            "description": "Extension LucArtifact, source_hash, installed id@version, or artifact/source path."
+          }
+        },
+        "required": [
+          "extension_input"
+        ]
+      },
+      "output": {
+        "description": "Tuple (base_luc, [direct_extension, ..., extension]) ordered bottom-up from the Base Luc."
+      },
+      "errors": [
+        "E_LUC_LAYER_SKIP",
+        "E_LUC_PARENT_REQUIRED",
+        "E_LUC_PARENT_ID",
+        "E_LUC_PARENT_VERSION",
+        "E_LUC_CHAIN_DEPTH",
+        "E_LUC_REGISTRY_NOT_FOUND",
+        "E_LUC_REGISTRY_CORRUPT"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "lumeri_runtime/luc_distribution/registry.py:114-178"
+      ],
+      "notes": "No deadline. Walks base_source_hash links down to the Base Luc up to MAX_CHAIN_DEPTH = 8 without changing persisted Registry schemas."
+    },
+    {
       "name": "list_installed",
       "effect": "read",
       "input": {
@@ -149,7 +183,7 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "lumeri_runtime/luc_distribution/registry.py:127-254"
+        "lumeri_runtime/luc_distribution/registry.py:193-320"
       ],
       "notes": "No deadline. Verifies referenced artifacts and enriches installed state with desired and active profile receipts. Store, activation and corruption errors propagate; the exact transitive error set is not closed."
     },
@@ -196,7 +230,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/registry.py:270-300"
+        "lumeri_runtime/luc_distribution/registry.py:336-366"
       ],
       "notes": "No deadline. Same boolean naturally repeats; attached Extension changes require profile route unless trusted allow_attached true."
     },
@@ -239,7 +273,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/registry.py:302-313"
+        "lumeri_runtime/luc_distribution/registry.py:368-379"
       ],
       "notes": "No deadline. Repeating the same value naturally preserves it; writes logical inventory state, not immutable package bytes."
     },
@@ -283,7 +317,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_distribution/registry.py:315-326"
+        "lumeri_runtime/luc_distribution/registry.py:381-392"
       ],
       "notes": "No deadline. Repeating the same value naturally preserves it; writes logical inventory state, not immutable package bytes."
     }
@@ -313,7 +347,9 @@
   },
   "conformance": {
     "status": "partial",
-    "tests": [],
+    "tests": [
+      "tests/test_luc_extension_chain.py::test_15_registry_fetch_chain_walks_to_luc_and_enforces_missing_and_depth"
+    ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },
   "known_deviations": [],

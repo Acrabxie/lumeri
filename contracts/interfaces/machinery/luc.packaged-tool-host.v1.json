@@ -78,7 +78,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:546-567"
+        "lumeri_runtime/luc_packaged_tools.py:705-726"
       ],
       "notes": "No deadline. Requires packaged-agent-tool surface, matching product when named, and exact code path/hash from the verified tool. Input is the tool parameters; output is object."
     },
@@ -110,7 +110,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:569-588"
+        "lumeri_runtime/luc_packaged_tools.py:728-747"
       ],
       "notes": "No deadline. Requires project.read and exactly covered native edits/write API; additional package API/permission reach refuses via ValueError, mapped by Host to E_LUC_ADAPTER_AUTHORITY."
     },
@@ -147,7 +147,7 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:610-627"
+        "lumeri_runtime/luc_packaged_tools.py:769-786"
       ],
       "notes": "No generic deadline/retry protection. Domain refusals and governed writes belong to the packaged tool interface. This operation's domain error set is intentionally incomplete until those tools are enumerated; output validation can raise jsonschema.ValidationError."
     },
@@ -177,7 +177,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:624-627"
+        "lumeri_runtime/luc_packaged_tools.py:784-786"
       ],
       "notes": "No deadline; validates with Draft202012Validator without the interaction 64 KiB result bound; invalid output raises ValidationError."
     }
@@ -212,7 +212,7 @@
     ],
     "fallback": "refuse",
     "evidence": [
-      "lumeri_runtime/luc_packaged_tools.py:546-588"
+      "lumeri_runtime/luc_packaged_tools.py:705-747"
     ]
   },
   "conformance": {

@@ -228,7 +228,7 @@
       "interfaces": [
         "iface:editor.quanta-v4/v1"
       ],
-      "notes": "Boundary for the in-tree Quanta .luqu player and flow editor under static/v3/quanta/; full Quanta v4 body awaits the Quanta owner."
+      "notes": "In-tree Quanta v4 (.qua) package/stream player, luqu/ Python runtime, quanta.raster/v1 renderer, live server, and browser canvas/flow editor under static/v3/quanta/."
     }
   ]
 }

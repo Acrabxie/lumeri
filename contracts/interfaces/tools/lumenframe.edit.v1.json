@@ -1,0 +1,568 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lumenframe.edit/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Edit the LumenFrame composition and place live clips",
+  "summary": "Add live LumenFrame 2 scene layers into LumenFrame, non-destructively merge/group or separate layer hierarchies, apply governed LayerPatch edits, and place live LumenFrame compositions onto an overlay Timeline track.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Operations route LF composition patches through WorkerApplication.patch_composition (lumen-patch) and clip placement through WorkerApplication.patch_timeline."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "LF/LF2 structure Phase 1 (2026-11-21): governed tool/v2 LF structure editor"
+  },
+  "reach": {
+    "permissions": [
+      "project.read",
+      "project.write"
+    ],
+    "host_apis": [
+      "project.read",
+      "document.edit",
+      "timeline.edit"
+    ],
+    "editable": {
+      "target_types": [
+        "project_document",
+        "timeline_clip"
+      ],
+      "properties": [
+        "document.content",
+        "clip.placement",
+        "clip.presence"
+      ],
+      "areas": [
+        "project",
+        "timeline"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "lumenframe_add_lf2",
+      "capability": "lumenframe.add-lf2",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "parent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "layer_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "source_in": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speed": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lane": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scene_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "done",
+          "scene_id",
+          "layer_id",
+          "project_revision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "const": "lumenframe.add-lf2"
+          },
+          "scene_id": {
+            "type": "string"
+          },
+          "layer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "scene_not_found",
+        "composition_edit_failed",
+        "approval_required",
+        "E_ARG",
+        "E_NOT_FOUND",
+        "E_CONTAINER",
+        "E_TYPE",
+        "E_PATCH",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-editor/tools.py",
+        "lumeri_runtime/luc_packaged_tools.py"
+      ],
+      "notes": "Validates the referenced LF2 scene exists before patching LumenFrame."
+    },
+    {
+      "name": "lumenframe_merge",
+      "capability": "lumenframe.merge",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "layer_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "merged": {
+            "type": "boolean"
+          },
+          "comp_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "layer_ids"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "done",
+          "merged",
+          "comp_id",
+          "project_revision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "const": "lumenframe.merge"
+          },
+          "merged": {
+            "type": "boolean"
+          },
+          "comp_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "composition_edit_failed",
+        "approval_required",
+        "E_ARG",
+        "E_NOT_FOUND",
+        "E_GROUP_PARENT",
+        "E_PATCH",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-editor/tools.py",
+        "lumenframe/ops.py"
+      ],
+      "notes": "Wraps sibling layers into a non-destructive merged or grouped composition."
+    },
+    {
+      "name": "lumenframe_separate",
+      "capability": "lumenframe.separate",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "comp_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "layer_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "comp_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "done",
+          "comp_id",
+          "layer_ids",
+          "project_revision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "const": "lumenframe.separate"
+          },
+          "comp_id": {
+            "type": "string"
+          },
+          "layer_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "composition_edit_failed",
+        "approval_required",
+        "E_ARG",
+        "E_NOT_FOUND",
+        "E_ROOT",
+        "E_TYPE",
+        "E_MASK_REF",
+        "E_PATCH",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-editor/tools.py",
+        "lumenframe/ops.py"
+      ],
+      "notes": "Dissolves a merged or grouped composition or extracts selected children safely."
+    },
+    {
+      "name": "lumenframe_patch",
+      "capability": "lumenframe.patch",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ops": {
+            "type": "array",
+            "description": "Ordered list of LayerPatch ops (1..64). Common ops: set_canvas ({width, height, fps, background}), set_opacity ({layer_id, opacity}), set_transform ({layer_id, x, y, scale|scale_x|scale_y, rotation}), set_blend_mode ({layer_id, blend_mode}), set_mask ({layer_id, mask}), set_visibility ({layer_id, visible}), set_time ({layer_id, start, duration}), move_layer, reorder_layer, rename_layer, delete_layer.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "additionalProperties": true
+            },
+            "minItems": 1,
+            "maxItems": 64
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "done",
+          "applied",
+          "selection",
+          "project_revision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "const": "lumenframe.patch"
+          },
+          "applied": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "selection": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "composition_edit_failed",
+        "approval_required",
+        "E_ARG",
+        "E_RANGE",
+        "E_NOT_FOUND",
+        "E_ROOT",
+        "E_CONTAINER",
+        "E_TYPE",
+        "E_GROUP_PARENT",
+        "E_MASK_REF",
+        "E_PATCH",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-editor/tools.py",
+        "lumeri_runtime/worker.py"
+      ],
+      "notes": "Delegates a bounded list of LayerPatch ops to the Worker composition patch gate."
+    },
+    {
+      "name": "lumenframe_place",
+      "capability": "lumenframe.place",
+      "effect": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "comp_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "track_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0
+          },
+          "source_in": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "comp_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "done",
+          "project_revision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "const": "insert_clip"
+          },
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "composition_invalid",
+        "timeline_edit_failed",
+        "approval_required",
+        "E_LUC_EDIT_SCOPE",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "idempotency_key",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-editor/tools.py",
+        "lumeri_runtime/luc_packaged_tools.py"
+      ],
+      "notes": "Places a live media_kind='lumenframe' overlay clip on the Timeline."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.lumenframe-editor"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of the rendered result the model sees; longer is cut with a note",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "governed-composition-and-timeline-writes",
+      "text": "Every LumenFrame structure edit flows through WorkerApplication.patch_composition and clip placement through patch_timeline with Project revision and idempotency checks.",
+      "test": "tests/test_lf_lf2_structure.py"
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py",
+      "lumeri_runtime/luc_packaged_tools.py"
+    ],
+    "notes": "A program that breaks after committing a Project write is refused with E_LUC_PROGRAM_BROKE and leaves the committed change intact."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_lf_lf2_structure.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Covered by LF/LF2 structure tests and official tool program load/fallback tests."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

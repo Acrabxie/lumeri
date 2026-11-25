@@ -71,6 +71,11 @@ creator arranges modules or shows or hides one, that choice stands.
 The catalog keeps `"protocol": "lumeri.workspace/v1"`: its module list has the
 same shape under either protocol.
 
+The capability may also name an `appearance`: a stylesheet and a table of the
+editor's words under `appearance/`, which the editor lays over its own. Lumeri's
+agent changes the editor's look this way ([agent-layers.md](agent-layers.md),
+"The editor's look").
+
 ### The editor page (Stage B, decided 2026-10-04)
 
 A v2 framework also carries the editor page:
@@ -265,6 +270,11 @@ A Panel hears only the events its manifest declares:
 | `panel.resized` | `{width, height}` | Once after `init`, then at most every 100 ms while its box changes, in whole CSS pixels |
 | `tasks.changed` | `{}` | Work started or ended, and every 5 s while the tasks module is shown; sent instead of `project.changed` to it. The Panel needs no timer of its own |
 | `selection.changed` | `{selection}` | The selected timeline clip changed: a `timeline_clip` ref, or `null` |
+
+A Panel that throws, or rejects a promise unhandled, while it starts (before
+`init` and five seconds after) is reported to the editor once, which may take
+back a change Lumeri's agent just made to it ([agent-layers.md](agent-layers.md),
+"A Panel that faults").
 
 Without pointer drag the Panel can still add context through
 `call("workspace.context", ref)`. The Official outline Panel does this on

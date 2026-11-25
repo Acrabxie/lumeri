@@ -238,12 +238,16 @@ As shipped the largest description is about 3300 characters, and discovery at
   signed channel that replaced it (`official-channel.md`, not in this repository).
 - Only what is switched on: `[luc]` in this machine's config file, then the
   Local Registry ([packaged-tools.md](packaged-tools.md), "The registry").
-- A creator customises a Luc with Extensions: layers on that one Luc
-  ([permissions.md](permissions.md), "A layer on a Luc";
-  [distribution.md](distribution.md)). Extensions change manifests and files
-  and never what the Luc may do; tool code from anyone but the signed index is
-  refused (`E_LUC_TOOL_CODE`). The agent is not told which layers lie on a Luc:
-  it reads the Luc as they leave it.
+- A creator customises a Luc with Extensions: layers on that Luc or on another
+  Extension on that same Luc ([permissions.md](permissions.md), "A layer on a
+  Luc"; [distribution.md](distribution.md)). Extensions change manifests and
+  files and never what the Luc may do; tool code from anyone but the signed
+  index is refused (`E_LUC_TOOL_CODE`). The agent is not told which layers lie
+  on a Luc: it reads the Luc as they leave it. When an Official Luc updates,
+  any active layer of Lumeri's (`agent.<luc id>`) is deterministically rebased
+  at the start of the creator's next turn before the first model call (with
+  zero extra model calls), and one English summary paragraph is provided once in
+  that turn's context ([agent-layers.md](agent-layers.md)).
 - A capability runs with the Host APIs and permissions its package was granted.
   Discovering or describing it grants nothing.
 

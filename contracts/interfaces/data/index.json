@@ -304,6 +304,17 @@
         "iface:lf2.boundary/v1"
       ],
       "notes": "Boundary for the in-tree lumenframe composition model, catalog, and compiler; LF2 body awaits the LF2 owner."
+    },
+    {
+      "module": "lumeri.lumenframe2",
+      "inventory": "Composition and Lumen canvas",
+      "status": "luc",
+      "end_state": "official-only",
+      "interfaces": [
+        "iface:lumenframe2.renderer/v1",
+        "iface:lumenframe2.point2d/v1",
+        "iface:lumenframe2.parameters/v1"
+      ]
     }
   ]
 }

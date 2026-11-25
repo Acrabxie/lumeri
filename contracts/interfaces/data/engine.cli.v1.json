@@ -12,7 +12,7 @@
   "replaceability": {
     "class": "lumeri-only",
     "why": "The sealed dispatcher, execution broker or sandbox is trusted integrity machinery.",
-    "decided": "today's code: lumeri_engine_cli.py:1510-1573"
+    "decided": "today's code: lumeri_engine_cli.py:2005-2072"
   },
   "reach": {
     "permissions": [],
@@ -44,8 +44,8 @@
       "idempotency": "none",
       "status": "defined",
       "evidence": [
-        "lumeri_engine_cli.py:94-137",
-        "lumeri_engine_cli.py:1510-1573"
+        "lumeri_engine_cli.py:96-143",
+        "lumeri_engine_cli.py:2005-2072"
       ],
       "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. argv includes executable name. Queries require three argv items and artifact commands four. Exit 0 can carry a domain refusal; 2 is usage/input, 3 unavailable engine or unexpected execution error, 4 declared render/artifact mismatch. CLI itself has no execution_id replay or atomic Project commit; only scratch outputs are permitted by its Runtime sandbox."
     }
@@ -65,7 +65,7 @@
     ],
     "fallback": "refuse",
     "evidence": [
-      "lumeri_engine_cli.py:1510-1573"
+      "lumeri_engine_cli.py:2005-2072"
     ],
     "notes": "The original reports failure today. The self-Luc run gate and original fallback are requirements for a future replacement, not a promise this seam already implements."
   },
@@ -78,7 +78,7 @@
     {
       "text": "A nonzero exit and a JSON refusal are different contracts. sandbox.run currently raises on nonzero and keeps stderr while discarding stdout from that exception path, so caption options printed to stdout can be lost.",
       "evidence": [
-        "lumeri_engine_cli.py:1332-1349",
+        "lumeri_engine_cli.py:1357-1374",
         "lumeri_runtime/sandbox.py:287-293"
       ],
       "test": null
@@ -92,6 +92,7 @@
         "lumenframe",
         "timeline-otio",
         "timeline-render",
+        "timeline-frame",
         "media-edit",
         "roughcut",
         "narrate",
@@ -104,7 +105,8 @@
         "point-library",
         "craft",
         "lumen-patch",
-        "lumen-stage"
+        "lumen-stage",
+        "vector-scene"
       ]
     }
   }

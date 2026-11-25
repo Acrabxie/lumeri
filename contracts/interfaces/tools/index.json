@@ -66,6 +66,24 @@
       ]
     },
     {
+      "module": "lumeri.lumenframe-inspector",
+      "inventory": "LumenFrame inspector tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:lumenframe.inspect/v1"
+      ]
+    },
+    {
+      "module": "lumeri.lumenframe-editor",
+      "inventory": "LumenFrame editor tool",
+      "status": "luc",
+      "end_state": "replaceable",
+      "interfaces": [
+        "iface:lumenframe.edit/v1"
+      ]
+    },
+    {
       "module": "lumeri.project-media-inspector",
       "inventory": "Media inspector tool",
       "status": "luc",

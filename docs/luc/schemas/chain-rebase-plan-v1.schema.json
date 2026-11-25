@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumeri.io/schemas/luc/chain-rebase-plan-v1.schema.json",
+  "title": "Deterministic Extension chain rebase plan",
+  "type": "object",
+  "required": ["format", "old_base", "new_base", "status", "layers"],
+  "properties": {
+    "format": {"const": "lumeri.luc.chain-rebase-plan/v1"},
+    "old_base": {"$ref": "#/$defs/layer"},
+    "new_base": {"$ref": "#/$defs/layer"},
+    "status": {"enum": ["ready", "reauth_required", "blocked"]},
+    "layers": {"type": "array", "items": {"$ref": "#/$defs/chainLayer"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "layer": {
+      "type": "object",
+      "required": ["id", "version", "source_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "version": {"type": "string"},
+        "source_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "parentRef": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["luc", "extension"]},
+        "id": {"type": "string", "minLength": 1}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": ["operation", "classification", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {"type": "string"},
+        "classification": {"type": "string"},
+        "target": {"type": "string"},
+        "reason": {"type": "string"}
+      }
+    },
+    "authorityChange": {
+      "type": "object",
+      "required": ["category", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "category": {"type": "string"},
+        "value": {"type": "string"}
+      }
+    },
+    "rebasePlan": {
+      "type": "object",
+      "required": ["format", "old_base", "new_base", "old_extension", "new_extension_version", "status", "unchanged", "portable", "conflicts", "absorbed", "authority_diff", "requires_reauthorization", "test_requirements"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {"const": "lumeri.luc.rebase-plan/v1"},
+        "old_base": {"$ref": "#/$defs/layer"},
+        "new_base": {"$ref": "#/$defs/layer"},
+        "old_extension": {"$ref": "#/$defs/layer"},
+        "old_parent": {"$ref": "#/$defs/layer"},
+        "new_parent": {"$ref": "#/$defs/layer"},
+        "new_extension_version": {"type": "string"},
+        "status": {"enum": ["ready", "reauth_required", "blocked_conflict"]},
+        "unchanged": {"type": "array", "items": {"$ref": "#/$defs/operation"}},
+        "portable": {"type": "array", "items": {"$ref": "#/$defs/operation"}},
+        "conflicts": {"type": "array", "items": {"$ref": "#/$defs/operation"}},
+        "absorbed": {"type": "array", "items": {"$ref": "#/$defs/operation"}},
+        "authority_diff": {
+          "type": "object",
+          "required": ["expansions", "reductions"],
+          "additionalProperties": false,
+          "properties": {
+            "expansions": {"type": "array", "items": {"$ref": "#/$defs/authorityChange"}},
+            "reductions": {"type": "array", "items": {"$ref": "#/$defs/authorityChange"}}
+          }
+        },
+        "requires_reauthorization": {"type": "boolean"},
+        "test_requirements": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "chainLayer": {
+      "type": "object",
+      "required": ["extension", "parent", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "extension": {"$ref": "#/$defs/layer"},
+        "parent": {"$ref": "#/$defs/parentRef"},
+        "status": {"enum": ["ready", "reauth_required", "blocked_conflict", "blocked_parent", "replaced", "current"]},
+        "blocked_by": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "plan": {"$ref": "#/$defs/rebasePlan"}
+      }
+    }
+  }
+}

@@ -1,0 +1,219 @@
+{
+  "format": "lumeri.interface/v1",
+  "id": "iface:lumenframe.inspect/v1",
+  "version": "1.0.0",
+  "area": "tools",
+  "title": "Inspect the LumenFrame composition",
+  "summary": "Read the active Video Project's LumenFrame composition layer tree, selection, canvas settings, and saved LumenFrame 2 scenes without mutating the Project.",
+  "carrier": {
+    "kind": "luc-protocol",
+    "protocol": "lumeri.tool/v2",
+    "surface": "packaged-agent-tool",
+    "notes": "Reached by the agent through luc_invoke with capability_id lumenframe.inspect; the Runtime runs the packaged tool lumenframe_inspect."
+  },
+  "replaceability": {
+    "class": "sandboxed",
+    "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for the capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
+    "decided": "LF/LF2 structure Phase 1 (2026-11-21): tool/v2 inspector paired with lumenframe-editor"
+  },
+  "reach": {
+    "permissions": [
+      "project.read"
+    ],
+    "host_apis": [
+      "project.read"
+    ],
+    "editable": "none"
+  },
+  "operations": [
+    {
+      "name": "lumenframe_inspect",
+      "capability": "lumenframe.inspect",
+      "effect": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "comp_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "include_scenes": {
+            "type": "boolean"
+          },
+          "max_layers": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "project_revision",
+          "document_id",
+          "title",
+          "canvas",
+          "selection",
+          "comp_id",
+          "duration",
+          "total_layers",
+          "truncated",
+          "layers"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "canvas": {
+            "type": "object"
+          },
+          "selection": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "comp_id": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0
+          },
+          "total_layers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "scenes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "errors": [
+        "arguments_invalid",
+        "layer_not_found",
+        "E_LUC_API_UNDECLARED",
+        "E_LUC_API_PERMISSION",
+        "E_LUC_API_UNAVAILABLE"
+      ],
+      "deadline_ms": null,
+      "idempotency": "natural",
+      "status": "defined",
+      "evidence": [
+        "official_luc/lumenframe-inspector/tools.py",
+        "official_luc/lumenframe-inspector/manifest.json",
+        "lumeri_runtime/luc_packaged_tools.py"
+      ],
+      "notes": "Read-only composition inspection bounded by max_layers."
+    }
+  ],
+  "events": [
+    {
+      "name": "luc.module_fell_back",
+      "payload": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "const": "lumeri.lumenframe-inspector"
+          },
+          "layer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "gate": {
+            "const": "run"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "layer",
+          "gate",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "evidence": [
+        "lumeri_runtime/luc_tool_program.py"
+      ],
+      "notes": "Once per Session in a start, when a layer's program broke and the Official code answers instead."
+    }
+  ],
+  "bounds": [
+    {
+      "name": "agent_result_chars",
+      "value": 6000,
+      "unit": "characters of the rendered result the model sees; longer is cut with a note",
+      "evidence": [
+        "lumeri_runtime/agent_turn.py:42"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "reads-only",
+      "text": "Calling it never changes the Project: the project revision before and after the call is the same.",
+      "test": null
+    }
+  ],
+  "failure": {
+    "break": [
+      "A layer's program does not start, answers late, too large or out of shape, or ends.",
+      "It asks for a host call that does not exist, with other arguments, or more than 256 of them.",
+      "Its result does not keep the output schema, or its refusal names an error code not listed here."
+    ],
+    "fallback": "original",
+    "evidence": [
+      "lumeri_runtime/luc_tool_program.py",
+      "lumeri_runtime/luc_packaged_tools.py"
+    ],
+    "notes": "When a layer program breaks, the Official code answers the same call and all subsequent calls for this start."
+  },
+  "conformance": {
+    "status": "partial",
+    "tests": [
+      "tests/test_lf_lf2_structure.py",
+      "tests/test_luc_tool_program.py"
+    ],
+    "notes": "Covered by LF/LF2 structure tests and official tool program load/fallback tests."
+  },
+  "known_deviations": [],
+  "open_questions": []
+}

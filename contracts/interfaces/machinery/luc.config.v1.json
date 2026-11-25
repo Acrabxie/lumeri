@@ -103,7 +103,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_config.py:65-113"
+        "lumeri_runtime/luc_config.py:65-129"
       ],
       "notes": "No deadline. Missing, unreadable, linked, oversized or invalid TOML returns empty choices; nested dotted keys flatten to ids; only exact booleans count."
     },
@@ -136,9 +136,9 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "lumeri_runtime/luc_config.py:116-166"
+        "lumeri_runtime/luc_config.py:132-182"
       ],
-      "notes": "No deadline. Returns whether the file changed. Retries up to three compare-before-replace attempts; existing keys, including non-booleans, stay untouched. OSError can propagate; no structured Luc error."
+      "notes": "No deadline. Returns whether the file changed. Retries up to three compare-before-replace attempts; existing keys, including non-booleans, and sibling tables such as [luc_hooks] stay untouched byte-for-byte. OSError can propagate; no structured Luc error."
     }
   ],
   "events": [],
@@ -175,7 +175,7 @@
     ],
     "fallback": "refuse",
     "evidence": [
-      "lumeri_runtime/luc_config.py:65-166"
+      "lumeri_runtime/luc_config.py:65-182"
     ]
   },
   "conformance": {

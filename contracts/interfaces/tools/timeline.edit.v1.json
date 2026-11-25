@@ -14,7 +14,7 @@
   "replaceability": {
     "class": "sandboxed",
     "why": "The package carries Python code the Runtime runs, so its own files stay as they shipped. A creator's layer may add a program that answers for a capability instead: it runs only in the code sandbox, reaches the Project only through ToolHost's calls over its pipe, and is held to this contract (docs/luc/tool-programs.md).",
-    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:545-561; Acrab 2026-10-26: replaced by programs in the code sandbox"
+    "decided": "self-Luc spec v0.3 (2026-10-18); today's code: lumeri_runtime/luc_packaged_tools.py:705-726; Acrab 2026-10-26: replaced by programs in the code sandbox"
   },
   "reach": {
     "permissions": [
@@ -53,11 +53,16 @@
         "type": "object",
         "properties": {
           "asset_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Library asset id to place. Provide either asset_id or scene_id, never both."
+          },
+          "scene_id": {
+            "type": "string",
+            "description": "LumenFrame 2 scene id in this Project to place as a native clip. Provide either scene_id or asset_id, never both."
           },
           "track_id": {
             "type": "string",
-            "description": "A track id returned by the verified timeline-inspector Official Luc."
+            "description": "A track id returned by the verified timeline-inspector Official Luc (required for asset_id; optional for scene_id, defaulting to overlay track OV1)."
           },
           "at": {
             "type": "number",
@@ -67,12 +72,17 @@
           "source_in": {
             "type": "number",
             "minimum": 0,
-            "description": "Where to start reading the asset."
+            "description": "Where to start reading the asset or scene, seconds."
           },
           "source_out": {
             "type": "number",
             "minimum": 0,
-            "description": "Where to stop reading the asset."
+            "description": "Where to stop reading the asset or scene, seconds."
+          },
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Clip duration in seconds when placing a LumenFrame 2 scene (optional; defaults to the scene duration)."
           },
           "name": {
             "type": "string"
@@ -86,10 +96,7 @@
             "description": "Also shift the clips after it on the same track. Default false."
           }
         },
-        "required": [
-          "asset_id",
-          "track_id"
-        ],
+        "required": [],
         "additionalProperties": false
       },
       "output": {
@@ -123,20 +130,26 @@
         "E_LUC_API_UNDECLARED",
         "E_LUC_API_PERMISSION",
         "E_LUC_API_UNAVAILABLE",
-        "E_LUC_PROGRAM_BROKE"
+        "E_LUC_PROGRAM_BROKE",
+        "scene_not_found",
+        "lumenframe2_unavailable",
+        "lumenframe2_project_invalid",
+        "lumenframe2_scene_invalid",
+        "lumenframe2_timeline_invalid"
       ],
       "deadline_ms": null,
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-183",
+        "official_luc/timeline-editor/tools.py:207-236",
+        "lumeri_runtime/luc_packaged_tools.py:250-300",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_delete_clip",
@@ -191,14 +204,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_move_clip",
@@ -264,14 +277,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_trim_clip",
@@ -336,14 +349,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_split_clip",
@@ -400,14 +413,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_set_clip_time",
@@ -466,14 +479,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_add_transition",
@@ -538,14 +551,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_set_clip_effects",
@@ -699,14 +712,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_add_track",
@@ -764,14 +777,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_undo",
@@ -816,14 +829,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     },
     {
       "name": "timeline_redo",
@@ -868,14 +881,14 @@
       "idempotency": "idempotency_key",
       "status": "defined",
       "evidence": [
-        "official_luc/timeline-editor/tools.py:20-96",
-        "official_luc/timeline-editor/tools.py:120-254",
-        "lumeri_runtime/luc_packaged_tools.py:454-500",
+        "official_luc/timeline-editor/tools.py:20-61",
+        "official_luc/timeline-editor/tools.py:237-356",
+        "lumeri_runtime/luc_packaged_tools.py:509-572",
         "lumeri_runtime/luc_host_api.py:590-602",
         "lumeri_runtime/worker.py:1491-1524",
         "lumeri_runtime/worker.py:1535-1556"
       ],
-      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:492-496); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
+      "notes": "No end-to-end call deadline is enforced. The Runtime sends its current Project revision and context.turn_id as idempotency_key. A retry must retain that execution context. A new undo or redo is a further history operation, not a natural retry. ToolResult also carries editor.op and timeline_changed=true; no timeline document is returned. Worker refusals reach the model with their own code (luc_packaged_tools.py:568-572); the codes listed are the ones the timeline patch route returns today, see iface:timeline.document/v1."
     }
   ],
   "events": [
@@ -940,7 +953,7 @@
       "unit": "seconds when source_out is omitted",
       "evidence": [
         "official_luc/timeline-editor/tools.py:9-10",
-        "official_luc/timeline-editor/tools.py:69-78"
+        "official_luc/timeline-editor/tools.py:156-165"
       ]
     }
   ],
@@ -966,7 +979,7 @@
     "evidence": [
       "lumeri_runtime/luc_tool_program.py:169-223",
       "lumeri_runtime/luc_tool_program.py:234-265",
-      "lumeri_runtime/luc_packaged_tools.py:610-622"
+      "lumeri_runtime/luc_packaged_tools.py:769-781"
     ],
     "notes": "The Official code answers the same call, and every call of this Luc for the rest of the start; the Session hears luc.module_fell_back once and luc_breaker counts one break. A call whose program had already changed something is refused with E_LUC_PROGRAM_BROKE instead, and what changed stands. Without a program, a call that raises or refuses reaches the agent as a refusal."
   },
@@ -974,7 +987,8 @@
     "status": "partial",
     "tests": [
       "tests/test_official_luc_timeline_editor.py",
-      "tests/test_luc_tool_program.py"
+      "tests/test_luc_tool_program.py",
+      "tests/test_timeline_insert_lf2_scene.py"
     ],
     "notes": "Existing behavior tests cover parts of this interface. They were inspected, not run in this documentation task; no replacement conformance runner exists yet. tests/test_luc_tool_program.py holds a replacement to this interface: the load gate, the answers the Runtime accepts, and the fallback to the Official code."
   },
@@ -982,15 +996,15 @@
     {
       "text": "The loaded capability advertises only an object output schema. Its actual structured result below is not enforced by the current adapter.",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:565-566",
-        "lumeri_runtime/luc_packaged_tools.py:624-627"
+        "lumeri_runtime/luc_packaged_tools.py:724-725",
+        "lumeri_runtime/luc_packaged_tools.py:784-786"
       ],
       "test": null
     },
     {
       "text": "The write seam uses an execution-context idempotency key. It has no layered staged-patch/client_op_id result-record protocol, so automatic fallback after an ambiguous committed write must not be assumed.",
       "evidence": [
-        "lumeri_runtime/luc_packaged_tools.py:472-489"
+        "lumeri_runtime/luc_packaged_tools.py:544-562"
       ],
       "test": null
     },

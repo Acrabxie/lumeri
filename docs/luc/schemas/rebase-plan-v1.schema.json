@@ -9,6 +9,8 @@
     "old_base": {"$ref": "#/$defs/layer"},
     "new_base": {"$ref": "#/$defs/layer"},
     "old_extension": {"$ref": "#/$defs/layer"},
+    "old_parent": {"$ref": "#/$defs/layer"},
+    "new_parent": {"$ref": "#/$defs/layer"},
     "new_extension_version": {"type": "string"},
     "status": {"enum": ["ready", "reauth_required", "blocked_conflict"]},
     "unchanged": {"type": "array", "items": {"$ref": "#/$defs/operation"}},

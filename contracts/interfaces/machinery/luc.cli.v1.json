@@ -68,8 +68,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:386-392",
-        "scripts/luc_cli.py:628-633"
+        "scripts/luc_cli.py:425-427",
+        "scripts/luc_cli.py:673-675"
       ],
       "notes": "No overall command deadline. Deterministic archive generation rewrites output. verify is a separate read command. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -96,8 +96,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:390-392",
-        "scripts/luc_cli.py:631-633"
+        "scripts/luc_cli.py:429-430",
+        "scripts/luc_cli.py:676-678"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -139,10 +139,12 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:393-398",
-        "scripts/luc_cli.py:634-637"
+        "scripts/luc_cli.py:95-145",
+        "scripts/luc_cli.py:202-254",
+        "scripts/luc_cli.py:432-437",
+        "scripts/luc_cli.py:679-682"
       ],
-      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+      "notes": "No overall command deadline. Resolves Luc or Extension paths and installed references (with optional luc:/extension: prefix), walking chained Extensions to their Base Luc via fetch_chain. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
     {
       "name": "install-local",
@@ -192,8 +194,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:400-403",
-        "scripts/luc_cli.py:638-640"
+        "scripts/luc_cli.py:439-442",
+        "scripts/luc_cli.py:683-685"
       ],
       "notes": "No overall command deadline. Adds stored true; same immutable id/version imports naturally. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -237,8 +239,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:405-407",
-        "scripts/luc_cli.py:641-646"
+        "scripts/luc_cli.py:444-446",
+        "scripts/luc_cli.py:686-691"
       ],
       "notes": "No overall command deadline. With --session this means remote capability discovery, not the local installed graph. Remote urllib timeout is 30 seconds per socket operation, not a command-wide deadline. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -286,8 +288,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:409-414",
-        "scripts/luc_cli.py:647-650"
+        "scripts/luc_cli.py:448-453",
+        "scripts/luc_cli.py:692-695"
       ],
       "notes": "No overall command deadline. Uses explicit ordered installed Extensions. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -338,8 +340,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:416-424",
-        "scripts/luc_cli.py:651-655"
+        "scripts/luc_cli.py:455-463",
+        "scripts/luc_cli.py:696-700"
       ],
       "notes": "No overall command deadline. Sets local logical state; attached Extensions go through their profile. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -390,8 +392,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:416-424",
-        "scripts/luc_cli.py:651-655"
+        "scripts/luc_cli.py:455-463",
+        "scripts/luc_cli.py:696-700"
       ],
       "notes": "No overall command deadline. Sets local logical state; attached Extensions go through their profile. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -433,8 +435,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:426-427",
-        "scripts/luc_cli.py:656-658"
+        "scripts/luc_cli.py:465-466",
+        "scripts/luc_cli.py:701-703"
       ],
       "notes": "No overall command deadline. One-way source migration. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -479,8 +481,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:429-437",
-        "scripts/luc_cli.py:659-660"
+        "scripts/luc_cli.py:468-476",
+        "scripts/luc_cli.py:704-705"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -518,17 +520,17 @@
       },
       "output": {
         "type": "object",
-        "description": "created path, identity string id@version and parent Luc/source hash."
+        "description": "created path, identity string id@version and parent Luc/Extension/source hash."
       },
       "errors": [],
       "deadline_ms": null,
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:439-447",
-        "scripts/luc_cli.py:661-666"
+        "scripts/luc_cli.py:478-486",
+        "scripts/luc_cli.py:708-720"
       ],
-      "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
+      "notes": "No overall command deadline. Accepts a standalone Luc or installed/packaged Extension as parent; when parent is an Extension, parent includes extension. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
     {
       "name": "extension inspect",
@@ -568,8 +570,9 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:449-454",
-        "scripts/luc_cli.py:667-670"
+        "scripts/luc_cli.py:202-254",
+        "scripts/luc_cli.py:488-493",
+        "scripts/luc_cli.py:721-723"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -618,8 +621,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:456-463",
-        "scripts/luc_cli.py:671-676"
+        "scripts/luc_cli.py:495-502",
+        "scripts/luc_cli.py:724-730"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -665,8 +668,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:465-471",
-        "scripts/luc_cli.py:677-682"
+        "scripts/luc_cli.py:504-510",
+        "scripts/luc_cli.py:731-736"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -717,8 +720,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:473-488",
-        "scripts/luc_cli.py:683-702"
+        "scripts/luc_cli.py:512-527",
+        "scripts/luc_cli.py:737-756"
       ],
       "notes": "No overall command deadline. Safe-mode removes all Extensions from this selection; authorization is bound to the activation hash. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -772,8 +775,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:473-488",
-        "scripts/luc_cli.py:683-702"
+        "scripts/luc_cli.py:512-527",
+        "scripts/luc_cli.py:737-756"
       ],
       "notes": "No overall command deadline. Safe-mode removes all Extensions from this selection; authorization is bound to the activation hash. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -804,8 +807,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:490-494",
-        "scripts/luc_cli.py:703-706"
+        "scripts/luc_cli.py:529-533",
+        "scripts/luc_cli.py:757-760"
       ],
       "notes": "No overall command deadline. Changes local activation state, not a live Runtime process. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -836,8 +839,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:490-494",
-        "scripts/luc_cli.py:703-706"
+        "scripts/luc_cli.py:529-533",
+        "scripts/luc_cli.py:757-760"
       ],
       "notes": "No overall command deadline. Changes local activation state, not a live Runtime process. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -879,8 +882,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:496-510",
-        "scripts/luc_cli.py:707-719"
+        "scripts/luc_cli.py:535-549",
+        "scripts/luc_cli.py:761-773"
       ],
       "notes": "No overall command deadline. Changes the local desired profile; preserves desired layers while disabled. Not the LUMERI_LUC_SAFE_MODE environment switch. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -922,8 +925,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:496-510",
-        "scripts/luc_cli.py:707-719"
+        "scripts/luc_cli.py:535-549",
+        "scripts/luc_cli.py:761-773"
       ],
       "notes": "No overall command deadline. Changes the local desired profile; preserves desired layers while disabled. Not the LUMERI_LUC_SAFE_MODE environment switch. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -957,8 +960,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:512-517",
-        "scripts/luc_cli.py:720-728"
+        "scripts/luc_cli.py:551-556",
+        "scripts/luc_cli.py:774-782"
       ],
       "notes": "No overall command deadline.  Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -995,8 +998,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:519-532",
-        "scripts/luc_cli.py:733-747"
+        "scripts/luc_cli.py:558-566",
+        "scripts/luc_cli.py:788-797"
       ],
       "notes": "No overall command deadline. Requires --session. GET Runtime modules; with --lines, prints one tab-separated summary line per module. 30-second urllib transport timeout. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON or lines on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1047,7 +1050,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:733-737"
+        "scripts/luc_cli.py:567-571",
+        "scripts/luc_cli.py:784-787"
       ],
       "notes": "No overall command deadline. Offline breaker-row deletion; does not replace a running fallback latch. Missing row returns reset false. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1062,6 +1066,12 @@
           },
           "on": {
             "type": "string"
+          },
+          "under": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "runtime": {
             "type": "string"
@@ -1085,6 +1095,12 @@
           },
           "luc": {
             "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+          },
+          "under": {
+            "type": "array",
+            "items": {
+              "$contract": "docs/luc/schemas/artifact-manifest-v1.schema.json#/properties/identity"
+            }
           },
           "asks_for": {
             "type": "array",
@@ -1141,11 +1157,11 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "scripts/luc_cli.py:134-150",
-        "scripts/luc_cli.py:534-541",
-        "scripts/luc_cli.py:748-751"
+        "scripts/luc_cli.py:168-187",
+        "scripts/luc_cli.py:573-582",
+        "scripts/luc_cli.py:798-801"
       ],
-      "notes": "Holds an Extension to the interface of the Luc it lies on, as the load gate will (lumeri_runtime/luc_interface_gate.py); by default that Luc is the Official Luc this Runtime ships under the id the Extension extends. Nothing is installed or activated. The Luc is taken to hold the permissions it declares, and what the layer would add is listed in asks_for for the creator to approve. Exit 0 when it keeps the interface, 1 when it does not or when no interface contract names the Luc (code and message say why), 2 on a typed failure. Run checks are not part of it yet."
+      "notes": "Holds an Extension to the interface of the Luc it lies on, as the load gate will (lumeri_runtime/luc_interface_gate.py); by default that Luc is the Official Luc this Runtime ships under the id the Extension extends. Repeatable --under gives bottom-up ancestor Extensions when checking a chained Extension (emitted in output under when supplied). Nothing is installed or activated. The Luc is taken to hold the permissions it declares, and what the layer would add is listed in asks_for for the creator to approve. Exit 0 when it keeps the interface, 1 when it does not or when no interface contract names the Luc (code and message say why), 2 on a typed failure. Run checks are not part of it yet."
     },
     {
       "name": "discover",
@@ -1181,8 +1197,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:539-545",
-        "scripts/luc_cli.py:742-754"
+        "scripts/luc_cli.py:584-590",
+        "scripts/luc_cli.py:802-814"
       ],
       "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1221,8 +1237,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:539-545",
-        "scripts/luc_cli.py:742-754"
+        "scripts/luc_cli.py:584-590",
+        "scripts/luc_cli.py:802-814"
       ],
       "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1257,8 +1273,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:539-545",
-        "scripts/luc_cli.py:742-754"
+        "scripts/luc_cli.py:584-590",
+        "scripts/luc_cli.py:802-814"
       ],
       "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1297,8 +1313,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:539-545",
-        "scripts/luc_cli.py:742-754"
+        "scripts/luc_cli.py:584-590",
+        "scripts/luc_cli.py:802-814"
       ],
       "notes": "No overall command deadline. 30-second urllib transport timeout; gateway credential is read from the process environment, never passed in this schema. Known errors below are not a closed transitive set; typed Distribution/Cloud failures print JSON on stderr and return 2, success prints JSON on stdout and returns 0. argparse, transport SystemExit and uncaught exceptions use their own failure format."
     },
@@ -1341,7 +1357,8 @@
       "idempotency": "none",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. Two-phase source publication; same-version retry refuses. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     },
@@ -1380,7 +1397,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. Immutable remote release list. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     },
@@ -1423,7 +1441,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. One immutable remote version. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     },
@@ -1508,7 +1527,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. Verifies and imports; optional output downloads a separate copy first. No activation. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     },
@@ -1560,7 +1580,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. Namespace-scoped source search. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     },
@@ -1615,7 +1636,8 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "scripts/luc_cli.py:547-622"
+        "scripts/luc_cli.py:592-667",
+        "scripts/luc_cli.py:815-816"
       ],
       "notes": "No aggregate CLI deadline. Local context assessment only; no installation or activation. Bearer is read from named environment variable (default LUC_CLOUD_TOKEN). Inherited client, transport, canonical and server errors are not yet a closed set; typed errors print JSON stderr and return 2."
     }
@@ -1640,13 +1662,15 @@
     ],
     "fallback": "refuse",
     "evidence": [
-      "scripts/luc_cli.py:588-612",
-      "scripts/luc_cli.py:729-769"
+      "scripts/luc_cli.py:633-667",
+      "scripts/luc_cli.py:783-830"
     ]
   },
   "conformance": {
     "status": "partial",
-    "tests": [],
+    "tests": [
+      "tests/test_luc_extension_chain_runtime.py::test_38_cli_commands_handle_chained_extensions_cleanly"
+    ],
     "notes": "Existing tests listed here were inspected, not run for this documentation task. The area checker validates the contract files; it does not exercise runtime behavior."
   },
   "known_deviations": [
@@ -1654,15 +1678,15 @@
       "text": "Typed errors are JSON but Runtime transport failures use SystemExit text and argparse uses its own output. Callers cannot assume all nonzero results are JSON.",
       "evidence": [
         "scripts/luc_cli.py:65-82",
-        "scripts/luc_cli.py:758-769"
+        "scripts/luc_cli.py:818-830"
       ],
       "test": null
     },
     {
       "text": "list --session returns discovery rather than the local installed graph; modules is the separate live module/fallback view.",
       "evidence": [
-        "scripts/luc_cli.py:641-646",
-        "scripts/luc_cli.py:729-737"
+        "scripts/luc_cli.py:686-691",
+        "scripts/luc_cli.py:783-797"
       ],
       "test": null
     }

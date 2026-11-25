@@ -8,29 +8,36 @@
 
 ## Layer hierarchy
 
-The only valid ownership chain is:
+The valid ownership chain is:
 
 ```text
 Lumeri Host
 └── Luc (targets Lumeri)
-    └── Extension (extends exactly one Luc)
+    └── Extension (lies on the Luc)
+        └── Extension (lies on an Extension on that Luc, up to depth 8)
 ```
 
-Each word means one thing (decided 2026-10-11, Acrab). A Luc is one package: a
-Panel, a Skill, a tool. An Extension is a layer on exactly one Luc. A Luc is
-never called an extension, in documents, in manifests or in an API; a manifest
-that is not `lumeri.luc.distribution/v1` with `kind` `luc` or `extension` is
-refused.
+Decided 2026-11-21 (Acrab): an Extension may lie on another Extension. The
+chain is `Lumeri Host → Luc → Extension → Extension → …`, and every Extension
+still has exactly one parent: the Luc, or another Extension on that Luc. This
+replaces the part of the 2026-10-11 decision that let an Extension lie only on
+a Luc. The words keep their meaning: a Luc is one package and is never called an
+extension; an Extension is a layer.
 
-A standalone Luc has `kind: "luc"` and declares its Host APIs, permissions, editable boundary, capabilities, compatibility, and source tree. An Extension has `kind: "extension"` and exactly one `extends` record shaped as `{ "luc": "<identity>", "version": "<compatible range>", "base_source_hash": "<sha256>" }`. An Extension cannot carry a Host declaration or parent another Extension. Resolution accepts a standalone Luc as its only base, so neither Extension → Lumeri nor Extension → Extension can be activated.
+A standalone Luc has `kind: "luc"` and declares its Host APIs, permissions, editable boundary, capabilities, compatibility, and source tree. An Extension has `kind: "extension"` and exactly one `extends` record in one of two shapes:
 
-Lumeri Core and Luc sources are read-only inputs to this module. Persistent user changes to a Luc are authored as a new immutable Extension version; direct installed-Base editing is not an operation in the API. A customization that targets Lumeri directly needs its own Luc first, then an Extension may target that Luc.
+- Direct on a Luc: `{ "luc": "<identity>", "version": "<compatible range>", "base_source_hash": "<sha256>" }`.
+- Chained on another Extension on that Luc: `{ "luc": "<base luc identity>", "extension": "<parent extension identity>", "version": "<compatible range>", "base_source_hash": "<parent extension sha256>" }`.
+
+The `extension` field must be a valid identifier distinct from the Extension's own `identity.id`. A chain is bounded to `MAX_CHAIN_DEPTH = 8` layers (depth 1 is direct on the Luc; deeper chains fail with `E_LUC_CHAIN_DEPTH`). An Extension still cannot carry a Host declaration or target Lumeri directly.
+
+Lumeri Core and Luc sources are read-only inputs to this module. Persistent user changes to a Luc or an Extension are authored as a new immutable Extension version; direct installed-package editing is not an operation in the API. A customization that targets Lumeri directly needs its own Luc first, then an Extension (or chain of Extensions) may target that Luc.
 
 ## Immutable source and Extension authoring
 
-Once packaged, a Base Luc version is identified by its source hash and cannot be replaced by another source at the same identity/version in the local registry. A customization creates a separate Extension identity/version. The authoring API requires an absent destination, so creating a later Extension version cannot rewrite the previous one. Resolver inputs are read-only and all operations apply to derived copies.
+Once packaged, a Base Luc or Extension version is identified by its source hash and cannot be replaced by another source at the same identity/version in the local registry. A customization creates a separate Extension identity/version. The authoring API requires an absent destination, so creating a later Extension version cannot rewrite the previous one. Resolver inputs are read-only and all operations apply to derived copies.
 
-The authoring seam is `create_extension_source(base, extension_id, version, output)`, reached as `luc_cli.py extension create`: it reads the parent package, creates a new Extension scaffold, and leaves the parent and prior Extension versions unchanged. `manifest_patch` and `source_patch` write one change each against the parent as it is. The agent has no tool that makes a layer; a person or an agent with a shell uses these. There is no `edit_installed_luc` operation. A successful draft still requires package verification, resolution, tests, authority review, and explicit activation authorization if authority expands.
+The authoring seam is `create_extension_source(parent, extension_id, version, output)`, reached as `luc_cli.py extension create`: it reads the parent package (either a standalone Luc or an installed/packaged Extension, emitting the three-key or four-key `extends` shape accordingly), creates a new Extension scaffold, and leaves the parent and prior Extension versions unchanged. `manifest_patch` and `source_patch` write one change each against the target parent state (`resolve_luc(luc, chain_of_ancestors)` when authoring on a chained Extension). The agent has no tool that makes a layer; a person or an agent with a shell uses these. There is no `edit_installed_luc` operation. A successful draft still requires package verification, resolution, tests, authority review, and explicit activation authorization if authority expands.
 
 ## One `.luc` package envelope
 
@@ -59,23 +66,24 @@ Every new Extension version is a separate source directory and identity/version 
 
 ## Resolver and conflicts
 
-`resolve_luc(base, ordered_extensions, runtime_version, host_grants)` verifies every artifact, exact parent id/version/source hash, and compatibility before composing a derived in-memory tree. The Base and Extension inputs are never written. The resolver applies ordered patches to derived copies, recomputes the manifest file index and derived source hash, and validates the result before returning it.
+`resolve_luc(base, ordered_extensions, runtime_version, host_grants)` verifies every artifact, Base identity (`E_LUC_PARENT_ID`), parent chain placement (each chained Extension must appear after its parent, matched by `base_source_hash` and `extends.extension`; missing or later parent raises `E_LUC_PARENT_REQUIRED`, mismatched hash/version/id raises `E_LUC_PARENT_HASH`/`E_LUC_PARENT_VERSION`/`E_LUC_PARENT_ID`, and depth above 8 raises `E_LUC_CHAIN_DEPTH`), and compatibility before composing a derived in-memory tree. The Base and Extension inputs are never written. Each layer's operations are checked against the derived state of the Base Luc plus all of its own ancestor Extensions (which is the Base Luc itself for a direct layer). The resolver applies ordered patches to derived copies, recomputes the manifest file index and derived source hash, computes Host authority relative to the original Base Luc, and validates the result before returning it. Platform constraints intersect across the Base Luc and every layer in the list, while `RESOLVER_VERSION` (`"0.1.0"`) and the `resolved_hash` formula stay unchanged so flat direct-on-Luc lists resolve byte-for-byte identically.
 
 Conflict results are deterministic:
 
 | Classification | Meaning |
 | --- | --- |
 | `cleanly_composable` | Disjoint operation targets compose in the profile's explicit order. |
-| `compatible_same_value` | Multiple layers set the same semantic target to the same operation/value; it is applied once and reported. |
-| `incompatible_same_field` | Layers set an overlapping manifest field or file target differently; resolution fails. |
-| `source_patch_conflict` | A source anchor/context or overlapping source/file patch cannot be applied exactly; resolution fails. |
+| `chain_override` | A descendant Extension overrides a manifest field, file, or source target changed by an ancestor in its own chain; the descendant's result stands. |
+| `compatible_same_value` | Non-ancestor layers set the same semantic target to the same operation/value; it is applied once and reported. |
+| `incompatible_same_field` | Non-ancestor layers set an overlapping manifest field or file target differently; resolution fails. |
+| `source_patch_conflict` | A source anchor/context or overlapping source/file patch cannot be applied cleanly; resolution fails. |
 | `authority_conflict` | A resulting declaration is unsupported, malformed, or violates the Host API/editable policy; Host validation fails closed. |
 
-The implementation does not use last-write-wins. Non-compatible conflicts raise `ResolutionConflict`; no partial result is returned. A failed resolution therefore leaves the active immutable activation untouched.
+The implementation does not use last-write-wins across independent branches. A layer may override an earlier layer's target only when every prior layer that touched that target is strictly an ancestor in its own chain. Non-compatible conflicts raise `ResolutionConflict`; no partial result is returned, leaving any active immutable selection untouched.
 
 ## Multiple Extensions
 
-Profiles supply an explicit ordered Extension list. The order is part of the resolved identity. Disjoint operations compose; identical values on the same semantic target apply once and are reported; incompatible same-field, source-anchor, or file-target changes fail closed. Reordering Extensions changes the identity even when the current operation set happens to produce equivalent bytes, preserving the requested composition provenance.
+Profiles supply an explicit ordered Extension list with parents before their children. The order is part of the resolved identity. Disjoint operations compose; ancestor-descendant chains compose sequentially with `chain_override` keeping the descendant's value; identical values on the same semantic target between non-ancestor layers apply once and are reported; incompatible same-field, source-anchor, or file-target changes between non-ancestor layers (or same-array add/remove operations across non-ancestors) fail closed. Reordering Extensions changes the identity even when the current operation set happens to produce equivalent bytes, preserving the requested composition provenance.
 
 ## Derived Resolved Luc
 
@@ -92,7 +100,7 @@ Resolver and the same Host checks, and both are skipped in safe mode.
 | Lies on | A Luc from the folder, or one of Lumeri's own made only of the open protocols. | Any of Lumeri's own Lucs. |
 | Switched | Its line in the `[luc]` table of the config file. | The Registry's enabled state. |
 | More authority | Never: the layer is left off (`E_LUC_REAUTH_REQUIRED`). A folder layer on a Luc whose profile was approved for more is held to what was approved. | What the creator approved at `activation select` (`--authorized-activation-hash`), for that exact resolution. Never a reserved permission or one that needs Lumeri's review (`E_LUC_PERMISSION_RESERVED` in `layer_notices`). |
-| Order | By layer id, on top of the profile's layers. | The order the profile gives. |
+| Order | Parent-first by layer id (lowest id whose parent is the Luc or already laid, including profile layers under `under`). | The order the profile gives (parents before children); when creator layers form one line on an Official Luc, Lumeri's `agent.<luc id>` layer lies on the top one (always last) and steps aside at load time if incompatible with creator layer changes until re-laid at Lumeri's next turn. |
 | When it does not fit | That layer alone is left off and named in `not_loaded`. | The Luc loads without any of the profile's layers and says so in `layer_notices`. |
 
 The folder is the way meant for a person; its rules are in
@@ -135,7 +143,9 @@ Each active receipt records source identities and origin at import time in the l
 
 `plan_rebase(old_base, new_base, old_extension, new_version, ...)` produces a deterministic, non-mutating plan with unchanged operations, portable operations, conflicts, upstream-absorbed operations, authority changes, and test requirements. A Base value that already equals the Extension result is classified `upstream_absorbed`, and the new Extension candidate drops that redundant operation. Changes at the same semantic target become conflicts. A source patch may be portable only when its exact anchor/context still applies to the new content.
 
-When the plan has no conflicts, it contains a candidate for a new Extension version pinned to the new Base source hash. `write_rebase_candidate` materializes that new version only into an absent destination; old Base, new Base, and old Extension remain read-only. `agent_handoff()` explicitly names those immutable inputs, the new Extension id/version write target, and `activation_allowed: false`. The candidate still needs package verification, resolution, Extension tests, authority review, and an explicit authorization if authority expands. Rebase does not auto-activate.
+`plan_chain_rebase(old_base, new_base, extensions, *, new_versions, replaced=(), runtime_version, host_grants)` extends deterministic planning bottom-up across an ordered Extension chain (`lumeri.luc.chain-rebase-plan/v1`). Each layer is planned against its resolved parent snapshot (`new_base` for direct layers, or its parent's result in the same pass for chained layers): if an ancestor is blocked, descendants are marked `blocked_parent` with `blocked_by` naming the lowest blocked ancestor; author-supplied `replaced` layers are adopted verbatim when they match the new parent (`replaced`) or marked `blocked_conflict` (`replacement_parent_mismatch`); layers whose parent hash is unchanged are kept as `current`; and layers needing migration produce a per-layer `lumeri.luc.rebase-plan/v1` (`plan`, with optional `old_parent`/`new_parent` while `old_base`/`new_base` stay the Base Luc) without affecting independent branches. Authority changes compare old chain vs new chain.
+
+When a plan has no conflicts, its candidates are kept in memory pinned to their new parent's `source_hash`. `write_rebase_candidate` materializes a new version only into an absent destination; old Base, new Base, and old Extensions remain read-only. `agent_handoff()` explicitly names those immutable inputs, the new Extension id/version write targets, and `activation_allowed: false`. Candidates still need package verification, resolution, Extension tests, authority review, and an explicit authorization if authority expands. Rebase does not auto-activate.
 
 ## Local commands
 
@@ -159,15 +169,16 @@ python scripts/luc_cli.py activation rollback --registry ~/.local/share/luc-regi
 python scripts/luc_cli.py activation redo --registry ~/.local/share/luc-registry
 ```
 
-`permissions` prints everything a Luc may declare; with a `.luc` file or a source folder it prints what that Luc declares and whether it would load from the `lucs` folder beside the config file, which is how a Luc that is not Lumeri's own reaches a Runtime ([permissions.md](permissions.md)). That folder is separate from the `--registry` these commands operate on.
+`permissions` prints everything a Luc may declare; with a `.luc` file or a source folder it prints what that Luc declares and whether it would load from the `lucs` folder beside the config file, which is how a Luc that is not Lumeri's own reaches a Runtime ([permissions.md](permissions.md)). That folder is separate from the `--registry` these commands operate on. `extension create <parent> ...` also accepts an installed or packaged Extension as `<parent>` (emitting a four-key `extends` record), and `conform <extension> [--under <ancestor> ...]` accepts repeatable bottom-up `--under` ancestor layers when checking a chained Extension against its Luc's interface.
 
 `install-local` only stores a verified immutable object. Profile attach/detach changes the desired ordered layer selection. `safe-mode on/off` selects or restores local profile state while preserving desired Extension references; it does not change live Runtime state. `activation plan` is read-only. `activation select` is a separate local activation record operation; when authority expands, it returns `REAUTH_REQUIRED` and an `authorization_hash`, which must be supplied as `--authorized-activation-hash`. That token becomes stale if the selected activation changes. No CLI command publishes to Luc Cloud or installs a Runtime.
 
-Machine-readable Draft 2020-12 contracts are in `docs/luc/schemas/`: artifact manifest, ordered layer profile, resolved identity, authority diff, rebase plan, activation receipt, and local registry entry.
+Machine-readable Draft 2020-12 contracts are in `docs/luc/schemas/`: artifact manifest, ordered layer profile, resolved identity, authority diff, rebase plan, chain rebase plan, activation receipt, and local registry entry.
 
 ## v0.1 limits
 
 - The Distribution module itself has no Luc Cloud transport, remote publish, signing, account model or marketplace. Those came later, outside it (`cloud.md` and `official-channel.md`, neither in this repository). The Runtime does load layers now: see "Where a layer lies on a machine".
+- Extension chains are bounded to depth 8 (`MAX_CHAIN_DEPTH = 8`); Luc Cloud and Luc Hub accept and store chained Extensions up to that depth (subject to the ancestor namespace and public listing rules in `cloud.md` and `hub.md`, neither in this repository), and Lumeri's own `agent.<luc id>` layer lies on the top creator Extension when creator layers form one line (or directly on the Luc when there is no line).
 - No live code execution or arbitrary filesystem/network Host grant is added.
 - A local registry/profile is source-level state only; it is not synchronized and does not provide cross-process Runtime crash recovery.
 - Rebase conflict assistance is deterministic planning plus an Agent handoff contract. It does not run a migration Agent or execute Extension code.
