@@ -27,8 +27,9 @@ LEGACY_REGISTRY_PREFIXES: dict[str, str] = {"gemia.": "lumeri."}
 def apply_legacy_env(environ: MutableMapping[str, str] | None = None) -> list[str]:
     """Copy ``GEMIA_*`` / ``LUMERAI_*`` settings to ``LUMERI_*``.
 
-    A ``LUMERI_*`` value that is already set always wins. Returns the names
-    that were filled in.
+    A ``LUMERI_*`` value that is set and not empty always wins, as the old
+    ``LUMERI_X or GEMIA_X`` fallbacks did. Returns the names that were
+    filled in.
     """
     env = os.environ if environ is None else environ
     filled: list[str] = []
@@ -36,7 +37,7 @@ def apply_legacy_env(environ: MutableMapping[str, str] | None = None) -> list[st
         for prefix in LEGACY_ENV_PREFIXES:
             if key.startswith(prefix) and len(key) > len(prefix):
                 current = CURRENT_ENV_PREFIX + key[len(prefix):]
-                if current not in env:
+                if not env.get(current) and current not in filled:
                     env[current] = env[key]
                     filled.append(current)
                 break

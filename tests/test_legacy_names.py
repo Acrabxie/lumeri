@@ -22,12 +22,15 @@ def test_old_env_names_fill_current_names():
         f"{OLD_SCRIPT.upper()}_PROJECT_ROOT": "/tmp/p",
         "LUMERI_PORT": "9000",
         f"{OLD_ENGINE.upper()}_PORT": "7788",
+        "LUMERI_STABILITY_GATE": "",
+        f"{OLD_ENGINE.upper()}_STABILITY_GATE": "no",
     }
     filled = apply_legacy_env(env)
     assert env["LUMERI_HOST"] == "0.0.0.0"
     assert env["LUMERI_PROJECT_ROOT"] == "/tmp/p"
     assert env["LUMERI_PORT"] == "9000"  # a current value always wins
-    assert sorted(filled) == ["LUMERI_HOST", "LUMERI_PROJECT_ROOT"]
+    assert env["LUMERI_STABILITY_GATE"] == "no"  # empty counts as unset
+    assert sorted(filled) == ["LUMERI_HOST", "LUMERI_PROJECT_ROOT", "LUMERI_STABILITY_GATE"]
 
 
 def test_bare_prefix_is_ignored():
