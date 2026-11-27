@@ -1,4 +1,4 @@
-"""Smoke tests for gemia.session_telemetry.
+"""Smoke tests for lumeri.session_telemetry.
 
 SQLite is written to a tmp path. No real agent loop is constructed; we
 drive observe_event() directly with synthesized event dicts of the same
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from gemia import session_telemetry as st
+from lumeri import session_telemetry as st
 
 
 def _records(db: Path, table: str) -> list[dict]:
@@ -111,7 +111,7 @@ def test_disabled_telemetry_is_no_op(tmp_path: Path) -> None:
 
 
 def test_env_var_disables_telemetry(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("GEMIA_V3_TELEMETRY_DISABLED", "1")
+    monkeypatch.setenv("LUMERI_V3_TELEMETRY_DISABLED", "1")
     db = tmp_path / "telemetry.sqlite3"
     rec = st.SessionTelemetry(session_id="s5", db_path=db)
     assert rec.enabled is False

@@ -54,7 +54,7 @@ def _has_valid_key() -> bool:
 
 
 def _configured_server_host(default: str = "127.0.0.1") -> str:
-    return os.environ.get("LUMERI_HOST") or os.environ.get("GEMIA_HOST") or default
+    return os.environ.get("LUMERI_HOST") or default
 
 
 def _lan_addresses() -> list[str]:
@@ -282,7 +282,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── File browser ──
         if path.startswith("/files/"):
-            from gemia.file_browse_routes import try_handle as _files_try
+            from lumeri.file_browse_routes import try_handle as _files_try
             if _files_try(self, method="GET", serve_file=lambda p: _file_response(self, p)):
                 return
 
@@ -294,7 +294,7 @@ class _Handler(BaseHTTPRequestHandler):
                     cfg = json.loads(_CONFIG_PATH.read_text())
                 except Exception:
                     pass
-            from gemia import brain_config
+            from lumeri import brain_config
             status = brain_config.read_status(cfg)
             # The v3 Setup panel consumes ``brain`` as a nested object.  Keep
             # the top-level ``has_key`` for the small first-run status check,
@@ -303,7 +303,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/config/codex-subscription":
-            from gemia.codex_subscription import subscription_status
+            from lumeri.codex_subscription import subscription_status
 
             _json_response(self, 200, subscription_status())
             return
@@ -312,36 +312,36 @@ class _Handler(BaseHTTPRequestHandler):
         # The v3 command palette fetches this route directly.  It is local-only
         # state and contains no provider secrets.
         if path == "/model":
-            from gemia.memory import model_selection_payload
+            from lumeri.memory import model_selection_payload
             _json_response(self, 200, model_selection_payload("planner"))
             return
 
         # ── Sandbox settings ──
         if path == "/settings/sandbox":
-            from gemia.sandbox_v4 import sandbox_status
+            from lumeri.sandbox_v4 import sandbox_status
             _json_response(self, 200, sandbox_status())
             return
 
         if path == "/projects":
-            from gemia.local_projects import list_projects
+            from lumeri.local_projects import list_projects
             _json_response(self, 200, {"projects": list_projects()})
             return
 
         # ── v3 session routes ──
         if path == "/sessions" or path.startswith("/sessions/"):
-            from gemia.v3_routes import try_handle as _v3_try
+            from lumeri.v3_routes import try_handle as _v3_try
             if _v3_try(self, method="GET"):
                 return
 
         # ── Local session history (single-user, no account namespace) ──
         if path == "/session-history":
-            from gemia.session_history import load_current_session
+            from lumeri.session_history import load_current_session
             _json_response(self, 200, load_current_session())
             return
 
         if path == "/session-history/list":
-            from gemia.session_history import list_session_snapshots
-            from gemia.session_manager import get_manager
+            from lumeri.session_history import list_session_snapshots
+            from lumeri.session_manager import get_manager
             query = parse_qs(parsed_url.query)
             try:
                 limit = int(query.get("limit", ["30"])[0] or 30)
@@ -353,7 +353,7 @@ class _Handler(BaseHTTPRequestHandler):
             records = list_persisted(include_deleted=True) if callable(list_persisted) else []
             session_meta = {str(item.get("session_id") or ""): item for item in records}
             if not session_meta:
-                from gemia.local_projects import session_metadata
+                from lumeri.local_projects import session_metadata
                 session_meta = session_metadata()
             visible = []
             for snapshot in snapshots:
@@ -366,7 +366,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/session-history/"):
-            from gemia.session_history import load_session_snapshot
+            from lumeri.session_history import load_session_snapshot
             snapshot_id = path.removeprefix("/session-history/").strip()
             try:
                 _json_response(self, 200, load_session_snapshot(snapshot_id, activate=True))
@@ -376,7 +376,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── Local media library ──
         if path == "/media-library/list":
-            from gemia.media_library import list_assets
+            from lumeri.media_library import list_assets
             query = parse_qs(parsed_url.query)
             try:
                 limit = int(query.get("limit", ["200"])[0] or 200)
@@ -391,7 +391,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/prepare/"):
-            from gemia.roughcut import RoughcutError, get_prepare_job
+            from lumeri.roughcut import RoughcutError, get_prepare_job
             try:
                 _json_response(self, 200, get_prepare_job(
                     _LOCAL_WORKSPACE_ID,
@@ -402,7 +402,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/") and path.endswith("/roughcut"):
-            from gemia.roughcut import RoughcutError, load_roughcut
+            from lumeri.roughcut import RoughcutError, load_roughcut
             asset_id = path.split("/")[2]
             try:
                 _json_response(self, 200, {"manifest": load_roughcut(_LOCAL_WORKSPACE_ID, asset_id)})
@@ -411,7 +411,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/") and path.endswith("/annotations"):
-            from gemia.media_annotations import MediaAnnotationError, list_annotations
+            from lumeri.media_annotations import MediaAnnotationError, list_annotations
             asset_id = path.split("/")[2]
             try:
                 _json_response(self, 200, {"annotations": list_annotations(_LOCAL_WORKSPACE_ID, asset_id)})
@@ -420,7 +420,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/file/"):
-            from gemia.media_library import MediaLibraryError, resolve_asset_file
+            from lumeri.media_library import MediaLibraryError, resolve_asset_file
             parts = path.split("/")
             try:
                 target = resolve_asset_file(
@@ -435,7 +435,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/"):
-            from gemia.media_library import get_asset
+            from lumeri.media_library import get_asset
             asset = get_asset(_LOCAL_WORKSPACE_ID, path.split("/")[2])
             if asset:
                 _json_response(self, 200, {"asset": asset})
@@ -465,7 +465,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/projects":
             try:
-                from gemia.local_projects import create_project
+                from lumeri.local_projects import create_project
                 payload = _read_json_body(self)
                 project = create_project(
                     str(payload.get("name") or ""),
@@ -498,10 +498,10 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/sessions":
             try:
-                from gemia.local_projects import link_session
-                from gemia.session_manager import get_manager
-                from gemia.transport.sse import REGISTRY as sse_registry
-                from gemia.v3_contract import PROTOCOL_VERSION
+                from lumeri.local_projects import link_session
+                from lumeri.session_manager import get_manager
+                from lumeri.transport.sse import REGISTRY as sse_registry
+                from lumeri.v3_contract import PROTOCOL_VERSION
                 payload = _read_json_body(self)
                 project_id = str(payload.get("project_id") or "").strip()
                 runner = get_manager().create_session()
@@ -524,13 +524,13 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── v3 session routes ──
         if path.startswith("/sessions/"):
-            from gemia.v3_routes import try_handle as _v3_try
+            from lumeri.v3_routes import try_handle as _v3_try
             if _v3_try(self, method="POST"):
                 return
 
         if path == "/session-history":
             try:
-                from gemia.session_history import save_current_session
+                from lumeri.session_history import save_current_session
                 _json_response(self, 200, save_current_session(_read_json_body(self)))
             except Exception as exc:
                 _json_response(self, 400, {"error": str(exc)})
@@ -547,7 +547,7 @@ class _Handler(BaseHTTPRequestHandler):
                         existing = json.loads(_CONFIG_PATH.read_text())
                     except Exception:
                         pass
-                from gemia import brain_config
+                from lumeri import brain_config
                 existing, changed = brain_config.apply_update(existing, payload)
                 _CONFIG_PATH.write_text(json.dumps(existing, indent=2))
                 _load_config_keys()
@@ -568,7 +568,7 @@ class _Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or existing.get("proxy")
-                from gemia import brain_config
+                from lumeri import brain_config
                 res = brain_config.list_models(provider, existing, proxy=proxy or None)
                 _json_response(self, 200, res)
             except Exception as exc:
@@ -585,7 +585,7 @@ class _Handler(BaseHTTPRequestHandler):
                         existing = json.loads(_CONFIG_PATH.read_text())
                     except Exception:
                         pass
-                from gemia import brain_config
+                from lumeri import brain_config
                 # Temporarily apply keys in payload to test client
                 brain_config.apply_update({}, payload)
                 proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or existing.get("proxy")
@@ -596,7 +596,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/config/codex-subscription/login":
-            from gemia.codex_subscription import launch_login
+            from lumeri.codex_subscription import launch_login
 
             result = launch_login()
             _json_response(self, 200 if result.get("ok") else 400, result)
@@ -605,7 +605,7 @@ class _Handler(BaseHTTPRequestHandler):
         # ── Model selection ──
         if path == "/model":
             try:
-                from gemia.memory import apply_model_selection, model_selection_payload
+                from lumeri.memory import apply_model_selection, model_selection_payload
                 payload = _read_json_body(self)
                 apply_model_selection(payload, "planner")
                 _json_response(self, 200, {"ok": True, **model_selection_payload("planner")})
@@ -617,8 +617,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/model/add":
             try:
-                from gemia import brain_config
-                from gemia.memory import add_model_to_catalog, model_selection_payload
+                from lumeri import brain_config
+                from lumeri.memory import add_model_to_catalog, model_selection_payload
                 payload = _read_json_body(self)
                 model_id = str(payload.get("id") or "").strip()
                 if not model_id:
@@ -637,7 +637,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/model/remove":
             try:
-                from gemia.memory import model_selection_payload, remove_model_from_catalog
+                from lumeri.memory import model_selection_payload, remove_model_from_catalog
                 payload = _read_json_body(self)
                 model_id = str(payload.get("id") or "").strip()
                 if not model_id:
@@ -650,8 +650,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/media-library/annotate":
             try:
-                from gemia.media_annotations import annotate_asset_heuristic
-                from gemia.media_library import list_assets
+                from lumeri.media_annotations import annotate_asset_heuristic
+                from lumeri.media_library import list_assets
                 payload = _read_json_body(self)
                 asset_ids = payload.get("asset_ids") or payload.get("assets") or []
                 if isinstance(asset_ids, str):
@@ -677,7 +677,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/media-library/prepare":
             try:
-                from gemia.roughcut import prepare_roughcut, start_prepare_job
+                from lumeri.roughcut import prepare_roughcut, start_prepare_job
                 payload = _read_json_body(self)
                 if bool(payload.get("background", True)):
                     _json_response(self, 202, start_prepare_job(_LOCAL_WORKSPACE_ID, payload))
@@ -701,7 +701,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/media-library/prepare/") and path.endswith("/resume"):
             try:
-                from gemia.roughcut import resume_prepare_job
+                from lumeri.roughcut import resume_prepare_job
                 job_id = path.removeprefix("/media-library/prepare/").removesuffix("/resume").strip("/")
                 _json_response(self, 202, resume_prepare_job(_LOCAL_WORKSPACE_ID, job_id))
             except Exception as exc:
@@ -710,7 +710,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/media-library/") and path.endswith("/roughcut/review"):
             try:
-                from gemia.roughcut import apply_roughcut_review
+                from lumeri.roughcut import apply_roughcut_review
                 _json_response(self, 200, apply_roughcut_review(
                     _LOCAL_WORKSPACE_ID, path.split("/")[2], _read_json_body(self)
                 ))
@@ -720,7 +720,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/media-library/") and "/annotations" in path:
             try:
-                from gemia.media_annotations import create_annotation, update_annotation
+                from lumeri.media_annotations import create_annotation, update_annotation
                 parts = path.split("/")
                 payload = _read_json_body(self)
                 if len(parts) >= 5 and parts[4]:
@@ -733,7 +733,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path.startswith("/media-library/") and path.endswith("/add-to-project"):
-            from gemia.media_library import default_clip_for_asset, get_asset
+            from lumeri.media_library import default_clip_for_asset, get_asset
             asset = get_asset(_LOCAL_WORKSPACE_ID, path.split("/")[2])
             if not asset:
                 _json_response(self, 404, {"error": "media asset not found"})
@@ -745,9 +745,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/settings/sandbox":
             try:
                 payload = _read_json_body(self)
-                from gemia.sandbox_v4 import set_sandbox_disabled
+                from lumeri.sandbox_v4 import set_sandbox_disabled
                 set_sandbox_disabled(bool(payload.get("disabled", False)))
-                from gemia.sandbox_v4 import sandbox_status
+                from lumeri.sandbox_v4 import sandbox_status
                 _json_response(self, 200, sandbox_status())
             except Exception as exc:
                 _json_response(self, 400, {"error": str(exc)})
@@ -761,13 +761,13 @@ class _Handler(BaseHTTPRequestHandler):
 
         # ── v3 session routes ──
         if path.startswith("/sessions/"):
-            from gemia.v3_routes import try_handle as _v3_try
+            from lumeri.v3_routes import try_handle as _v3_try
             if _v3_try(self, method="DELETE"):
                 return
 
         if path.startswith("/media-library/") and "/annotations/" in path:
             try:
-                from gemia.media_annotations import delete_annotation
+                from lumeri.media_annotations import delete_annotation
                 parts = path.split("/")
                 _json_response(self, 200, {"annotation": delete_annotation(
                     _LOCAL_WORKSPACE_ID, parts[2], parts[4]
@@ -778,7 +778,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/media-library/"):
             try:
-                from gemia.media_library import soft_delete_asset
+                from lumeri.media_library import soft_delete_asset
                 _json_response(self, 200, {"asset": soft_delete_asset(
                     _LOCAL_WORKSPACE_ID, path.split("/")[2]
                 )})
@@ -814,9 +814,9 @@ class _Handler(BaseHTTPRequestHandler):
 def main(host: str | None = None, port: int | None = None) -> None:
     _load_config_keys()
     host = host or _configured_server_host()
-    port = int(port or os.environ.get("LUMERI_PORT") or os.environ.get("GEMIA_PORT") or 7788)
-    os.environ["GEMIA_HOST"] = host
-    os.environ["GEMIA_PORT"] = str(port)
+    port = int(port or os.environ.get("LUMERI_PORT") or 7788)
+    os.environ["LUMERI_HOST"] = host
+    os.environ["LUMERI_PORT"] = str(port)
     server = ThreadingHTTPServer((host, port), _Handler)
     server.daemon_threads = True
     print(f"Lumeri Video server listening on http://{host}:{port}")

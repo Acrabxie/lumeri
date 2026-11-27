@@ -13,7 +13,7 @@
   },
   "replaceability": {
     "class": "sandboxed",
-    "why": "The Luc pins the existing native PointLibraryPackage. Its dispatcher is in-process gemia code supplied only by trusted Host bindings; the new open library/v1 recipe protocol is a different carrier. The code stays behind trusted Host bindings until the code sandbox (Acrab, 2026-10-24). A layer may bring the library's data in its place: installing a point library is laying a layer on this Luc, and taking it off brings Lumeri's own back (Acrab, 2026-10-24, decision 3A). Such a layer adds only the catalog and verification its capability names and changes no pin.",
+    "why": "The Luc pins the existing native PointLibraryPackage. Its dispatcher is in-process lumeri code supplied only by trusted Host bindings; the new open library/v1 recipe protocol is a different carrier. The code stays behind trusted Host bindings until the code sandbox (Acrab, 2026-10-24). A layer may bring the library's data in its place: installing a point library is laying a layer on this Luc, and taking it off brings Lumeri's own back (Acrab, 2026-10-24, decision 3A). Such a layer adds only the catalog and verification its capability names and changes no pin.",
     "decided": "Acrab, 2026-10-24 (code behind trusted Host bindings until the code sandbox; decision 3A, a .lup is a data layer on this Luc); today's code: lumeri_runtime/luc_interface_gate.py:36-39"
   },
   "reach": {
@@ -47,7 +47,7 @@
       "evidence": [
         "lumeri_runtime/luc_point_library_adapter.py:30-33",
         "lumeri_runtime/luc_point_library_adapter.py:167-198",
-        "gemia/point_library.py:324-352"
+        "lumeri/point_library.py:324-352"
       ],
       "notes": "No timeout is enforced on the in-process dispatch. Missing/falsy op defaults to catalog; op is stringified, stripped and lowercased; describe returns the same payload. Unknown operations return applied=false/E_ARG as data; create, adjust and apply raise the read-only refusal. Other input keys are accepted and ignored by the read path. Repeated reads leave the native catalog unchanged. With a layer, the answer is the native answer with the layer's version, catalog and verification; a layer whose data changed after load is refused (E_LUC_LIBRARY_CHANGED)."
     }

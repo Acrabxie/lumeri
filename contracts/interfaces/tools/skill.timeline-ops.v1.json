@@ -13,7 +13,7 @@
   },
   "replaceability": {
     "class": "sandboxed",
-    "why": "The Luc references an immutable native prompt and the in-process gemia planner assembler. A creator's layer on the Official package may add a sandboxed program (luc_tool_program) that answers for the capability while keeping its pinned native_skill, instruction hash and schema.",
+    "why": "The Luc references an immutable native prompt and the in-process lumeri planner assembler. A creator's layer on the Official package may add a sandboxed program (luc_tool_program) that answers for the capability while keeping its pinned native_skill, instruction hash and schema.",
     "decided": "Acrab, 2026-10-24; sandboxed program replacement wired via luc_tool_program (lumeri_runtime/native_skill_panel.py:99-197, lumeri_runtime/luc_interface_gate.py:35-44)"
   },
   "reach": {

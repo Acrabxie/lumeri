@@ -8,7 +8,7 @@
   "carrier": {
     "kind": "python",
     "seam": "lumenframe.model:normalize_doc,lumenframe.compile:compile_to_layer_stack,lumenframe.catalog:effect_types,transition_kinds",
-    "notes": "In-tree lumenframe/* package consumed by lumeri_engine_cli.py and gemia. Boundary contract only; the LF2 vector-scene authoring and LF on-demand handoff body on codex/lf2-lf-handoff-20261031 await the LF2 owner upon merge."
+    "notes": "In-tree lumenframe/* package consumed by lumeri_engine_cli.py and lumeri. Boundary contract only; the LF2 vector-scene authoring and LF on-demand handoff body on codex/lf2-lf-handoff-20261031 await the LF2 owner upon merge."
   },
   "replaceability": {
     "class": "lumeri-only",
@@ -65,7 +65,7 @@
       },
       "output": {
         "type": "object",
-        "description": "Compiled gemia.video.layers.LayerStack ready for render_frame() or render_to_video()."
+        "description": "Compiled lumeri.video.layers.LayerStack ready for render_frame() or render_to_video()."
       },
       "errors": [
         "CompileError",

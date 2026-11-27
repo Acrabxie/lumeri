@@ -12,9 +12,9 @@ pattern):
 * ``op:"catalog"`` — the framing vocabulary (framings, grids, axes, feedback
   words) for the model to compose briefs from.
 
-Pure: this module needs no gemia import and returns plain dicts via ``ok()`` /
-``err()``. The gemia adapter that writes the crop to a doc/timeline is a
-separate, thin layer, exactly as ``gemia/tools/vector_motion.py`` wraps
+Pure: this module needs no lumeri import and returns plain dicts via ``ok()`` /
+``err()``. The lumeri adapter that writes the crop to a doc/timeline is a
+separate, thin layer, exactly as ``lumeri/tools/vector_motion.py`` wraps
 ``vector.api``.
 """
 from __future__ import annotations

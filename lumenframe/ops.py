@@ -1547,7 +1547,7 @@ def _op_set_expression(doc: dict[str, Any], op: dict[str, Any]) -> None:
     Precedence (at render): expression > keyframes > static value.
     Use expressions for rhythmic, data-driven, or time-locked properties.
     """
-    from gemia.expressions import validate_expression, ExprError
+    from lumeri.expressions import validate_expression, ExprError
     
     layer = _require_layer(doc, _require_arg(op, "layer_id"), op="set_expression")
     prop = str(_require_arg(op, "property"))

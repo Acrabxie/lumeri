@@ -76,7 +76,7 @@ def default_resolver(
 
 def _image_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
     """Resolve an image layer to a canvas-sized RGBA content_fn."""
-    from gemia.video.layers import _read_image_rgba, _fit_to_canvas
+    from lumeri.video.layers import _read_image_rgba, _fit_to_canvas
 
     asset_id = layer.get("asset_id")
     asset = ctx.asset(asset_id) if asset_id else None
@@ -112,7 +112,7 @@ def _image_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Cont
 
 def _video_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[ContentFn]:
     """Resolve a video layer to a canvas-sized RGBA content_fn."""
-    from gemia.video.layers import _read_video_frame, _fit_to_canvas
+    from lumeri.video.layers import _read_video_frame, _fit_to_canvas
 
     asset_id = layer.get("asset_id")
     asset = ctx.asset(asset_id) if asset_id else None

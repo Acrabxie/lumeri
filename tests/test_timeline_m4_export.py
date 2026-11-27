@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from gemia.project_store import ProjectHandle
-from gemia.tools import DISPATCHER
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.project_store import ProjectHandle
+from lumeri.tools import DISPATCHER
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ def test_project_export_with_image_overlay(tmp_path: Path) -> None:
     clips_before = _clips(ctx)
     v_clip_id = clips_before[0]["id"]
     # Add overlay via low-level apply_ops (simulating what insert_clip does for overlay):
-    from lumerai.patches import apply_timeline_patches
+    from lumeri_script.patches import apply_timeline_patches
     state = ctx.project.load()
     # find OV1 track
     ov_tracks = [t for t in state["timeline"]["tracks"] if t.get("kind") == "overlay"]
@@ -228,7 +228,7 @@ def test_project_export_with_text_overlay(tmp_path: Path) -> None:
 
 def test_project_export_empty_project_raises(tmp_path: Path) -> None:
     """Exporting a project with no video clips must raise an error."""
-    from gemia.project_export import ProjectExportError
+    from lumeri.project_export import ProjectExportError
 
     ctx = _make_ctx(tmp_path, "empty")
     with pytest.raises((ProjectExportError, Exception)) as exc_info:

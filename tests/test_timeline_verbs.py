@@ -1,6 +1,6 @@
 """M3 regression: the timeline_* verb layer end-to-end through ToolContext.
 
-These exercise the dispatchers in ``gemia.tools.timeline`` against a real
+These exercise the dispatchers in ``lumeri.tools.timeline`` against a real
 ``ProjectHandle`` (real ProjectStore on disk), one verb call per patch, the
 way the agent loop drives them. Op semantics themselves are covered in
 ``test_timeline_patches.py``; here we assert the verb adapters build the right
@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from gemia.project_store import ProjectHandle
-from gemia.tools import DISPATCHER
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.project_store import ProjectHandle
+from lumeri.tools import DISPATCHER
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 def _ctx(tmp_path: Path) -> ToolContext:

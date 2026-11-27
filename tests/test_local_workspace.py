@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gemia import local_workspace
+from lumeri import local_workspace
 
 
 def test_public_build_uses_one_local_workspace(monkeypatch, tmp_path: Path) -> None:
@@ -49,7 +49,7 @@ def test_public_server_has_no_account_routes_or_header() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     source = "\n".join(
         (repo_root / rel).read_text(encoding="utf-8")
-        for rel in ("server.py", "gemia/v3_routes.py")
+        for rel in ("server.py", "lumeri/v3_routes.py")
     )
 
     assert "/auth" not in source

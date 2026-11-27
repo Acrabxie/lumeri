@@ -61,7 +61,7 @@ def validate_html_layer(layer: dict[str, Any]) -> None:
     """
     props = layer.get("props") or {}
     try:
-        from gemia.hyperframes_adapter import (
+        from lumeri.hyperframes_adapter import (
             _validate_local_only_css,
             _validate_local_only_html,
         )

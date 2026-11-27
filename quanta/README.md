@@ -12,7 +12,7 @@ viewer, branches and remembers what they chose. A Quanta work is one `.qua` file
 
 You can build a reader, writer, player or converter for `.qua` from the
 specification alone. Quanta's layout engine is already in
-[`gemia/quanta/`](../gemia/quanta/) and the canvas renderer, LumenFrame, in
+[`lumeri/quanta/`](../lumeri/quanta/) and the canvas renderer, LumenFrame, in
 [`lumenframe/`](../lumenframe/). The v4 reader, players and editor are not in this
 repository yet; they will be added here under the MIT License.
 

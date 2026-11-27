@@ -22,13 +22,13 @@ dependencies = [
 ]
 
 [project.scripts]
-lumeri-skill-stats = "gemia.ai.skill_telemetry:main"
+lumeri-skill-stats = "lumeri.ai.skill_telemetry:main"
 
 [tool.setuptools.packages.find]
-include = ["gemia*", "lumerai*", "lumenframe*"]
+include = ["lumeri*", "lumeri_script*", "lumenframe*"]
 
 [tool.setuptools.package-data]
-"gemia.ai" = ["skills/*/SKILL.md", "skills/_combos/*.yaml"]
+"lumeri.ai" = ["skills/*/SKILL.md", "skills/_combos/*.yaml"]
 
 [project.optional-dependencies]
 dev = [
@@ -45,9 +45,9 @@ interop = [
     "otio-fcpx-xml-adapter>=1.0",
 ]
 # Lumeri AS an MCP server (docs/mcp-interface-plan.md, Direction A). Opt in with
-# `pip install lumeri[mcp]` to run `python -m gemia mcp-serve`. The core install
-# stays light; gemia/mcp/server.py imports the SDK lazily inside its serve
-# entrypoints, so importing gemia without this extra never fails.
+# `pip install lumeri[mcp]` to run `python -m lumeri mcp-serve`. The core install
+# stays light; lumeri/mcp/server.py imports the SDK lazily inside its serve
+# entrypoints, so importing lumeri without this extra never fails.
 mcp = ["mcp>=1.12,<2"]
 
 [tool.ruff]
@@ -71,7 +71,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["N802", "N806"]  # test function names
-"gemia/tools/_schema.py" = ["N816"]  # Gemini api field names
+"lumeri/tools/_schema.py" = ["N816"]  # Gemini api field names
 
 [tool.ruff.format]
 quote-style = "double"

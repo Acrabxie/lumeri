@@ -11,7 +11,7 @@ shape — no flat-tool proliferation):
 * ``op:"catalog"`` — the creative vocabulary (looks, axes, ops, feelings,
   feedback phrases) for the model to compose briefs from.
 
-The tool is pure (no gemia import): brief in, plain dict out, wrapped with the
+The tool is pure (no lumeri import): brief in, plain dict out, wrapped with the
 shared ``ok()``/``err()`` helpers. The thin session adapter that writes the recipe
 onto a doc's effect layer lives elsewhere, exactly as ``vector_motion`` wraps
 ``vector.api``.

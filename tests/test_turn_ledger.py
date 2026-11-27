@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from gemia.turn_ledger import TurnLedger, extract_acceptance_criteria
-from gemia.tool_outcome import classify_tool_result
+from lumeri.turn_ledger import TurnLedger, extract_acceptance_criteria
+from lumeri.tool_outcome import classify_tool_result
 
 
 @dataclass

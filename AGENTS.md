@@ -7,31 +7,31 @@ This is **Lumeri Video** — an agentic video project workspace.
 ### Core Architecture (v3)
 
 - `server.py` — HTTP server entry point, serves web UI and delegates to v3 routes
-- `gemia/v3_routes.py` — Session HTTP API (`/sessions/*`)
-- `gemia/agent_loop_v3.py` — Multi-turn model ↔ tool conversation loop
-- `gemia/tools/` — The agent's tool table (104 tools: media, timeline, LumenFrame, shotlist, files, and agent support; `len(DISPATCHER)` is authoritative)
-- `gemia/sandbox_v4.py` — Sandboxed script execution and security boundary
-- `gemia/gemini_client.py` — Gemini API client for the agent loop
-- `gemia/ai/google_genai_client.py` — Google GenAI client for generative tools
-- `gemia/budget_guard.py` — Step and cost budget enforcement
-- `gemia/errors.py` — Structured errors with recovery protocol
-- `gemia/session_manager.py` — Session lifecycle and concurrency
-- `gemia/session_telemetry.py` — Telemetry and observability
-- `gemia/transport/sse.py` — Server-Sent Events for real-time UI updates
+- `lumeri/v3_routes.py` — Session HTTP API (`/sessions/*`)
+- `lumeri/agent_loop_v3.py` — Multi-turn model ↔ tool conversation loop
+- `lumeri/tools/` — The agent's tool table (104 tools: media, timeline, LumenFrame, shotlist, files, and agent support; `len(DISPATCHER)` is authoritative)
+- `lumeri/sandbox_v4.py` — Sandboxed script execution and security boundary
+- `lumeri/gemini_client.py` — Gemini API client for the agent loop
+- `lumeri/ai/google_genai_client.py` — Google GenAI client for generative tools
+- `lumeri/budget_guard.py` — Step and cost budget enforcement
+- `lumeri/errors.py` — Structured errors with recovery protocol
+- `lumeri/session_manager.py` — Session lifecycle and concurrency
+- `lumeri/session_telemetry.py` — Telemetry and observability
+- `lumeri/transport/sse.py` — Server-Sent Events for real-time UI updates
 
 ### Project Model
 
-- `gemia/project_model.py` — Timeline data model (tracks, clips, effects)
-- `gemia/project_store.py` — Persistent project state (JSON files)
-- `gemia/project_render.py` — FFmpeg-based preview rendering
-- `gemia/project_export.py` — Full-quality export (MP4, OTIO)
-- `gemia/project_inspect.py` — Project introspection utilities
+- `lumeri/project_model.py` — Timeline data model (tracks, clips, effects)
+- `lumeri/project_store.py` — Persistent project state (JSON files)
+- `lumeri/project_render.py` — FFmpeg-based preview rendering
+- `lumeri/project_export.py` — Full-quality export (MP4, OTIO)
+- `lumeri/project_inspect.py` — Project introspection utilities
 
 ### Patch System
 
-- `lumerai/patches.py` — TimelinePatch vocabulary (shared by AI and human editing)
-- `lumerai/otio_adapter.py` — OpenTimelineIO ↔ Lumeri project round-trip
-- `lumerai/sandbox.py` — Legacy sandboxed script execution wrapper
+- `lumeri_script/patches.py` — TimelinePatch vocabulary (shared by AI and human editing)
+- `lumeri_script/otio_adapter.py` — OpenTimelineIO ↔ Lumeri project round-trip
+- `lumeri_script/sandbox.py` — Legacy sandboxed script execution wrapper
 
 ### Composition, Quanta & Specifications
 
@@ -46,8 +46,8 @@ This is **Lumeri Video** — an agentic video project workspace.
 
 ## Rules
 
-1. All timeline modifications — whether from the AI agent or human direct editing — MUST go through the TimelinePatch vocabulary in `lumerai/patches.py`.
+1. All timeline modifications — whether from the AI agent or human direct editing — MUST go through the TimelinePatch vocabulary in `lumeri_script/patches.py`.
 2. The v3 tool protocol is the only agent path. Do not add alternative agent loops.
-3. Media processing uses FFmpeg via `gemia/tools/_ffmpeg.py`. Do not add alternative media backends.
+3. Media processing uses FFmpeg via `lumeri/tools/_ffmpeg.py`. Do not add alternative media backends.
 4. Do not store secrets, API keys, or credentials in code or config files in the repo.
 5. Run `python -m pytest tests/ -v` before committing changes.

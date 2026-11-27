@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "machinery",
   "title": "Native Skill v1 binding",
-  "summary": "Bind immutable native Skill metadata and instruction bytes to the existing gemia prompt assembler. It assembles context without executing tools or editing the Project.",
+  "summary": "Bind immutable native Skill metadata and instruction bytes to the existing lumeri prompt assembler. It assembles context without executing tools or editing the Project.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.native_skill_panel:NativeSkillPromptAdapter"

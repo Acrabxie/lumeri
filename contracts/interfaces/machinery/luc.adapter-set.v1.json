@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "machinery",
   "title": "Trusted adapter factories",
-  "summary": "Construct the Core-allowlisted protocol adapters. Missing optional gemia implementations may be reported without stopping unrelated packages. A manifest cannot add a factory.",
+  "summary": "Construct the Core-allowlisted protocol adapters. Missing optional lumeri implementations may be reported without stopping unrelated packages. A manifest cannot add a factory.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.native_luc_catalog:trusted_protocol_adapters"
@@ -55,7 +55,7 @@
       "evidence": [
         "lumeri_runtime/native_luc_catalog.py:19-58"
       ],
-      "notes": "No deadline. Repeated calls construct fresh instances. ImportError/ValueError in optional gemia factories update missing, or re-raise if missing is None; other failures propagate."
+      "notes": "No deadline. Repeated calls construct fresh instances. ImportError/ValueError in optional lumeri factories update missing, or re-raise if missing is None; other failures propagate."
     }
   ],
   "events": [],

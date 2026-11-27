@@ -1,9 +1,9 @@
 """``edit_grammar`` — the cut-grammar engine as ONE agent tool.
 
 Single tool, op discriminator (``create`` | ``adjust`` | ``catalog``), mirroring
-``vector_motion``. Pure: it imports nothing from gemia and touches no live
+``vector_motion``. Pure: it imports nothing from lumeri and touches no live
 session — ``create``/``adjust`` return the cut plan as plain dicts, and a thin
-gemia adapter (a separate layer) is what would lower the plan onto a real
+lumeri adapter (a separate layer) is what would lower the plan onto a real
 timeline via :func:`lumenframe.edit.render.plan_to_timeline_ops`.
 
 * ``op:"create"``  — a clip sequence brief → a reasoned cut plan.

@@ -21,8 +21,8 @@ from typing import Any
 import opentimelineio as otio
 import pytest
 
-from gemia.project_model import empty_project, normalize_project
-from lumerai.otio_adapter import (
+from lumeri.project_model import empty_project, normalize_project
+from lumeri_script.otio_adapter import (
     _external_target_url,
     _source_path_from_target_url,
     available_formats,
@@ -233,9 +233,9 @@ def test_export_import_otio_verbs_roundtrip(tmp_path: Path) -> None:
     """
     import asyncio
 
-    from gemia.project_store import ProjectHandle
-    from gemia.tools import DISPATCHER
-    from gemia.tools._context import AssetRegistry, ToolContext
+    from lumeri.project_store import ProjectHandle
+    from lumeri.tools import DISPATCHER
+    from lumeri.tools._context import AssetRegistry, ToolContext
 
     def _ctx(session: str) -> ToolContext:
         reg = AssetRegistry()

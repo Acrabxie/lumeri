@@ -82,7 +82,7 @@
       "status": "defined",
       "evidence": [
         "lumeri_engine_cli.py:1559-1573",
-        "gemia/quanta/render_cli.py:40-70"
+        "lumeri/quanta/render_cli.py:40-70"
       ],
       "notes": "No fixed operation deadline is enforced; the enclosing authorized sandbox profile supplies its execution ceiling. Input is the JSON object read from request.json; output is stdout JSON on a successful CLI exit. Exit statuses are engine.cli. No standalone CLI idempotency: retries rerun computation or rewrite scratch. Durable Project import/commit is separate and cannot be treated as one atomic write. One PNG per declared visible state; exact frame count and output-root confinement checked. Runtime bounds frame count to 2048; failures are nonzero process exits."
     },

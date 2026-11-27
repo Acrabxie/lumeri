@@ -20,11 +20,11 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from gemia import subtasks as sub
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.budget_guard import BudgetGuard
-from gemia.plan_mode import PLAN_BLOCKED_TOOLS
-from gemia.tools._schema import TOOL_NAMES
+from lumeri import subtasks as sub
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.budget_guard import BudgetGuard
+from lumeri.plan_mode import PLAN_BLOCKED_TOOLS
+from lumeri.tools._schema import TOOL_NAMES
 
 
 # ── §4.2 profile coverage (mirrors tests/test_plan_mode.py style) ────────────
@@ -189,7 +189,7 @@ def fake_probe(monkeypatch: pytest.MonkeyPatch):
         # patched separately.
         return {"summary": "probed", "duration_sec": 3.0}
 
-    from gemia import subtasks as _sub
+    from lumeri import subtasks as _sub
     monkeypatch.setitem(_sub.DISPATCHER, "probe_media", _probe)
     return _probe
 
@@ -702,7 +702,7 @@ def test_deadline_cancels_stragglers_with_timeout_status(
         await asyncio.sleep(30.0)  # far beyond the tiny deadline below
         return {"summary": "never"}
 
-    from gemia import subtasks as _sub
+    from lumeri import subtasks as _sub
     monkeypatch.setitem(_sub.DISPATCHER, "probe_media", _slow_probe)
 
     spawn_args = {
@@ -737,7 +737,7 @@ def test_parent_cancel_settles_reservations_and_emits_terminals(
         await asyncio.sleep(30.0)
         return {"summary": "never"}
 
-    from gemia import subtasks as _sub
+    from lumeri import subtasks as _sub
     monkeypatch.setitem(_sub.DISPATCHER, "probe_media", _slow_probe)
 
     spawn_args = {"subtasks": [{"goal": "s", "tool_profile": "probe"}]}

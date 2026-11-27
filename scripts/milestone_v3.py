@@ -7,7 +7,7 @@ docs/v3-alive-evidence.log. After turn_complete, ffprobes each
 final asset and appends the report.
 
 No HTTP server in the loop — the test reads through the same
-gemia.transport.sse.iter_events generator that server.py /sessions/
+lumeri.transport.sse.iter_events generator that server.py /sessions/
 {id}/stream uses, so the wire-up the route exercises is identical.
 """
 from __future__ import annotations
@@ -23,8 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gemia.agent_loop_v3 import AgentLoopV3  # noqa: E402
-from gemia.transport.sse import REGISTRY, iter_events  # noqa: E402
+from lumeri.agent_loop_v3 import AgentLoopV3  # noqa: E402
+from lumeri.transport.sse import REGISTRY, iter_events  # noqa: E402
 
 
 WORK = Path("/tmp/lumeri-v3-milestone")

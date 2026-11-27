@@ -12,9 +12,9 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import gemia.agent_loop_v3 as loop_mod
-from gemia.agent_loop_v3 import AgentLoopV3, _REPEATED_FAILURE_NUDGE_THRESHOLD
-from gemia.errors import ToolError
+import lumeri.agent_loop_v3 as loop_mod
+from lumeri.agent_loop_v3 import AgentLoopV3, _REPEATED_FAILURE_NUDGE_THRESHOLD
+from lumeri.errors import ToolError
 
 
 class _RepeatsBuildThenStops:

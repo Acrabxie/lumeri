@@ -166,24 +166,22 @@ Lumeri Video 背后的开放引擎：Python、FFmpeg，加一个本地网页工�
 | 路径 | 职责 |
 |---|---|
 | `server.py` | 本机 HTTP 入口 |
-| `gemia/v3_routes.py` | 会话 API 与流式事件 |
-| `gemia/agent_loop_v3.py` | 多轮模型/工具循环 |
-| `gemia/tools/` | 基于 FFmpeg 和 Python 的媒体工具 |
-| `gemia/project_model.py` | 持久的时间线模型 |
-| `gemia/project_render.py` | 预览渲染 |
-| `gemia/project_export.py` | 全质量导出 |
-| `gemia/quanta/` | Quanta 排版引擎 |
+| `lumeri/v3_routes.py` | 会话 API 与流式事件 |
+| `lumeri/agent_loop_v3.py` | 多轮模型/工具循环 |
+| `lumeri/tools/` | 基于 FFmpeg 和 Python 的媒体工具 |
+| `lumeri/project_model.py` | 持久的时间线模型 |
+| `lumeri/project_render.py` | 预览渲染 |
+| `lumeri/project_export.py` | 全质量导出 |
+| `lumeri/quanta/` | Quanta 排版引擎 |
 | `quanta/format/` | `.qua` 文件格式和样片（CC0） |
 | `docs/luc/` | Luc 参考：包格式、协议、权限 |
 | `contracts/interfaces/` | Lumeri 各模块的接口契约（JSON） |
-| `gemia/ai/skills/` | 内置 Skill |
-| `gemia/mcp/` | MCP 服务 |
+| `lumeri/ai/skills/` | 内置 Skill |
+| `lumeri/mcp/` | MCP 服务 |
 | `lumenframe/` | 合成引擎与创作库：调色、标题、运镜、构图、剪辑、节奏、矢量动效 |
-| `lumerai/patches.py` | 共用的时间线补丁词表 |
-| `lumerai/otio_adapter.py` | OpenTimelineIO 交换 |
+| `lumeri_script/patches.py` | 共用的时间线补丁词表 |
+| `lumeri_script/otio_adapter.py` | OpenTimelineIO 交换 |
 | `static/v3/` | 本地网页界面 |
-
-> 产品和本仓库的名字是 **Lumeri**。Python 包和部分工程路径仍沿用历史名称 `gemia`。
 
 ## 安装
 

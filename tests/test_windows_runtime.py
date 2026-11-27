@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path, PureWindowsPath
 
-import gemia.runtime_paths as runtime_paths
+import lumeri.runtime_paths as runtime_paths
 import server
-from gemia.video import fonts
+from lumeri.video import fonts
 
 
 def test_server_defaults_to_loopback() -> None:

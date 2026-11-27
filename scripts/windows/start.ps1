@@ -35,7 +35,7 @@ Write-Host "Press Ctrl+C to stop it."
 
 Push-Location $RepoRoot
 try {
-    & $Python -m gemia serve --host 127.0.0.1 --port $Port
+    & $Python -m lumeri serve --host 127.0.0.1 --port $Port
     exit $LASTEXITCODE
 }
 finally {

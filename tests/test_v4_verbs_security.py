@@ -33,10 +33,10 @@ def _sandbox_exec_usable(path: str) -> bool:
         return r.returncode == 0
     except Exception:
         return False
-from gemia.tools import fetch as fetch_mod
-from gemia.tools import run_shell as run_shell_mod
-from gemia.tools import web_search as web_search_mod
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.tools import fetch as fetch_mod
+from lumeri.tools import run_shell as run_shell_mod
+from lumeri.tools import web_search as web_search_mod
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 _SANDBOX_EXEC = shutil.which("sandbox-exec")
 _USABLE = bool(_SANDBOX_EXEC) and sys.platform == "darwin" and _sandbox_exec_usable(_SANDBOX_EXEC or "")
@@ -46,7 +46,7 @@ _needs_sandbox = pytest.mark.skipif(not _USABLE, reason="sandbox-exec not usable
 @pytest.fixture(autouse=True)
 def _force_sandbox_enabled():
     """Security tests always need the real sandbox, regardless of POST /settings/sandbox toggle."""
-    from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+    from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
     was_disabled = is_sandbox_disabled()
     set_sandbox_disabled(False)
     yield
@@ -74,7 +74,7 @@ def _run_shell(workspace: Path, command: str, *, timeout_sec: float = 20) -> dic
 # --------------------------------------------------------------------------- #
 
 @_needs_sandbox
-def test_run_shell_cat_gemia_config_denied(tmp_path: Path) -> None:
+def test_run_shell_cat_lumeri_config_denied(tmp_path: Path) -> None:
     if not (Path.home() / ".gemia" / "config.json").exists():
         pytest.skip("~/.gemia/config.json not present")
     r = _run_shell(tmp_path / "ws", "cat ~/.gemia/config.json")

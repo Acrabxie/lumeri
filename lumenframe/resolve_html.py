@@ -2,7 +2,7 @@
 
 An ``html`` layer carries a tiny web document in its ``props`` (``html`` plus an
 optional ``css`` / ``js``). This resolver renders that document to an ``mp4`` once
-via :func:`gemia.hyperframes_adapter.render_hyperframes_clip` (HyperFrames), then
+via :func:`lumeri.hyperframes_adapter.render_hyperframes_clip` (HyperFrames), then
 samples the produced video through the *exact same* path a normal ``video`` layer
 uses (:func:`lumenframe.resolve._video_resolver`). The result composites like any
 other video layer — transforms, effects, blend modes, masks all apply unchanged.
@@ -97,7 +97,7 @@ def _build_render_context(ctx: ResolveContext, layer: dict[str, Any]):
     import tempfile
     from pathlib import Path
 
-    from gemia.hyperframes_adapter import HyperFramesContext
+    from lumeri.hyperframes_adapter import HyperFramesContext
 
     workspace = Path(tempfile.mkdtemp(prefix="lumenframe_html_"))
     return HyperFramesContext(
@@ -154,7 +154,7 @@ def html_resolver(layer: dict[str, Any], ctx: ResolveContext) -> Optional[Conten
 
     clip = _RENDER_CACHE.get(key)
     if clip is None:
-        from gemia.hyperframes_adapter import render_hyperframes_clip
+        from lumeri.hyperframes_adapter import render_hyperframes_clip
 
         render_ctx = _build_render_context(ctx, layer)
         clip = render_hyperframes_clip(

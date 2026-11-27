@@ -42,7 +42,7 @@ jobs:
           .\scripts\windows\setup.ps1
           .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
       - name: Check Python syntax
-        run: .\.venv\Scripts\python.exe -m compileall -q gemia lumerai lumenframe server.py
+        run: .\.venv\Scripts\python.exe -m compileall -q lumeri lumeri_script lumenframe server.py
       - name: Run full test suite on Windows
         run: .\.venv\Scripts\python.exe -m pytest tests/ -q -rs
       - name: Start and probe port 7788

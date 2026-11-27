@@ -5,13 +5,13 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.turn_compaction import (
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.turn_compaction import (
     compact_settled_tool_blocks,
     estimate_message_tokens,
     settled_tool_blocks,
 )
-from gemia.turn_ledger import TurnLedger
+from lumeri.turn_ledger import TurnLedger
 
 
 def _history(count: int = 20, *, payload_size: int = 5_000):

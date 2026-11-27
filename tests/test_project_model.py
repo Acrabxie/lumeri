@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from gemia.project_model import (
+from lumeri.project_model import (
     IMAGE_DURATION,
     PROJECT_SCHEMA,
     clip_count,

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from gemia import brain_config, codex_subscription
-from gemia import gemini_client
+from lumeri import brain_config, codex_subscription
+from lumeri import gemini_client
 
 
 def _completed(args: list[str], returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:

@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import gemia.agent_loop_v3 as loop_mod
+import lumeri.agent_loop_v3 as loop_mod
 import pytest
-from gemia.agent_loop_v3 import AgentLoopV3
+from lumeri.agent_loop_v3 import AgentLoopV3
 
 
 _PNG = base64.b64decode(

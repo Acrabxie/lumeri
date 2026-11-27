@@ -30,9 +30,9 @@ from pathlib import Path
 
 import pytest
 
-from gemia.sandbox_v4 import build_v4_sandbox_command
-from gemia.tools import build
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.sandbox_v4 import build_v4_sandbox_command
+from lumeri.tools import build
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 _ENFORCED = build_v4_sandbox_command(["/usr/bin/true"], workspace_dir=Path.home())[1]
@@ -45,7 +45,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(autouse=True)
 def _force_sandbox_enabled():
     """Security tests must verify real sandbox isolation; force-enable sandbox regardless of user toggle."""
-    from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+    from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
     was_disabled = is_sandbox_disabled()
     set_sandbox_disabled(False)
     yield
@@ -90,7 +90,7 @@ def setup_module() -> None:
     not (Path.home() / ".gemia" / "config.json").exists(),
     reason="no real ~/.gemia/config.json on this host",
 )
-def test_escape_read_gemia_config_denied(tmp_path: Path) -> None:
+def test_escape_read_lumeri_config_denied(tmp_path: Path) -> None:
     code = """
 from pathlib import Path
 p = Path.home() / ".gemia" / "config.json"

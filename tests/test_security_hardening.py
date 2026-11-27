@@ -4,10 +4,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from gemia.audio.effects import audio_vinyl_hiss
-from gemia.onboarding import mask_secret
-from gemia.tools.web_search import _normalize_result_url
-from gemia.video.effects import video_mirror_time
+from lumeri.audio.effects import audio_vinyl_hiss
+from lumeri.onboarding import mask_secret
+from lumeri.tools.web_search import _normalize_result_url
+from lumeri.video.effects import video_mirror_time
 
 
 def test_mask_secret_never_echoes_a_secret_fragment() -> None:

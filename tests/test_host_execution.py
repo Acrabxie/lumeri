@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from gemia import host_execution, sandbox_v4
-from gemia.audio.effects import text_to_speech
-from gemia.tools import build, run_shell
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.video import blender_link
+from lumeri import host_execution, sandbox_v4
+from lumeri.audio.effects import text_to_speech
+from lumeri.tools import build, run_shell
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.video import blender_link
 
 
 def _ctx(root: Path) -> ToolContext:
@@ -97,7 +97,6 @@ def test_blender_discovers_windows_program_files(monkeypatch: pytest.MonkeyPatch
     executable.write_bytes(b"")
     monkeypatch.setenv("ProgramFiles", str(tmp_path))
     monkeypatch.delenv("LUMERI_BLENDER_PATH", raising=False)
-    monkeypatch.delenv("GEMIA_BLENDER_PATH", raising=False)
     monkeypatch.setattr(blender_link.shutil, "which", lambda _name: None)
 
     assert blender_link._find_blender() == str(executable)

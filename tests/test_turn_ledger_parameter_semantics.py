@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gemia.turn_ledger import TurnLedger, extract_acceptance_criteria
+from lumeri.turn_ledger import TurnLedger, extract_acceptance_criteria
 
 
 def test_trim_range_extracts_output_duration_instead_of_start_time() -> None:

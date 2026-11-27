@@ -1,4 +1,4 @@
-"""Shared test fixtures for Gemia primitives."""
+"""Shared test fixtures for Lumeri primitives."""
 from __future__ import annotations
 
 import subprocess
@@ -58,4 +58,4 @@ def sample_video_path(tmp_path: Path) -> str:
 
 @pytest.fixture(autouse=True)
 def isolated_skill_telemetry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("GEMIA_SKILL_TELEMETRY_DB", str(tmp_path / "skill_telemetry.sqlite3"))
+    monkeypatch.setenv("LUMERI_SKILL_TELEMETRY_DB", str(tmp_path / "skill_telemetry.sqlite3"))

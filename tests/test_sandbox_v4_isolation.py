@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from gemia.sandbox_v4 import (
+from lumeri.sandbox_v4 import (
     DEFAULT_CREDENTIAL_DENY,
     build_two_tier_profile,
 )
@@ -291,14 +291,14 @@ def test_real_credentials_denied() -> None:
             try:
                 os.listdir(p); return "READ"
             except OSError as e: return "DENIED(%s)" % e.errno
-        print("gemia_config=" + rd({str(real_config)!r}))
+        print("lumeri_config=" + rd({str(real_config)!r}))
         print("gcloud=" + ls({str(Path.home() / '.config' / 'gcloud')!r}))
         print("ssh=" + ls({str(Path.home() / '.ssh')!r}))
         print("control_etc_hosts=" + rd("/etc/hosts"))
         """,
     )
     m = _matrix(proc.stdout)
-    assert m.get("gemia_config", "").startswith("DENIED"), proc.stdout + proc.stderr
+    assert m.get("lumeri_config", "").startswith("DENIED"), proc.stdout + proc.stderr
     assert m.get("gcloud", "").startswith("DENIED"), proc.stdout + proc.stderr
     assert m.get("ssh", "").startswith("DENIED"), proc.stdout + proc.stderr
     # control: a non-credential read still works (proves we didn't just break reads)

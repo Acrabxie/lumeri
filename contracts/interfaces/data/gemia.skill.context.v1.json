@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Skill context assembler",
-  "summary": "An immutable native Skill instruction and trusted gemia prompt assembler produce planner context, without running tools or mutating the Project.",
+  "summary": "An immutable native Skill instruction and trusted lumeri prompt assembler produce planner context, without running tools or mutating the Project.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.native_skill_panel:NativeSkillPromptAdapter"
@@ -86,7 +86,7 @@
   },
   "known_deviations": [
     {
-      "text": "The factory loads only the Video timeline-ops native Skill from gemia; its Python callable and local source text remain required.",
+      "text": "The factory loads only the Video timeline-ops native Skill from lumeri; its Python callable and local source text remain required.",
       "evidence": [
         "lumeri_runtime/native_skill_panel.py:269-285"
       ],

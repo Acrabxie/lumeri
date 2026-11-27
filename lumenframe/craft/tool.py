@@ -5,8 +5,8 @@ Each point library exposes ONE consolidated tool (the ``update_quantum`` /
 lives in the library's ``api``; the tool is a thin, side-effect-light wrapper
 that validates the op, routes it, and returns a plain dict. These helpers keep
 that wrapper uniform across all six libraries and easy to unit-test without a
-live session (the gemia adapter that writes to a doc/timeline is a separate, thin
-layer, exactly as ``gemia/tools/vector_motion.py`` wraps ``vector.api``).
+live session (the lumeri adapter that writes to a doc/timeline is a separate, thin
+layer, exactly as ``lumeri/tools/vector_motion.py`` wraps ``vector.api``).
 """
 from __future__ import annotations
 

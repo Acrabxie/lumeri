@@ -41,10 +41,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.budget_guard import BudgetGuard
-from gemia.tools import generate_image as generate_image_tool
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.budget_guard import BudgetGuard
+from lumeri.tools import generate_image as generate_image_tool
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 HEAD = "═" * 70

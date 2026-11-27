@@ -20,7 +20,7 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from gemia.agent_loop_v3 import AgentLoopV3
+from lumeri.agent_loop_v3 import AgentLoopV3
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not available")
 

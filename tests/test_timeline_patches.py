@@ -14,8 +14,8 @@ import copy
 
 import pytest
 
-from gemia.project_model import IMAGE_DURATION, empty_project, normalize_project
-from lumerai.patches import (
+from lumeri.project_model import IMAGE_DURATION, empty_project, normalize_project
+from lumeri_script.patches import (
     EPSILON,
     TimelinePatchError,
     apply_timeline_patches,
@@ -900,7 +900,7 @@ def test_failing_second_op_leaves_input_state_unpolluted() -> None:
 
 
 def test_project_store_new_ops_round_trip_with_undo(tmp_path) -> None:
-    from gemia.project_store import ProjectStore
+    from lumeri.project_store import ProjectStore
 
     store = ProjectStore(tmp_path / "projects")
     seed = _project([_video_clip("clip_demo", 0.0, 2.0)])
