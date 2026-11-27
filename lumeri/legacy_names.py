@@ -3,8 +3,17 @@
 The engine package used to be called ``gemia`` and the script runtime
 ``lumerai``. Code now says ``lumeri`` and ``lumeri_script``. This module is
 the one place that still knows the old spellings, so settings, scripts and
-saved data written before the rename keep working. Nothing here writes an
-old name; it only maps old names to current ones on the way in.
+saved data written before the rename keep working.
+
+Most old names are only mapped to current ones on the way in. The names in
+:data:`KEPT_NAMES` are different: files, projects and exports already hold
+them, and an older Lumeri reading a file needs to find them there. They move
+in two releases:
+
+1. This release reads both spellings and still writes the old one, so a
+   machine can go back one release and lose nothing.
+2. The next release writes the new one, and turns an old one into the new
+   one where it reads it.
 """
 from __future__ import annotations
 
@@ -22,6 +31,41 @@ LEGACY_URI_SCHEMES: dict[str, str] = {"gemia": "lumeri"}
 
 # Dotted primitive ids found in saved or cached plans.
 LEGACY_REGISTRY_PREFIXES: dict[str, str] = {"gemia.": "lumeri."}
+
+# Names files already hold, old spelling to new. Code names the new spelling
+# and asks :func:`written` which one to put in a file.
+KEPT_NAMES: dict[str, str] = {
+    # A project file's "schema".
+    "gemia.project": "lumeri.project",
+    # A project's "generator", the scheme of a saved media reference
+    # (gemia://media/...) and the prefix of USD and OpenXR identifiers.
+    "gemia": "lumeri",
+    # The title of a session nobody has named yet.
+    "Gemia Session": "Lumeri Session",
+    # The script engine, in saved plans and in what a script made.
+    "lumerai_script": "lumeri_script",
+    # Where a media asset's identity came from.
+    "gemia_media_library": "lumeri_media_library",
+    # OpenTimelineIO package metadata keys and the default timeline name.
+    "gemia_package": "lumeri_package",
+    "gemia_clip_id": "lumeri_clip_id",
+    "gemia_timeline_package": "lumeri_timeline_package",
+    # The default USD stage id.
+    "gemia_stage": "lumeri_stage",
+    # The OpenXR delivery profile and its action set.
+    "gemia_openxr_spatial_delivery": "lumeri_openxr_spatial_delivery",
+    "gemia_spatial_review": "lumeri_spatial_review",
+    "Gemia Spatial Review": "Lumeri Spatial Review",
+}
+_OLD_SPELLING: dict[str, str] = {new: old for old, new in KEPT_NAMES.items()}
+
+# Whether this release writes the new spellings. Step 1 of the move: not yet.
+WRITES_NEW_NAMES = False
+
+# The folder in the home directory that held a person's files before
+# ``~/.lumeri`` (see :mod:`lumeri.home`).
+LEGACY_DATA_HOME = ".gemia"
+DATA_HOME = ".lumeri"
 
 
 def apply_legacy_env(environ: MutableMapping[str, str] | None = None) -> list[str]:
@@ -73,14 +117,54 @@ def current_registry_id(fqn: str) -> str:
     return fqn
 
 
+def written(name: str) -> str:
+    """The spelling of the kept name *name* (given new) that this release writes."""
+    if name not in _OLD_SPELLING:
+        raise KeyError(f"{name!r} is not a kept name")
+    return name if WRITES_NEW_NAMES else _OLD_SPELLING[name]
+
+
+def current(value: str) -> str:
+    """*value* in its new spelling, if it is a kept name; otherwise *value*."""
+    return KEPT_NAMES.get(value, value) if isinstance(value, str) else value
+
+
+def spellings(name: str) -> tuple[str, str]:
+    """The new and the old spelling of the kept name *name* (given new)."""
+    return name, _OLD_SPELLING[name]
+
+
+def current_prefixed(value: str, name: str, separator: str) -> str:
+    """*value* with its kept-name prefix (``name`` + *separator*) in the new spelling.
+
+    For identifiers such as ``gemia://media/...`` or ``gemia:usd_stage:...``.
+    Anything that does not start with either spelling comes back unchanged.
+    """
+    if not isinstance(value, str):
+        return value
+    for spelling in spellings(name):
+        head = spelling + separator
+        if value.startswith(head):
+            return name + separator + value[len(head):]
+    return value
+
+
 __all__ = [
     "CURRENT_ENV_PREFIX",
+    "DATA_HOME",
+    "KEPT_NAMES",
+    "LEGACY_DATA_HOME",
+    "WRITES_NEW_NAMES",
     "LEGACY_ENV_PREFIXES",
     "LEGACY_IMPORT_NAMES",
     "LEGACY_REGISTRY_PREFIXES",
     "LEGACY_URI_SCHEMES",
     "apply_legacy_env",
+    "current",
     "current_import_name",
+    "current_prefixed",
     "current_registry_id",
     "current_uri",
+    "spellings",
+    "written",
 ]

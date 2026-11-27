@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from lumeri import lus as _lus
+from lumeri.home import data_path
 
 _LOG = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ def distilled_skills_dir() -> Path:
     override = os.environ.get("LUMERI_SKILL_STORE_DIR")
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".gemia" / "skills"
+    return data_path("skills")
 
 
 def _distill_slug(text: str) -> str:

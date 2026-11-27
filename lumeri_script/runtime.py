@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
+from lumeri.legacy_names import written
 from lumeri.project_model import IMAGE_DURATION, normalize_project
 from lumeri.video.effects import video_brightness_contrast, video_info, video_sepia, video_trim
 
@@ -319,7 +320,7 @@ def _patch_data_for_clip(clip: dict[str, Any], *, start: float, track_id: str) -
         "mime_type": "video/mp4" if media_kind == "video" else "",
         "source_path": source_path,
         "duration": duration,
-        "metadata": {"generated_by": "lumerai_script", **metadata},
+        "metadata": {"generated_by": written("lumeri_script"), **metadata},
     }
     timeline_clip = {
         "id": str(clip.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),

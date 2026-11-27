@@ -25,6 +25,7 @@ import certifi
 from lumeri.memory import resolve_model
 from lumeri.audio.effects import text_to_speech as local_text_to_speech
 from lumeri.primitives_common import ensure_path_exists
+from lumeri.home import data_path
 
 # ── Type Definitions ─────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ _GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/
 
 def _read_config_key(field: str) -> str:
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field, "") or ""

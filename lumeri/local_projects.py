@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-PROJECTS_PATH = Path.home() / ".gemia" / "projects.json"
+from lumeri.home import data_path
+
+PROJECTS_PATH = data_path("projects.json")
 
 
 def _now() -> str:

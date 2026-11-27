@@ -43,6 +43,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from lumeri.agent_loop_v3 import AgentLoopV3
 from lumeri.budget_guard import BudgetGuard
+from lumeri.home import data_path
 from lumeri.tools import generate_image as generate_image_tool
 from lumeri.tools._context import AssetRegistry, ToolContext
 
@@ -290,7 +291,7 @@ def run_budget_gate_demo() -> None:
 
 def main() -> int:
     # Pre-flight: verify config has the key (cheap, no API call).
-    config_path = Path.home() / ".gemia" / "config.json"
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         print(f"✗ {config_path} missing. Create it with gemini_studio_api_key first.")
         return 1

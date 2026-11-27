@@ -15,6 +15,7 @@ from lumeri.video.face_reshaper import render_face_reshaper_plan
 from lumeri.video.blemish import render_blemish_removal_plan
 from lumeri.video.html_graphics import render_html_graphics_plan
 from lumeri.video.review import review_real_media_artifact
+from lumeri.home import data_path
 
 logger = logging.getLogger(__name__)
 
@@ -150,5 +151,5 @@ def _resolve_stock_catalog(stock_catalog_path: str | Path | None) -> Path | None
     if stock_catalog_path is not None:
         resolved = Path(stock_catalog_path).expanduser().resolve()
         return resolved if resolved.exists() else None
-    default = Path.home() / ".gemia" / "automation" / "stock_catalog.json"
+    default = data_path("automation", "stock_catalog.json")
     return default if default.exists() else None

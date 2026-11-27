@@ -15,13 +15,15 @@ from typing import Any
 
 import certifi
 
+from lumeri.home import data_path
+
 from .provider_audit import audit_provider_payload
 
 
 def _read_config_key(field: str) -> str:
     """Read a single key from ~/.gemia/config.json, returning '' on any error."""
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field, "") or ""

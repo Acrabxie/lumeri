@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from lumeri.home import data_path
 
 
 _DEFAULT_DB_ENV = "LUMERI_V3_TELEMETRY_DB"
@@ -62,7 +63,7 @@ def default_db_path() -> Path:
     override = os.environ.get(_DEFAULT_DB_ENV, "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".gemia" / "v3" / "telemetry.sqlite3"
+    return data_path("v3", "telemetry.sqlite3")
 
 
 def telemetry_disabled() -> bool:

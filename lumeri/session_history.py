@@ -12,9 +12,13 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from lumeri.artifacts import is_document_artifact_output, is_media_output
+from lumeri.home import data_path
+from lumeri.legacy_names import current, written
 
 SESSION_SCHEMA_VERSION = 2
-SESSION_ROOT = Path.home() / ".gemia" / "sessions"
+# The title a session has until someone names it; an untitled one may hold either spelling.
+UNTITLED_SESSION = written("Lumeri Session")
+SESSION_ROOT = data_path("sessions")
 CURRENT_SESSION_PATH = SESSION_ROOT / "current.json"
 SNAPSHOT_ROOT = SESSION_ROOT / "history"
 MAX_SNAPSHOTS = 200
@@ -42,7 +46,7 @@ def empty_session(account_id: str | None = None) -> dict[str, Any]:
         "project_revision": 0,
         "production_state": None,
         "chat_only": True,
-        "title": "Gemia Session",
+        "title": UNTITLED_SESSION,
         "created_at": now,
         "updated_at": now,
         "messages": [],
@@ -102,7 +106,7 @@ def list_session_snapshots(limit: int = 30, account_id: str | None = None) -> li
             {
                 "id": path.stem,
                 "path": str(path),
-                "title": str(payload.get("title") or "Gemia Session"),
+                "title": str(payload.get("title") or UNTITLED_SESSION),
                 "updated_at": str(payload.get("updated_at") or ""),
                 "message_count": len(payload.get("messages") or []),
                 "clip_count": _clip_count(payload.get("project") or payload.get("project_state")),
@@ -562,7 +566,7 @@ def _migrate_legacy_artifact_message(content: str) -> str:
 
 def _session_title(session: dict[str, Any]) -> str:
     title = _optional_str(session.get("title"))
-    if title and title != "Gemia Session":
+    if title and current(title) != "Lumeri Session":
         return title[:120]
     for message in _messages(session.get("messages")):
         if message.get("role") == "user":
@@ -581,7 +585,7 @@ def _session_title(session: dict[str, Any]) -> str:
             first = clips[0]
             if isinstance(first, dict) and first.get("name"):
                 return str(first["name"])[:80]
-    return "Gemia Session"
+    return UNTITLED_SESSION
 
 
 def _write_snapshot(session: dict[str, Any], account_id: str | None = None) -> None:

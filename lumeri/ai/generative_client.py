@@ -24,7 +24,6 @@ import ssl
 import urllib.error
 import urllib.request
 import uuid
-from pathlib import Path
 from typing import Any
 
 import certifi
@@ -33,6 +32,7 @@ import numpy as np
 
 from lumeri.primitives_common import ensure_float32, to_uint8
 from lumeri.model_strength import is_model_unavailable_error, media_model_failover_chain, strongest_media_model
+from lumeri.home import data_path
 
 # ── Defaults ─────────────────────────────────────────────────────────────
 
@@ -514,7 +514,7 @@ def _clean_url(value: Any) -> str:
 
 def _read_config_key(field: str) -> str:
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             return str(data.get(field, "") or "").strip()

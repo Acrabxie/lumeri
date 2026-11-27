@@ -10,9 +10,10 @@ import re
 from pathlib import Path
 
 from lumeri.errors import LumeriError
+from lumeri.home import data_path
 
 LOCAL_WORKSPACE_ID = "local_public"
-WORKSPACES_ROOT = Path.home() / ".gemia" / "public-workspaces"
+WORKSPACES_ROOT = data_path("public-workspaces")
 
 
 class WorkspaceError(LumeriError, ValueError):

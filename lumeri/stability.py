@@ -7,10 +7,10 @@ import re
 import traceback
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from lumeri.errors import LumeriError, TaskCancelledError
+from lumeri.home import data_path
 
 TASK_STATUSES = {
     "planning",
@@ -24,7 +24,7 @@ TASK_STATUSES = {
 }
 
 TERMINAL_TASK_STATUSES = {"preview_ready", "artifact_ready", "failed", "succeeded", "cancelled"}
-_ERROR_LOG_PATH = Path.home() / ".gemia" / "logs" / "error_firewall.jsonl"
+_ERROR_LOG_PATH = data_path("logs", "error_firewall.jsonl")
 _SECRET_RE = re.compile(
     r"(?i)(authorization|api[_-]?key|token|secret|password)(['\"\s:=]+)([A-Za-z0-9._\-+/=]{8,})"
 )
