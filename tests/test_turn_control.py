@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gemia.turn_control import (
+from lumeri.turn_control import (
     E_CLARIFICATION_LIMIT,
     E_CLARIFICATION_POLICY,
     ClarificationDecisionKind,

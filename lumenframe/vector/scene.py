@@ -105,7 +105,7 @@ DEFAULT_NODE_TRANSFORM: dict[str, float] = {
     "rotation": 0.0,
 }
 
-# Per-THREAD id counter. gemia runs one event-loop thread per session
+# Per-THREAD id counter. lumeri runs one event-loop thread per session
 # (session_manager: ``lumeri-v3-<session_id>``), so two sessions building a
 # scene concurrently must not share this counter — a global would interleave
 # reset/increment across threads and emit duplicate ids / nondeterministic SVG

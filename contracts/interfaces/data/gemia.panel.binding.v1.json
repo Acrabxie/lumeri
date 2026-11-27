@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Panel lifecycle binding",
-  "summary": "Validate and pin the existing gemia panel descriptor, then delegate mount/destroy to the trusted Host lifecycle. The descriptor contains no package renderer code.",
+  "summary": "Validate and pin the existing lumeri panel descriptor, then delegate mount/destroy to the trusted Host lifecycle. The descriptor contains no package renderer code.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.native_skill_panel:NativePanelBinding,NativeUIPanelAdapter"
@@ -41,7 +41,7 @@
       "evidence": [
         "lumeri_runtime/native_skill_panel.py:185-198"
       ],
-      "notes": "No fixed operation deadline is enforced. Validates with gemia.plugin_surfaces.validate_descriptor and stores detached canonical JSON. Full native descriptor schema is draft; UI rendering belongs to the editor area."
+      "notes": "No fixed operation deadline is enforced. Validates with lumeri.plugin_surfaces.validate_descriptor and stores detached canonical JSON. Full native descriptor schema is draft; UI rendering belongs to the editor area."
     },
     {
       "name": "compile",

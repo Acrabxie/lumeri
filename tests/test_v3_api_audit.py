@@ -2,7 +2,7 @@
 
 No network. Monkeypatches GoogleGenAIClient._post_json so the audit
 wrapper (submitted/completed/failed) runs for real against a temp JSONL
-file pointed at by GEMIA_V3_API_AUDIT.
+file pointed at by LUMERI_V3_API_AUDIT.
 """
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from gemia.ai import google_genai_client as gc
-from gemia.ai.google_genai_client import (
+from lumeri.ai import google_genai_client as gc
+from lumeri.ai.google_genai_client import (
     GoogleGenAIClient,
     VertexAPIError,
     find_suspected_leaks,
     read_api_calls,
 )
-from gemia.budget_guard import tool_cost_usd
+from lumeri.budget_guard import tool_cost_usd
 
 
 _TINY_PNG_B64 = (
@@ -57,7 +57,7 @@ def _client() -> GoogleGenAIClient:
 
 def test_audit_submitted_then_completed_on_success(monkeypatch, tmp_path: Path) -> None:
     audit = tmp_path / "api-calls.jsonl"
-    monkeypatch.setenv("GEMIA_V3_API_AUDIT", str(audit))
+    monkeypatch.setenv("LUMERI_V3_API_AUDIT", str(audit))
 
     async def fake_post(self, path, body):
         return _ok_response()
@@ -92,7 +92,7 @@ def test_audit_submitted_then_completed_on_success(monkeypatch, tmp_path: Path) 
 
 def test_audit_submitted_then_failed_on_transport_error(monkeypatch, tmp_path: Path) -> None:
     audit = tmp_path / "api-calls.jsonl"
-    monkeypatch.setenv("GEMIA_V3_API_AUDIT", str(audit))
+    monkeypatch.setenv("LUMERI_V3_API_AUDIT", str(audit))
 
     async def boom(self, path, body):
         raise VertexAPIError("Vertex HTTP 0 SSL EOF", status=None, body_tail="")
@@ -159,7 +159,7 @@ def test_budget_tool_cost_usd_matches_table() -> None:
 
 def test_budget_guard_failed_call_does_not_charge_usd() -> None:
     """Mirror the agent_loop change: a failed dispatch commits usd=0."""
-    from gemia.budget_guard import BudgetGuard
+    from lumeri.budget_guard import BudgetGuard
 
     guard = BudgetGuard(max_usd=5.0, max_seconds=600.0)
     # success path (agent loop commits estimated usd)

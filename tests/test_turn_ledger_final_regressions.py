@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from gemia.tool_router import classify_request
-from gemia.turn_ledger import TurnLedger, extract_acceptance_criteria
+from lumeri.tool_router import classify_request
+from lumeri.turn_ledger import TurnLedger, extract_acceptance_criteria
 
 
 @pytest.mark.parametrize(

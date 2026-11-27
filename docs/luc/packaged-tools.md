@@ -251,7 +251,7 @@ settings do: the `[luc]` table of `~/.lumeri/config.toml`.
   state it already has, so the table is the whole list. A line that is there
   is never rewritten, and nothing outside the table is touched: comments,
   order and the other tables stay as the person (or the CLI, or the 1.0
-  server) left them. `gemia/local_config.py` keeps the table verbatim when it
+  server) left them. `lumeri/local_config.py` keeps the table verbatim when it
   rewrites the file.
 - **A config the Runtime cannot safely add to is left alone**: not valid TOML,
   a link, larger than the 64 KB the App reads, or a `luc` that is not a
@@ -308,7 +308,7 @@ channel sequence 2. Between the two the server's own Luc code had to move to
   the tree before this change; their `agent_tools.py` rows are historical.
   They are a census of the extraction, not the list of Lucs; that list is
   `official_luc/REGISTRY`.
-- The 1.0 tool families under `gemia/tools/` are not in the 1.1 Runtime at
+- The 1.0 tool families under `lumeri/tools/` are not in the 1.1 Runtime at
   all and are not Lucs yet.
 - The Worker's other governed capabilities (encode, composition, luvi,
   canvas, render, Quanta ...) are still Runtime code. The notes kept beside footage

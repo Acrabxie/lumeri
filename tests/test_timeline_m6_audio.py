@@ -23,12 +23,12 @@ from typing import Any
 
 import pytest
 
-from gemia.project_model import empty_project, normalize_project
-from gemia.project_store import ProjectHandle
-from gemia.tools import DISPATCHER
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools._ffmpeg import audio_stream, ffprobe_metadata
-from lumerai.patches import TimelinePatchError, apply_timeline_patches
+from lumeri.project_model import empty_project, normalize_project
+from lumeri.project_store import ProjectHandle
+from lumeri.tools import DISPATCHER
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.tools._ffmpeg import audio_stream, ffprobe_metadata
+from lumeri_script.patches import TimelinePatchError, apply_timeline_patches
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────

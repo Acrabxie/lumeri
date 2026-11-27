@@ -28,8 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gemia.tools import DISPATCHER, AssetRegistry, ToolContext  # noqa: E402
-from gemia.tools._context import ProgressUpdate  # noqa: E402
+from lumeri.tools import DISPATCHER, AssetRegistry, ToolContext  # noqa: E402
+from lumeri.tools._context import ProgressUpdate  # noqa: E402
 
 
 def banner(title: str) -> None:

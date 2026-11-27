@@ -10,9 +10,9 @@ Single tool, op discriminator (the ``vector_motion`` shape):
 * ``op:"catalog"`` — the creative vocabulary (moves, styles, axes, feedback
   words) for the model to compose briefs from.
 
-Pure: it imports no gemia runtime and returns plain dicts via ``ok()`` / ``err()``.
-The gemia adapter that writes the track onto a transform layer is a separate,
-thin wrapper (exactly as ``gemia/tools/vector_motion.py`` wraps ``vector.api``).
+Pure: it imports no lumeri runtime and returns plain dicts via ``ok()`` / ``err()``.
+The lumeri adapter that writes the track onto a transform layer is a separate,
+thin wrapper (exactly as ``lumeri/tools/vector_motion.py`` wraps ``vector.api``).
 """
 from __future__ import annotations
 

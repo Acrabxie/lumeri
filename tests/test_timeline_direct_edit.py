@@ -14,8 +14,8 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
-from gemia import v3_routes
-from gemia.agent_loop_v3 import AgentLoopV3
+from lumeri import v3_routes
+from lumeri.agent_loop_v3 import AgentLoopV3
 
 
 # ── harness ──────────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ def test_undo_op_reverts_last_edit(tmp_path) -> None:
 
 
 def test_add_transition_surfaces_in_payload(tmp_path) -> None:
-    """Regression: lumerai stores clip["transition_after"] but the UI payload
+    """Regression: lumeri_script stores clip["transition_after"] but the UI payload
     read clip["transition"] — every stored transition surfaced as null and the
     feature was invisible on both frontends."""
     loop, _ = _loop(tmp_path, "de-trans")

@@ -12,9 +12,9 @@ Single tool, op discriminator (the ``vector_motion`` pattern):
   feelings) to compose briefs from.
 
 Pure and side-effect-free: it validates, routes and returns plain dicts via the
-shared :func:`~lumenframe.craft.tool.dispatch` helper. The gemia adapter that
+shared :func:`~lumenframe.craft.tool.dispatch` helper. The lumeri adapter that
 writes the SVG to a doc's ``html`` layer is a separate thin layer, exactly as
-``gemia/tools/vector_motion.py`` wraps ``vector.api``.
+``lumeri/tools/vector_motion.py`` wraps ``vector.api``.
 """
 from __future__ import annotations
 

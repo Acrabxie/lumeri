@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gemia.gemini_client import GeminiClientV3  # noqa: E402
+from lumeri.gemini_client import GeminiClientV3  # noqa: E402
 
 
 async def main() -> None:

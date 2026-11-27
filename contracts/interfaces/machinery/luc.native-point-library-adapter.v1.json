@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "area": "machinery",
   "title": "Native point library read binding",
-  "summary": "Refer to a Core-supplied gemia PointLibraryPackage by stable name, version and semantic contract hash. Catalog access receives no APIs, permissions or editable boundary. A layer may bring the library's catalog and verification record, which a read then answers with; the binding stays the native one.",
+  "summary": "Refer to a Core-supplied lumeri PointLibraryPackage by stable name, version and semantic contract hash. Catalog access receives no APIs, permissions or editable boundary. A layer may bring the library's catalog and verification record, which a read then answers with; the binding stays the native one.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.luc_point_library_adapter:NativePointLibraryAdapter"
@@ -114,7 +114,7 @@
         "lumeri_runtime/luc_point_library_adapter.py:167-182",
         "lumeri_runtime/luc_point_library_adapter.py:192-198"
       ],
-      "notes": "No deadline. create/adjust/apply explicitly refuse as ToolRefused; other op values are delegated via asyncio.run to the native package, or with a layer to the native package carrying the layer's version, catalog and verification, re-read and checked against the digest taken at load (E_LUC_LIBRARY_CHANGED). Native dispatch errors/results depend on gemia and are not closed by this adapter."
+      "notes": "No deadline. create/adjust/apply explicitly refuse as ToolRefused; other op values are delegated via asyncio.run to the native package, or with a layer to the native package carrying the layer's version, catalog and verification, re-read and checked against the digest taken at load (E_LUC_LIBRARY_CHANGED). Native dispatch errors/results depend on lumeri and are not closed by this adapter."
     }
   ],
   "events": [],

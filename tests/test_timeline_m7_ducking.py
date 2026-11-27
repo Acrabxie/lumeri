@@ -6,7 +6,7 @@ Builds on M6 audio. Two concerns:
     over a black tail to the timeline end rather than over-running.
   * M7-B..D — a track may declare ``duck_under = <trigger>``; the renderer
     sidechain-compresses that bed's submix whenever the trigger is loud
-    (mirrors gemia/tools/mix_audio.py duck mode).
+    (mirrors lumeri/tools/mix_audio.py duck mode).
 
 Real ffmpeg, real ProjectStore, DISPATCHER verb layer.
 """
@@ -19,10 +19,10 @@ from typing import Any
 
 import pytest
 
-from gemia.project_store import ProjectHandle
-from gemia.tools import DISPATCHER
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools._ffmpeg import audio_stream, ffprobe_metadata, video_stream
+from lumeri.project_store import ProjectHandle
+from lumeri.tools import DISPATCHER
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.tools._ffmpeg import audio_stream, ffprobe_metadata, video_stream
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────

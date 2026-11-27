@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from gemia.tools.elicit import dispatch, _build_controls
-from gemia.tools.ask import AskControlType
-from gemia.turn_control import ClarificationGuard
+from lumeri.tools.elicit import dispatch, _build_controls
+from lumeri.tools.ask import AskControlType
+from lumeri.turn_control import ClarificationGuard
 
 
 class StubBridge:

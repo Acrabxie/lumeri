@@ -12,7 +12,7 @@
   "replaceability": {
     "class": "open",
     "why": "The .lup is descriptive data bound to existing tools; its parser never executes carried ZIP members.",
-    "decided": "today's code: gemia/point_library.py:36-39"
+    "decided": "today's code: lumeri/point_library.py:36-39"
   },
   "reach": {
     "permissions": [],
@@ -37,7 +37,7 @@
       "idempotency": "natural",
       "status": "draft",
       "evidence": [
-        "gemia/point_library.py:211-286"
+        "lumeri/point_library.py:211-286"
       ],
       "notes": "No local operation deadline is enforced. Native API accepts bytes/bytearray; the JSON byte projection is draft. ZIP paths/duplicates/symlinks and sizes are checked. Main manifest/catalog/verification text is guarded and a declaration mapping is required; supplemental members are carried without execution."
     }
@@ -49,7 +49,7 @@
       "value": 8388608,
       "unit": "bytes",
       "evidence": [
-        "gemia/point_library.py:36-39"
+        "lumeri/point_library.py:36-39"
       ]
     },
     {
@@ -57,7 +57,7 @@
       "value": 4194304,
       "unit": "bytes per ZIP member",
       "evidence": [
-        "gemia/point_library.py:36-39"
+        "lumeri/point_library.py:36-39"
       ]
     },
     {
@@ -65,7 +65,7 @@
       "value": 128,
       "unit": "ZIP members",
       "evidence": [
-        "gemia/point_library.py:36-39"
+        "lumeri/point_library.py:36-39"
       ]
     }
   ],
@@ -87,7 +87,7 @@
     ],
     "fallback": "original",
     "evidence": [
-      "gemia/point_library.py:211-286",
+      "lumeri/point_library.py:211-286",
       "lumeri_runtime/luc_library_layer.py:1-108"
     ],
     "notes": "A .lup converted into a layer on an Official library Luc is checked at load and read time; when refused, switched off, or taken away, Lumeri's own library answers again."
@@ -104,7 +104,7 @@
     {
       "text": "Additional runtime/, ops/ and verification/ members are accepted as bytes. The text guard applies to manifest/catalog/verification, not every supplemental member; acceptance is not permission to execute them.",
       "evidence": [
-        "gemia/point_library.py:229-258"
+        "lumeri/point_library.py:229-258"
       ],
       "test": null
     }

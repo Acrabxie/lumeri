@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 import pytest
 
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools._jobs import JobRegistry
-from gemia.tools import build
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.tools._jobs import JobRegistry
+from lumeri.tools import build
 
 
 def _run_async(coro):
@@ -21,7 +21,7 @@ def _run_async(coro):
 
 def _require_native_sandbox(tmp_path: Path) -> None:
     """Skip execution tests when the host lacks macOS sandbox-exec."""
-    from gemia.sandbox_v4 import build_v4_sandbox_command
+    from lumeri.sandbox_v4 import build_v4_sandbox_command
 
     _, enforced = build_v4_sandbox_command(["/usr/bin/true"], workspace_dir=tmp_path)
     if not enforced:
@@ -61,7 +61,7 @@ class TestBuildDispatcher:
     @pytest.fixture(autouse=True)
     def _force_sandbox_enabled(self):
         """Build tests verify sandbox behavior; force-enable regardless of user toggle."""
-        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
         was_disabled = is_sandbox_disabled()
         set_sandbox_disabled(False)
         yield
@@ -496,7 +496,7 @@ class TestWiring:
 
     def test_verbs_in_tool_schemas(self) -> None:
         """Test that build verbs are in TOOL_SCHEMAS."""
-        from gemia.tools._schema import TOOL_SCHEMAS
+        from lumeri.tools._schema import TOOL_SCHEMAS
 
         names = [t["function"]["name"] for t in TOOL_SCHEMAS]
         assert "build" in names
@@ -506,7 +506,7 @@ class TestWiring:
 
     def test_verbs_in_tool_names(self) -> None:
         """Test that build verbs are in TOOL_NAMES."""
-        from gemia.tools._schema import TOOL_NAMES
+        from lumeri.tools._schema import TOOL_NAMES
 
         assert "build" in TOOL_NAMES
         assert "check_job" in TOOL_NAMES
@@ -515,7 +515,7 @@ class TestWiring:
 
     def test_verbs_in_dispatcher(self) -> None:
         """Test that build verbs are in DISPATCHER."""
-        from gemia.tools import DISPATCHER
+        from lumeri.tools import DISPATCHER
 
         assert "build" in DISPATCHER
         assert "check_job" in DISPATCHER
@@ -530,7 +530,7 @@ class TestWiring:
 
     def test_verbs_in_budget_guard(self) -> None:
         """Test that build verbs have cost entries."""
-        from gemia.budget_guard import _TOOL_COSTS
+        from lumeri.budget_guard import _TOOL_COSTS
 
         assert "build" in _TOOL_COSTS
         assert "check_job" in _TOOL_COSTS
@@ -562,7 +562,7 @@ class TestSandboxEnforcement:
     @pytest.fixture(autouse=True)
     def _force_sandbox_enabled(self):
         """These tests verify sandbox enforcement behavior; force-enable regardless of user toggle."""
-        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
         was_disabled = is_sandbox_disabled()
         set_sandbox_disabled(False)
         yield
@@ -579,7 +579,7 @@ class TestSandboxEnforcement:
 
         # Mock build_v4_sandbox_command to return enforced=False
         with patch(
-            "gemia.tools.build.build_v4_sandbox_command",
+            "lumeri.tools.build.build_v4_sandbox_command",
             return_value=(["echo", "hi"], False),
         ):
             with pytest.raises(RuntimeError, match="sandbox enforcement"):

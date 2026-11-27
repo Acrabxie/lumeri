@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gemia.tools._jobs import JobRecord, JobRegistry
+from lumeri.tools._jobs import JobRecord, JobRegistry
 
 
 def test_job_record_submit_and_get(tmp_path: Path) -> None:

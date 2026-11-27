@@ -212,7 +212,7 @@
       "evidence": [
         "official_luc/voices/tools.py:18-39",
         "lumeri_engine_cli.py:1048-1051",
-        "gemia/speech.py:308-316",
+        "lumeri/speech.py:308-316",
         "tests/test_runtime_speech.py:246-279"
       ],
       "test": null

@@ -36,9 +36,9 @@ from mcp.shared.memory import (  # noqa: E402
     create_connected_server_and_client_session,
 )
 
-from gemia.mcp.server import build_server  # noqa: E402
-from gemia.mcp.toolset import PHASE1_TOOLSET, mcp_input_schema  # noqa: E402
-from gemia.session_manager import SessionManager  # noqa: E402
+from lumeri.mcp.server import build_server  # noqa: E402
+from lumeri.mcp.toolset import PHASE1_TOOLSET, mcp_input_schema  # noqa: E402
+from lumeri.session_manager import SessionManager  # noqa: E402
 
 
 # ── harness ──────────────────────────────────────────────────────────────────
@@ -302,7 +302,7 @@ def test_excluded_verbs_absent_and_run_verb_refuses(tmp_path):
             assert excluded not in names
 
         # run_verb itself refuses an excluded verb even when called directly.
-        from gemia.session_manager import VerbGateError
+        from lumeri.session_manager import VerbGateError
 
         runner = mgr.create_session()
         with pytest.raises(VerbGateError) as ei:
@@ -323,7 +323,7 @@ def test_turn_collision_blocks_mutation_allows_read(tmp_path):
         with runner._state_lock:
             runner._turn_in_progress = True
 
-        from gemia.session_manager import VerbGateError
+        from lumeri.session_manager import VerbGateError
 
         # Mutating verb → E_BUSY.
         with pytest.raises(VerbGateError) as ei:
@@ -368,8 +368,8 @@ def test_sse_mirror_tags_origin_mcp(tmp_path):
 
 
 def test_returned_failure_maps_to_mcp_error(tmp_path, monkeypatch):
-    import gemia.tools as tools_mod
-    from gemia.session_manager import VerbGateError
+    import lumeri.tools as tools_mod
+    from lumeri.session_manager import VerbGateError
 
     async def returned_failure(args, ctx):
         return {"exit_code": 9, "error": "probe failed"}

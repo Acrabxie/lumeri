@@ -11,7 +11,7 @@ Quanta 作品就是一个 `.qua` 文件。
 | [`format/examples/`](format/examples/) | 四个样片，都通过了 Lumeri 的校验 | CC0 1.0 |
 
 只看规范就能写出 `.qua` 的读取器、写入器、播放器或转换器。Quanta 的排版引擎已经在
-[`gemia/quanta/`](../gemia/quanta/)，画布渲染器 LumenFrame 在
+[`lumeri/quanta/`](../lumeri/quanta/)，画布渲染器 LumenFrame 在
 [`lumenframe/`](../lumenframe/)。第 4 版的读取器、播放器和编辑器还没放进这个仓库，之后会以
 MIT 许可放到这里。
 

@@ -13,9 +13,9 @@ proliferation):
 * ``op:"catalog"`` — the creative vocabulary (styles, sync patterns, feelings,
   feedback phrases) to compose briefs from.
 
-Pure: no gemia import, no live session. The gemia adapter that writes the cut
+Pure: no lumeri import, no live session. The lumeri adapter that writes the cut
 plan onto a real timeline is a separate, thin layer (exactly as
-``gemia/tools/vector_motion.py`` wraps ``vector.api``).
+``lumeri/tools/vector_motion.py`` wraps ``vector.api``).
 """
 from __future__ import annotations
 

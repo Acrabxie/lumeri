@@ -231,7 +231,7 @@
     },
     {
       "module": "lumeri.engine.gemia",
-      "inventory": "gemia engine subcommands",
+      "inventory": "lumeri engine subcommands",
       "status": "luc",
       "end_state": "replaceable",
       "interfaces": [
@@ -240,7 +240,7 @@
     },
     {
       "module": "lumeri.gemia.point.catalog",
-      "inventory": "In-process gemia",
+      "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,
@@ -250,7 +250,7 @@
     },
     {
       "module": "lumeri.gemia.skill.context",
-      "inventory": "In-process gemia",
+      "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,
@@ -260,7 +260,7 @@
     },
     {
       "module": "lumeri.gemia.panel.binding",
-      "inventory": "In-process gemia",
+      "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,

@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.gemini_client import _parse_chunk
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.gemini_client import _parse_chunk
 
 
 class _FakeGeminiClient:

@@ -1,7 +1,7 @@
 # Lumeri v3-A branch — what changed and how to use it
 
 > **历史归档说明 (Archive Note)**：本文档记载了 2026-05-27 v3-A 分支引入初代浏览器工作区时的架构说明。
-> 文中提及的早期 v2 流程（`gemia/agent_workflow.py` 及旧 UI）已在后续版本彻底清理；
+> 文中提及的早期 v2 流程（`lumeri/agent_workflow.py` 及旧 UI）已在后续版本彻底清理；
 > 当前 Lumeri 运行时的唯一入口已统一为 `server.py` + `static/v3/`。
 
 > Branch: `claude/jolly-clarke-JO7E3`
@@ -15,7 +15,7 @@
 This branch turns Lumeri's "v3" agent loop — built in a separate
 phase as `claude/jolly-clarke-JO7E3` *up through v3-alive* — into
 something you can actually drive from a browser, end to end. The v2
-flow (`gemia/agent_workflow.py`, 4573 lines) was a one-shot Plan-JSON
+flow (`lumeri/agent_workflow.py`, 4573 lines) was a one-shot Plan-JSON
 generator followed by Python pretending to narrate live agent
 activity with hardcoded Chinese status strings. The model spoke once
 and never again. The "progress" the UI showed was theatre.
@@ -49,7 +49,7 @@ surface.
 User prompt
    │
    ▼
-gemia/agent_workflow.run_agent_workflow() (4573 lines)
+lumeri/agent_workflow.run_agent_workflow() (4573 lines)
    │
    ├─ ONE call to Gemini → JSON plan
    │
@@ -68,23 +68,23 @@ Browser /v3 (vanilla HTML+JS, native EventSource)
 server.py _Handler (ThreadingHTTPServer)─┘
    │
    ▼ try_handle(self, method=…)  (one dispatch call per verb)
-gemia/v3_routes.py
+lumeri/v3_routes.py
    │
    ▼
-gemia/session_manager.SessionManager
+lumeri/session_manager.SessionManager
    │   dict[session_id → SessionRunner]
    ▼
 SessionRunner  (one daemon thread + one asyncio loop per session)
    │
    ▼ run_coroutine_threadsafe(agent.run_turn(msg))
-gemia/agent_loop_v3.AgentLoopV3.drive_turn()
+lumeri/agent_loop_v3.AgentLoopV3.drive_turn()
    │
-   ├─► gemia/gemini_client.GeminiClientV3.stream_turn(messages, tools)
+   ├─► lumeri/gemini_client.GeminiClientV3.stream_turn(messages, tools)
    │      real SSE from OpenRouter, parses chunked function-calling
    │      deltas: text_delta, tool_call_start, tool_call_args_delta,
    │      finish.
    │
-   ├─► gemia/tools/DISPATCHER[tool_name](args, ctx)
+   ├─► lumeri/tools/DISPATCHER[tool_name](args, ctx)
    │      ctx is a per-session ToolContext with AssetRegistry +
    │      output_dir + progress callback.
    │      Real handlers: analyze_media, edit_video, color_grade,
@@ -96,7 +96,7 @@ gemia/agent_loop_v3.AgentLoopV3.drive_turn()
    └─► self._emit({"kind": "...", ...})  for every visible event
               │
               ▼
-gemia/transport/sse.REGISTRY.emit(session_id, event)
+lumeri/transport/sse.REGISTRY.emit(session_id, event)
    monotonic per-session event_id, append to 200-entry ring buffer,
    notify the stream condition variable.
               │
@@ -125,22 +125,22 @@ important):
 
 | File | One-line job | Read priority |
 |---|---|---|
-| `gemia/agent_loop_v3.py` | The loop. `drive_turn` is the heart — read it. | **core** |
-| `gemia/tools/__init__.py` | Maps verb name → async dispatcher. 5 real, 10 stub. | **core** |
-| `gemia/tools/_schema.py` | All 15 verb schemas (JSON sent to Gemini). Pure data. | **core** |
-| `gemia/tools/_context.py` | `AssetRegistry` (per-session, asset_id → path), `ToolContext`, `ProgressUpdate`. | **core** |
-| `gemia/transport/sse.py` | Per-session 200-entry ring buffer + condition-backed SSE replay. | **core** |
-| `gemia/gemini_client.py` | Streams from OpenRouter with `stream:true`, reassembles fragmented tool-call args. | **core** |
-| `gemia/budget_guard.py` | Per-session $ and time cap. Returns `needs_approval`; model decides. | **core** |
-| `gemia/session_manager.py` | `SessionRunner` (thread + asyncio loop per session) and `SessionManager` (process-wide dict). | **core** |
-| `gemia/v3_routes.py` | All HTTP endpoints. `try_handle` is the single entrypoint server.py calls. | **core** |
-| `gemia/prompts/system_v3.md` | The system prompt. Creative-collaborator framing. Has `{{asset_registry}}` and `{{pinned_intent}}` placeholders. | **core** |
-| `gemia/tools/_ffmpeg.py` | `run_ffmpeg_with_progress` (Popen + `-progress pipe:1` parsing), `ffprobe_metadata`. | edge |
-| `gemia/tools/edit_video.py` | trim / concat / reverse / speed via the ffmpeg helper. | edge |
-| `gemia/tools/color_grade.py` | Named looks (warm/cool/vintage/cinematic/teal_orange/neutral) + intensity blend. | edge |
-| `gemia/tools/add_overlay.py` | text (drawtext) / image (overlay) / subtitle. Needs libfreetype-enabled ffmpeg. | edge |
-| `gemia/tools/analyze_media.py` | ffprobe + 512×512 thumbnail. Returns `thumbnail_for_next_message=True` to trigger Plan-B visual feedback. | edge |
-| `gemia/tools/export.py` | mp4/mov/webm/gif × 4k/1080p/720p/480p/draft × 6 platform presets. | edge |
+| `lumeri/agent_loop_v3.py` | The loop. `drive_turn` is the heart — read it. | **core** |
+| `lumeri/tools/__init__.py` | Maps verb name → async dispatcher. 5 real, 10 stub. | **core** |
+| `lumeri/tools/_schema.py` | All 15 verb schemas (JSON sent to Gemini). Pure data. | **core** |
+| `lumeri/tools/_context.py` | `AssetRegistry` (per-session, asset_id → path), `ToolContext`, `ProgressUpdate`. | **core** |
+| `lumeri/transport/sse.py` | Per-session 200-entry ring buffer + condition-backed SSE replay. | **core** |
+| `lumeri/gemini_client.py` | Streams from OpenRouter with `stream:true`, reassembles fragmented tool-call args. | **core** |
+| `lumeri/budget_guard.py` | Per-session $ and time cap. Returns `needs_approval`; model decides. | **core** |
+| `lumeri/session_manager.py` | `SessionRunner` (thread + asyncio loop per session) and `SessionManager` (process-wide dict). | **core** |
+| `lumeri/v3_routes.py` | All HTTP endpoints. `try_handle` is the single entrypoint server.py calls. | **core** |
+| `lumeri/prompts/system_v3.md` | The system prompt. Creative-collaborator framing. Has `{{asset_registry}}` and `{{pinned_intent}}` placeholders. | **core** |
+| `lumeri/tools/_ffmpeg.py` | `run_ffmpeg_with_progress` (Popen + `-progress pipe:1` parsing), `ffprobe_metadata`. | edge |
+| `lumeri/tools/edit_video.py` | trim / concat / reverse / speed via the ffmpeg helper. | edge |
+| `lumeri/tools/color_grade.py` | Named looks (warm/cool/vintage/cinematic/teal_orange/neutral) + intensity blend. | edge |
+| `lumeri/tools/add_overlay.py` | text (drawtext) / image (overlay) / subtitle. Needs libfreetype-enabled ffmpeg. | edge |
+| `lumeri/tools/analyze_media.py` | ffprobe + 512×512 thumbnail. Returns `thumbnail_for_next_message=True` to trigger Plan-B visual feedback. | edge |
+| `lumeri/tools/export.py` | mp4/mov/webm/gif × 4k/1080p/720p/480p/draft × 6 platform presets. | edge |
 | `static/v3/index.html` | Page skeleton. 1.5 KB. | edge |
 | `static/v3/v3.js` | The frontend. 11 event handlers, no silent drop. ~400 lines. | edge |
 | `static/v3/v3.css` | All styling. ~250 lines. | edge |
@@ -159,14 +159,14 @@ important):
 
 | File | Lines | Why kept |
 |---|---:|---|
-| `gemia/agent_workflow.py` | 4573 | Rollback path. Still serves `/` UI via opencode_compat routes. |
-| `gemia/orchestrator.py` | 674 | v2 dispatcher; called by agent_workflow. |
-| `gemia/opencode_compat.py` | 509 | OpenCode-shape compat layer that the Tauri 7788 UI talks to. |
-| `gemia/runtime_vnext.py` | 766 | Earlier vNext sandbox attempt. |
-| `gemia/creative_sandbox*.py` | 1502 | Sandbox layer. |
-| `gemia/stability.py` | 196 | stability_gate. |
-| `lumerai/sandbox.py` | 276 | AST blacklist sandbox. |
-| `gemia/agent_loop.py` | 297 | Earlier (non-v3) agent loop experiment. |
+| `lumeri/agent_workflow.py` | 4573 | Rollback path. Still serves `/` UI via opencode_compat routes. |
+| `lumeri/orchestrator.py` | 674 | v2 dispatcher; called by agent_workflow. |
+| `lumeri/opencode_compat.py` | 509 | OpenCode-shape compat layer that the Tauri 7788 UI talks to. |
+| `lumeri/runtime_vnext.py` | 766 | Earlier vNext sandbox attempt. |
+| `lumeri/creative_sandbox*.py` | 1502 | Sandbox layer. |
+| `lumeri/stability.py` | 196 | stability_gate. |
+| `lumeri_script/sandbox.py` | 276 | AST blacklist sandbox. |
+| `lumeri/agent_loop.py` | 297 | Earlier (non-v3) agent loop experiment. |
 | Total kept untouched | **~8793** | All survive `git checkout main`. |
 
 ### v3 production code total
@@ -243,7 +243,7 @@ whole pipeline is healthy.
 | `LUMERI_V3_IDLE_TIMEOUT_SEC` | `7200` | Idle session TTL; `0` disables idle cleanup. |
 | `LUMERI_V3_SWEEP_INTERVAL_SEC` | `60` | Background idle sweeper interval; `0` disables the sweeper thread. |
 | `LUMERI_V3_KEEP_CLOSED_WORKDIRS` | unset | Set to `1` to keep idle-closed workdirs for debugging. |
-| `LUMERI_PORT` / `GEMIA_PORT` | `7788` | Server port. |
+| `LUMERI_PORT` | `7788` | Server port. |
 
 ---
 
@@ -323,7 +323,7 @@ of writing this doc:
 
 ```sh
 python3 -c "
-from gemia.session_store import SessionStore
+from lumeri.session_store import SessionStore
 from pathlib import Path
 s = SessionStore(Path('/tmp/lumeri-v3/sessions'))
 import json
@@ -341,13 +341,13 @@ plus `loop_version: "v3"` (which v2 ignores).
 Once you trust v3 fully (months of real use), the legacy-deletion
 candidates are documented in the original v3 spec:
 
-- `gemia/agent_workflow.py` → move to `gemia/legacy/`
-- `gemia/orchestrator.py` (slim to thin facade or remove)
-- `gemia/opencode_compat.py` (kept while old UI at `/` is in use;
+- `lumeri/agent_workflow.py` → move to `lumeri/legacy/`
+- `lumeri/orchestrator.py` (slim to thin facade or remove)
+- `lumeri/opencode_compat.py` (kept while old UI at `/` is in use;
   remove after v3 fully replaces the main UI)
-- `gemia/creative_sandbox*.py`, `lumerai/sandbox.py`,
-  `gemia/runtime_vnext.py`, `gemia/stability.py`,
-  `gemia/agent_loop.py`
+- `lumeri/creative_sandbox*.py`, `lumeri_script/sandbox.py`,
+  `lumeri/runtime_vnext.py`, `lumeri/stability.py`,
+  `lumeri/agent_loop.py`
 
 Total deletable when you cut over: ~8793 lines.
 

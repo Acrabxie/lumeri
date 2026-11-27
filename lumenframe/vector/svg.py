@@ -16,7 +16,7 @@ modern CSS on SVG:
   declared AT a keyframe shapes the segment leaving it).
 
 Hard constraints (enforced here, validated upstream by
-``gemia/hyperframes_adapter``): fully self-contained — no external URLs, no
+``lumeri/hyperframes_adapter``): fully self-contained — no external URLs, no
 ``data:`` URIs, **no ``url()`` in CSS text** (gradients/filters are wired via
 *presentation attributes* ``fill="url(#id)"``, which the CSS validator never
 sees), no scripts. System font stack only.

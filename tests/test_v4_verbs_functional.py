@@ -21,16 +21,16 @@ from typing import Any
 
 import pytest
 
-from gemia.budget_guard import BudgetGuard
-from gemia.errors import ToolError
-from gemia.tools import DISPATCHER
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.tools import web_search as _web_search
-from gemia.tools import search_library as _search_library
-from gemia.tools import fetch as _fetch
-from gemia.tools import generate_audio as _generate_audio
-from gemia.tools import generate_video as _generate_video
-from gemia.tools import run_shell as _run_shell
+from lumeri.budget_guard import BudgetGuard
+from lumeri.errors import ToolError
+from lumeri.tools import DISPATCHER
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.tools import web_search as _web_search
+from lumeri.tools import search_library as _search_library
+from lumeri.tools import fetch as _fetch
+from lumeri.tools import generate_audio as _generate_audio
+from lumeri.tools import generate_video as _generate_video
+from lumeri.tools import run_shell as _run_shell
 
 
 @pytest.fixture
@@ -630,7 +630,7 @@ class TestRunShellBasic:
     @pytest.fixture(autouse=True)
     def _force_sandbox_enabled(self):
         """These tests verify sandbox behavior; force-enable regardless of user toggle."""
-        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
         was_disabled = is_sandbox_disabled()
         set_sandbox_disabled(False)
         yield
@@ -779,7 +779,7 @@ class TestRunShellSandboxEnforcement:
     @pytest.fixture(autouse=True)
     def _force_sandbox_enabled(self):
         """These tests verify sandbox behavior; force-enable regardless of user toggle."""
-        from gemia.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
+        from lumeri.sandbox_v4 import is_sandbox_disabled, set_sandbox_disabled
         was_disabled = is_sandbox_disabled()
         set_sandbox_disabled(False)
         yield

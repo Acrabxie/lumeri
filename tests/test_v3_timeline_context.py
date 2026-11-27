@@ -10,9 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.project_store import ProjectHandle
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.project_store import ProjectHandle
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 def _make_loop(tmp_path: Path, events: list[dict[str, Any]]) -> AgentLoopV3:

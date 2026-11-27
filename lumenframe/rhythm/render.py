@@ -7,7 +7,7 @@ list of **timeline cut operations**, plus :func:`validate_cut_plan`, which
 rejects a plan the timeline could not safely play (out-of-order cuts,
 seizure-fast shots, cuts past the audio, non-numeric times).
 
-The op contract (what the gemia timeline adapter consumes) is deliberately tiny
+The op contract (what the lumeri timeline adapter consumes) is deliberately tiny
 and declarative — one op per cut point::
 
     {"op": "cut", "t": 1.875, "clip": "c2", "bar": 1, "beat": 1, "accent": true}
@@ -42,7 +42,7 @@ class CutPlanError(ValueError):
 def plan_to_timeline_ops(score: dict[str, Any]) -> list[dict[str, Any]]:
     """Map a validated ``score`` to a list of timeline cut ops.
 
-    Pure and side-effect free: returns the ops the gemia timeline adapter will
+    Pure and side-effect free: returns the ops the lumeri timeline adapter will
     translate into ``split_clip`` / ``insert_clip`` calls. Validates first so a
     malformed plan cannot reach the timeline.
     """

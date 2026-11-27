@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from gemia.errors import ToolError
-from gemia.tools import (
+from lumeri.errors import ToolError
+from lumeri.tools import (
     adjust_media as adjust_media_tool,
     arrange_timeline as arrange_timeline_tool,
     composite as composite_tool,
@@ -26,7 +26,7 @@ from gemia.tools import (
     smart_reframe as smart_reframe_tool,
     transform_geometry as transform_geometry_tool,
 )
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 def _ctx(tmp_path: Path) -> ToolContext:
@@ -709,7 +709,7 @@ def test_get_safe_areas_scales_platform_preset(tmp_path: Path) -> None:
 
 
 def test_dispatcher_registers_batch1_local_verbs() -> None:
-    from gemia.tools import DISPATCHER
+    from lumeri.tools import DISPATCHER
 
     for name in (
         "composite",
@@ -731,7 +731,7 @@ def test_dispatcher_registers_batch1_local_verbs() -> None:
 
 
 def test_provider_media_dispatchers_are_real() -> None:
-    from gemia.tools import DISPATCHER
+    from lumeri.tools import DISPATCHER
 
     # generate_image, generate_video, and generate_audio all use Vertex now.
     # search_library moved to a real cheap lookup in v4 M3.

@@ -23,15 +23,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
-from gemia import v3_routes
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia.plan_mode import (
+from lumeri import v3_routes
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri.plan_mode import (
     PLAN_ALLOWED_TOOLS,
     PLAN_BLOCKED_TOOLS,
     PLAN_GATE_TURN_LIMIT,
     is_plan_safe,
 )
-from gemia.tools._schema import TOOL_NAMES
+from lumeri.tools._schema import TOOL_NAMES
 
 
 # ── classification completeness ──────────────────────────────────────────────
@@ -350,7 +350,7 @@ def test_prompt_tool_list_is_generated_from_allowed_set() -> None:
     """The prose tool list inside PLAN_MODE_PROMPT must be the sorted
     frozenset, so classifying a tool differently can never leave the prompt
     promising a stale list."""
-    from gemia.plan_mode import PLAN_MODE_PROMPT
+    from lumeri.plan_mode import PLAN_MODE_PROMPT
 
     expected = ", ".join(sorted(PLAN_ALLOWED_TOOLS))
     assert expected in PLAN_MODE_PROMPT

@@ -16,10 +16,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import gemia.agent_loop_v3 as loop_mod
+import lumeri.agent_loop_v3 as loop_mod
 import pytest
-from gemia.agent_loop_v3 import AgentLoopV3, COMPLETION_CHECK_ENABLED
-from gemia.agent_loop_v3 import _relevant_existing_jobs
+from lumeri.agent_loop_v3 import AgentLoopV3, COMPLETION_CHECK_ENABLED
+from lumeri.agent_loop_v3 import _relevant_existing_jobs
 
 
 class _ModelStopsImmediately:

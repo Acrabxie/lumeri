@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Point Library catalog binding",
-  "summary": "Bind an existing gemia PointLibraryPackage by semantic identity and expose read-only catalog/describe dispatch. Project edits and rendering use separate native governance.",
+  "summary": "Bind an existing lumeri PointLibraryPackage by semantic identity and expose read-only catalog/describe dispatch. Project edits and rendering use separate native governance.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.luc_point_library_adapter:NativePointLibraryAdapter"
@@ -108,7 +108,7 @@
   },
   "known_deviations": [
     {
-      "text": "The binding depends on importing gemia.point_library and a built-in vector-motion package; a Luc reference cannot supply a new native implementation.",
+      "text": "The binding depends on importing lumeri.point_library and a built-in vector-motion package; a Luc reference cannot supply a new native implementation.",
       "evidence": [
         "lumeri_runtime/luc_point_library_adapter.py:201-206"
       ],

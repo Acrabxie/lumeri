@@ -165,7 +165,7 @@
     },
     {
       "id": "runtime-owns-the-luc-table",
-      "text": "The Runtime owns the [luc] table of config.toml. Every other writer (gemia/local_config.py, lumeri-cli) keeps that table unchanged and changes only its own tables (Acrab, 2026-10-24).",
+      "text": "The Runtime owns the [luc] table of config.toml. Every other writer (lumeri/local_config.py, lumeri-cli) keeps that table unchanged and changes only its own tables (Acrab, 2026-10-24).",
       "test": null
     }
   ],
@@ -187,7 +187,7 @@
   },
   "known_deviations": [
     {
-      "text": "The inventory names a second writer in gemia/local_config.py. This checkout does not prove that external writer preserves this table; cross-repository behavior remains unverified.",
+      "text": "The inventory names a second writer in lumeri/local_config.py. This checkout does not prove that external writer preserves this table; cross-repository behavior remains unverified.",
       "evidence": [
         "docs/luc/self-luc-inventory.md:324-326"
       ],

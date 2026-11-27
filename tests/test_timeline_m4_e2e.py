@@ -27,9 +27,9 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from gemia.agent_loop_v3 import AgentLoopV3
-from gemia import v3_routes
-from gemia.tools import DISPATCHER
+from lumeri.agent_loop_v3 import AgentLoopV3
+from lumeri import v3_routes
+from lumeri.tools import DISPATCHER
 
 
 # ── Scripted model clients ───────────────────────────────────────────────

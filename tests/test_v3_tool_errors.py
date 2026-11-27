@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-import gemia.tools.color_grade as color_grade
-import gemia.tools.edit_image as edit_image
-from gemia.errors import ToolError
+import lumeri.tools.color_grade as color_grade
+import lumeri.tools.edit_image as edit_image
+from lumeri.errors import ToolError
 
 
 def test_color_grade_named_look_resolves() -> None:
@@ -38,7 +38,7 @@ def test_remove_background_bad_feather_raises_typed_error(tmp_path) -> None:
     # with a typed error rather than guessing (the "no silent fallback" contract).
     import asyncio
 
-    from gemia.tools._context import AssetRegistry, ToolContext
+    from lumeri.tools._context import AssetRegistry, ToolContext
 
     reg = AssetRegistry()
     src = tmp_path / "src.png"

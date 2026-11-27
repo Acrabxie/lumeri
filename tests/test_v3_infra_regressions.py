@@ -8,15 +8,15 @@ from pathlib import Path
 import pytest
 
 import server
-from gemia import v3_routes
-from gemia import session_manager
-from gemia.session_manager import SessionLimitError, SessionManager, SessionRunner
-from gemia.tools import add_overlay as add_overlay_tool
-from gemia.tools import edit_video as edit_video_tool
-from gemia.tools import export as export_tool
-from gemia.tools._context import AssetRegistry, ToolContext
-from gemia.transport import sse
-from gemia.v3_routes import _serve_file_with_range, _upload_asset
+from lumeri import v3_routes
+from lumeri import session_manager
+from lumeri.session_manager import SessionLimitError, SessionManager, SessionRunner
+from lumeri.tools import add_overlay as add_overlay_tool
+from lumeri.tools import edit_video as edit_video_tool
+from lumeri.tools import export as export_tool
+from lumeri.tools._context import AssetRegistry, ToolContext
+from lumeri.transport import sse
+from lumeri.v3_routes import _serve_file_with_range, _upload_asset
 
 
 class FakeHandler:
@@ -350,7 +350,7 @@ def test_budget_guard_time_gate_uses_spent_seconds_not_wall_clock() -> None:
     Fix: time gate now uses self.spent_seconds + eta (symmetric with cost gate),
     not elapsed + eta.
     """
-    from gemia.budget_guard import BudgetGuard
+    from lumeri.budget_guard import BudgetGuard
 
     # Create a guard with a small time cap (10s).
     guard = BudgetGuard(max_usd=100.0, max_seconds=10.0)
@@ -397,7 +397,7 @@ def test_gemini_client_proxy_transport_error_provides_diagnostic() -> None:
     now includes the proxy address and a hint about the common proxy tools.
     """
     import asyncio
-    from gemia.gemini_client import GeminiClientV3
+    from lumeri.gemini_client import GeminiClientV3
 
     # Create a client with a non-existent local proxy.
     # We don't actually make the request; we just verify the error path works.

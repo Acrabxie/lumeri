@@ -21,11 +21,11 @@ from pathlib import Path
 
 import pytest
 
-from gemia.ai.google_genai_client import GoogleGenAIClient, VertexAPIError, VertexAuthMissingError
-from gemia.budget_guard import BudgetGuard, _TOOL_COSTS
-from gemia.tools import DISPATCHER
-from gemia.tools import generate_image as generate_image_tool
-from gemia.tools._context import AssetRegistry, ToolContext
+from lumeri.ai.google_genai_client import GoogleGenAIClient, VertexAPIError, VertexAuthMissingError
+from lumeri.budget_guard import BudgetGuard, _TOOL_COSTS
+from lumeri.tools import DISPATCHER
+from lumeri.tools import generate_image as generate_image_tool
+from lumeri.tools._context import AssetRegistry, ToolContext
 
 
 # Smallest possible valid PNG (1x1 red pixel). Used as the mocked

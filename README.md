@@ -198,25 +198,22 @@ The open engine behind Lumeri Video: Python, FFmpeg, and a local web workspace.
 | Path | Responsibility |
 |---|---|
 | `server.py` | Local HTTP entry point |
-| `gemia/v3_routes.py` | Session API and streaming |
-| `gemia/agent_loop_v3.py` | Multi-turn model/tool loop |
-| `gemia/tools/` | Media tools built on FFmpeg and Python |
-| `gemia/project_model.py` | Persistent timeline model |
-| `gemia/project_render.py` | Preview renderer |
-| `gemia/project_export.py` | Full-quality export |
-| `gemia/quanta/` | Quanta layout engine |
+| `lumeri/v3_routes.py` | Session API and streaming |
+| `lumeri/agent_loop_v3.py` | Multi-turn model/tool loop |
+| `lumeri/tools/` | Media tools built on FFmpeg and Python |
+| `lumeri/project_model.py` | Persistent timeline model |
+| `lumeri/project_render.py` | Preview renderer |
+| `lumeri/project_export.py` | Full-quality export |
+| `lumeri/quanta/` | Quanta layout engine |
 | `quanta/format/` | The `.qua` file format and samples (CC0) |
 | `docs/luc/` | Luc reference: package format, protocols, permissions |
 | `contracts/interfaces/` | Interface contracts of Lumeri's modules, as JSON |
-| `gemia/ai/skills/` | Built-in skills |
-| `gemia/mcp/` | MCP server |
+| `lumeri/ai/skills/` | Built-in skills |
+| `lumeri/mcp/` | MCP server |
 | `lumenframe/` | Composition engine and the craft libraries: grade, type, camera, framing, cutting, rhythm, vector motion |
-| `lumerai/patches.py` | Shared timeline patch vocabulary |
-| `lumerai/otio_adapter.py` | OpenTimelineIO interchange |
+| `lumeri_script/patches.py` | Shared timeline patch vocabulary |
+| `lumeri_script/otio_adapter.py` | OpenTimelineIO interchange |
 | `static/v3/` | Local web interface |
-
-> The product and this repository are named **Lumeri**. The Python package and
-> some engineering paths still use the historical name `gemia`.
 
 ## Install
 

@@ -15,7 +15,7 @@ def test_current_workspace_is_served_without_account_gate() -> None:
         assert visible_module in workspace
     assert "auth-gate.js" not in html
     assert "登录后可用" not in script
-    provider_config = (ROOT / "gemia/brain_config.py").read_text(encoding="utf-8")
+    provider_config = (ROOT / "lumeri/brain_config.py").read_text(encoding="utf-8")
     assert "OpenAI 订阅（本机 Codex）" in provider_config
     assert "每位使用者登录自己的 Codex" in script
     assert "/config/codex-subscription" in script
@@ -39,7 +39,7 @@ def test_provider_errors_are_creator_readable_and_redacted() -> None:
 
 
 def test_local_projects_group_sessions_without_accounts(tmp_path, monkeypatch) -> None:
-    from gemia import local_projects
+    from lumeri import local_projects
 
     monkeypatch.setattr(local_projects, "PROJECTS_PATH", tmp_path / "projects.json")
     project = local_projects.create_project("Windows 体验")

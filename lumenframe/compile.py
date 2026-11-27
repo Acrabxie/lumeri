@@ -1,7 +1,7 @@
 """Compile a lumenframe document down to the render backend.
 
 ``compile_to_layer_stack(doc)`` turns the editable layer tree into a
-:class:`gemia.video.layers.LayerStack` — the proven RGBA compositor that can
+:class:`lumeri.video.layers.LayerStack` — the proven RGBA compositor that can
 ``render_frame`` / ``render_to_video``. This is what makes a document *real*:
 the same doc the agent and UI edit becomes pixels.
 
@@ -90,7 +90,7 @@ def compile_to_layer_stack(
     Returns:
         A LayerStack ready for render_frame() / render_to_video().
     """
-    from gemia.video.layers import LayerStack  # local: pulls cv2/numpy/PIL
+    from lumeri.video.layers import LayerStack  # local: pulls cv2/numpy/PIL
 
     # Use default resolver if none provided.
     if resolver is None:
@@ -136,7 +136,7 @@ def _lane_ordered_children(children: list) -> list:
 
 
 def _populate_stack(stack, comp: dict[str, Any], ctx: ResolveContext, resolver, strict) -> None:
-    from gemia.video.layers import Layer
+    from lumeri.video.layers import Layer
 
     # Lanes are real stacked tracks: order children by (lane, tree-index) before
     # anything reads tree order (z assignment below, adjustment composite-below
@@ -247,7 +247,7 @@ def _adjustment_content(below_children, adj_layer, ctx: ResolveContext, resolver
     sampling the sub-stack. NOTE: each adjustment re-renders everything below it, so
     deeply stacked adjustments cost O(n²) — acceptable, and inherent to the model.
     """
-    from gemia.video.layers import LayerStack
+    from lumeri.video.layers import LayerStack
 
     sub = LayerStack(width=ctx.width, height=ctx.height, fps=ctx.fps,
                      total_frames=ctx.total_frames)
@@ -303,7 +303,7 @@ def _solid_content(layer: dict[str, Any], ctx: ResolveContext) -> ContentFn:
 
 
 def _composition_content(layer: dict[str, Any], ctx: ResolveContext, resolver, strict) -> ContentFn:
-    from gemia.video.layers import LayerStack
+    from lumeri.video.layers import LayerStack
 
     dur = model._as_float(layer.get("duration"))
     sub_total = max(1, int(round(dur * ctx.fps)))
@@ -476,7 +476,7 @@ def _shape_animation(mask: dict[str, Any], fps: float) -> tuple[dict[str, Any], 
     both empty means the mask is static (and the caller takes the byte-identical
     cached path).
     """
-    from gemia.video.keyframe import KeyframeTrack
+    from lumeri.video.keyframe import KeyframeTrack
 
     shape = mask.get("shape") if isinstance(mask.get("shape"), dict) else {}
 
@@ -695,7 +695,7 @@ def _shape_matte(
         expr = exprs.get(field)
         if expr is not None:
             try:
-                from gemia.expressions import SafeEvaluator
+                from lumeri.expressions import SafeEvaluator
 
                 time_sec = float(frame) / fps if fps > 0 else 0.0
                 evaluator = SafeEvaluator(
@@ -899,7 +899,7 @@ def _resolve_property_with_expression(
     Returns:
         Evaluated property value as float
     """
-    from gemia.expressions import SafeEvaluator, ExprError
+    from lumeri.expressions import SafeEvaluator, ExprError
     
     # Check if property has an expression bound
     expressions = layer.get("expressions") or {}
@@ -969,7 +969,7 @@ _KEYFRAME_PROP_MAP = {
 
 
 def _keyframe_tracks(layer: dict[str, Any], fps: float):
-    from gemia.video.keyframe import KeyframeTrack
+    from lumeri.video.keyframe import KeyframeTrack
 
     out: dict[str, Any] = {}
     for prop, points in (layer.get("keyframes") or {}).items():
@@ -997,7 +997,7 @@ def _keyframe_tracks(layer: dict[str, Any], fps: float):
 def _easing_for(interp: str) -> str:
     """Map a LayerPatch ``interp`` name to a ``KeyframeTrack`` easing name.
 
-    The only consumer is :meth:`gemia.video.keyframe.KeyframeTrack.add_keyframe`,
+    The only consumer is :meth:`lumeri.video.keyframe.KeyframeTrack.add_keyframe`,
     whose vocabulary is the *underscore* set ``{linear, ease_in, ease_out,
     ease_in_out, bezier}`` (plus a ``bezier(x1,y1,x2,y2)`` literal). Earlier this
     table emitted CSS-style hyphenated names (``ease-out``, ``ease-in-out``,
@@ -1052,7 +1052,7 @@ def _safe_blend(mode: Any) -> str:
     # drift; any mode the compositor implements passes validation. Unknown modes
     # degrade to normal (the compositor itself also falls back safely, so a stray
     # name can never crash a render).
-    from gemia.video.layers import BLEND_MODES
+    from lumeri.video.layers import BLEND_MODES
     supported = set(BLEND_MODES)
     m = str(mode or "normal")
     return m if m in supported else "normal"
@@ -1425,7 +1425,7 @@ def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], c
     """Apply a single effect to an RGBA frame.
 
     Built-in effects are dispatched through the :data:`EFFECTS` table; effects
-    not in the table fall back to the third-party :mod:`gemia.registry`, and an
+    not in the table fall back to the third-party :mod:`lumeri.registry`, and an
     unknown / failing effect is silently skipped (behaviour-preserving).
     """
     frame = np.asarray(frame, dtype=np.float32)
@@ -1437,9 +1437,9 @@ def _apply_effect(frame: np.ndarray, effect_type: str, params: dict[str, Any], c
     if fn is not None:
         return fn(frame, params, ctx)
 
-    # Attempt to resolve via gemia registry (for extensions).
+    # Attempt to resolve via lumeri registry (for extensions).
     try:
-        from gemia.registry import resolve
+        from lumeri.registry import resolve
         func = resolve(effect_type)
         # Call the function with the BGR image (without alpha).
         bgr = frame[..., :3]

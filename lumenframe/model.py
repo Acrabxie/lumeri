@@ -2,14 +2,14 @@
 
 The whole editable project is a plain ``dict`` (a ``LumenDoc``) so it round-trips
 over JSON / SSE / disk with zero conversion — the same choice the timeline model
-makes in :mod:`gemia.project_model`. A ``LayerNode`` is likewise a ``dict``.
+makes in :mod:`lumeri.project_model`. A ``LayerNode`` is likewise a ``dict``.
 
 Layer tree & stacking order
 ---------------------------
 ``root`` is a ``composition`` layer whose ``children`` are the project's layers.
 A child's ``children`` list is ordered **bottom → top**: index ``0`` composites
 first (at the back), the *last* child composites on top. This matches the render
-backend (:class:`gemia.video.layers.LayerStack`, which sorts ascending and blends
+backend (:class:`lumeri.video.layers.LayerStack`, which sorts ascending and blends
 in order). Editor panels are free to display the reverse; storage stays one way.
 
 Time

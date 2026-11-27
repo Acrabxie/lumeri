@@ -3,7 +3,7 @@ import asyncio
 import threading
 import time
 
-from gemia.tools._ask_bridge import AskBridge
+from lumeri.tools._ask_bridge import AskBridge
 
 
 def _question(qid="ask_test"):

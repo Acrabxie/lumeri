@@ -16,7 +16,7 @@ if (-not (Test-Path $Python)) {
 
 Push-Location $RepoRoot
 try {
-& $Python -c "import sys; assert sys.version_info >= (3, 12); import gemia, server; print(sys.version.split()[0])"
+& $Python -c "import sys; assert sys.version_info >= (3, 12); import lumeri, server; print(sys.version.split()[0])"
 if ($LASTEXITCODE -ne 0) { throw "Python or Lumeri import validation failed." }
 
 foreach ($CommandName in @("ffmpeg", "ffprobe")) {

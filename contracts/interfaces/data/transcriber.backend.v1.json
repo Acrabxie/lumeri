@@ -13,7 +13,7 @@
   "replaceability": {
     "class": "sandboxed",
     "why": "A replacement is code. It is one executable file of a Luc that holds engine.program, which Lumeri's review of its exact bytes grants, and it stands in for whisper-cli: the engine runs it with whisper's arguments, environment and sandbox profile, inside the engine's own run, which may write only the session scratch. It runs only on a machine with a sandbox (macOS today) and with whisper.cpp and a model installed (docs/luc/engine-programs.md).",
-    "decided": "today's code: lumeri_runtime/transcriber.py:114-157, gemia/roughcut.py:331-342; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
+    "decided": "today's code: lumeri_runtime/transcriber.py:114-157, lumeri/roughcut.py:331-342; Acrab 2026-10-26: replaced by engine programs in the engine's own sandbox"
   },
   "reach": {
     "permissions": [
@@ -134,7 +134,7 @@
       "idempotency": "natural",
       "status": "defined",
       "evidence": [
-        "gemia/roughcut.py:331-342",
+        "lumeri/roughcut.py:331-342",
         "lumeri_engine_cli.py:1211-1225",
         "lumeri_runtime/luc_engine_programs.py:155-202"
       ],

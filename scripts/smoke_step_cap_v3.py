@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gemia.agent_loop_v3 import AgentLoopV3  # noqa: E402
-from gemia.tools import DISPATCHER  # noqa: E402
+from lumeri.agent_loop_v3 import AgentLoopV3  # noqa: E402
+from lumeri.tools import DISPATCHER  # noqa: E402
 
 
 class FakeGeminiClient:

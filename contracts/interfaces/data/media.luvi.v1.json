@@ -211,7 +211,7 @@
   "invariants": [
     {
       "id": "kept-boundary",
-      "text": "Package parsing does not import gemia into the Runtime; package media is staged under scratch before governed import.",
+      "text": "Package parsing does not import lumeri into the Runtime; package media is staged under scratch before governed import.",
       "test": null
     },
     {

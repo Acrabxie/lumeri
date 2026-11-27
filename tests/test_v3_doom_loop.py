@@ -18,8 +18,8 @@ import asyncio
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import gemia.agent_loop_v3 as loop_mod
-from gemia.agent_loop_v3 import AgentLoopV3, _DOOM_LOOP_THRESHOLD
+import lumeri.agent_loop_v3 as loop_mod
+from lumeri.agent_loop_v3 import AgentLoopV3, _DOOM_LOOP_THRESHOLD
 
 
 class _AlwaysSucceeds:

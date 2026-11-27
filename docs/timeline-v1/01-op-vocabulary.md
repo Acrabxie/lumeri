@@ -2,7 +2,7 @@
 
 > 拍板依据（2026-06-13，Acrab）：细粒度 verb、overlay-as-clip、ripple 默认关、
 > v1 = 视频轨 + overlay/text 轨（音频轨与关键帧仅预留字段）。
-> 本文是 `lumerai/patches.py` 与 `gemia/project_model.py` 扩展的实现契约。
+> 本文是 `lumeri_script/patches.py` 与 `lumeri/project_model.py` 扩展的实现契约。
 >
 > **M6 修订（2026-06-19）：音频轨进入执行面。** 音频不再是预留字段：`add_track
 > kind=audio`、音频 clip 的 insert/move/delete/trim、以及 `gain_db`/`fade_in`/
@@ -55,7 +55,7 @@ class TimelinePatchError(ValueError):
 | `E_TRACK_KIND` | 媒体类型与轨道类型不匹配，或 v1 禁用的音频轨 |
 | `E_RANGE` | source_in/out 超出资产时长或非法区间 |
 
-## 2. 数据模型变更（`gemia/project_model.py`）
+## 2. 数据模型变更（`lumeri/project_model.py`）
 
 1. `MEDIA_KINDS` 增加 `"text"`。
 2. track kind 集合扩为 `{"video", "overlay", "audio"}`；

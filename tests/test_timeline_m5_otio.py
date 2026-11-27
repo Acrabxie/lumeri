@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from gemia.project_model import empty_project, normalize_project
-from lumerai.otio_adapter import (
+from lumeri.project_model import empty_project, normalize_project
+from lumeri_script.otio_adapter import (
     otio_json_to_project,
     otio_to_project,
     project_to_otio,
