@@ -305,7 +305,7 @@ def get_google_fonts(
 
 
 def download_google_font(family: str, *, variant: str = "regular", refresh: bool = False) -> str | None:
-    """Download a Google Fonts TTF/OTF file into ~/.gemia/fonts/google and return its path."""
+    """Download a Google Fonts TTF/OTF file into ~/.lumeri/fonts/google and return its path."""
     family = str(family or "").strip()
     if not family:
         return None

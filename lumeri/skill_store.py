@@ -111,7 +111,7 @@ def distilled_skills_dir() -> Path:
     Resolution order:
     1. ``LUMERI_SKILL_STORE_DIR`` environment variable (used by tests via
        monkeypatch to redirect into a tmp dir).
-    2. ``~/.gemia/skills`` — the durable per-user store.
+    2. ``~/.lumeri/skills`` — the durable per-user store.
 
     The directory is created on demand by callers that write into it.
     """
@@ -377,7 +377,7 @@ class DistilledSkillStore:
     ``{name, when_to_use, steps, notes}``.  One JSON file per skill name,
     so re-distilling the same name UPDATES in place (idempotent, no dups).
 
-    Stored under :func:`distilled_skills_dir` (``~/.gemia/skills`` or the
+    Stored under :func:`distilled_skills_dir` (``~/.lumeri/skills`` or the
     ``LUMERI_SKILL_STORE_DIR`` override).
     """
 

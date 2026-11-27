@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
-from lumeri.legacy_names import current, written
+from lumeri.legacy_names import current
 
 
 SCHEMA_VERSION = 1
-# Written into saved entity references (lumeri.legacy_names says which
-# spelling this release writes); both spellings are read.
-LOCAL_SCHEME = written("lumeri")
+# The scheme of a saved entity reference; one saved before this release may
+# say gemia:// (lumeri.legacy_names), which is read the same.
+LOCAL_SCHEME = "lumeri"
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ def asset_identity_for_record(record: dict[str, Any], *, namespace: str = LOCAL_
             "versioned_asset": {
                 "name": str(record.get("name") or asset_id),
                 "version": version_id,
-                "source": written("lumeri_media_library"),
+                "source": "lumeri_media_library",
             },
         },
     }

@@ -62,12 +62,13 @@ def test_old_uri_scheme_maps_to_current():
     assert current_uri("no-scheme") == "no-scheme"
 
 
-def test_saved_entity_references_keep_their_stored_scheme():
-    # The scheme is stored data, so new references match the ones already saved.
+def test_new_entity_references_use_the_current_scheme_and_saved_ones_still_parse():
     ref = build_entity_reference(asset_id="a1", account_id="local", fingerprint="f" * 16)
-    assert ref.startswith(f"{OLD_ENGINE}://media/")
-    parsed = parse_entity_reference(ref)
-    assert (parsed.account_id, parsed.asset_id, parsed.fingerprint) == ("local", "a1", "f" * 16)
+    assert ref.startswith("lumeri://media/")
+    saved = f"{OLD_ENGINE}://" + ref.split("://", 1)[1]
+    for value in (ref, saved):
+        parsed = parse_entity_reference(value)
+        assert (parsed.account_id, parsed.asset_id, parsed.fingerprint) == ("local", "a1", "f" * 16)
 
 
 def test_old_registry_ids_resolve():

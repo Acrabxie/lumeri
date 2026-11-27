@@ -2,7 +2,7 @@
 """Live evidence collector for batch-2.1 generate_image.
 
 Runs two real-API tests against AI Studio Nano Banana 2, requires
-``gemini_studio_api_key`` in ``~/.gemia/config.json``:
+``gemini_studio_api_key`` in ``~/.lumeri/config.json``:
 
   1. Direct dispatcher call — fires generate_image once, materializes the
      PNG, prints file path + size + `file` magic-byte output + ffprobe

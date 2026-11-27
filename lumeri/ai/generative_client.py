@@ -61,7 +61,7 @@ class GenerativeClient:
         self._api_key = _resolve_api_key(self.base_url, self._base_source)
         if not self._api_key:
             raise RuntimeError(
-                "Set OPENROUTER_API_KEY or ~/.gemia/config.json:openrouter_api_key "
+                "Set OPENROUTER_API_KEY or ~/.lumeri/config.json:openrouter_api_key "
                 "for Nano Banana image generation."
             )
         self._backend = "openrouter"

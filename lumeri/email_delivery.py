@@ -3,7 +3,7 @@
 Configuration is resolved with this precedence (first non-empty wins):
 
   1. Environment variables ``LUMERI_SMTP_*``
-  2. The ``smtp`` block of ``~/.gemia/config.json``
+  2. The ``smtp`` block of ``~/.lumeri/config.json``
 
 Nothing is hard-coded here — credentials live only in local config (chmod
 600) or the environment, never in source control or shared memory.
@@ -224,7 +224,7 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
     if missing:
         raise EmailDeliveryError(
             "邮件发送未配置：缺少 " + ", ".join(missing),
-            detail="Set the smtp block in ~/.gemia/config.json or LUMERI_SMTP_* env vars.",
+            detail="Set the smtp block in ~/.lumeri/config.json or LUMERI_SMTP_* env vars.",
         )
 
     msg = EmailMessage()

@@ -6,7 +6,7 @@ Provider is resolved in this order:
   2. First provider whose credentials exist in env or config.json (auto-probe)
   3. Falls through to openrouter (will raise if key is also absent)
 
-Credential keys (env or ~/.gemia/config.json):
+Credential keys (env or ~/.lumeri/config.json):
   vertex     — VERTEX_PROJECT / vertex_project  +  GCP ADC at ~/.config/gcloud/...
   gemini     — GEMINI_API_KEY  / gemini_api_key
   claude     — ANTHROPIC_API_KEY / anthropic_api_key
@@ -498,7 +498,7 @@ class GeminiClientV3:
                     "No AI provider credentials found. Set one of: "
                     "VERTEX_PROJECT+ADC, GEMINI_API_KEY, ANTHROPIC_API_KEY, "
                     "OPENROUTER_API_KEY, OPENAI_API_KEY "
-                    "(env or ~/.gemia/config.json)."
+                    "(env or ~/.lumeri/config.json)."
                 )
             self.model = model_override or _read_config_key("openrouter_model") or _DEFAULT_OPENROUTER_MODEL
             self.api_url = api_url

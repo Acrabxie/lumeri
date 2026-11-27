@@ -604,10 +604,10 @@ Modules: 157 (156 a Luc today, 1 partly, 0 not yet). Interfaces: 176 (111 lumeri
 - operations: `main`
 - 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
 
-### `iface:engine.gemia/v1` Engine subcommand JSON contracts
+### `iface:engine.core/v1` Engine subcommand JSON contracts
 
 - version 1.2.0; class `sandboxed`; carrier `subprocess`
-- modules: `lumeri.engine.gemia`
+- modules: `lumeri.engine.core`
 - operations: `quanta`, `lumenframe`, `craft`, `lumen-patch`, `lumen-stage`, `timeline-otio`, `luvi-import`, `luvi-export`, `lumen-canvas`, `timeline-render`, `point-library`, `media-edit-plan`, `speech-voices`, `narrate`, `roughcut`, `caption`, `media-edit`
 - 1 events, 5 bounds, 2 invariants, conformance partial, 2 known deviations, 0 open questions
 
@@ -618,6 +618,20 @@ Modules: 157 (156 a Luc today, 1 partly, 0 not yet). Interfaces: 176 (111 lumeri
 - operations: `engine_job_from`, `engine_question_from`, `stage_source`, `artifact_is_ready`, `read_artifact`, `bind_engine_question`, `bind_engine_plan`, `bind_engine_job`
 - 0 events, 2 bounds, 2 invariants, conformance planned, 3 known deviations, 0 open questions
 
+### `iface:engine.panel.binding/v1` In-process native Panel lifecycle binding
+
+- version 1.0.0; class `lumeri-only`; carrier `python`
+- modules: `lumeri.engine.panel.binding`
+- operations: `NativePanelBinding`, `compile`, `invoke`
+- 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
+
+### `iface:engine.point.catalog/v1` In-process native Point Library catalog binding
+
+- version 1.0.0; class `lumeri-only`; carrier `python`
+- modules: `lumeri.engine.point.catalog`
+- operations: `compile`, `invoke`
+- 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
+
 ### `iface:engine.sandbox/v1` Runtime process sandbox
 
 - version 1.0.0; class `lumeri-only`; carrier `python`
@@ -625,24 +639,10 @@ Modules: 157 (156 a Luc today, 1 partly, 0 not yet). Interfaces: 176 (111 lumeri
 - operations: `run`, `bind_capability`
 - 0 events, 2 bounds, 1 invariants, conformance planned, 2 known deviations, 0 open questions
 
-### `iface:gemia.panel.binding/v1` In-process native Panel lifecycle binding
+### `iface:engine.skill.context/v1` In-process native Skill context assembler
 
 - version 1.0.0; class `lumeri-only`; carrier `python`
-- modules: `lumeri.gemia.panel.binding`
-- operations: `NativePanelBinding`, `compile`, `invoke`
-- 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
-
-### `iface:gemia.point.catalog/v1` In-process native Point Library catalog binding
-
-- version 1.0.0; class `lumeri-only`; carrier `python`
-- modules: `lumeri.gemia.point.catalog`
-- operations: `compile`, `invoke`
-- 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
-
-### `iface:gemia.skill.context/v1` In-process native Skill context assembler
-
-- version 1.0.0; class `lumeri-only`; carrier `python`
-- modules: `lumeri.gemia.skill.context`
+- modules: `lumeri.engine.skill.context`
 - operations: `compile`, `invoke`
 - 0 events, 0 bounds, 1 invariants, conformance planned, 1 known deviations, 0 open questions
 
@@ -894,6 +894,13 @@ Modules: 157 (156 a Luc today, 1 partly, 0 not yet). Interfaces: 176 (111 lumeri
 - operations: `electronPreview.createWindow`, `nativeShell.startAndWait`, `webkit.messageHandlers.lumeriLucConfirmation`, `nativeShell.syncOfficialLucChannel`, `webkit.messageHandlers.lumeriDesktopUpdate`
 - 0 events, 4 bounds, 3 invariants, conformance partial, 1 known deviations, 1 open questions
 
+### `iface:engine.local-config/v1` Public machine-local configuration in ~/.lumeri/config.toml
+
+- version 1.0.0; class `lumeri-only`; carrier `file`
+- modules: `lumeri.engine.local-config`
+- operations: `config_path`, `detect_capabilities`, `load_or_create`, `write_public_update`, `merge_with_secret_config`, `fast_mode_preference`
+- 0 events, 2 bounds, 4 invariants, conformance exists, 2 known deviations, 0 open questions
+
 ### `iface:execution.gate/v1` Runtime execution gate
 
 - version 1.0.0; class `lumeri-only`; carrier `python`
@@ -907,13 +914,6 @@ Modules: 157 (156 a Luc today, 1 partly, 0 not yet). Interfaces: 176 (111 lumeri
 - modules: `lumeri.gateway`
 - operations: `GET /runtime/v1/health`, `GET /runtime/v1/products`, `POST /runtime/v1/luc/official/sync`, `POST /runtime/v1/luc/hub/publish`, `POST /runtime/v1/frontend/video/luc-confirmation`, `POST /runtime/v1/{product}/sessions/{session_id}/assets`, `GET /runtime/v1/{product}/sessions/{session_id}/assets/{asset_id}`, `proxy_product_route`
 - 0 events, 4 bounds, 4 invariants, conformance exists, 2 known deviations, 0 open questions
-
-### `iface:gemia.local-config/v1` Public machine-local configuration in ~/.lumeri/config.toml
-
-- version 1.0.0; class `lumeri-only`; carrier `file`
-- modules: `lumeri.gemia.local-config`
-- operations: `config_path`, `detect_capabilities`, `load_or_create`, `write_public_update`, `merge_with_secret_config`, `fast_mode_preference`
-- 0 events, 2 bounds, 4 invariants, conformance exists, 2 known deviations, 0 open questions
 
 ### `iface:governance.store/v1` Project governance SQLite store
 

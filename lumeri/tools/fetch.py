@@ -31,7 +31,7 @@ from lumeri.home import data_path
 
 
 def _read_config(key: str) -> str | None:
-    """Read a single key from ~/.gemia/config.json if it exists."""
+    """Read a single key from ~/.lumeri/config.json if it exists."""
     config_path = data_path("config.json")
     if not config_path.exists():
         return None

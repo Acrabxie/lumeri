@@ -2,7 +2,7 @@
 
 The workspace directory is fully writable. Outside the workspace, files can
 only be created, not modified/deleted. Credentials (~/.ssh, ~/.config/gcloud,
-~/.gemia/config.json) are not readable. Network access is denied.
+~/.lumeri/config.json) are not readable. Network access is denied.
 
 Wraps the command with sandbox-exec and build_v4_sandbox_command() from the
 M1 isolation layer (lumeri/sandbox_v4.py). Enforces sandbox_enforced=True or

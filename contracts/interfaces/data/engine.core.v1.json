@@ -1,6 +1,6 @@
 {
   "format": "lumeri.interface/v1",
-  "id": "iface:engine.gemia/v1",
+  "id": "iface:engine.core/v1",
   "version": "1.2.0",
   "area": "data",
   "title": "Engine subcommand JSON contracts",
@@ -8,7 +8,7 @@
   "carrier": {
     "kind": "subprocess",
     "surface": "lumeri-engine <subcommand> <request.json> [<output-root>]",
-    "notes": "Original: lumeri-engine <subcommand> <request.json> [<output-root>], running lumeri-engine, for its other subcommands in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.engine.gemia\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
+    "notes": "Original: lumeri-engine <subcommand> <request.json> [<output-root>], running lumeri-engine, for its other subcommands in its sandbox profile. Replacement: a lumeri.engine.program/v1 capability with module \"lumeri.engine.core\", naming an executable file of its Luc, started with the original's arguments, environment and profile, writing only the session scratch (luc_engine_programs, sandbox.MacOSSandboxExecutor.bind_capability)."
   },
   "replaceability": {
     "class": "sandboxed",
@@ -1733,7 +1733,7 @@
         "type": "object",
         "properties": {
           "module": {
-            "const": "lumeri.engine.gemia"
+            "const": "lumeri.engine.core"
           },
           "layer": {
             "type": "object",
@@ -1850,7 +1850,7 @@
       "lumeri_runtime/luc_engine_programs.py:133-203",
       "lumeri_runtime/luc_engine_programs.py:251-285"
     ],
-    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.engine.gemia). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
+    "notes": "The original runs the same request at once, and every request of this module for the rest of the start (luc_interactions.note_module_break); three breaks of the same bytes leave the Luc off for the module at later starts until reset (luc_breaker, luc_cli.py modules reset lumeri.engine.core). The creator stopping the request is not a break: the program is stopped and nothing runs in its place."
   },
   "conformance": {
     "status": "partial",

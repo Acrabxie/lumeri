@@ -312,7 +312,7 @@
         },
         "edit": {
           "type": "object",
-          "description": "Successful report has edited, name, operation, kind, video_encoder, label, duration_sec and metadata. The rendered=false refusal mismatch is recorded in known_deviations. Engine media-edit output is owned by the data area; see iface:engine.gemia/v1."
+          "description": "Successful report has edited, name, operation, kind, video_encoder, label, duration_sec and metadata. The rendered=false refusal mismatch is recorded in known_deviations. Engine media-edit output is owned by the data area; see iface:engine.core/v1."
         },
         "asset": {
           "anyOf": [

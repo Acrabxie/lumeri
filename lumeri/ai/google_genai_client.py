@@ -16,7 +16,7 @@ Network model:
     - POST https://{host}/{ver}/projects/{project}/locations/{loc}/
       publishers/google/models/{model}:generateContent
       host = aiplatform.googleapis.com (global) | {loc}-aiplatform.googleapis.com
-    - Goes through ~/.gemia/config.json["proxy"] / $OPENROUTER_PROXY — the
+    - Goes through ~/.lumeri/config.json["proxy"] / $OPENROUTER_PROXY — the
       same FlClash hop orchestration uses, so the mainland-China route to
       aiplatform.googleapis.com does not drop mid-call.
     - urllib + run_in_executor — no httpx, no google SDK. Stdlib only,
@@ -197,7 +197,7 @@ class GoogleGenAIClient:
         if not resolved_project:
             raise VertexAuthMissingError(
                 "VERTEX_PROJECT is not set (env VERTEX_PROJECT or "
-                "~/.gemia/config.json:vertex_project). Vertex image generation "
+                "~/.lumeri/config.json:vertex_project). Vertex image generation "
                 "needs the Google Cloud project that holds the billing/credit. "
                 "It reuses the orchestration credential — there is no separate key."
             )

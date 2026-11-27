@@ -193,7 +193,7 @@
       "evidence": [
         "lumeri_runtime/point_libraries.py:388-424"
       ],
-      "notes": "No local operation deadline is enforced. Returns sealed read runner, exact engine point-library schema is engine.gemia. No Project revision change. Opaque callable output projection is draft."
+      "notes": "No local operation deadline is enforced. Returns sealed read runner, exact engine point-library schema is engine.core. No Project revision change. Opaque callable output projection is draft."
     },
     {
       "name": "bind_registry_patch",

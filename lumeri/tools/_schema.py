@@ -791,7 +791,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     _tool(
         "web_search",
         "Search the public web from the host side and return compact result titles, URLs, snippets, and a saved JSON path. Use this to discover current sources before opening a page or fetching a file. The sandbox remains network-denied; raw HTML is not returned. "
-        "BYOK: pluggable search engines, each reading its key from ~/.gemia/config.json — "
+        "BYOK: pluggable search engines, each reading its key from ~/.lumeri/config.json — "
         "tavily (tavily_api_key), serper (serper_api_key), brave (brave_api_key), exa (exa_api_key), "
         "google_cse (google_cse_key + google_cse_id), bing (bing_api_key). "
         "searxng is a keyless self-hosted metasearch engine (set searxng_url, optional searxng_api_key) — the recommended free default. "
@@ -820,7 +820,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "searxng",
                     "duckduckgo",
                 ],
-                "description": "Which search engine to use. 'auto' (default) picks the first configured paid BYOK provider, then searxng (if searxng_url is set), else duckduckgo. Paid providers need their key(s) in ~/.gemia/config.json; searxng needs searxng_url (keyless, self-hosted); duckduckgo needs nothing.",
+                "description": "Which search engine to use. 'auto' (default) picks the first configured paid BYOK provider, then searxng (if searxng_url is set), else duckduckgo. Paid providers need their key(s) in ~/.lumeri/config.json; searxng needs searxng_url (keyless, self-hosted); duckduckgo needs nothing.",
             },
         },
         ["query"],

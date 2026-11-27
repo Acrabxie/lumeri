@@ -11,7 +11,7 @@ Coverage:
   * workspace tier: create / modify / append / delete all OK.
   * outside tier: create-new OK, but overwrite / append / O_RDWR / unlink /
     rename of a PRE-EXISTING file all DENIED, and existing content unchanged.
-  * credentials: read DENIED + write DENIED (synthetic, and real ~/.gemia etc.).
+  * credentials: read DENIED + write DENIED (synthetic, and real ~/.lumeri etc.).
   * network: outbound connect DENIED.
 """
 from __future__ import annotations
@@ -272,9 +272,9 @@ def test_credential_dir_create_denied(tmp_path: Path) -> None:
 
 @_needs_sandbox
 def test_real_credentials_denied() -> None:
-    real_config = Path.home() / ".gemia" / "config.json"
+    real_config = Path.home() / ".lumeri" / "config.json"
     if not real_config.exists():
-        pytest.skip("~/.gemia/config.json not present on this host")
+        pytest.skip("~/.lumeri/config.json not present on this host")
     profile = build_two_tier_profile(
         Path.home() / "Lumeri" / "workspace",
         credential_deny=DEFAULT_CREDENTIAL_DENY,

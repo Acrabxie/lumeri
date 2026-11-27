@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "data",
   "title": "Project package import boundary",
-  "summary": "Runtime stages and validates a .luvi package, asks the sandboxed canonical parser for its documents/media and commits a settled Project document through the Project broker. Engine export format is engine.gemia.",
+  "summary": "Runtime stages and validates a .luvi package, asks the sandboxed canonical parser for its documents/media and commits a settled Project document through the Project broker. Engine export format is engine.core.",
   "carrier": {
     "kind": "python",
     "seam": "lumeri_runtime.luvi_ingest:validate_package,bind_luvi_read,bind_luvi_commit",

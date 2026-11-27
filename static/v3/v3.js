@@ -22,7 +22,7 @@
 
 (async function () {
   "use strict";
-  // An untitled session's title, in the spelling of either release (lumeri/legacy_names.py).
+  // An untitled session's title; one saved before this release may say "Gemia Session" (lumeri/legacy_names.py).
   const UNTITLED_SESSION_TITLES = ["Gemia Session", "Lumeri Session"];
   const apiFetch = (...args) => window.LumeriApi["fetch"](...args);
 
