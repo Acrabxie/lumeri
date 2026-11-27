@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from lumeri.asset_identity import build_entity_reference
+from lumeri.legacy_names import written
 
 
 SCHEMA_VERSION = 1
@@ -35,7 +36,7 @@ def build_openusd_stage_identity(
     if not isinstance(layers, list) or not layers:
         raise ValueError("stage manifest must include at least one usd_layers item")
 
-    stage_id = _safe_id(str(stage.get("stage_id") or package_id or "gemia_stage"))
+    stage_id = _safe_id(str(stage.get("stage_id") or package_id or written("lumeri_stage")))
     frame_range = _frame_range(stage.get("frame_range"))
     stage_digest = _digest(json.dumps(stage_manifest, sort_keys=True, ensure_ascii=True))
     prims = [_prim_identity(stage_id, item, index) for index, item in enumerate(layers) if isinstance(item, dict)]
@@ -51,7 +52,7 @@ def build_openusd_stage_identity(
         "stage": {
             "package_id": _safe_id(package_id or stage_id),
             "stage_id": stage_id,
-            "stage_identifier": f"gemia:usd_stage:{stage_id}:{stage_digest}",
+            "stage_identifier": f"{written('lumeri')}:usd_stage:{stage_id}:{stage_digest}",
             "root_layer_identifier": root_layer,
             "default_prim": stage_id,
             "root_prim": str(stage.get("root_prim") or f"/{stage_id}"),
@@ -145,7 +146,7 @@ def _to_usda(identity: dict[str, Any]) -> str:
         f"    startTimeCode = {stage['frame_range'][0]}",
         f"    endTimeCode = {stage['frame_range'][1]}",
         "    customLayerData = {",
-        f"        string gemia:stageIdentifier = \"{_q(stage['stage_identifier'])}\"",
+        f"        string {written('lumeri')}:stageIdentifier = \"{_q(stage['stage_identifier'])}\"",
         "    }",
         ")",
         "",
@@ -161,8 +162,8 @@ def _to_usda(identity: dict[str, Any]) -> str:
                 f"    def {prim['usd_type']} \"{name}\" (",
                 f"        prepend payload = @{_q(prim['payload_identifier'])}@",
                 "        customData = {",
-                f"            string gemia:assetRef = \"{_q(prim['asset_ref'])}\"",
-                f"            string gemia:entityReference = \"{_q(prim['entity_reference'])}\"",
+                f"            string {written('lumeri')}:assetRef = \"{_q(prim['asset_ref'])}\"",
+                f"            string {written('lumeri')}:entityReference = \"{_q(prim['entity_reference'])}\"",
                 "        }",
                 "    )",
                 "    {",

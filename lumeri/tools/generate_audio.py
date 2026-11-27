@@ -10,12 +10,12 @@ from __future__ import annotations
 import base64
 import json
 import os
-from pathlib import Path
 from typing import Any
 
 from lumeri.ai.google_genai_client import GoogleGenAIClient, VertexAPIError
 from lumeri.budget_guard import tool_cost_usd
 from lumeri.tools._context import ToolContext, ProgressUpdate
+from lumeri.home import data_path
 
 
 _DEFAULT_MODEL = "lyria-002"
@@ -170,7 +170,7 @@ def _location() -> str:
 
 def _read_config(field: str) -> str:
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("config.json")
         if not path.exists():
             return ""
         data = json.loads(path.read_text(encoding="utf-8"))

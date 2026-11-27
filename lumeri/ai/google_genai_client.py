@@ -52,6 +52,7 @@ import certifi
 # Reuse the orchestration Vertex auth: same ADC, same minted+cached OAuth
 # bearer, same project/billing. No new credential surface.
 from lumeri.gemini_client import _vertex_access_token, _ADC_PATH
+from lumeri.home import data_path
 
 
 _DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"  # Nano Banana 2
@@ -75,7 +76,7 @@ def _api_audit_path() -> Path:
     override = os.environ.get("LUMERI_V3_API_AUDIT", "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".gemia" / "v3" / "api-calls.jsonl"
+    return data_path("v3", "api-calls.jsonl")
 
 
 def _append_audit(record: dict[str, Any]) -> None:
@@ -161,7 +162,7 @@ class VertexAuthMissingError(VertexAPIError):
 
 def _read_config(field: str) -> str:
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("config.json")
         if not path.exists():
             return ""
         data = json.loads(path.read_text())

@@ -10,14 +10,17 @@ Environment variables override individual values where useful — see the
 from __future__ import annotations
 
 import os
-from pathlib import Path
+
+from lumeri.home import data_home, data_path
 
 # ── Paths ─────────────────────────────────────────────────────────────
-LUMERI_HOME = Path.home() / ".gemia"
-CONFIG_PATH = LUMERI_HOME / "config.json"
-WORKSPACE_DIR = LUMERI_HOME / "workspace"
-ACCOUNTS_DIR = LUMERI_HOME / "accounts"
-CACHE_DIR = LUMERI_HOME / "cache"
+# Where new top-level entries go; each entry below is wherever it is today
+# (lumeri.home).
+LUMERI_HOME = data_home()
+CONFIG_PATH = data_path("config.json")
+WORKSPACE_DIR = data_path("workspace")
+ACCOUNTS_DIR = data_path("accounts")
+CACHE_DIR = data_path("cache")
 
 # ── HTTP timeouts (seconds) ───────────────────────────────────────────
 # Native Gemini planning request (text-only or small inline payloads).

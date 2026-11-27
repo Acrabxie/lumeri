@@ -16,6 +16,8 @@ from typing import Any
 
 from PIL import ImageFont
 
+from lumeri.home import data_path
+
 FONT_EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"}
 GOOGLE_FONTS_API_URL = "https://www.googleapis.com/webfonts/v1/webfonts"
 _REMOTE_CACHE_TTL_SEC = 24 * 60 * 60
@@ -82,7 +84,7 @@ def font_roots(*, repo_root: str | Path | None = None, include_system: bool = Tr
     if env_roots:
         roots.extend(Path(item).expanduser() for item in env_roots.split(os.pathsep) if item.strip())
 
-    roots.append(Path.home() / ".gemia" / "fonts")
+    roots.append(data_path("fonts"))
     if repo_root is not None:
         root = Path(repo_root).expanduser()
         roots.extend([root / "assets" / "fonts", root / "fonts", root / "static" / "fonts"])
@@ -317,7 +319,7 @@ def download_google_font(family: str, *, variant: str = "regular", refresh: bool
     suffix = Path(urllib.parse.urlparse(url).path).suffix.lower()
     if suffix not in {".ttf", ".otf"}:
         raise RuntimeError(f"Google font file is not TTF/OTF and cannot be rendered by Pillow: {url}")
-    target_dir = Path.home() / ".gemia" / "fonts" / "google"
+    target_dir = data_path("fonts", "google")
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{_slug(record.family)}-{_slug(variant)}{suffix}"
     if target.exists() and not refresh:
@@ -372,7 +374,7 @@ def _google_fonts_api_key() -> str:
     if key:
         return key
     try:
-        config_path = Path.home() / ".gemia" / "config.json"
+        config_path = data_path("config.json")
         if config_path.exists():
             config = json.loads(config_path.read_text(encoding="utf-8"))
             return str(config.get("google_fonts_api_key") or "").strip()
@@ -384,7 +386,7 @@ def _google_fonts_api_key() -> str:
 def _google_cache_path(params: dict[str, str]) -> Path:
     sanitized = json.dumps({key: value for key, value in params.items() if value}, sort_keys=True)
     digest = hashlib.sha1(sanitized.encode("utf-8")).hexdigest()[:12]
-    cache_dir = Path.home() / ".gemia" / "font-cache"
+    cache_dir = data_path("font-cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"google-webfonts-{digest}.json"
 

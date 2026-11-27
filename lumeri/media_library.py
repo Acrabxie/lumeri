@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from lumeri.asset_identity import asset_identity_for_record, attach_asset_identity
+from lumeri.home import data_path
 from lumeri.media_ingest import probe_still_metadata
 from lumeri.project_model import IMAGE_DURATION
 from lumeri.video.timeline_assets import (
@@ -25,7 +26,7 @@ from lumeri.video.timeline_assets import (
 )
 
 MEDIA_LIBRARY_SCHEMA_VERSION = 1
-LOCAL_MEDIA_ROOT = Path.home() / ".gemia" / "media"
+LOCAL_MEDIA_ROOT = data_path("media")
 
 
 class MediaLibraryError(ValueError):

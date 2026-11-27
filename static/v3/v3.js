@@ -22,6 +22,8 @@
 
 (async function () {
   "use strict";
+  // An untitled session's title, in the spelling of either release (lumeri/legacy_names.py).
+  const UNTITLED_SESSION_TITLES = ["Gemia Session", "Lumeri Session"];
   const apiFetch = (...args) => window.LumeriApi["fetch"](...args);
 
   function byokAllowed() {
@@ -3190,7 +3192,7 @@
   }
 
   function projectSessionTitle(session, snapshot) {
-    if (snapshot?.title && snapshot.title !== "Gemia Session") return snapshot.title;
+    if (snapshot?.title && !UNTITLED_SESSION_TITLES.includes(snapshot.title)) return snapshot.title;
     const id = String(session?.session_id || "");
     return id ? `会话 ${id.slice(-6)}` : "未命名会话";
   }
@@ -3393,7 +3395,7 @@
     });
     const unassignedRows = unassigned.slice(0, 8).map((snapshot) => {
       const active = snapshot.v3_session_id && snapshot.v3_session_id === state.sessionId;
-      const title = snapshot.title && snapshot.title !== "Gemia Session" ? snapshot.title : "未命名会话";
+      const title = snapshot.title && !UNTITLED_SESSION_TITLES.includes(snapshot.title) ? snapshot.title : "未命名会话";
       return projectSessionRowHtml({
         sessionId: snapshot.v3_session_id || "",
         snapshotId: snapshot.id,

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import certifi
+from lumeri.home import data_path
 
 
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
@@ -407,7 +408,7 @@ def _first_secret(*env_names: str, config_keys: tuple[str, ...]) -> str:
 
 def _read_config() -> dict[str, Any]:
     try:
-        path = Path.home() / ".gemia" / "config.json"
+        path = data_path("config.json")
         payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         return payload if isinstance(payload, dict) else {}
     except Exception:

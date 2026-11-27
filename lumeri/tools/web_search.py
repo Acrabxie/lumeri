@@ -16,11 +16,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import Any
 
 import certifi
 
+from lumeri.home import data_path
 from lumeri.tools._context import ToolContext
 
 _SEARCH_ENGINE = "duckduckgo_lite"
@@ -66,7 +66,7 @@ _MAX_PAGE_CHARS = 12000
 
 
 def _read_config(key: str) -> str | None:
-    config_path = Path.home() / ".gemia" / "config.json"
+    config_path = data_path("config.json")
     if not config_path.exists():
         return None
     try:

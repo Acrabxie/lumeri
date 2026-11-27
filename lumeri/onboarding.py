@@ -30,9 +30,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
+from lumeri.home import data_path
+
 # ── Paths ─────────────────────────────────────────────────────────────
 # Module-level so tests can monkeypatch CONFIG_PATH to a temp file.
-CONFIG_PATH = Path.home() / ".gemia" / "config.json"
+CONFIG_PATH = data_path("config.json")
 
 # ── Provider / probe maps ─────────────────────────────────────────────
 # A provider is "usable" if ANY of these config keys is present & non-empty.

@@ -21,6 +21,10 @@ it, or as the machine has it:
 A Luc may bring a program that stands in for one of them. The original
 answers whenever no Luc does, and again whenever the program breaks.
 
+`lumeri.engine.gemia` is being renamed `lumeri.engine.core` (interface
+`iface:engine.core/v1`). This release still ships the old name and takes
+either in a Luc's `module`; the next ships the new one and still takes the old.
+
 ## The Luc
 
 A capability of protocol `lumeri.engine.program/v1` names the module and the

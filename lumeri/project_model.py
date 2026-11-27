@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-PROJECT_SCHEMA = "gemia.project"
+from lumeri.legacy_names import current, written
+
+PROJECT_SCHEMA = written("lumeri.project")
 PROJECT_SCHEMA_VERSION = 1
 DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
@@ -57,7 +59,7 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
             "snap_enabled": True,
         },
         "metadata": {
-            "generator": "gemia",
+            "generator": written("lumeri"),
         },
         "shotlist": empty_shotlist(),
         "quanta": empty_quanta(),
@@ -661,7 +663,7 @@ def normalize_project(
 
 
 def is_canonical_project(value: Any) -> bool:
-    return isinstance(value, dict) and value.get("schema") == PROJECT_SCHEMA and isinstance(value.get("timeline"), dict)
+    return isinstance(value, dict) and current(value.get("schema")) == "lumeri.project" and isinstance(value.get("timeline"), dict)
 
 
 def clip_count(project: Any) -> int:

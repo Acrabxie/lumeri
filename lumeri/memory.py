@@ -7,6 +7,7 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from lumeri.home import data_path
 
 
 # Sentinel for "argument not provided" in selection setters, so callers can
@@ -120,7 +121,7 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
 
 
 def memory_root() -> Path:
-    return Path.home() / ".gemia" / "memory"
+    return data_path("memory")
 
 
 def roles_path() -> Path:
@@ -154,7 +155,7 @@ def daily_path(day: str | date | None = None) -> Path:
 
 
 def config_path() -> Path:
-    return Path.home() / ".gemia" / "config.json"
+    return data_path("config.json")
 
 
 def default_model_profile() -> dict[str, Any]:

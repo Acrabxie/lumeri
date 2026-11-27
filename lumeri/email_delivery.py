@@ -25,12 +25,12 @@ import urllib.error
 import urllib.request
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
-from pathlib import Path
 from typing import Any
 
 from lumeri.errors import LumeriError
+from lumeri.home import data_path
 
-CONFIG_PATH = Path.home() / ".gemia" / "config.json"
+CONFIG_PATH = data_path("config.json")
 DEFAULT_PORT = 587
 DEFAULT_TIMEOUT = 20
 DEFAULT_FROM_NAME = "Lumeri"

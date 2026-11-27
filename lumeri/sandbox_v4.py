@@ -46,6 +46,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from lumeri.home import data_path, data_paths
+
 _SANDBOX_EXEC_USABLE: bool | None = None
 
 
@@ -90,7 +92,7 @@ __all__ = [
 # SessionRunner worker threads, which run their own asyncio loops. The value is
 # persisted per-machine to ``~/.gemia/sandbox_state.json`` and reloaded on
 # import, so the choice survives server restarts.
-_SANDBOX_STATE_PATH = Path.home() / ".gemia" / "sandbox_state.json"
+_SANDBOX_STATE_PATH = data_path("sandbox_state.json")
 
 
 def _load_sandbox_disabled() -> bool:
@@ -151,12 +153,13 @@ DEFAULT_OUTSIDE_CREATE_ROOTS: tuple[str, ...] = (
 )
 
 # Credentials excluded from BOTH read and write. ~/.gemia/config.json holds
-# OpenRouter / Pexels / OAuth / Gemini keys; ~/.config/gcloud holds the Vertex
-# ADC refresh token; ~/.ssh holds SSH private keys + authorized_keys.
+# OpenRouter / Pexels / OAuth / Gemini keys (and ~/.lumeri/config.json once it
+# moves there; both are denied, wherever it is today); ~/.config/gcloud holds
+# the Vertex ADC refresh token; ~/.ssh holds SSH private keys + authorized_keys.
 DEFAULT_CREDENTIAL_DENY: tuple[str, ...] = (
     str(Path.home() / ".ssh"),
     str(Path.home() / ".config" / "gcloud"),
-    str(Path.home() / ".gemia" / "config.json"),
+    *(str(path) for path in data_paths("config.json")),
 )
 
 

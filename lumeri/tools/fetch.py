@@ -15,7 +15,6 @@ import os
 import ssl
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 import certifi
@@ -28,11 +27,12 @@ from lumeri.errors import (
     RECOVERY_NONE,
     ToolError,
 )
+from lumeri.home import data_path
 
 
 def _read_config(key: str) -> str | None:
     """Read a single key from ~/.gemia/config.json if it exists."""
-    config_path = Path.home() / ".gemia" / "config.json"
+    config_path = data_path("config.json")
     if not config_path.exists():
         return None
     try:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
+from lumeri.home import data_path
 
 
 RouteSource = Literal["keyword", "llm", "fallback"]
@@ -30,7 +31,7 @@ def default_db_path() -> Path:
     override = os.environ.get("LUMERI_SKILL_TELEMETRY_DB", "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".gemia" / "planner" / "skill_telemetry.sqlite3"
+    return data_path("planner", "skill_telemetry.sqlite3")
 
 
 def record_route_event(event: RouteEvent, *, db_path: str | Path | None = None) -> int:
