@@ -14,7 +14,7 @@ def render_opentimelineio_timeline_package_backend(
     output_dir: str,
     *,
     package_id: str = "github_opentimelineio_timeline_package_backend",
-    timeline_name: str = "lumeri_timeline_package",
+    timeline_name: str = "gemia_timeline_package",
     frame_rate: float | None = None,
     markers: list[dict[str, Any]] | None = None,
     track_layout: list[dict[str, Any]] | None = None,
@@ -180,7 +180,7 @@ def _to_otio_json(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "OTIO_SCHEMA": "Timeline.1",
         "name": timeline["name"],
-        "metadata": {"lumeri_package": manifest["package"], "media_references": manifest["media_references"]},
+        "metadata": {"gemia_package": manifest["package"], "media_references": manifest["media_references"]},
         "tracks": {
             "OTIO_SCHEMA": "Stack.1",
             "children": [
@@ -197,7 +197,7 @@ def _to_otio_json(manifest: dict[str, Any]) -> dict[str, Any]:
                                 "start_time": {"value": clip["source_range"]["start_seconds"], "rate": timeline["frame_rate"]},
                                 "duration": {"value": clip["duration_seconds"], "rate": timeline["frame_rate"]},
                             },
-                            "metadata": {"lumeri_clip_id": clip["clip_id"], "media_ref_id": clip["media_ref_id"]},
+                            "metadata": {"gemia_clip_id": clip["clip_id"], "media_ref_id": clip["media_ref_id"]},
                         }
                         for clip in track["clips"]
                     ],
@@ -214,7 +214,7 @@ def _from_otio_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "effect": "github_opentimelineio_timeline_package_backend",
-        "package": metadata.get("lumeri_package") or {},
+        "package": metadata.get("gemia_package") or {},
         "timeline": {"name": payload.get("name") or "otio_import"},
         "media_references": metadata.get("media_references") or [],
     }

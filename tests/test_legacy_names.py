@@ -57,22 +57,17 @@ def test_sandbox_accepts_scripts_that_use_the_old_import():
 
 def test_old_uri_scheme_maps_to_current():
     assert current_uri(f"{OLD_ENGINE}://session/s1/timeline") == "lumeri://session/s1/timeline"
-    assert current_uri(f"{OLD_ENGINE.upper()}://media/a") == "lumeri://media/a"
+    assert current_uri(f"{OLD_ENGINE.upper()}://session/a") == "lumeri://session/a"
     assert current_uri("https://example.com") == "https://example.com"
     assert current_uri("no-scheme") == "no-scheme"
 
 
-def test_saved_entity_reference_with_old_scheme_still_parses():
-    current = build_entity_reference(asset_id="a1", account_id="local", fingerprint="f" * 16)
-    old = build_entity_reference(asset_id="a1", account_id="local", fingerprint="f" * 16, namespace=OLD_ENGINE)
-    assert current.startswith("lumeri://media/")
-    old_ref, current_ref = parse_entity_reference(old), parse_entity_reference(current)
-    assert (old_ref.account_id, old_ref.asset_id, old_ref.fingerprint, old_ref.version_id) == (
-        current_ref.account_id,
-        current_ref.asset_id,
-        current_ref.fingerprint,
-        current_ref.version_id,
-    )
+def test_saved_entity_references_keep_their_stored_scheme():
+    # The scheme is stored data, so new references match the ones already saved.
+    ref = build_entity_reference(asset_id="a1", account_id="local", fingerprint="f" * 16)
+    assert ref.startswith(f"{OLD_ENGINE}://media/")
+    parsed = parse_entity_reference(ref)
+    assert (parsed.account_id, parsed.asset_id, parsed.fingerprint) == ("local", "a1", "f" * 16)
 
 
 def test_old_registry_ids_resolve():

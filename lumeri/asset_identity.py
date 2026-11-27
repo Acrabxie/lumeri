@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
-from lumeri.legacy_names import current_uri
-
 
 SCHEMA_VERSION = 1
-LOCAL_SCHEME = "lumeri"
+# Written into saved entity references, so it keeps the pre-rename spelling
+# until a planned format migration.
+LOCAL_SCHEME = "gemia"
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ def asset_identity_for_record(record: dict[str, Any], *, namespace: str = LOCAL_
             "versioned_asset": {
                 "name": str(record.get("name") or asset_id),
                 "version": version_id,
-                "source": "lumeri_media_library",
+                "source": "gemia_media_library",
             },
         },
     }
@@ -98,8 +98,7 @@ def build_entity_reference(
 
 
 def parse_entity_reference(entity_reference: str) -> AssetEntityReference:
-    # References saved before the rename use the old scheme.
-    parsed = urlparse(current_uri(str(entity_reference)))
+    parsed = urlparse(str(entity_reference))
     if parsed.scheme != LOCAL_SCHEME or parsed.netloc != "media":
         raise ValueError("unsupported Lumeri asset entity reference")
     parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]

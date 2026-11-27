@@ -93,7 +93,7 @@ class LumeriOrchestrator:
             task = {
                 "task_id": task_id,
                 "status": "failed",
-                "engine": "lumeri_script",
+                "engine": "lumerai_script",
                 "script_hash": result.script_hash,
                 "error": result.error,
                 "stderr": result.stderr,
@@ -108,7 +108,7 @@ class LumeriOrchestrator:
             task = {
                 "task_id": task_id,
                 "status": "failed",
-                "engine": "lumeri_script",
+                "engine": "lumerai_script",
                 "script_hash": result.script_hash,
                 "error_code": "no_timeline_patches",
                 "error": "Script executed but emitted no TimelinePatch operations.",
@@ -140,7 +140,7 @@ class LumeriOrchestrator:
         task = {
             "task_id": task_id,
             "status": "succeeded",
-            "engine": "lumeri_script",
+            "engine": "lumerai_script",
             "script_hash": result.script_hash,
             "timeline_patches": result.patches,
             "project_state": updated_project,

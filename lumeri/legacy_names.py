@@ -17,7 +17,7 @@ CURRENT_ENV_PREFIX = "LUMERI_"
 # Python import roots used by scripts written before the rename.
 LEGACY_IMPORT_NAMES: dict[str, str] = {"lumerai": "lumeri_script"}
 
-# URI schemes found in saved entity references and MCP resource URIs.
+# URI schemes found in MCP resource URIs.
 LEGACY_URI_SCHEMES: dict[str, str] = {"gemia": "lumeri"}
 
 # Dotted primitive ids found in saved or cached plans.

@@ -319,7 +319,7 @@ def _patch_data_for_clip(clip: dict[str, Any], *, start: float, track_id: str) -
         "mime_type": "video/mp4" if media_kind == "video" else "",
         "source_path": source_path,
         "duration": duration,
-        "metadata": {"generated_by": "lumeri_script", **metadata},
+        "metadata": {"generated_by": "lumerai_script", **metadata},
     }
     timeline_clip = {
         "id": str(clip.get("id") or f"clip_{uuid.uuid4().hex[:8]}"),

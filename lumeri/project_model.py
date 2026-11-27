@@ -57,7 +57,7 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
             "snap_enabled": True,
         },
         "metadata": {
-            "generator": "lumeri",
+            "generator": "gemia",
         },
         "shotlist": empty_shotlist(),
         "quanta": empty_quanta(),

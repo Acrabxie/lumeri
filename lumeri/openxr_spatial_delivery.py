@@ -23,7 +23,7 @@ def openxr_available() -> bool:
 def build_openxr_spatial_delivery_profile(
     manifests: list[dict[str, Any]],
     *,
-    profile_id: str = "lumeri_openxr_spatial_delivery",
+    profile_id: str = "gemia_openxr_spatial_delivery",
 ) -> dict[str, Any]:
     """Build deterministic OpenXR-inspired delivery metadata without requiring an XR runtime."""
     payloads = [payload for payload in manifests if isinstance(payload, dict)]
@@ -43,7 +43,7 @@ def build_openxr_spatial_delivery_profile(
         "rendered_at": datetime.now(timezone.utc).isoformat(),
         "profile": {
             "profile_id": profile,
-            "profile_identifier": f"lumeri:openxr:{profile}:{_digest('|'.join(shared_refs + effects))}",
+            "profile_identifier": f"gemia:openxr:{profile}:{_digest('|'.join(shared_refs + effects))}",
             "form_factor": "head_mounted_display",
             "view_configuration": "primary_stereo",
             "reference_space": "local_floor",
@@ -67,7 +67,7 @@ def write_openxr_spatial_delivery_package(
     manifest_paths: list[str],
     output_dir: str,
     *,
-    profile_id: str = "lumeri_openxr_spatial_delivery",
+    profile_id: str = "gemia_openxr_spatial_delivery",
 ) -> str:
     """Write an OpenXR-style profile JSON plus a compact runtime action manifest."""
     if not manifest_paths:
@@ -167,7 +167,7 @@ def _action_sets(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         actions.append({"name": "toggle_picture_in_picture", "type": "boolean", "localized_name": "Toggle PiP"})
     if has_script:
         actions.append({"name": "next_script_marker", "type": "boolean", "localized_name": "Next Script Marker"})
-    return [{"set_id": "lumeri_spatial_review", "localized_name": "Lumeri Spatial Review", "actions": actions}]
+    return [{"set_id": "gemia_spatial_review", "localized_name": "Gemia Spatial Review", "actions": actions}]
 
 
 def _validation(payloads: list[dict[str, Any]], sources: list[dict[str, Any]], shared_refs: list[str]) -> dict[str, Any]:
