@@ -51,7 +51,7 @@ _GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/
 
 def _read_config_key(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field, "") or ""

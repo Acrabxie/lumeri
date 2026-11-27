@@ -30,7 +30,7 @@ from typing import Any
 from lumeri.errors import LumeriError
 from lumeri.home import data_path
 
-CONFIG_PATH = data_path("config.json")
+CONFIG_PATH = data_path("engine-config.json")
 DEFAULT_PORT = 587
 DEFAULT_TIMEOUT = 20
 DEFAULT_FROM_NAME = "Lumeri"

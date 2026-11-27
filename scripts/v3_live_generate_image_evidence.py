@@ -291,7 +291,7 @@ def run_budget_gate_demo() -> None:
 
 def main() -> int:
     # Pre-flight: verify config has the key (cheap, no API call).
-    config_path = data_path("config.json")
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         print(f"✗ {config_path} missing. Create it with gemini_studio_api_key first.")
         return 1

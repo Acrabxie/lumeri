@@ -66,7 +66,7 @@ _MAX_PAGE_CHARS = 12000
 
 
 def _read_config(key: str) -> str | None:
-    config_path = data_path("config.json")
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         return None
     try:

@@ -153,13 +153,13 @@ DEFAULT_OUTSIDE_CREATE_ROOTS: tuple[str, ...] = (
 )
 
 # Credentials excluded from BOTH read and write. ~/.gemia/config.json holds
-# OpenRouter / Pexels / OAuth / Gemini keys (and ~/.lumeri/config.json once it
-# moves there; both are denied, wherever it is today); ~/.config/gcloud holds
+# OpenRouter / Pexels / OAuth / Gemini keys (and ~/.lumeri/engine-config.json once
+# it moves there; both are denied, wherever it is today); ~/.config/gcloud holds
 # the Vertex ADC refresh token; ~/.ssh holds SSH private keys + authorized_keys.
 DEFAULT_CREDENTIAL_DENY: tuple[str, ...] = (
     str(Path.home() / ".ssh"),
     str(Path.home() / ".config" / "gcloud"),
-    *(str(path) for path in data_paths("config.json")),
+    *(str(path) for path in data_paths("engine-config.json")),
 )
 
 

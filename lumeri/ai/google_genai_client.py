@@ -162,7 +162,7 @@ class VertexAuthMissingError(VertexAPIError):
 
 def _read_config(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if not path.exists():
             return ""
         data = json.loads(path.read_text())

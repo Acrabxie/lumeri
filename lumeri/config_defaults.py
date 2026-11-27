@@ -17,7 +17,7 @@ from lumeri.home import data_home, data_path
 # Where new top-level entries go; each entry below is wherever it is today
 # (lumeri.home).
 LUMERI_HOME = data_home()
-CONFIG_PATH = data_path("config.json")
+CONFIG_PATH = data_path("engine-config.json")
 WORKSPACE_DIR = data_path("workspace")
 ACCOUNTS_DIR = data_path("accounts")
 CACHE_DIR = data_path("cache")

@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from lumeri.home import data_path
 
-_CONFIG_PATH = data_path("config.json")
+_CONFIG_PATH = data_path("engine-config.json")
 _BASE_DIR = Path(__file__).resolve().parent
 _STATIC_V3_DIR = _BASE_DIR / "static" / "v3"
 _INPUTS_DIR = _BASE_DIR / "inputs"

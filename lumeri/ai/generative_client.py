@@ -514,7 +514,7 @@ def _clean_url(value: Any) -> str:
 
 def _read_config_key(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             return str(data.get(field, "") or "").strip()

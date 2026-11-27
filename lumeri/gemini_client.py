@@ -54,7 +54,7 @@ _PROVIDER_PRIORITY = ("vertex", "gemini", "claude", "openrouter", "openai")
 
 def _read_config_key(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field, "") or ""
@@ -66,7 +66,7 @@ def _read_config_key(field: str) -> str:
 def _read_config_value(field: str) -> Any:
     """Read one non-secret config value without erasing ``False``/``0``."""
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field)

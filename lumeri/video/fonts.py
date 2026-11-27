@@ -374,7 +374,7 @@ def _google_fonts_api_key() -> str:
     if key:
         return key
     try:
-        config_path = data_path("config.json")
+        config_path = data_path("engine-config.json")
         if config_path.exists():
             config = json.loads(config_path.read_text(encoding="utf-8"))
             return str(config.get("google_fonts_api_key") or "").strip()

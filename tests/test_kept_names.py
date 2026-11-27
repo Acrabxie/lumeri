@@ -39,7 +39,7 @@ def test_this_release_writes_the_old_spellings_and_reads_both():
 
 
 def test_a_new_entry_still_goes_in_the_old_home(user_home):
-    assert home.data_path("config.json") == user_home / f".{OLD}" / "config.json"
+    assert home.data_path(home.CONFIG_FILE) == user_home / f".{OLD}" / "config.json"
     assert home.data_path("memory", "daily", "x.md") == user_home / f".{OLD}" / "memory" / "daily" / "x.md"
 
 
@@ -50,15 +50,27 @@ def test_an_entry_already_in_the_new_home_is_read_there(user_home):
     # The first part decides, so a folder is never split between the homes.
     assert home.data_path("memory", "daily", "x.md") == user_home / ".lumeri" / "memory" / "daily" / "x.md"
     assert home.data_path("skills") == user_home / f".{OLD}" / "skills"
-    assert home.data_path("config.json") == user_home / f".{OLD}" / "config.json"
-    assert home.data_paths("config.json") == (user_home / ".lumeri" / "config.json", user_home / f".{OLD}" / "config.json")
+    assert home.data_path(home.CONFIG_FILE) == user_home / f".{OLD}" / "config.json"
+    assert home.data_paths(home.CONFIG_FILE) == (user_home / ".lumeri" / "engine-config.json",
+                                                 user_home / f".{OLD}" / "config.json")
+
+
+def test_the_engine_config_is_never_the_public_config_json(user_home):
+    # ~/.lumeri/config.json is the desktop app's and the CLI's older public config.
+    (user_home / ".lumeri").mkdir()
+    (user_home / ".lumeri" / "config.json").write_text('{"runtime": {}}', encoding="utf-8")
+    (user_home / f".{OLD}").mkdir()
+    (user_home / f".{OLD}" / "config.json").write_text('{"openrouter_api_key": "k"}', encoding="utf-8")
+    assert home.data_path(home.CONFIG_FILE) == user_home / f".{OLD}" / "config.json"
+    (user_home / ".lumeri" / "engine-config.json").write_text("{}", encoding="utf-8")
+    assert home.data_path(home.CONFIG_FILE) == user_home / ".lumeri" / "engine-config.json"
 
 
 def test_the_shell_sandbox_denies_the_config_in_both_homes(user_home):
     import lumeri.sandbox_v4 as sandbox_v4
 
     reloaded = importlib.reload(sandbox_v4)
-    assert str(user_home / ".lumeri" / "config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
+    assert str(user_home / ".lumeri" / "engine-config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
     assert str(user_home / f".{OLD}" / "config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
 
 

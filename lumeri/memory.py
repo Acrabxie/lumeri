@@ -155,7 +155,7 @@ def daily_path(day: str | date | None = None) -> Path:
 
 
 def config_path() -> Path:
-    return data_path("config.json")
+    return data_path("engine-config.json")
 
 
 def default_model_profile() -> dict[str, Any]:
