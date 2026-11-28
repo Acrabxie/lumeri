@@ -408,7 +408,7 @@ def _first_secret(*env_names: str, config_keys: tuple[str, ...]) -> str:
 
 def _read_config() -> dict[str, Any]:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         return payload if isinstance(payload, dict) else {}
     except Exception:

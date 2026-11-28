@@ -9,6 +9,7 @@ from __future__ import annotations
 import errno
 import importlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def test_every_kept_name_has_one_new_spelling():
 
 
 def test_a_new_entry_goes_in_the_new_home(user_home):
-    assert home.data_path("config.json") == user_home / ".lumeri" / "config.json"
+    assert home.data_path(home.CONFIG_FILE) == user_home / ".lumeri" / "engine-config.json"
     assert home.data_path("memory", "daily", "x.md") == user_home / ".lumeri" / "memory" / "daily" / "x.md"
     assert not (user_home / f".{OLD}").exists()
 
@@ -61,14 +62,32 @@ def test_an_entry_left_in_the_old_home_moves_the_first_time_it_is_used(user_home
     assert path.read_text(encoding="utf-8") == "notes"
     assert not (old / "memory").exists()
     # Only the entry asked for moves; the rest waits until it is used.
-    assert (old / "config.json").exists() and not (user_home / ".lumeri" / "config.json").exists()
+    assert (old / "config.json").exists() and not (user_home / ".lumeri" / "engine-config.json").exists()
+
+
+def test_the_engine_config_moves_to_its_new_name_and_never_onto_the_public_config_json(user_home):
+    # ~/.lumeri/config.json is the desktop app's and the CLI's older public config.
+    new, old = user_home / ".lumeri", user_home / f".{OLD}"
+    new.mkdir()
+    old.mkdir()
+    (new / "config.json").write_text('{"runtime": {}}', encoding="utf-8")
+    (old / "config.json").write_text('{"openrouter_api_key": "k"}', encoding="utf-8")
+
+    assert home.data_path("config.json") == new / "config.json"
+    assert (old / "config.json").exists()  # asking for the public file moves nothing
+
+    path = home.data_path(home.CONFIG_FILE)
+    assert path == new / "engine-config.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == {"openrouter_api_key": "k"}
+    assert json.loads((new / "config.json").read_text(encoding="utf-8")) == {"runtime": {}}
+    assert not (old / "config.json").exists()
 
 
 def test_an_entry_in_both_homes_is_read_in_the_new_one_and_the_old_one_is_left(user_home):
     for root, text in ((user_home / ".lumeri", "new"), (user_home / f".{OLD}", "old")):
         root.mkdir()
-        (root / "config.json").write_text(text, encoding="utf-8")
-    assert home.data_path("config.json").read_text(encoding="utf-8") == "new"
+        (root / ("engine-config.json" if text == "new" else "config.json")).write_text(text, encoding="utf-8")
+    assert home.data_path(home.CONFIG_FILE).read_text(encoding="utf-8") == "new"
     assert (user_home / f".{OLD}" / "config.json").read_text(encoding="utf-8") == "old"
 
 
@@ -100,15 +119,15 @@ def test_an_entry_that_cannot_move_is_used_where_it_is(user_home, monkeypatch):
         raise PermissionError(errno.EACCES, "denied")
 
     monkeypatch.setattr(home.os, "rename", refuse)
-    assert home.data_path("config.json") == old / "config.json"
-    assert (old / "config.json").exists() and not (user_home / ".lumeri" / "config.json").exists()
+    assert home.data_path(home.CONFIG_FILE) == old / "config.json"
+    assert (old / "config.json").exists() and not (user_home / ".lumeri" / "engine-config.json").exists()
 
 
 def test_the_shell_sandbox_denies_the_config_in_both_homes(user_home):
     import lumeri.sandbox_v4 as sandbox_v4
 
     reloaded = importlib.reload(sandbox_v4)
-    assert str(user_home / ".lumeri" / "config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
+    assert str(user_home / ".lumeri" / "engine-config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
     assert str(user_home / f".{OLD}" / "config.json") in reloaded.DEFAULT_CREDENTIAL_DENY
 
 

@@ -29,7 +29,7 @@ _MAX_SEARCH_BYTES = 2 * 1024 * 1024
 _MAX_PAGE_BYTES = 3 * 1024 * 1024
 
 # ── BYOK search-provider framework ───────────────────────────────────────────
-# web_search is pluggable. Each provider reads its key(s) from ~/.lumeri/config.json
+# web_search is pluggable. Each provider reads its key(s) from ~/.lumeri/engine-config.json
 # (via the existing _read_config) and issues a single request through the existing
 # _build_opener() (proxy-aware). Adapters return a NORMALIZED list of
 # {title, url, snippet} dicts (extra fields allowed). On ANY provider error the
@@ -66,7 +66,7 @@ _MAX_PAGE_CHARS = 12000
 
 
 def _read_config(key: str) -> str | None:
-    config_path = data_path("config.json")
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         return None
     try:

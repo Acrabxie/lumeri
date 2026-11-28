@@ -272,9 +272,9 @@ def test_credential_dir_create_denied(tmp_path: Path) -> None:
 
 @_needs_sandbox
 def test_real_credentials_denied() -> None:
-    real_config = Path.home() / ".lumeri" / "config.json"
+    real_config = Path.home() / ".lumeri" / "engine-config.json"
     if not real_config.exists():
-        pytest.skip("~/.lumeri/config.json not present on this host")
+        pytest.skip("~/.lumeri/engine-config.json not present on this host")
     profile = build_two_tier_profile(
         Path.home() / "Lumeri" / "workspace",
         credential_deny=DEFAULT_CREDENTIAL_DENY,

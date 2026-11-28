@@ -115,7 +115,7 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
     },
     "safety": {
         "no_secrets": True,
-        "secret_storage": "~/.lumeri/config.json",
+        "secret_storage": "~/.lumeri/engine-config.json",
     },
 }
 
@@ -155,7 +155,7 @@ def daily_path(day: str | date | None = None) -> Path:
 
 
 def config_path() -> Path:
-    return data_path("config.json")
+    return data_path("engine-config.json")
 
 
 def default_model_profile() -> dict[str, Any]:
@@ -175,7 +175,7 @@ def read_user_config() -> dict[str, Any]:
 
 
 def write_user_config(patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge ``patch`` into ``~/.lumeri/config.json`` and return the new config.
+    """Merge ``patch`` into ``~/.lumeri/engine-config.json`` and return the new config.
 
     This is the credentials/config file (NOT the memory store), so no
     secret-scanning guard is applied. Keys whose patch value is ``None`` are
@@ -303,7 +303,7 @@ def bootstrap_memory(day: str | date | None = None) -> dict[str, str]:
         durable_memory_path(),
         "# Lumeri Durable Memory\n\n"
         "- Lumeri local memory root: `~/.lumeri/memory/`\n"
-        "- API keys remain in `~/.lumeri/config.json`, not memory.\n",
+        "- API keys remain in `~/.lumeri/engine-config.json`, not memory.\n",
     )
     _write_json_if_missing(model_profile_path(), default_model_profile())
     _write_text_if_missing(

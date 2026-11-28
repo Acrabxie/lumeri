@@ -6,7 +6,7 @@ Provider is resolved in this order:
   2. First provider whose credentials exist in env or config.json (auto-probe)
   3. Falls through to openrouter (will raise if key is also absent)
 
-Credential keys (env or ~/.lumeri/config.json):
+Credential keys (env or ~/.lumeri/engine-config.json):
   vertex     — VERTEX_PROJECT / vertex_project  +  GCP ADC at ~/.config/gcloud/...
   gemini     — GEMINI_API_KEY  / gemini_api_key
   claude     — ANTHROPIC_API_KEY / anthropic_api_key
@@ -54,7 +54,7 @@ _PROVIDER_PRIORITY = ("vertex", "gemini", "claude", "openrouter", "openai")
 
 def _read_config_key(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field, "") or ""
@@ -66,7 +66,7 @@ def _read_config_key(field: str) -> str:
 def _read_config_value(field: str) -> Any:
     """Read one non-secret config value without erasing ``False``/``0``."""
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text())
             return data.get(field)
@@ -498,7 +498,7 @@ class GeminiClientV3:
                     "No AI provider credentials found. Set one of: "
                     "VERTEX_PROJECT+ADC, GEMINI_API_KEY, ANTHROPIC_API_KEY, "
                     "OPENROUTER_API_KEY, OPENAI_API_KEY "
-                    "(env or ~/.lumeri/config.json)."
+                    "(env or ~/.lumeri/engine-config.json)."
                 )
             self.model = model_override or _read_config_key("openrouter_model") or _DEFAULT_OPENROUTER_MODEL
             self.api_url = api_url

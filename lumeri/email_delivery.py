@@ -3,7 +3,7 @@
 Configuration is resolved with this precedence (first non-empty wins):
 
   1. Environment variables ``LUMERI_SMTP_*``
-  2. The ``smtp`` block of ``~/.lumeri/config.json``
+  2. The ``smtp`` block of ``~/.lumeri/engine-config.json``
 
 Nothing is hard-coded here — credentials live only in local config (chmod
 600) or the environment, never in source control or shared memory.
@@ -30,7 +30,7 @@ from typing import Any
 from lumeri.errors import LumeriError
 from lumeri.home import data_path
 
-CONFIG_PATH = data_path("config.json")
+CONFIG_PATH = data_path("engine-config.json")
 DEFAULT_PORT = 587
 DEFAULT_TIMEOUT = 20
 DEFAULT_FROM_NAME = "Lumeri"
@@ -224,7 +224,7 @@ def send_email(to_addr: str, subject: str, text_body: str, *, html_body: str | N
     if missing:
         raise EmailDeliveryError(
             "邮件发送未配置：缺少 " + ", ".join(missing),
-            detail="Set the smtp block in ~/.lumeri/config.json or LUMERI_SMTP_* env vars.",
+            detail="Set the smtp block in ~/.lumeri/engine-config.json or LUMERI_SMTP_* env vars.",
         )
 
     msg = EmailMessage()

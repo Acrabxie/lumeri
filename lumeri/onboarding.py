@@ -3,7 +3,7 @@
 A fresh install (server OR CLI) has no usable model provider configured. This
 module detects that condition and, on an interactive TTY, walks the user through
 picking a model provider, supplying the required key(s), optionally choosing a
-BYOK search engine and a proxy, then writes ``~/.lumeri/config.json``.
+BYOK search engine and a proxy, then writes ``~/.lumeri/engine-config.json``.
 
 Design contracts (see overnight/onboard task spec):
 
@@ -34,7 +34,7 @@ from lumeri.home import data_path
 
 # ── Paths ─────────────────────────────────────────────────────────────
 # Module-level so tests can monkeypatch CONFIG_PATH to a temp file.
-CONFIG_PATH = data_path("config.json")
+CONFIG_PATH = data_path("engine-config.json")
 
 # ── Provider / probe maps ─────────────────────────────────────────────
 # A provider is "usable" if ANY of these config keys is present & non-empty.
@@ -78,7 +78,7 @@ SEARCH_ENGINES = (
 
 # ── Config read / write helpers ───────────────────────────────────────
 def read_config() -> dict[str, Any]:
-    """Return the parsed ``~/.lumeri/config.json`` as a dict, or ``{}``.
+    """Return the parsed ``~/.lumeri/engine-config.json`` as a dict, or ``{}``.
 
     Never raises — a missing or malformed file yields an empty dict.
     """

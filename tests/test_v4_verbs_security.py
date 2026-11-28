@@ -6,7 +6,7 @@ actual ``run_shell`` / ``fetch`` dispatchers (not an ad-hoc profile) and asserts
 the worst-case injection paths are sealed.
 
 Acrab's required probe matrix (must show DENIED, not a verbal "it's wired"):
-  * run_shell `cat ~/.lumeri/config.json`            → DENIED, secret never in stdout
+  * run_shell `cat ~/.lumeri/engine-config.json`            → DENIED, secret never in stdout
   * run_shell `cat ~/.config/gcloud/...`            → DENIED
   * run_shell network connect (curl external)       → DENIED (exfil only on host fetch)
   * run_shell overwrite / delete out-of-zone file   → DENIED, original byte-intact
@@ -75,9 +75,9 @@ def _run_shell(workspace: Path, command: str, *, timeout_sec: float = 20) -> dic
 
 @_needs_sandbox
 def test_run_shell_cat_lumeri_config_denied(tmp_path: Path) -> None:
-    if not (Path.home() / ".lumeri" / "config.json").exists():
-        pytest.skip("~/.lumeri/config.json not present")
-    r = _run_shell(tmp_path / "ws", "cat ~/.lumeri/config.json")
+    if not (Path.home() / ".lumeri" / "engine-config.json").exists():
+        pytest.skip("~/.lumeri/engine-config.json not present")
+    r = _run_shell(tmp_path / "ws", "cat ~/.lumeri/engine-config.json")
     assert r["exit_code"] != 0, r
     assert r["stdout_tail"].strip() == "", f"secret leaked to stdout: {r['stdout_tail']!r}"
     # any real key material would contain these substrings; none must appear

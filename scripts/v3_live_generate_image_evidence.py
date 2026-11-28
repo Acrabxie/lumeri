@@ -2,7 +2,7 @@
 """Live evidence collector for batch-2.1 generate_image.
 
 Runs two real-API tests against AI Studio Nano Banana 2, requires
-``gemini_studio_api_key`` in ``~/.lumeri/config.json``:
+``gemini_studio_api_key`` in ``~/.lumeri/engine-config.json``:
 
   1. Direct dispatcher call — fires generate_image once, materializes the
      PNG, prints file path + size + `file` magic-byte output + ffprobe
@@ -291,7 +291,7 @@ def run_budget_gate_demo() -> None:
 
 def main() -> int:
     # Pre-flight: verify config has the key (cheap, no API call).
-    config_path = data_path("config.json")
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         print(f"✗ {config_path} missing. Create it with gemini_studio_api_key first.")
         return 1

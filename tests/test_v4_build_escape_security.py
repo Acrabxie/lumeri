@@ -5,7 +5,7 @@ build verb lets the model run arbitrary *Python code* — strictly more
 dangerous — so these probes drive real model-shaped escape attempts through
 the real build dispatcher and the real sandbox-exec two-tier profile:
 
-  1. open(~/.lumeri/config.json)            → denied, zero content leak
+  1. open(~/.lumeri/engine-config.json)            → denied, zero content leak
   2. os.remove() an existing outside file  → denied, file + content preserved
   3. urllib https to the public internet   → denied (deny network*)
   4. open(~/.ssh/<new>, "w")               → denied, nothing created
@@ -87,13 +87,13 @@ def setup_module() -> None:
 # ── probe 1: credential read ────────────────────────────────────────────────
 
 @pytest.mark.skipif(
-    not (Path.home() / ".lumeri" / "config.json").exists(),
-    reason="no real ~/.lumeri/config.json on this host",
+    not (Path.home() / ".lumeri" / "engine-config.json").exists(),
+    reason="no real ~/.lumeri/engine-config.json on this host",
 )
 def test_escape_read_lumeri_config_denied(tmp_path: Path) -> None:
     code = """
 from pathlib import Path
-p = Path.home() / ".lumeri" / "config.json"
+p = Path.home() / ".lumeri" / "engine-config.json"
 try:
     data = p.read_text()
     print("LEAK:" + data[:80])

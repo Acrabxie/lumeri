@@ -61,7 +61,7 @@ class GenerativeClient:
         self._api_key = _resolve_api_key(self.base_url, self._base_source)
         if not self._api_key:
             raise RuntimeError(
-                "Set OPENROUTER_API_KEY or ~/.lumeri/config.json:openrouter_api_key "
+                "Set OPENROUTER_API_KEY or ~/.lumeri/engine-config.json:openrouter_api_key "
                 "for Nano Banana image generation."
             )
         self._backend = "openrouter"
@@ -514,7 +514,7 @@ def _clean_url(value: Any) -> str:
 
 def _read_config_key(field: str) -> str:
     try:
-        path = data_path("config.json")
+        path = data_path("engine-config.json")
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             return str(data.get(field, "") or "").strip()

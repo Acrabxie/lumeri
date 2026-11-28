@@ -31,8 +31,8 @@ from lumeri.home import data_path
 
 
 def _read_config(key: str) -> str | None:
-    """Read a single key from ~/.lumeri/config.json if it exists."""
-    config_path = data_path("config.json")
+    """Read a single key from ~/.lumeri/engine-config.json if it exists."""
+    config_path = data_path("engine-config.json")
     if not config_path.exists():
         return None
     try:
