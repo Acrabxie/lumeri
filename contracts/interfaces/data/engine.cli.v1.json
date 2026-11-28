@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "area": "data",
   "title": "Sealed lumeri-engine dispatcher",
-  "summary": "The only engine entrypoint offered to the sandbox. Dispatch chooses a fixed subcommand, reads one JSON object from its request file, and writes a report to stdout with an exit status. Per-command JSON shapes belong to engine.gemia.",
+  "summary": "The only engine entrypoint offered to the sandbox. Dispatch chooses a fixed subcommand, reads one JSON object from its request file, and writes a report to stdout with an exit status. Per-command JSON shapes belong to engine.core.",
   "carrier": {
     "kind": "subprocess",
     "surface": "lumeri-engine <subcommand> <request.json> [<output-root>]"

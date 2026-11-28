@@ -5,15 +5,11 @@ The engine package used to be called ``gemia`` and the script runtime
 the one place that still knows the old spellings, so settings, scripts and
 saved data written before the rename keep working.
 
-Most old names are only mapped to current ones on the way in. The names in
-:data:`KEPT_NAMES` are different: files, projects and exports already hold
-them, and an older Lumeri reading a file needs to find them there. They move
-in two releases:
-
-1. This release reads both spellings and still writes the old one, so a
-   machine can go back one release and lose nothing.
-2. The next release writes the new one, and turns an old one into the new
-   one where it reads it.
+Old names are only mapped to current ones on the way in. The names in
+:data:`KEPT_NAMES` stayed in their old spelling for one more release, because
+files, projects and exports held them and the release before had to read
+them back. Lumeri now writes them in their new spelling, and turns an old one
+into the new one where it reads it.
 """
 from __future__ import annotations
 
@@ -32,8 +28,7 @@ LEGACY_URI_SCHEMES: dict[str, str] = {"gemia": "lumeri"}
 # Dotted primitive ids found in saved or cached plans.
 LEGACY_REGISTRY_PREFIXES: dict[str, str] = {"gemia.": "lumeri."}
 
-# Names files already hold, old spelling to new. Code names the new spelling
-# and asks :func:`written` which one to put in a file.
+# Names files written before this release may hold, old spelling to new.
 KEPT_NAMES: dict[str, str] = {
     # A project file's "schema".
     "gemia.project": "lumeri.project",
@@ -59,11 +54,8 @@ KEPT_NAMES: dict[str, str] = {
 }
 _OLD_SPELLING: dict[str, str] = {new: old for old, new in KEPT_NAMES.items()}
 
-# Whether this release writes the new spellings. Step 1 of the move: not yet.
-WRITES_NEW_NAMES = False
-
 # The folder in the home directory that held a person's files before
-# ``~/.lumeri`` (see :mod:`lumeri.home`).
+# ``~/.lumeri``; :mod:`lumeri.home` moves what is left there on first use.
 LEGACY_DATA_HOME = ".gemia"
 DATA_HOME = ".lumeri"
 
@@ -117,20 +109,13 @@ def current_registry_id(fqn: str) -> str:
     return fqn
 
 
-def written(name: str) -> str:
-    """The spelling of the kept name *name* (given new) that this release writes."""
-    if name not in _OLD_SPELLING:
-        raise KeyError(f"{name!r} is not a kept name")
-    return name if WRITES_NEW_NAMES else _OLD_SPELLING[name]
-
-
 def current(value: str) -> str:
     """*value* in its new spelling, if it is a kept name; otherwise *value*."""
     return KEPT_NAMES.get(value, value) if isinstance(value, str) else value
 
 
 def spellings(name: str) -> tuple[str, str]:
-    """The new and the old spelling of the kept name *name* (given new)."""
+    """The new and the old spelling of the kept name *name* (given new), for a reader that looks up both."""
     return name, _OLD_SPELLING[name]
 
 
@@ -154,7 +139,6 @@ __all__ = [
     "DATA_HOME",
     "KEPT_NAMES",
     "LEGACY_DATA_HOME",
-    "WRITES_NEW_NAMES",
     "LEGACY_ENV_PREFIXES",
     "LEGACY_IMPORT_NAMES",
     "LEGACY_REGISTRY_PREFIXES",
@@ -166,5 +150,4 @@ __all__ = [
     "current_registry_id",
     "current_uri",
     "spellings",
-    "written",
 ]

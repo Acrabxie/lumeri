@@ -3,7 +3,7 @@
 A fresh install (server OR CLI) has no usable model provider configured. This
 module detects that condition and, on an interactive TTY, walks the user through
 picking a model provider, supplying the required key(s), optionally choosing a
-BYOK search engine and a proxy, then writes ``~/.gemia/config.json``.
+BYOK search engine and a proxy, then writes ``~/.lumeri/engine-config.json``.
 
 Design contracts (see overnight/onboard task spec):
 
@@ -78,7 +78,7 @@ SEARCH_ENGINES = (
 
 # ── Config read / write helpers ───────────────────────────────────────
 def read_config() -> dict[str, Any]:
-    """Return the parsed ``~/.gemia/config.json`` as a dict, or ``{}``.
+    """Return the parsed ``~/.lumeri/engine-config.json`` as a dict, or ``{}``.
 
     Never raises — a missing or malformed file yields an empty dict.
     """

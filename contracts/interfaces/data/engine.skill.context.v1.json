@@ -1,6 +1,6 @@
 {
   "format": "lumeri.interface/v1",
-  "id": "iface:gemia.skill.context/v1",
+  "id": "iface:engine.skill.context/v1",
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Skill context assembler",
@@ -42,10 +42,10 @@
       "name": "invoke",
       "effect": "read",
       "input": {
-        "$contract": "contracts/interfaces/data/gemia.skill.context.v1.json#/definitions/input"
+        "$contract": "contracts/interfaces/data/engine.skill.context.v1.json#/definitions/input"
       },
       "output": {
-        "$contract": "contracts/interfaces/data/gemia.skill.context.v1.json#/definitions/output"
+        "$contract": "contracts/interfaces/data/engine.skill.context.v1.json#/definitions/output"
       },
       "errors": [
         "E_LUC_SKILL_SOURCE_CHANGED"

@@ -156,7 +156,7 @@ class TestVertexGenerateVideo:
         monkeypatch.setattr(_generate_video.GoogleGenAIClient, "__init__", fake_init)
         monkeypatch.setattr(_generate_video.GoogleGenAIClient, "predict_long_running", fake_submit)
         # Hermetic: the model default must not depend on this machine's
-        # ~/.gemia/config.json (vertex_video_model etc. override _DEFAULT_MODEL).
+        # ~/.lumeri/engine-config.json (vertex_video_model etc. override _DEFAULT_MODEL).
         monkeypatch.setattr(_generate_video, "_read_config", lambda field: None)
 
         result = asyncio.run(

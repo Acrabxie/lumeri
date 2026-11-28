@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lumeri.legacy_names import current, written
+from lumeri.legacy_names import current
 
-PROJECT_SCHEMA = written("lumeri.project")
+PROJECT_SCHEMA = "lumeri.project"
 PROJECT_SCHEMA_VERSION = 1
 DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
@@ -59,7 +59,7 @@ def empty_project(*, account_id: str | None = None, title: str = "Untitled Proje
             "snap_enabled": True,
         },
         "metadata": {
-            "generator": written("lumeri"),
+            "generator": "lumeri",
         },
         "shotlist": empty_shotlist(),
         "quanta": empty_quanta(),
@@ -822,6 +822,8 @@ def _normalize_canonical_project(project: dict[str, Any], *, account_id: str | N
     }
     metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
     normalized["metadata"] = {**normalized["metadata"], **metadata}
+    if "generator" in metadata:
+        normalized["metadata"]["generator"] = current(metadata["generator"])
     normalized["shotlist"] = normalize_shotlist(project.get("shotlist"))
     # Pass the quanta through explicitly: normalize rebuilds from empty_project()
     # and copies known keys, so without this line ProjectStore.load() would

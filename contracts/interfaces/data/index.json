@@ -230,42 +230,42 @@
       ]
     },
     {
-      "module": "lumeri.engine.gemia",
+      "module": "lumeri.engine.core",
       "inventory": "lumeri engine subcommands",
       "status": "luc",
       "end_state": "replaceable",
       "interfaces": [
-        "iface:engine.gemia/v1"
+        "iface:engine.core/v1"
       ]
     },
     {
-      "module": "lumeri.gemia.point.catalog",
+      "module": "lumeri.engine.point.catalog",
       "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,
       "interfaces": [
-        "iface:gemia.point.catalog/v1"
+        "iface:engine.point.catalog/v1"
       ]
     },
     {
-      "module": "lumeri.gemia.skill.context",
+      "module": "lumeri.engine.skill.context",
       "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,
       "interfaces": [
-        "iface:gemia.skill.context/v1"
+        "iface:engine.skill.context/v1"
       ]
     },
     {
-      "module": "lumeri.gemia.panel.binding",
+      "module": "lumeri.engine.panel.binding",
       "inventory": "In-process lumeri",
       "status": "luc",
       "end_state": "official-only",
       "retire_candidate": true,
       "interfaces": [
-        "iface:gemia.panel.binding/v1"
+        "iface:engine.panel.binding/v1"
       ]
     },
     {

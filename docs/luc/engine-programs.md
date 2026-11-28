@@ -15,15 +15,15 @@ it, or as the machine has it:
 | `lumeri.lumen.canvas` | `iface:lumen.canvas/v1` | `lumeri-engine lumen-canvas` |
 | `lumeri.render.backend` | `iface:render.backend/v1` | `lumeri-engine quanta`, `lumeri-engine lumenframe` |
 | `lumeri.timeline.render` | `iface:timeline.render/v1` | `lumeri-engine timeline-render` |
-| `lumeri.engine.gemia` | `iface:engine.gemia/v1` | `lumeri-engine`, for its other 13 subcommands |
+| `lumeri.engine.core` | `iface:engine.core/v1` | `lumeri-engine`, for its other 13 subcommands |
 | `lumeri.transcriber.backend` | `iface:transcriber.backend/v1` | `whisper-cli`, inside the engine's roughcut |
 
 A Luc may bring a program that stands in for one of them. The original
 answers whenever no Luc does, and again whenever the program breaks.
 
-`lumeri.engine.gemia` is being renamed `lumeri.engine.core` (interface
-`iface:engine.core/v1`). This release still ships the old name and takes
-either in a Luc's `module`; the next ships the new one and still takes the old.
+`lumeri.engine.core` was `lumeri.engine.gemia` before the rename (interface
+`iface:engine.gemia/v1`). A Luc whose `module` still says the old name stands
+in for `lumeri.engine.core`.
 
 ## The Luc
 
@@ -42,7 +42,7 @@ program:
 
 - The Luc asks for `engine.program`, which Lumeri's review of its exact bytes
   grants; without the review it is refused (`E_LUC_REVIEW_REQUIRED`).
-- `module` is one of the eight above. For `lumeri.engine.gemia`, and for
+- `module` is one of the eight above. For `lumeri.engine.core`, and for
   `lumeri.render.backend`, `subcommands` may name the ones the program takes;
   without it the program takes all of the module's.
 - A Luc brings one program a module (`E_LUC_ENGINE_CONFLICT`). With two Lucs

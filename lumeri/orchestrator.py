@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .legacy_names import written
 from .project_store import ProjectStore
 from lumeri_script.patches import apply_timeline_patches
 from lumeri_script.sandbox import execute_script
@@ -94,7 +93,7 @@ class LumeriOrchestrator:
             task = {
                 "task_id": task_id,
                 "status": "failed",
-                "engine": written("lumeri_script"),
+                "engine": "lumeri_script",
                 "script_hash": result.script_hash,
                 "error": result.error,
                 "stderr": result.stderr,
@@ -109,7 +108,7 @@ class LumeriOrchestrator:
             task = {
                 "task_id": task_id,
                 "status": "failed",
-                "engine": written("lumeri_script"),
+                "engine": "lumeri_script",
                 "script_hash": result.script_hash,
                 "error_code": "no_timeline_patches",
                 "error": "Script executed but emitted no TimelinePatch operations.",
@@ -141,7 +140,7 @@ class LumeriOrchestrator:
         task = {
             "task_id": task_id,
             "status": "succeeded",
-            "engine": written("lumeri_script"),
+            "engine": "lumeri_script",
             "script_hash": result.script_hash,
             "timeline_patches": result.patches,
             "project_state": updated_project,

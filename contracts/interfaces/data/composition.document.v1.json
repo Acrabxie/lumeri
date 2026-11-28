@@ -406,7 +406,7 @@
       },
       "required": [],
       "additionalProperties": true,
-      "description": "Composition as held by Runtime, which does not normalize or validate the whole tree at commit. The deterministic untouched Project uses version 1 and doc_project_default. Engine vocabulary is owned by iface:engine.gemia/v1, lumen-patch and lumen-canvas."
+      "description": "Composition as held by Runtime, which does not normalize or validate the whole tree at commit. The deterministic untouched Project uses version 1 and doc_project_default. Engine vocabulary is owned by iface:engine.core/v1, lumen-patch and lumen-canvas."
     },
     "patches": {
       "type": "array",

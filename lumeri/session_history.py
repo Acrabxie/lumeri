@@ -13,11 +13,11 @@ from urllib.parse import unquote, urlparse
 
 from lumeri.artifacts import is_document_artifact_output, is_media_output
 from lumeri.home import data_path
-from lumeri.legacy_names import current, written
+from lumeri.legacy_names import current
 
 SESSION_SCHEMA_VERSION = 2
-# The title a session has until someone names it; an untitled one may hold either spelling.
-UNTITLED_SESSION = written("Lumeri Session")
+# The title a session has until someone names it; one saved before this release may hold the old spelling.
+UNTITLED_SESSION = "Lumeri Session"
 SESSION_ROOT = data_path("sessions")
 CURRENT_SESSION_PATH = SESSION_ROOT / "current.json"
 SNAPSHOT_ROOT = SESSION_ROOT / "history"

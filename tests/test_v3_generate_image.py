@@ -271,7 +271,7 @@ def test_live_generate_image_writes_real_png(tmp_path: Path) -> None:
     """Real call against Vertex Nano Banana 2.
 
     Costs ~$0.10 per run. Gated by env var so CI/test suite stays cheap.
-    Requires Vertex ADC + ``vertex_project`` in ``~/.gemia/config.json``."""
+    Requires Vertex ADC + ``vertex_project`` in ``~/.lumeri/engine-config.json``."""
     ctx = _ctx(tmp_path)
     result = asyncio.run(
         generate_image_tool.dispatch(

@@ -1,6 +1,6 @@
 {
   "format": "lumeri.interface/v1",
-  "id": "iface:gemia.point.catalog/v1",
+  "id": "iface:engine.point.catalog/v1",
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Point Library catalog binding",

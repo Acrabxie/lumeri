@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from lumeri.video.timeline_assets import cache_key_for_path, probe_media
-from lumeri.legacy_names import spellings, written
+from lumeri.legacy_names import spellings
 
 def render_opentimelineio_timeline_package_backend(
     input_paths: list[str],
     output_dir: str,
     *,
     package_id: str = "github_opentimelineio_timeline_package_backend",
-    timeline_name: str = written("lumeri_timeline_package"),
+    timeline_name: str = "lumeri_timeline_package",
     frame_rate: float | None = None,
     markers: list[dict[str, Any]] | None = None,
     track_layout: list[dict[str, Any]] | None = None,
@@ -181,7 +181,7 @@ def _to_otio_json(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "OTIO_SCHEMA": "Timeline.1",
         "name": timeline["name"],
-        "metadata": {written("lumeri_package"): manifest["package"], "media_references": manifest["media_references"]},
+        "metadata": {"lumeri_package": manifest["package"], "media_references": manifest["media_references"]},
         "tracks": {
             "OTIO_SCHEMA": "Stack.1",
             "children": [
@@ -198,7 +198,7 @@ def _to_otio_json(manifest: dict[str, Any]) -> dict[str, Any]:
                                 "start_time": {"value": clip["source_range"]["start_seconds"], "rate": timeline["frame_rate"]},
                                 "duration": {"value": clip["duration_seconds"], "rate": timeline["frame_rate"]},
                             },
-                            "metadata": {written("lumeri_clip_id"): clip["clip_id"], "media_ref_id": clip["media_ref_id"]},
+                            "metadata": {"lumeri_clip_id": clip["clip_id"], "media_ref_id": clip["media_ref_id"]},
                         }
                         for clip in track["clips"]
                     ],

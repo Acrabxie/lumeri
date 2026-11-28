@@ -1,7 +1,7 @@
 """``log_note`` verb for the v3 agent.
 
 Append an explicit one-line note to TODAY'S daily log
-(``~/.gemia/memory/daily/YYYY-MM-DD.md``) via
+(``~/.lumeri/memory/daily/YYYY-MM-DD.md``) via
 :func:`lumeri.memory.append_daily_entry`. This is for short-lived progress /
 decisions worth a breadcrumb in the running log — NOT for durable facts that
 should survive into future sessions (use ``remember`` for those).

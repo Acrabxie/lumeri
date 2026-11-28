@@ -5,7 +5,7 @@ Endpoints:
   GET  /v3/<path>               → v3 web UI assets
   GET  /health                  → server health
   GET  /config                  → {has_key: bool}
-  POST /config                  → save API keys to ~/.gemia/config.json
+  POST /config                  → save API keys to ~/.lumeri/engine-config.json
   GET  /settings/sandbox        → sandbox status
   POST /settings/sandbox        → toggle sandbox
   GET  /file/<rel-path>         → serve project files from approved dirs
@@ -39,7 +39,7 @@ _ALLOWED_ROOTS = {"outputs", "frames", "styled", "demo", "inputs", "uploads", "t
 # ── Config ───────────────────────────────────────────────────────────────
 
 def _load_config_keys() -> None:
-    """Load API keys from ~/.gemia/config.json into env vars (if not already set)."""
+    """Load API keys from ~/.lumeri/engine-config.json into env vars (if not already set)."""
     if _CONFIG_PATH.exists():
         try:
             cfg = json.loads(_CONFIG_PATH.read_text())

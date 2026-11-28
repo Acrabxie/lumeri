@@ -281,7 +281,7 @@
         },
         "narration": {
           "type": "object",
-          "description": "Successful report has spoken, produced, duration_sec, voice, voice_listed, rate_wpm, script and units. Engine narrate output is owned by the data area; see iface:engine.gemia/v1."
+          "description": "Successful report has spoken, produced, duration_sec, voice, voice_listed, rate_wpm, script and units. Engine narrate output is owned by the data area; see iface:engine.core/v1."
         },
         "asset": {
           "anyOf": [

@@ -368,7 +368,7 @@
         },
         "caption": {
           "type": "object",
-          "description": "Renderer report including captioned, produced and style; renderer-specific fields are preserved. Engine caption output is owned by the data area; see iface:engine.gemia/v1."
+          "description": "Renderer report including captioned, produced and style; renderer-specific fields are preserved. Engine caption output is owned by the data area; see iface:engine.core/v1."
         },
         "asset": {
           "anyOf": [

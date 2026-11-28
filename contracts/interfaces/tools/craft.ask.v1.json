@@ -70,7 +70,7 @@
           },
           "reply": {
             "type": "object",
-            "description": "Library-specific craft engine answer, including applied and catalog, plan, brief, notes, axes/readings, needs or error/recovery fields as applicable; see iface:engine.gemia/v1."
+            "description": "Library-specific craft engine answer, including applied and catalog, plan, brief, notes, axes/readings, needs or error/recovery fields as applicable; see iface:engine.core/v1."
           }
         },
         "required": [

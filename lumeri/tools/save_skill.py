@@ -7,7 +7,7 @@ Two responsibilities:
     can be reused in later sessions.  A distilled skill captures a compact
     recipe ``{name, when_to_use, steps, notes}`` and is persisted as one
     ``.lus`` file per name (docs/lus-skill-format.md) under
-    ``~/.gemia/skills`` via :class:`lumeri.skill_store.DistilledSkillStore`.
+    ``~/.lumeri/skills`` via :class:`lumeri.skill_store.DistilledSkillStore`.
     The store validates before writing: skills containing secrets, absolute
     user paths, or no steps are rejected with a typed
     :class:`lumeri.lus.LusValidationError` and nothing is written.

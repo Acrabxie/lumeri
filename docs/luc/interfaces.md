@@ -265,7 +265,7 @@ Phase 2, each step its own change:
   [agent-parts.md](agent-parts.md).
 - Engine programs (2026-10-26): seven data and engine modules
   (`lumeri.media.facts`, `.media.thumbnails`, `.encode.backend`,
-  `.lumen.canvas`, `.render.backend`, `.timeline.render`, `.engine.gemia`)
+  `.lumen.canvas`, `.render.backend`, `.timeline.render`, `.engine.core`)
   can each be answered by a program that stands in for FFprobe, FFmpeg or
   `lumeri-engine`, from a Luc holding the reviewed `engine.program`
   (protocol `lumeri.engine.program/v1`). It is started as the original is, in

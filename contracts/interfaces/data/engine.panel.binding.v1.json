@@ -1,6 +1,6 @@
 {
   "format": "lumeri.interface/v1",
-  "id": "iface:gemia.panel.binding/v1",
+  "id": "iface:engine.panel.binding/v1",
   "version": "1.0.0",
   "area": "data",
   "title": "In-process native Panel lifecycle binding",
@@ -65,10 +65,10 @@
       "name": "invoke",
       "effect": "write",
       "input": {
-        "$contract": "contracts/interfaces/data/gemia.panel.binding.v1.json#/definitions/input"
+        "$contract": "contracts/interfaces/data/engine.panel.binding.v1.json#/definitions/input"
       },
       "output": {
-        "$contract": "contracts/interfaces/data/gemia.panel.binding.v1.json#/definitions/output"
+        "$contract": "contracts/interfaces/data/engine.panel.binding.v1.json#/definitions/output"
       },
       "errors": [
         "E_LUC_PANEL_RUNTIME_UNBOUND",

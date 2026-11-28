@@ -83,7 +83,11 @@
       "type": "object",
       "properties": {
         "schema": {
-          "const": "gemia.project"
+          "enum": [
+            "lumeri.project",
+            "gemia.project"
+          ],
+          "description": "Written as lumeri.project; a document saved before the rename may still say gemia.project, which reads the same."
         },
         "version": {
           "const": 1

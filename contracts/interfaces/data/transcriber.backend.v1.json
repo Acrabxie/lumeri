@@ -285,7 +285,7 @@
       "test": null
     },
     {
-      "text": "Where an engine program answers for the roughcut subcommand (lumeri.engine.gemia), it is handed Lumeri's own whisper, not the transcriber program.",
+      "text": "Where an engine program answers for the roughcut subcommand (lumeri.engine.core), it is handed Lumeri's own whisper, not the transcriber program.",
       "evidence": [
         "lumeri_runtime/sandbox.py:359-367"
       ],

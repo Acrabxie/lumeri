@@ -90,7 +90,7 @@ __all__ = [
 #
 # A plain module global (not a ContextVar) so it is visible across the v3
 # SessionRunner worker threads, which run their own asyncio loops. The value is
-# persisted per-machine to ``~/.gemia/sandbox_state.json`` and reloaded on
+# persisted per-machine to ``~/.lumeri/sandbox_state.json`` and reloaded on
 # import, so the choice survives server restarts.
 _SANDBOX_STATE_PATH = data_path("sandbox_state.json")
 
@@ -152,9 +152,9 @@ DEFAULT_OUTSIDE_CREATE_ROOTS: tuple[str, ...] = (
     "/private/tmp",
 )
 
-# Credentials excluded from BOTH read and write. ~/.gemia/config.json holds
-# OpenRouter / Pexels / OAuth / Gemini keys (and ~/.lumeri/engine-config.json once
-# it moves there; both are denied, wherever it is today); ~/.config/gcloud holds
+# Credentials excluded from BOTH read and write. ~/.lumeri/engine-config.json
+# holds OpenRouter / Pexels / OAuth / Gemini keys (a copy an earlier release left
+# in ~/.gemia/config.json is denied too); ~/.config/gcloud holds
 # the Vertex ADC refresh token; ~/.ssh holds SSH private keys + authorized_keys.
 DEFAULT_CREDENTIAL_DENY: tuple[str, ...] = (
     str(Path.home() / ".ssh"),

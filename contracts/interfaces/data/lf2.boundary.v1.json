@@ -12,7 +12,7 @@
   },
   "replaceability": {
     "class": "lumeri-only",
-    "why": "lumenframe is the internal composition model and compiler inside lumeri-engine; external replacement happens at the sandboxed engine subcommand seams (iface:lumen.canvas/v1, iface:video.render/v1, iface:engine.gemia/v1).",
+    "why": "lumenframe is the internal composition model and compiler inside lumeri-engine; external replacement happens at the sandboxed engine subcommand seams (iface:lumen.canvas/v1, iface:video.render/v1, iface:engine.core/v1).",
     "decided": "self-Luc spec v0.3 foundation (engine internal library under sandboxed engine seams); docs/luc/self-luc-inventory.md:164"
   },
   "reach": {

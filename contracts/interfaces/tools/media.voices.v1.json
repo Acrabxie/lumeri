@@ -48,7 +48,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "Machine voice name, locale and language as returned by speech-voices; see iface:engine.gemia/v1."
+              "description": "Machine voice name, locale and language as returned by speech-voices; see iface:engine.core/v1."
             }
           },
           "for_script": {

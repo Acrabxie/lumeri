@@ -115,7 +115,7 @@ DEFAULT_MODEL_PROFILE: dict[str, Any] = {
     },
     "safety": {
         "no_secrets": True,
-        "secret_storage": "~/.gemia/config.json",
+        "secret_storage": "~/.lumeri/engine-config.json",
     },
 }
 
@@ -175,7 +175,7 @@ def read_user_config() -> dict[str, Any]:
 
 
 def write_user_config(patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge ``patch`` into ``~/.gemia/config.json`` and return the new config.
+    """Merge ``patch`` into ``~/.lumeri/engine-config.json`` and return the new config.
 
     This is the credentials/config file (NOT the memory store), so no
     secret-scanning guard is applied. Keys whose patch value is ``None`` are
@@ -302,8 +302,8 @@ def bootstrap_memory(day: str | date | None = None) -> dict[str, str]:
     _write_text_if_missing(
         durable_memory_path(),
         "# Lumeri Durable Memory\n\n"
-        "- Lumeri local memory root: `~/.gemia/memory/`\n"
-        "- API keys remain in `~/.gemia/config.json`, not memory.\n",
+        "- Lumeri local memory root: `~/.lumeri/memory/`\n"
+        "- API keys remain in `~/.lumeri/engine-config.json`, not memory.\n",
     )
     _write_json_if_missing(model_profile_path(), default_model_profile())
     _write_text_if_missing(
